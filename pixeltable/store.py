@@ -14,7 +14,7 @@ import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
 from pixeltable import catalog, exceptions as excs, exprs
-from pixeltable.catalog.globals import UpdateStatus
+from pixeltable.catalog.globals import RowCountStats, UpdateStatus
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
@@ -382,8 +382,12 @@ class StoreBase:
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
             if progress_bar is not None:
                 progress_bar.close()
+            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs)  # insert (StoreBase)
             return cols_with_excs, UpdateStatus(
-                num_rows=num_rows, num_excs=num_excs, num_computed_values=exec_plan.ctx.num_computed_exprs * num_rows
+                num_rows=num_rows,
+                num_excs=num_excs,
+                num_computed_values=exec_plan.ctx.num_computed_exprs * num_rows,
+                row_count_stats=row_counts,
             )
         finally:
             exec_plan.close()

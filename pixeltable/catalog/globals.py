@@ -44,14 +44,14 @@ class RowCountStats:
             and self.num_excs == 0
         )
 
-    def accumulate(self, other: 'RowCountStats') -> 'RowCountStats':
+    def accumulate(self, other: 'RowCountStats', as_update: bool = False) -> 'RowCountStats':
         """
         Accumulate the row count stats from another RowCountStats object.
         """
         return RowCountStats(
-            ins_rows=self.ins_rows + other.ins_rows,
+            ins_rows=self.ins_rows + (other.ins_rows if not as_update else 0),
             del_rows=self.del_rows + other.del_rows,
-            upd_rows=self.upd_rows + other.upd_rows,
+            upd_rows=self.upd_rows + (other.upd_rows + other.ins_rows if as_update else 0),
             exc_rows=self.exc_rows + other.exc_rows,
             num_excs=self.num_excs + other.num_excs,
         )
@@ -76,7 +76,7 @@ class UpdateStatus:
     # stats for changes cascaded to other tables
     cascade_row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
 
-    def accumulate(self, other: 'UpdateStatus', cascade: bool = False) -> None:
+    def accumulate(self, other: 'UpdateStatus', as_update: bool = False, cascade: bool = False) -> None:
         """
         Accumulate the update status from another UpdateStatus object.
         """
@@ -88,10 +88,14 @@ class UpdateStatus:
 
         if cascade:
             # If the other stats are a result of a cascaded operation, accumulate all stats into cascade stats
-            self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(other.row_count_stats)
+            self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(
+                other.row_count_stats, as_update=as_update
+            )
         else:
-            self.row_count_stats = self.row_count_stats.accumulate(other.row_count_stats)
-        self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(other.cascade_row_count_stats)
+            self.row_count_stats = self.row_count_stats.accumulate(other.row_count_stats, as_update=as_update)
+        self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(
+            other.cascade_row_count_stats, as_update=as_update
+        )
 
     @property
     def insert_msg(self) -> str:

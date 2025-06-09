@@ -29,7 +29,14 @@ if TYPE_CHECKING:
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_valid_identifier
+from .globals import (
+    _POS_COLUMN_NAME,
+    _ROWID_COLUMN_NAME,
+    MediaValidation,
+    RowCountStats,
+    UpdateStatus,
+    is_valid_identifier,
+)
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
@@ -685,6 +692,7 @@ class TableVersion:
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
 
+        computed_values = 0
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
@@ -738,6 +746,7 @@ class TableVersion:
                 if excs_per_col > 0:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
+                computed_values += row_count
             finally:
                 # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
                 def cleanup_on_error() -> None:
@@ -759,11 +768,13 @@ class TableVersion:
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
         # TODO(mkornacker): what to do about system columns with exceptions?
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
         return UpdateStatus(
             num_rows=row_count,
-            num_computed_values=row_count,
+            num_computed_values=computed_values,
             num_excs=num_excs,
             cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
+            row_count_stats=row_counts,
         )
 
     def drop_column(self, col: Column) -> None:
@@ -1066,7 +1077,8 @@ class TableVersion:
         if plan is not None:
             # we're creating a new version
             self.version += 1
-            cols_with_excs, result = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
+            cols_with_excs, status = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
+            result.accumulate(status, as_update=True)
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
@@ -1094,6 +1106,9 @@ class TableVersion:
         """Delete rows in this table.
         Args:
             where: a predicate to filter rows to delete.
+
+        Returns:
+            UpdateStatus: an object containing the number of deleted rows and other statistics.
         """
         assert self.is_insertable
         from pixeltable.exprs import Expr
@@ -1109,14 +1124,12 @@ class TableVersion:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
             sql_where_clause = analysis_info.sql_where_clause
 
-        num_rows = self.propagate_delete(sql_where_clause, base_versions=[], timestamp=time.time())
-
-        status = UpdateStatus(num_rows=num_rows)
+        status = self.propagate_delete(sql_where_clause, base_versions=[], timestamp=time.time())
         return status
 
     def propagate_delete(
         self, where: Optional[exprs.Expr], base_versions: list[Optional[int]], timestamp: float
-    ) -> int:
+    ) -> UpdateStatus:
         """Delete rows in this table and propagate to views.
         Args:
             where: a predicate to filter rows to delete.
@@ -1132,19 +1145,21 @@ class TableVersion:
         # sql.sql.visitors.traverse(sql_where_clause, {}, {'column': collect_cols})
         # x = [f'{str(c)}:{hash(c)}:{id(c.table)}' for c in sql_cols]
         # print(f'where_clause cols: {x}')
-        num_rows = self.store_tbl.delete_rows(
+        del_rows = self.store_tbl.delete_rows(
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
         )
-        if num_rows > 0:
+        row_counts = RowCountStats(del_rows=del_rows)  # delete
+        result = UpdateStatus(num_rows=del_rows, row_count_stats=row_counts)
+        if del_rows > 0:
             # we're creating a new version
             self.version += 1
             self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
-        propagate_num_rows = 0
         for view in self.mutable_views:
-            propagate_num_rows += view.get().propagate_delete(
+            status = view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
-        return propagate_num_rows + num_rows
+            result.accumulate(status, True)
+        return result
 
     def revert(self) -> None:
         """Reverts the table to the previous version."""
