@@ -19,7 +19,7 @@ class TestAnthropic:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=messages(messages=msgs, model='claude-3-haiku-20240307'))
+        t.add_computed_column(output=messages(messages=msgs, model='claude-3-haiku-20240307', max_tokens=1024))
         t.add_computed_column(
             output2=messages(
                 messages=msgs,
@@ -76,7 +76,7 @@ class TestAnthropic:
             msgs = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=messages(
-                    model='claude-3-5-sonnet-20241022', messages=msgs, tools=tools, tool_choice=tool_choice
+                    model='claude-3-5-sonnet-20241022', messages=msgs, max_tokens=1024, tools=tools, tool_choice=tool_choice
                 )
             )
             t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
