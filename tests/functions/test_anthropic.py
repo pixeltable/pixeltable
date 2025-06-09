@@ -76,7 +76,11 @@ class TestAnthropic:
             msgs = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=messages(
-                    model='claude-3-5-sonnet-20241022', messages=msgs, max_tokens=1024, tools=tools, tool_choice=tool_choice
+                    model='claude-3-5-sonnet-20241022',
+                    messages=msgs,
+                    max_tokens=1024,
+                    tools=tools,
+                    tool_choice=tool_choice,
                 )
             )
             t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
