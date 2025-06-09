@@ -5,7 +5,7 @@ first `pip install fireworks-ai` and configure your Fireworks AI credentials, as
 the [Working with Fireworks](https://pixeltable.readme.io/docs/working-with-fireworks) tutorial.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import pixeltable as pxt
 from pixeltable import env
@@ -29,14 +29,7 @@ def _fireworks_client() -> 'fireworks.client.Fireworks':
 
 @pxt.udf(resource_pool='request-rate:fireworks')
 async def chat_completions(
-    messages: list[dict[str, str]],
-    *,
-    model: str,
-    max_tokens: Optional[int] = None,
-    top_k: Optional[int] = None,
-    top_p: Optional[float] = None,
-    temperature: Optional[float] = None,
-    request_timeout: Optional[int] = None,
+    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -55,8 +48,8 @@ async def chat_completions(
     Args:
         messages: A list of messages comprising the conversation so far.
         model: The name of the model to use.
-
-    For details on the other parameters, see: <https://docs.fireworks.ai/api-reference/post-chatcompletions>
+        model_kwargs: Additional keyword args for the Fireworks `chat_completions` API. For details on the available
+            parameters, see: <https://docs.fireworks.ai/api-reference/post-chatcompletions>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -70,20 +63,18 @@ async def chat_completions(
         ...     response=chat_completions(messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
         ... )
     """
-    kwargs = {'max_tokens': max_tokens, 'top_k': top_k, 'top_p': top_p, 'temperature': temperature}
-    kwargs_not_none = {k: v for k, v in kwargs.items() if v is not None}
+    if model_kwargs is None:
+        model_kwargs = {}
 
     # for debugging purposes:
     # res_sync = _fireworks_client().chat.completions.create(model=model, messages=messages, **kwargs_not_none)
     # res_sync_dict = res_sync.dict()
 
-    if request_timeout is None:
-        request_timeout = Config.get().get_int_value('timeout', section='fireworks') or 600
+    if 'request_timeout' not in model_kwargs:
+        model_kwargs['request_timeout'] = Config.get().get_int_value('timeout', section='fireworks') or 600
     # TODO: this timeout doesn't really work, I think it only applies to returning the stream, but not to the timing
     # of the chunks; addressing this would require a timeout for the task running this udf
-    stream = _fireworks_client().chat.completions.acreate(
-        model=model, messages=messages, request_timeout=request_timeout, **kwargs_not_none
-    )
+    stream = _fireworks_client().chat.completions.acreate(model=model, messages=messages, **model_kwargs)
     chunks = []
     async for chunk in stream:
         chunks.append(chunk)

@@ -12,9 +12,9 @@ class TestDeepseek:
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('deepseek')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.deepseek import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(chat_output=chat_completions(model='deepseek-chat', messages=t.input_msgs))
@@ -23,14 +23,16 @@ class TestDeepseek:
             chat_output_2=chat_completions(
                 model='deepseek-chat',
                 messages=msgs,
-                frequency_penalty=0.1,
-                logprobs=True,
-                top_logprobs=3,
-                max_tokens=500,
-                presence_penalty=0.1,
-                stop=['\n'],
-                temperature=0.7,
-                top_p=0.8,
+                model_kwargs={
+                    'frequency_penalty': 0.1,
+                    'logprobs': True,
+                    'top_logprobs': 3,
+                    'max_tokens': 500,
+                    'presence_penalty': 0.1,
+                    'stop': ['\n'],
+                    'temperature': 0.7,
+                    'top_p': 0.8,
+                },
             )
         )
         t.add_computed_column(reasoning_output=chat_completions(model='deepseek-reasoner', messages=t.input_msgs))

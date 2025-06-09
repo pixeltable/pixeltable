@@ -11,7 +11,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_pr
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestAnthropic:
-    def test_anthropic(self, reset_db: None) -> None:
+    def test_messages(self, reset_db: None) -> None:
         from pixeltable.functions.anthropic import messages
 
         skip_test_if_not_installed('anthropic')
@@ -19,18 +19,20 @@ class TestAnthropic:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=messages(messages=msgs, model='claude-3-haiku-20240307'))
+        t.add_computed_column(output=messages(messages=msgs, model='claude-3-haiku-20240307', max_tokens=1024))
         t.add_computed_column(
             output2=messages(
                 messages=msgs,
                 model='claude-3-haiku-20240307',
                 max_tokens=300,
-                metadata={'user_id': 'pixeltable'},
-                stop_sequences=['STOP'],
-                system='You are an ordinary person walking down the street.',
-                temperature=0.7,
-                top_k=40,
-                top_p=0.9,
+                model_kwargs={
+                    'metadata': {'user_id': 'pixeltable'},
+                    'stop_sequences': ['STOP'],
+                    'system': 'You are an ordinary person walking down the street.',
+                    'temperature': 0.7,
+                    'top_k': 40,
+                    'top_p': 0.9,
+                },
             )
         )
         validate_update_status(t.insert(input="How's everything going today?"), 1)
@@ -74,7 +76,11 @@ class TestAnthropic:
             msgs = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=messages(
-                    model='claude-3-5-sonnet-20241022', messages=msgs, tools=tools, tool_choice=tool_choice
+                    model='claude-3-5-sonnet-20241022',
+                    messages=msgs,
+                    max_tokens=1024,
+                    tools=tools,
+                    tool_choice=tool_choice,
                 )
             )
             t.add_computed_column(tool_calls=invoke_tools(tools, t.response))

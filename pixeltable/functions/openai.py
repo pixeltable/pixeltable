@@ -14,15 +14,14 @@ import math
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Type, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type
 
 import httpx
 import numpy as np
 import PIL
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
-from pixeltable import env, exprs
+from pixeltable import env, exprs, type_system as ts
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 
@@ -171,15 +170,7 @@ def _get_header_info(
 
 
 @pxt.udf
-async def speech(
-    input: str,
-    *,
-    model: str,
-    voice: str,
-    response_format: Optional[str] = None,
-    speed: Optional[float] = None,
-    timeout: Optional[float] = None,
-) -> pxt.Audio:
+async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[dict[str, Any]] = None) -> pxt.Audio:
     """
     Generates audio from the input text.
 
@@ -199,8 +190,8 @@ async def speech(
         model: The model to use for speech synthesis.
         voice: The voice profile to use for speech synthesis. Supported options include:
             `alloy`, `echo`, `fable`, `onyx`, `nova`, and `shimmer`.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createSpeech>
+        model_kwargs: Additional keyword args for the OpenAI `audio/speech` API. For details on the available
+            parameters, see: <https://platform.openai.com/docs/api-reference/audio/createSpeech>
 
     Returns:
         An audio file containing the synthesized speech.
@@ -211,30 +202,23 @@ async def speech(
 
         >>> tbl.add_computed_column(audio=speech(tbl.text, model='tts-1', voice='nova'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     content = await _openai_client().audio.speech.create(
         input=input,
         model=model,
         voice=voice,  # type: ignore
-        response_format=_opt(response_format),  # type: ignore
-        speed=_opt(speed),
-        timeout=_opt(timeout),
+        **model_kwargs,
     )
-    ext = response_format or 'mp3'
+    ext = model_kwargs.get('response_format', 'mp3')
     output_filename = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}.{ext}')
     content.write_to_file(output_filename)
     return output_filename
 
 
 @pxt.udf
-async def transcriptions(
-    audio: pxt.Audio,
-    *,
-    model: str,
-    language: Optional[str] = None,
-    prompt: Optional[str] = None,
-    temperature: Optional[float] = None,
-    timeout: Optional[float] = None,
-) -> dict:
+async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
     """
     Transcribes audio into the input language.
 
@@ -252,8 +236,8 @@ async def transcriptions(
     Args:
         audio: The audio to transcribe.
         model: The model to use for speech transcription.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranscription>
+        model_kwargs: Additional keyword args for the OpenAI `audio/transcriptions` API. For details on the available
+            parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranscription>
 
     Returns:
         A dictionary containing the transcription and other metadata.
@@ -264,27 +248,16 @@ async def transcriptions(
 
         >>> tbl.add_computed_column(transcription=transcriptions(tbl.audio, model='whisper-1', language='en'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     file = pathlib.Path(audio)
-    transcription = await _openai_client().audio.transcriptions.create(
-        file=file,
-        model=model,
-        language=_opt(language),
-        prompt=_opt(prompt),
-        temperature=_opt(temperature),
-        timeout=_opt(timeout),
-    )
+    transcription = await _openai_client().audio.transcriptions.create(file=file, model=model, **model_kwargs)
     return transcription.dict()
 
 
 @pxt.udf
-async def translations(
-    audio: pxt.Audio,
-    *,
-    model: str,
-    prompt: Optional[str] = None,
-    temperature: Optional[float] = None,
-    timeout: Optional[float] = None,
-) -> dict:
+async def translations(audio: pxt.Audio, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
     """
     Translates audio into English.
 
@@ -302,8 +275,8 @@ async def translations(
     Args:
         audio: The audio to translate.
         model: The model to use for speech transcription and translation.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranslation>
+        model_kwargs: Additional keyword args for the OpenAI `audio/translations` API. For details on the available
+            parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranslation>
 
     Returns:
         A dictionary containing the translation and other metadata.
@@ -314,10 +287,11 @@ async def translations(
 
         >>> tbl.add_computed_column(translation=translations(tbl.audio, model='whisper-1', language='en'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     file = pathlib.Path(audio)
-    translation = await _openai_client().audio.translations.create(
-        file=file, model=model, prompt=_opt(prompt), temperature=_opt(temperature), timeout=_opt(timeout)
-    )
+    translation = await _openai_client().audio.translations.create(file=file, model=model, **model_kwargs)
     return translation.dict()
 
 
@@ -353,8 +327,15 @@ def _is_model_family(model: str, family: str) -> bool:
 
 
 def _chat_completions_get_request_resources(
-    messages: list, model: str, max_completion_tokens: Optional[int], max_tokens: Optional[int], n: Optional[int]
+    messages: list, model: str, model_kwargs: Optional[dict[str, Any]]
 ) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    max_completion_tokens = model_kwargs.get('max_completion_tokens')
+    max_tokens = model_kwargs.get('max_tokens')
+    n = model_kwargs.get('n')
+
     completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
 
     num_tokens = 0.0
@@ -373,24 +354,9 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    frequency_penalty: Optional[float] = None,
-    logit_bias: Optional[dict[str, int]] = None,
-    logprobs: Optional[bool] = None,
-    top_logprobs: Optional[int] = None,
-    max_completion_tokens: Optional[int] = None,
-    max_tokens: Optional[int] = None,
-    n: Optional[int] = None,
-    presence_penalty: Optional[float] = None,
-    reasoning_effort: Optional[Literal['low', 'medium', 'high']] = None,
-    response_format: Optional[dict] = None,
-    seed: Optional[int] = None,
-    stop: Optional[list[str]] = None,
-    temperature: Optional[float] = None,
-    tools: Optional[list[dict]] = None,
-    tool_choice: Optional[dict] = None,
-    top_p: Optional[float] = None,
-    user: Optional[str] = None,
-    timeout: Optional[float] = None,
+    model_kwargs: Optional[dict[str, Any]] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -409,8 +375,8 @@ async def chat_completions(
     Args:
         messages: A list of messages to use for chat completion, as described in the OpenAI API documentation.
         model: The model to use for chat completion.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/chat>
+        model_kwargs: Additional keyword args for the OpenAI `chat/completions` API. For details on the available
+            parameters, see: <https://platform.openai.com/docs/api-reference/chat/create>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -425,22 +391,23 @@ async def chat_completions(
             ]
             tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
     """
-    if tools is not None:
-        tools = [{'type': 'function', 'function': tool} for tool in tools]
+    if model_kwargs is None:
+        model_kwargs = {}
 
-    tool_choice_: Union[str, dict, None] = None
+    if tools is not None:
+        model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
+
     if tool_choice is not None:
         if tool_choice['auto']:
-            tool_choice_ = 'auto'
+            model_kwargs['tool_choice'] = 'auto'
         elif tool_choice['required']:
-            tool_choice_ = 'required'
+            model_kwargs['tool_choice'] = 'required'
         else:
             assert tool_choice['tool'] is not None
-            tool_choice_ = {'type': 'function', 'function': {'name': tool_choice['tool']}}
+            model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
-    extra_body: Optional[dict[str, Any]] = None
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
-        extra_body = {'parallel_tool_calls': False}
+        model_kwargs['parallel_tool_calls'] = False
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
@@ -448,29 +415,8 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
-    # cast(Any, ...): avoid mypy errors
     result = await _openai_client().chat.completions.with_raw_response.create(
-        messages=messages,
-        model=model,
-        frequency_penalty=_opt(frequency_penalty),
-        logit_bias=_opt(logit_bias),
-        logprobs=_opt(logprobs),
-        top_logprobs=_opt(top_logprobs),
-        max_completion_tokens=_opt(max_completion_tokens),
-        max_tokens=_opt(max_tokens),
-        n=_opt(n),
-        presence_penalty=_opt(presence_penalty),
-        reasoning_effort=_opt(reasoning_effort),
-        response_format=_opt(cast(Any, response_format)),
-        seed=_opt(seed),
-        stop=_opt(stop),
-        temperature=_opt(temperature),
-        tools=_opt(cast(Any, tools)),
-        tool_choice=_opt(cast(Any, tool_choice_)),
-        top_p=_opt(top_p),
-        user=_opt(user),
-        timeout=_opt(timeout),
-        extra_body=extra_body,
+        messages=messages, model=model, **model_kwargs
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
@@ -480,13 +426,15 @@ async def chat_completions(
 
 
 def _vision_get_request_resources(
-    prompt: str,
-    image: PIL.Image.Image,
-    model: str,
-    max_completion_tokens: Optional[int],
-    max_tokens: Optional[int],
-    n: Optional[int],
+    prompt: str, image: PIL.Image.Image, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    max_completion_tokens = model_kwargs.get('max_completion_tokens')
+    max_tokens = model_kwargs.get('max_tokens')
+    n = model_kwargs.get('n')
+
     completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
     prompt_tokens = len(prompt) / 4
 
@@ -515,14 +463,7 @@ def _vision_get_request_resources(
 
 @pxt.udf
 async def vision(
-    prompt: str,
-    image: PIL.Image.Image,
-    *,
-    model: str,
-    max_completion_tokens: Optional[int] = None,
-    max_tokens: Optional[int] = None,
-    n: Optional[int] = 1,
-    timeout: Optional[float] = None,
+    prompt: str, image: PIL.Image.Image, *, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
@@ -552,6 +493,9 @@ async def vision(
 
         >>> tbl.add_computed_column(response=vision("What's in this image?", tbl.image, model='gpt-4o-mini'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     bytes_arr = io.BytesIO()
     image.save(bytes_arr, format='png')
@@ -576,10 +520,7 @@ async def vision(
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
-        max_completion_tokens=_opt(max_completion_tokens),
-        max_tokens=_opt(max_tokens),
-        n=_opt(n),
-        timeout=_opt(timeout),
+        **model_kwargs,
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
@@ -606,12 +547,7 @@ def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
 
 @pxt.udf(batch_size=32)
 async def embeddings(
-    input: Batch[str],
-    *,
-    model: str,
-    dimensions: Optional[int] = None,
-    user: Optional[str] = None,
-    timeout: Optional[float] = None,
+    input: Batch[str], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -630,10 +566,8 @@ async def embeddings(
     Args:
         input: The text to embed.
         model: The model to use for the embedding.
-        dimensions: The vector length of the embedding. If not specified, Pixeltable will use
-            a default value based on the model.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/embeddings>
+        model_kwargs: Additional keyword args for the OpenAI `embeddings` API. For details on the available
+            parameters, see: <https://platform.openai.com/docs/api-reference/embeddings>
 
     Returns:
         An array representing the application of the given embedding to `input`.
@@ -648,18 +582,16 @@ async def embeddings(
 
         >>> tbl.add_embedding_index(embedding=embeddings.using(model='text-embedding-3-small'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     _logger.debug(f'embeddings: batch_size={len(input)}')
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
     )
     result = await _openai_client().embeddings.with_raw_response.create(
-        input=input,
-        model=model,
-        dimensions=_opt(dimensions),
-        user=_opt(user),
-        encoding_format='float',
-        timeout=_opt(timeout),
+        input=input, model=model, encoding_format='float', **model_kwargs
     )
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
@@ -667,7 +599,10 @@ async def embeddings(
 
 
 @embeddings.conditional_return_type
-def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
+def _(model: str, model_kwargs: Optional[dict[str, Any]] = None) -> ts.ArrayType:
+    dimensions: Optional[int] = None
+    if model_kwargs is not None:
+        dimensions = model_kwargs.get('dimensions')
     if dimensions is None:
         if model not in _embedding_dimensions_cache:
             # TODO: find some other way to retrieve a sample
@@ -682,14 +617,7 @@ def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
 
 @pxt.udf
 async def image_generations(
-    prompt: str,
-    *,
-    model: str = 'dall-e-2',
-    quality: Optional[str] = None,
-    size: Optional[str] = None,
-    style: Optional[str] = None,
-    user: Optional[str] = None,
-    timeout: Optional[float] = None,
+    prompt: str, *, model: str = 'dall-e-2', model_kwargs: Optional[dict[str, Any]] = None
 ) -> PIL.Image.Image:
     """
     Creates an image given a prompt.
@@ -708,8 +636,8 @@ async def image_generations(
     Args:
         prompt: Prompt for the image.
         model: The model to use for the generations.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
+        model_kwargs: Additional keyword args for the OpenAI `images/generations` API. For details on the available
+            parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
 
     Returns:
         The generated image.
@@ -720,16 +648,12 @@ async def image_generations(
 
         >>> tbl.add_computed_column(gen_image=image_generations(tbl.text, model='dall-e-2'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = await _openai_client().images.generate(
-        prompt=prompt,
-        model=_opt(model),
-        quality=_opt(quality),  # type: ignore
-        size=_opt(size),  # type: ignore
-        style=_opt(style),  # type: ignore
-        user=_opt(user),
-        response_format='b64_json',
-        timeout=_opt(timeout),
+        prompt=prompt, model=model, response_format='b64_json', **model_kwargs
     )
     b64_str = result.data[0].b64_json
     b64_bytes = base64.b64decode(b64_str)
@@ -739,9 +663,11 @@ async def image_generations(
 
 
 @image_generations.conditional_return_type
-def _(size: Optional[str] = None) -> ts.ImageType:
-    if size is None:
+def _(model_kwargs: Optional[dict[str, Any]] = None) -> ts.ImageType:
+    if model_kwargs is None or 'size' not in model_kwargs:
+        # default size is 1024x1024
         return ts.ImageType(size=(1024, 1024))
+    size = model_kwargs['size']
     x_pos = size.find('x')
     if x_pos == -1:
         return ts.ImageType()
@@ -787,7 +713,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
 
         >>> tbl.add_computed_column(moderations=moderations(tbl.text, model='text-moderation-stable'))
     """
-    result = await _openai_client().moderations.create(input=input, model=_opt(model))
+    result = await _openai_client().moderations.create(input=input, model=model)
     return result.dict()
 
 
@@ -824,15 +750,6 @@ def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
             pxt_tool_calls[tool_name] = []
         pxt_tool_calls[tool_name].append({'args': json.loads(tool_call['function']['arguments'])})
     return pxt_tool_calls
-
-
-_T = TypeVar('_T')
-
-
-def _opt(arg: _T) -> Union[_T, 'openai.NotGiven']:
-    import openai
-
-    return arg if arg is not None else openai.NOT_GIVEN
 
 
 __all__ = local_public_names(__name__)

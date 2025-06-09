@@ -47,11 +47,17 @@ class TestOpenai:
         from pixeltable.functions.openai import speech, transcriptions, translations
 
         t.add_computed_column(speech=speech(t.input, model='tts-1', voice='onyx'))
-        t.add_computed_column(speech_2=speech(t.input, model='tts-1', voice='onyx', response_format='flac', speed=1.05))
+        t.add_computed_column(
+            speech_2=speech(
+                t.input, model='tts-1', voice='onyx', model_kwargs={'response_format': 'flac', 'speed': 1.05}
+            )
+        )
         t.add_computed_column(transcription=transcriptions(t.speech, model='whisper-1'))
         t.add_computed_column(
             transcription_2=transcriptions(
-                t.speech, model='whisper-1', language='en', prompt='Transcribe the contents of this recording.'
+                t.speech,
+                model='whisper-1',
+                model_kwargs={'language': 'en', 'prompt': 'Transcribe the contents of this recording.'},
             )
         )
         t.add_computed_column(translation=translations(t.speech, model='whisper-1'))
@@ -59,8 +65,7 @@ class TestOpenai:
             translation_2=translations(
                 t.speech,
                 model='whisper-1',
-                prompt='Translate the recording from Spanish into English.',
-                temperature=0.05,
+                model_kwargs={'prompt': 'Translate the recording from Spanish into English.', 'temperature': 0.05},
             )
         )
         validate_update_status(
@@ -91,22 +96,26 @@ class TestOpenai:
             chat_output_3=chat_completions(
                 model='gpt-4o-mini',
                 messages=msgs,
-                frequency_penalty=0.1,
-                logprobs=True,
-                top_logprobs=3,
-                max_tokens=500,
-                n=3,
-                presence_penalty=0.1,
-                seed=4171780,
-                stop=['\n'],
-                temperature=0.7,
-                top_p=0.8,
-                user='pixeltable',
+                model_kwargs={
+                    'frequency_penalty': 0.1,
+                    'logprobs': True,
+                    'top_logprobs': 3,
+                    'max_tokens': 500,
+                    'n': 3,
+                    'presence_penalty': 0.1,
+                    'seed': 4171780,
+                    'stop': ['\n'],
+                    'temperature': 0.7,
+                    'top_p': 0.8,
+                    'user': 'pixeltable',
+                },
             )
         )
         # test with JSON output enforced
         t.add_computed_column(
-            chat_output_4=chat_completions(model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'})
+            chat_output_4=chat_completions(
+                model='gpt-4o-mini', messages=msgs, model_kwargs={'response_format': {'type': 'json_object'}}
+            )
         )
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
         result = t.collect()
@@ -133,7 +142,9 @@ class TestOpenai:
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
-            chat_output=chat_completions(model='o3-mini', messages=t.input_msgs, reasoning_effort='low')
+            chat_output=chat_completions(
+                model='o3-mini', messages=t.input_msgs, model_kwargs={'reasoning_effort': 'low'}
+            )
         )
         validate_update_status(
             t.insert(
@@ -367,7 +378,9 @@ class TestOpenai:
             }
         ]
         t.add_computed_column(
-            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, max_tokens=300).choices[0].message.content
+            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, model_kwargs={'max_tokens': 300})
+            .choices[0]
+            .message.content
         )
         validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()['response_2'][0]
@@ -383,7 +396,9 @@ class TestOpenai:
         # Embeddings as computed columns
         t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
         t.add_computed_column(
-            text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
+            text_3=embeddings(
+                model='text-embedding-3-small', input=t.input, model_kwargs={'dimensions': 1024, 'user': 'pixeltable'}
+            )
         )
         type_info = t._schema
         assert isinstance(type_info['ada_embed'], ts.ArrayType)
@@ -427,7 +442,9 @@ class TestOpenai:
 
         t.add_computed_column(img=image_generations(t.input))
         # Test dall-e-2 options
-        t.add_computed_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
+        t.add_computed_column(
+            img_2=image_generations(t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable'})
+        )
         # image size information was captured correctly
         type_info = t._schema
         assert isinstance(type_info['img_2'], ts.ImageType)
