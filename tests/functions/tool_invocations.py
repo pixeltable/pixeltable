@@ -1,4 +1,5 @@
 from typing import Callable, Optional
+
 import pixeltable as pxt
 
 
@@ -18,8 +19,8 @@ def run_tool_invocations_test(
         ]
     if test_individual_tool_choice:
         tool_choice_opts += [
-            tools.choice(tool='stock_price'),   # Specified by name
-            tools.choice(tool=weather),         # Specified by function
+            tools.choice(tool='stock_price'),  # Specified by name
+            tools.choice(tool=weather),  # Specified by function
         ]
 
     for tool_choice in tool_choice_opts:
@@ -61,10 +62,7 @@ def run_tool_invocations_test(
         print('Checking double inquiry')
         if tool_choice is None or (tool_choice.parallel_tool_calls and tool_choice.tool is None):
             # Both tools invoked in parallel
-            assert res[2]['tool_calls'] == {
-                'stock_price': [131.17],
-                'weather': ['Cloudy with a chance of meatballs'],
-            }
+            assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': ['Cloudy with a chance of meatballs']}
         elif tool_choice.tool == 'stock_price':
             assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
         elif tool_choice.tool == 'weather':

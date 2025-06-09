@@ -7,14 +7,9 @@ import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 
-from .tool_invocations import run_tool_invocations_test, server_state, stock_price, weather
 from ..conftest import DO_RERUN
-from ..utils import (
-    SAMPLE_IMAGE_URL,
-    skip_test_if_no_client,
-    skip_test_if_not_installed,
-    validate_update_status
-)
+from ..utils import SAMPLE_IMAGE_URL, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from .tool_invocations import run_tool_invocations_test, server_state, stock_price, weather
 
 
 @pytest.mark.remote_api
@@ -163,16 +158,17 @@ class TestOpenai:
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        from pixeltable.functions.openai import chat_completions, invoke_tools
+        from pixeltable.functions import openai
 
         def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
-                response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools, tool_choice=tool_choice)
+                response=openai.chat_completions(
+                    model='gpt-4o-mini', messages=messages, tools=tools, tool_choice=tool_choice
+                )
             )
-            t.add_computed_column(output=t.response.choices[0].message.content)
-            t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+            t.add_computed_column(tool_calls=openai.invoke_tools(tools, t.response))
             return t
 
         run_tool_invocations_test(make_table, test_tool_choice=True, test_individual_tool_choice=True)
