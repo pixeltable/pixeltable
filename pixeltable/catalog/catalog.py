@@ -62,9 +62,10 @@ def _unpack_row(
     return result
 
 
+# -1: unlimited
 # for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
 # grows uncontrollably
-_MAX_RETRIES = 0
+_MAX_RETRIES = -1
 
 T = TypeVar('T')
 
@@ -84,9 +85,8 @@ def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[...
                 except sql.exc.DBAPIError as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
-                        if num_retries < _MAX_RETRIES or _MAX_RETRIES == 0:
+                        if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
-                            # print(f'Retrying ({num_retries}) after {type(e.orig)}')
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
@@ -96,7 +96,6 @@ def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[...
                 except Exception as e:
                     # for informational/debugging purposes
                     _logger.debug(f'retry_loop(): passing along {e}')
-                    # print(f'retry_loop(): passing along {e}')
                     raise
 
         return loop
@@ -282,9 +281,8 @@ class Catalog:
                         except sql.exc.DBAPIError as e:
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
-                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == 0):
+                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
                                 num_retries += 1
-                                # print(f'begin_xact(): Retrying ({num_retries}) after {type(e.orig)} (DBapierror)')
                                 _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                                 time.sleep(random.uniform(0.1, 0.5))
                                 continue
@@ -304,13 +302,11 @@ class Catalog:
                 if isinstance(e.orig, psycopg.errors.UndefinedTable):
                     # the table got dropped in the middle of the table operation
                     _logger.debug(f'Exception: undefined table ({tbl.tbl_name()}): Caught {type(e.orig)}: {e!r}')
-                    # print(f'begin_xact({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}')
                     assert tbl is not None
                     raise excs.Error(f'Table was dropped: {tbl.tbl_name()}') from None
                 elif isinstance(e.orig, psycopg.errors.SerializationFailure) and convert_db_excs:
                     # we still got a serialization error, despite getting x-locks at the beginning
                     msg = f'{tbl.tbl_name()} ({tbl.tbl_id})' if tbl is not None else ''
-                    # print(f'Serialization failure: {msg} ({e})')
                     _logger.debug(f'Exception: serialization failure: {msg} ({e})')
                     raise excs.Error('Serialization failure. Please re-run the operation.') from None
                 else:
@@ -370,7 +366,6 @@ class Catalog:
         """
         where_clause: sql.ColumnElement
         if tbl_id is not None:
-            # print(f'x-lock on {tbl_id}')
             where_clause = schema.Table.id == tbl_id
         else:
             where_clause = sql.and_(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == tbl_name)
@@ -1124,11 +1119,6 @@ class Catalog:
                         f'(cached/current version: {tv.version}/{current_version}, '
                         f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
                     )
-                    # print(
-                    #     f'reloading metadata for table {tv.name} ({tbl_id}) '
-                    #     f'(cached/current version: {tv.version}/{current_version}, '
-                    #     f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
-                    # )
                     tv = self._load_tbl_version(tbl_id, None)
                 else:
                     # the cached metadata is valid
@@ -1327,7 +1317,6 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
-            # print(f'updating table metadata for {tbl_id}')
             result = conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(tbl_md)})

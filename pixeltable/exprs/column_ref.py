@@ -239,7 +239,6 @@ class ColumnRef(Expr):
         return helper
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        # return None if self.perform_validation else self.col.sa_col
         if self.perform_validation:
             return None
         # we need to reestablish that we have the correct Column instance, there could have been a metadata
@@ -248,13 +247,10 @@ class ColumnRef(Expr):
         # perform runtime checks and update state
         tv = self.tbl_version.get()
         assert tv.is_validated
+        # we can assume at this point during query execution that the column exists
+        assert self.col_id in tv.cols_by_id
         self.col = tv.cols_by_id[self.col_id]
         assert self.col.tbl is tv
-        # TODO: check for column being dropped
-        # print(
-        #     f'ColumnRef.sql_expr: tbl={tv.id}:{tv.effective_version} sa_tbl={id(self.col.tbl.store_tbl.sa_tbl):x} '
-        #     f'tv={id(tv):x}'
-        # )
         return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

@@ -22,15 +22,15 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: Optional[set[str]] = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class QColumnId:
     """Qualified column id"""
 
     tbl_id: UUID
     col_id: int
 
-    def __hash__(self) -> int:
-        return hash((self.tbl_id, self.col_id))
+    # def __hash__(self) -> int:
+    #     return hash((self.tbl_id, self.col_id))
 
 
 @dataclasses.dataclass

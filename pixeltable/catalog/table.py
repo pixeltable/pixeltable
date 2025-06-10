@@ -77,6 +77,7 @@ class Table(SchemaObject):
         )
         conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
+    # this is duplicated from SchemaObject so that our API docs show the docstring for Table
     def get_metadata(self) -> dict[str, Any]:
         """
         Retrieves metadata associated with this table.
@@ -159,7 +160,7 @@ class Table(SchemaObject):
             views = [t for t in views if not t._tbl_version_path.is_snapshot()]
         if recursive:
             views.extend(
-                [t for view in views for t in view._get_views(recursive=True, include_snapshots=include_snapshots)]
+                t for view in views for t in view._get_views(recursive=True, include_snapshots=include_snapshots)
             )
         return views
 
