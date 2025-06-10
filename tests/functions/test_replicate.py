@@ -11,12 +11,11 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate
 @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestReplicate:
     def test_chat_completions(self, reset_db: None) -> None:
-        from pixeltable.functions.replicate import run
-
         skip_test_if_not_installed('replicate')
         skip_test_if_no_client('replicate')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        from pixeltable.functions.replicate import run
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(
             output=run(
                 input={'system_prompt': 'You are a helpful assistant.', 'prompt': t.input},
@@ -29,12 +28,11 @@ class TestReplicate:
         assert len(results['output'][0]) > 0
 
     def test_image_generations(self, reset_db: None) -> None:
-        from pixeltable.functions.replicate import run
-
         skip_test_if_not_installed('replicate')
         skip_test_if_no_client('replicate')
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        from pixeltable.functions.replicate import run
 
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         t.add_computed_column(
             response=run(
                 input={'prompt': t.prompt, 'go_fast': True, 'megapixels': '1'}, ref='black-forest-labs/flux-schnell'
