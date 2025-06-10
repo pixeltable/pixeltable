@@ -23,9 +23,9 @@ from ..utils import (
 class TestHuggingface:
     def test_hf_function(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'bool_col': pxt.Bool})
         from pixeltable.functions.huggingface import sentence_transformer
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'bool_col': pxt.Bool})
         model_id = 'intfloat/e5-large-v2'
         t.add_computed_column(e5=sentence_transformer(t.input, model_id=model_id))
         sents = get_sentences()
@@ -50,6 +50,8 @@ class TestHuggingface:
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_sentence_transformer(self, reset_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('sentence_transformers')
+        from pixeltable.functions.huggingface import sentence_transformer, sentence_transformer_list
+
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
@@ -57,8 +59,6 @@ class TestHuggingface:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import sentence_transformer, sentence_transformer_list
-
         model_ids = ['sentence-transformers/all-mpnet-base-v2', 'BAAI/bge-reranker-base']
         num_dims = [768, 768]
         for idx, model_id in enumerate(model_ids):
@@ -94,6 +94,8 @@ class TestHuggingface:
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_cross_encoder(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
+        from pixeltable.functions.huggingface import cross_encoder, cross_encoder_list
+
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
@@ -101,8 +103,6 @@ class TestHuggingface:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import cross_encoder, cross_encoder_list
-
         model_ids = ['cross-encoder/ms-marco-MiniLM-L-6-v2', 'cross-encoder/ms-marco-TinyBERT-L-2-v2']
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
@@ -129,6 +129,8 @@ class TestHuggingface:
 
     def test_clip(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import clip
+
         t = pxt.create_table('test_tbl', {'text': pxt.String, 'img': pxt.Image})
         num_rows = 10
         sents = get_sentences(num_rows)
@@ -138,8 +140,6 @@ class TestHuggingface:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import clip
-
         model_ids = ['openai/clip-vit-base-patch32', 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K']
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed_text{idx}'

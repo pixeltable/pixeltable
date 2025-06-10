@@ -1,5 +1,3 @@
-from typing import Optional
-
 import pytest
 
 import pixeltable as pxt
@@ -8,32 +6,8 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 
 from ..conftest import DO_RERUN
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
-
-
-@pxt.udf
-def weather(city: str) -> Optional[str]:
-    """
-    Get today's weather forecast for a given city.
-
-    Args:
-        city - The name of the city to look up.
-    """
-    if city == 'San Francisco':
-        return 'Cloudy with a chance of meatballs'
-    else:
-        return 'Unknown city'
-
-
-@pxt.udf
-def server_state() -> str:
-    """
-    Get the current server state.
-
-    Returns:
-        The current server state.
-    """
-    return 'Running (0x4171780)'
+from ..utils import SAMPLE_IMAGE_URL, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
 @pytest.mark.remote_api
@@ -42,10 +16,10 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import speech, transcriptions, translations
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(speech=speech(t.input, model='tts-1', voice='onyx'))
         t.add_computed_column(
             speech_2=speech(
@@ -82,10 +56,10 @@ class TestOpenai:
 
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
@@ -135,10 +109,10 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_reasoning_models(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
@@ -158,10 +132,10 @@ class TestOpenai:
 
     def test_reuse_client(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_openai', {'input': pxt.String})
+        skip_test_if_no_client('openai')
         from pixeltable.functions import openai
 
+        t = pxt.create_table('test_openai', {'input': pxt.String})
         messages = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(output1=openai.chat_completions(model='gpt-4o-mini', messages=messages))
         t.insert(
@@ -181,103 +155,25 @@ class TestOpenai:
     @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        from pixeltable.functions.openai import chat_completions, invoke_tools
+        skip_test_if_no_client('openai')
+        from pixeltable.functions import openai
 
-        tools = pxt.tools(stock_price, weather)
-        tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [
-            None,
-            tools.choice(auto=True),
-            tools.choice(required=True),
-            tools.choice(tool='stock_price'),
-            tools.choice(tool=weather),
-            tools.choice(required=True, parallel_tool_calls=False),
-        ]
-
-        for tool_choice in tool_choice_opts:
-            pxt.drop_table('test_tbl', if_not_exists='ignore')
-            t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
-                response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools, tool_choice=tool_choice)
+                response=openai.chat_completions(
+                    model='gpt-4o-mini', messages=messages, tools=tools, tool_choice=tool_choice
+                )
             )
-            t.add_computed_column(output=t.response.choices[0].message.content)
-            t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+            t.add_computed_column(tool_calls=openai.invoke_tools(tools, t.response))
+            return t
 
-            t.insert(prompt='What is the stock price of NVDA today?')
-            t.insert(prompt='What is the weather in San Francisco?')
-            t.insert(prompt='What is the stock price of NVDA today, and what is the weather in San Francisco?')
-            t.insert(prompt='How many grams of corn are in a bushel?')
-            t.insert(prompt='What is the stock price of NVDA today? Also, what is the stock price of UAL?')
-            res = t.select(t.response, t.tool_calls).head()
-            print(f'Responses with tool_choice equal to: {tool_choice}')
-            print(res[0]['response'])
-            print(res[1]['response'])
-            print(res[2]['response'])
-            print(res[3]['response'])
-            print(res[4]['response'])
-
-            # Request for stock price: works except when tool_choice is set explicitly to weather
-            print('Checking stock price inquiry')
-            if tool_choice is None or tool_choice.tool != 'weather':
-                assert res[0]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
-            else:  # Explicitly set to weather; we may or may not get stock price also
-                assert res[0]['tool_calls'] in [
-                    {'stock_price': None, 'weather': ['Unknown city']},
-                    {'stock_price': [131.17], 'weather': ['Unknown city']},
-                ]
-
-            # Request for weather: works except when tool_choice is set explicitly to stock_price
-            print('Checking weather inquiry')
-            if tool_choice is None or tool_choice.tool != 'stock_price':
-                assert res[1]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}
-            else:  # Explicitly set to stock_price; we may or may not get weather also
-                assert res[1]['tool_calls'] in [
-                    {'stock_price': [0.0], 'weather': None},
-                    {'stock_price': [0.0], 'weather': ['Cloudy with a chance of meatballs']},
-                ]
-
-            # Request for both stock price and weather
-            print('Checking double inquiry')
-            if tool_choice is None or (tool_choice.parallel_tool_calls and tool_choice.tool is None):
-                # Both tools invoked in parallel
-                assert res[2]['tool_calls'] == {
-                    'stock_price': [131.17],
-                    'weather': ['Cloudy with a chance of meatballs'],
-                }
-            elif tool_choice.tool == 'stock_price':
-                assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
-            elif tool_choice.tool == 'weather':
-                assert res[2]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}
-            else:
-                # Only one tool invoked, but it's not specified which
-                assert not tool_choice.parallel_tool_calls
-                assert res[2]['tool_calls'] in [
-                    {'stock_price': [131.17], 'weather': None},
-                    {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']},
-                ]
-
-            print('Checking random question')
-            if tool_choice is None or tool_choice.auto:
-                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': None}
-            elif tool_choice.tool == 'stock_price':
-                assert res[3]['tool_calls'] == {'stock_price': [0.0], 'weather': None}
-            elif tool_choice.tool == 'weather':
-                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': ['Unknown city']}
-            else:
-                assert res[3]['tool_calls'] in [
-                    {'stock_price': [0.0], 'weather': None},
-                    {'stock_price': None, 'weather': ['Unknown city']},
-                ]
-
-            print('Checking multiple stock prices question')
-            if tool_choice is None or tool_choice.auto:
-                # If you specify an explicit tool, it seems to only call it once.
-                assert res[4]['tool_calls'] == {'stock_price': [131.17, 82.88], 'weather': None}
+        run_tool_invocations_test(make_table, test_tool_choice=True, test_individual_tool_choice=True)
 
     def test_custom_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
@@ -298,7 +194,7 @@ class TestOpenai:
 
     def test_nullary_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
@@ -317,7 +213,7 @@ class TestOpenai:
     @pytest.mark.parametrize('as_retrieval_udf', [False, True])
     def test_query_as_tool(self, as_retrieval_udf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('customer_tbl', {'customer_id': pxt.String, 'name': pxt.String})
@@ -358,11 +254,11 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'img': pxt.Image})
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, vision
         from pixeltable.functions.string import format
 
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'img': pxt.Image})
         t.add_computed_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
         # Also get the response the low-level way, by calling chat_completions
         msgs = [
@@ -388,7 +284,7 @@ class TestOpenai:
 
     def test_embeddings(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -424,10 +320,10 @@ class TestOpenai:
 
     def test_moderations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import moderations
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(moderation=moderations(input=t.input))
         t.add_computed_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
         validate_update_status(t.insert(input='Say something interesting.'), 1)
@@ -436,10 +332,10 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_image_generations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import image_generations
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(img=image_generations(t.input))
         # Test dall-e-2 options
         t.add_computed_column(
@@ -457,11 +353,11 @@ class TestOpenai:
     @pytest.mark.skip('Test is expensive and slow')
     def test_image_generations_dall_e_3(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import image_generations
 
         # Test dall-e-3 options
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(
             img_3=image_generations(
                 t.input, model='dall-e-3', quality='hd', size='1792x1024', style='natural', user='pixeltable'
@@ -473,7 +369,7 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_table_udf_tools(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         # Register tools
@@ -592,14 +488,3 @@ class TestOpenai:
         r2 = manager.select(manager.answer).collect()
         assert len(r2) == 2
         assert any('Apple' in answer for answer in r2['answer'])
-
-    # This ensures that the test will be skipped, rather than returning an error, when no API key is
-    # available (for example, when a PR runs in CI).
-    @staticmethod
-    def skip_test_if_no_openai_client() -> None:
-        try:
-            import pixeltable.functions.openai
-
-            _ = pixeltable.functions.openai._openai_client()
-        except excs.Error as exc:
-            pytest.skip(str(exc))
