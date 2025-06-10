@@ -111,10 +111,6 @@ class TableVersionPath:
     def is_snapshot(self) -> bool:
         """Return True if this is a path of snapshot versions"""
         return self.tbl_version.is_snapshot
-        # self.refresh_cached_md()
-        # if not self._cached_tbl_version.is_snapshot:
-        #     return False
-        # return self.base.is_snapshot() if self.base is not None else True
 
     def is_view(self) -> bool:
         self.refresh_cached_md()

@@ -42,11 +42,9 @@ class Column:
     sa_errortype_col: Optional[sql.schema.Column]
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
-    # dependent_cols: set[Column]
     # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
     # (re-resolving it later to a different instance doesn't make sense)
     tbl: Optional[TableVersion]
-    # tbl: Optional[TableVersionHandle]
 
     def __init__(
         self,
