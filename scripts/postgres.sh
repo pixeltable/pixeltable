@@ -5,5 +5,5 @@ POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdou
 if [ -z "$PIXELTABLE_HOME" ]; then
     PIXELTABLE_HOME=~/.pixeltable
 fi
-PIXELTABLE_URL="postgresql://postgres:@/pixeltable?host=$PIXELTABLE_HOME/pgdata"
+PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
 "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres "$@"

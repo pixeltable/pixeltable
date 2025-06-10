@@ -47,7 +47,6 @@ class StoreBase:
         self.tbl_version = catalog.TableVersionHandle(
             tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version
         )
-        self.buffer = []
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,

@@ -146,8 +146,7 @@ class DataRow:
 
         if slot_idx is not None:
             return self.excs[slot_idx] is not None
-        else:
-            return (self.excs != None).any()
+        return (self.excs != None).any()
 
     def get_exc(self, slot_idx: int) -> Optional[Exception]:
         exc = self.excs[slot_idx]
