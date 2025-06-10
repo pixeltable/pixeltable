@@ -57,9 +57,9 @@ class TestOpenai:
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
@@ -110,9 +110,9 @@ class TestOpenai:
     def test_reasoning_models(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
@@ -133,9 +133,9 @@ class TestOpenai:
     def test_reuse_client(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        t = pxt.create_table('test_openai', {'input': pxt.String})
         from pixeltable.functions import openai
 
+        t = pxt.create_table('test_openai', {'input': pxt.String})
         messages = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(output1=openai.chat_completions(model='gpt-4o-mini', messages=messages))
         t.insert(
@@ -255,10 +255,10 @@ class TestOpenai:
     def test_gpt_4_vision(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'img': pxt.Image})
         from pixeltable.functions.openai import chat_completions, vision
         from pixeltable.functions.string import format
 
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'img': pxt.Image})
         t.add_computed_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
         # Also get the response the low-level way, by calling chat_completions
         msgs = [
@@ -321,9 +321,9 @@ class TestOpenai:
     def test_moderations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import moderations
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(moderation=moderations(input=t.input))
         t.add_computed_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
         validate_update_status(t.insert(input='Say something interesting.'), 1)
@@ -333,9 +333,9 @@ class TestOpenai:
     def test_image_generations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import image_generations
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(img=image_generations(t.input))
         # Test dall-e-2 options
         t.add_computed_column(
@@ -354,10 +354,10 @@ class TestOpenai:
     def test_image_generations_dall_e_3(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import image_generations
 
         # Test dall-e-3 options
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(
             img_3=image_generations(
                 t.input, model='dall-e-3', quality='hd', size='1792x1024', style='natural', user='pixeltable'

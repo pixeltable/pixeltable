@@ -40,12 +40,11 @@ class TestMistral:
 
     @pytest.mark.skip(reason="Disabled until we figure out why it's failing")
     def test_fim_completions(self, reset_db: None) -> None:
-        from pixeltable.functions.mistralai import fim_completions
-
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'suffix': pxt.String})
+        from pixeltable.functions.mistralai import fim_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'suffix': pxt.String})
         t.add_computed_column(output=fim_completions(prompt=t.input, model='codestral-latest'))
         t.add_computed_column(
             output2=fim_completions(
@@ -75,12 +74,11 @@ class TestMistral:
                 assert len(results[out_col][i]['choices'][0]['message']['content']) > 0
 
     def test_embeddings(self, reset_db: None) -> None:
-        from pixeltable.functions.mistralai import embeddings
-
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        from pixeltable.functions.mistralai import embeddings
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(embed=embeddings(t.input, model='mistral-embed'))
         validate_update_status(t.insert(input='A chunk of text that will be embedded.'), 1)
         assert isinstance(t.embed.col_type, ts.ArrayType)

@@ -12,9 +12,9 @@ class TestFireworks:
     def test_fireworks(self, reset_db: None) -> None:
         skip_test_if_not_installed('fireworks')
         skip_test_if_no_client('fireworks')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.fireworks import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
             output=chat_completions(messages=messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
