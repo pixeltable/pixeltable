@@ -3,7 +3,7 @@ import pytest
 import pixeltable as pxt
 
 from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_aws_credentials, skip_test_if_not_installed, stock_price
+from ..utils import skip_test_if_no_aws_credentials, skip_test_if_not_installed
 from .tool_utils import run_tool_invocations_test
 
 
