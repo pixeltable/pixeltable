@@ -107,18 +107,18 @@ class Table(SchemaObject):
 
     def _get_metadata(self) -> dict[str, Any]:
         md = super()._get_metadata()
-        base = self._base_table()
+        base = self._get_base_table()
         md['base'] = base._path() if base is not None else None
-        md['schema'] = self._schema()
+        md['schema'] = self._get_schema()
         md['is_replica'] = self._tbl_version_path.is_replica()
-        md['version'] = self._version()
+        md['version'] = self._get_version()
         md['schema_version'] = self._tbl_version_path.schema_version()
-        md['comment'] = self._comment()
-        md['num_retained_versions'] = self._num_retained_versions()
-        md['media_validation'] = self._media_validation().name.lower()
+        md['comment'] = self._get_comment()
+        md['num_retained_versions'] = self._get_num_retained_versions()
+        md['media_validation'] = self._get_media_validation().name.lower()
         return md
 
-    def _version(self) -> int:
+    def _get_version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
 
@@ -272,27 +272,27 @@ class Table(SchemaObject):
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
-    def _schema(self) -> dict[str, ts.ColumnType]:
+    def _get_schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
-    def base_table(self) -> Optional['Table']:
+    def get_base_table(self) -> Optional['Table']:
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(for_write=False):
-            return self._base_table()
+            return self._get_base_table()
 
     @abc.abstractmethod
-    def _base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> Optional['Table']:
         """The base's Table instance. Requires a transaction context"""
 
-    def _base_tables(self) -> list['Table']:
+    def _get_base_tables(self) -> list['Table']:
         """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
         bases: list[Table] = []
-        base = self._base_table()
+        base = self._get_base_table()
         while base is not None:
             bases.append(base)
-            base = base._base_table()
+            base = base._get_base_table()
         return bases
 
     @property
@@ -300,13 +300,13 @@ class Table(SchemaObject):
     def _effective_base_versions(self) -> list[Optional[int]]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
-    def _comment(self) -> str:
+    def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
 
-    def _num_retained_versions(self) -> int:
+    def _get_num_retained_versions(self) -> int:
         return self._tbl_version_path.num_retained_versions()
 
-    def _media_validation(self) -> MediaValidation:
+    def _get_media_validation(self) -> MediaValidation:
         return self._tbl_version_path.media_validation()
 
     def __repr__(self) -> str:
@@ -331,8 +331,8 @@ class Table(SchemaObject):
             stores = self._external_store_descriptor()
             if not stores.empty:
                 helper.append(stores)
-            if self._comment():
-                helper.append(f'COMMENT: {self._comment()}')
+            if self._get_comment():
+                helper.append(f'COMMENT: {self._get_comment()}')
             return helper
 
     def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
@@ -403,7 +403,7 @@ class Table(SchemaObject):
     def _column_has_dependents(self, col: Column) -> bool:
         """Returns True if the column has dependents, False otherwise."""
         assert col is not None
-        assert col.name in self._schema()
+        assert col.name in self._get_schema()
         cat = catalog.Catalog.get()
         if any(c.name is not None for c in cat.get_column_dependents(col.tbl.id, col.id)):
             return True
@@ -420,7 +420,7 @@ class Table(SchemaObject):
         If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_names`.
         """
         assert self._tbl_version is not None
-        existing_col_names = set(self._schema().keys())
+        existing_col_names = set(self._get_schema().keys())
         cols_to_ignore = []
         for new_col_name in new_col_names:
             if new_col_name in existing_col_names:
@@ -1557,7 +1557,7 @@ class Table(SchemaObject):
         return sync_status
 
     def __dir__(self) -> list[str]:
-        return list(super().__dir__()) + list(self._schema().keys())
+        return list(super().__dir__()) + list(self._get_schema().keys())
 
     def _ipython_key_completions_(self) -> list[str]:
-        return list(self._schema().keys())
+        return list(self._get_schema().keys())

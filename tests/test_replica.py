@@ -105,5 +105,5 @@ class TestReplica:
         r51 = pxt.get_table('replica_s51')
 
         with Catalog.get().begin_xact(for_write=False):
-            assert len(r51._base_tables()) == 4
-            assert len(r61._base_tables()) == 6
+            assert len(r51._get_base_tables()) == 4
+            assert len(r61._get_base_tables()) == 6

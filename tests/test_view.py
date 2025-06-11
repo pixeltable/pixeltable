@@ -426,7 +426,7 @@ class TestView:
         check_views()
 
         # insert data: of 20 new rows; 10 show up in v1, 5 in v2
-        base_version, v1_version, v2_version = t._version(), v1._version(), v2._version()
+        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
         status = t.insert(rows)
         assert status.num_rows == 20 + 10 + 5
@@ -434,57 +434,57 @@ class TestView:
         assert v1.count() == 20
         assert v2.count() == 10
         # all versions were incremented
-        assert t._version() == base_version + 1
-        assert v1._version() == v1_version + 1
-        assert v2._version() == v2_version + 1
+        assert t._get_version() == base_version + 1
+        assert v1._get_version() == v1_version + 1
+        assert v2._get_version() == v2_version + 1
         check_views()
 
         # update data: cascade to both views
-        base_version, v1_version, v2_version = t._version(), v1._version(), v2._version()
+        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
         assert status.num_rows == 30 + 20 + 10
         assert t.count() == 120
         # all versions were incremented
-        assert t._version() == base_version + 1
-        assert v1._version() == v1_version + 1
-        assert v2._version() == v2_version + 1
+        assert t._get_version() == base_version + 1
+        assert v1._get_version() == v1_version + 1
+        assert v2._get_version() == v2_version + 1
         check_views()
 
         # update data: cascade only to v2
-        base_version, v1_version, v2_version = t._version(), v1._version(), v2._version()
+        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
         assert status.num_rows == 30 + 10
         assert t.count() == 120
         # v1 did not get updated
-        assert t._version() == base_version + 1
-        assert v1._version() == v1_version
-        assert v2._version() == v2_version + 1
+        assert t._get_version() == base_version + 1
+        assert v1._get_version() == v1_version
+        assert v2._get_version() == v2_version + 1
         check_views()
 
         # base table delete is reflected in both views
-        base_version, v1_version, v2_version = t._version(), v1._version(), v2._version()
+        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.delete(where=t.c2 == 0)
         assert status.num_rows == (1 + 1 + 1) * 2
         assert t.count() == 118
         assert v1.count() == 18
         assert v2.count() == 8
         # all versions were incremented
-        assert t._version() == base_version + 1
-        assert v1._version() == v1_version + 1
-        assert v2._version() == v2_version + 1
+        assert t._get_version() == base_version + 1
+        assert v1._get_version() == v1_version + 1
+        assert v2._get_version() == v2_version + 1
         check_views()
 
         # base table delete is reflected only in v1
-        base_version, v1_version, v2_version = t._version(), v1._version(), v2._version()
+        base_version, v1_version, v2_version = t._get_version(), v1._get_version(), v2._get_version()
         status = t.delete(where=t.c2 == 5)
         assert status.num_rows == (1 + 1) * 2
         assert t.count() == 116
         assert v1.count() == 16
         assert v2.count() == 8
         # v2 was not updated
-        assert t._version() == base_version + 1
-        assert v1._version() == v1_version + 1
-        assert v2._version() == v2_version
+        assert t._get_version() == base_version + 1
+        assert v1._get_version() == v1_version + 1
+        assert v2._get_version() == v2_version
         check_views()
 
     def test_unstored_columns_non_image(self, reset_db: None) -> None:
@@ -802,11 +802,11 @@ class TestView:
         # create view with filter and computed columns
         schema = {'v1': s.c3 * 2.0, 'v2': s.c6.f5}
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
-        orig_view_cols = v._schema().keys()
+        orig_view_cols = v._get_schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
         with catalog.Catalog.get().begin_xact(for_write=False):
             _ = catalog.Catalog.get().load_replica_md(view_s)
-        assert set(view_s._schema().keys()) == set(orig_view_cols)
+        assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
             assert s1.where(s1.c2 < 10).count() == v.count()
@@ -826,14 +826,14 @@ class TestView:
         v.add_computed_column(v3=v.v1 * 2.0)
         v.add_computed_column(v4=v.v2[0])
         check(s, v, view_s)
-        assert set(view_s._schema().keys()) == set(orig_view_cols)
+        assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         # check md after reload
         reload_catalog()
         t = pxt.get_table('test_tbl')
         view_s = pxt.get_table('test_view_snap')
         check(s, v, view_s)
-        assert set(view_s._schema().keys()) == set(orig_view_cols)
+        assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         # insert data: no changes to snapshot
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())

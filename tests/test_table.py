@@ -267,7 +267,7 @@ class TestTable:
                 'num_retained_versions': 10,
                 'media_validation': media_val,
                 'path': tbl_path,
-                'schema': tbl._schema(),
+                'schema': tbl._get_schema(),
                 'schema_version': 0,
                 'version': 0,
             }
@@ -282,7 +282,7 @@ class TestTable:
                 'num_retained_versions': 10,
                 'media_validation': media_val,
                 'path': view_path,
-                'schema': view._schema(),
+                'schema': view._get_schema(),
                 'schema_version': 0,
                 'version': 0,
             }
@@ -297,7 +297,7 @@ class TestTable:
                 'num_retained_versions': 10,
                 'media_validation': media_val,
                 'path': snap_path,
-                'schema': snap._schema(),
+                'schema': snap._get_schema(),
                 'schema_version': 0,
                 'version': 0,
             }
@@ -409,7 +409,7 @@ class TestTable:
         t = pxt.get_table('test_tbl')
         df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=df1)
-        assert t1._schema() == df1.schema
+        assert t1._get_schema() == df1.schema
         assert t1.collect() == df1.collect()
 
         from pixeltable.functions import sum
@@ -417,7 +417,7 @@ class TestTable:
         t.add_computed_column(c2mod=t.c2 % 5)
         df2 = t.group_by(t.c2mod).select(t.c2mod, sum(t.c2))
         t2 = pxt.create_table('test2', source=df2)
-        assert t2._schema() == df2.schema
+        assert t2._get_schema() == df2.schema
         assert t2.collect() == df2.collect()
 
         with pytest.raises(excs.Error, match='must be a non-empty dictionary'):
@@ -427,7 +427,7 @@ class TestTable:
         t = pxt.get_table('test_tbl')
         df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=df1)
-        assert t1._schema() == df1.schema
+        assert t1._get_schema() == df1.schema
         assert t1.collect() == df1.collect()
 
         t1.insert(df1)
@@ -509,7 +509,7 @@ class TestTable:
         }
         expected_schema.update({f'added_{col_name}': col_type for col_name, col_type in expected_schema.items()})
 
-        assert t._schema() == expected_schema
+        assert t._get_schema() == expected_schema
 
         expected_strings = [
             'String',
@@ -1675,21 +1675,21 @@ class TestTable:
 
     def test_revert(self, reset_db: None) -> None:
         t1 = make_tbl('test1', ['c1', 'c2'])
-        assert t1._version() == 0
+        assert t1._get_version() == 0
         rows1 = create_table_data(t1)
         t1.insert(rows1)
         assert t1.count() == len(rows1)
-        assert t1._version() == 1
+        assert t1._get_version() == 1
         rows2 = create_table_data(t1)
         t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
-        assert t1._version() == 2
+        assert t1._get_version() == 2
         t1.revert()
         assert t1.count() == len(rows1)
-        assert t1._version() == 1
+        assert t1._get_version() == 1
         t1.insert(rows2)
         assert t1.count() == len(rows1) + len(rows2)
-        assert t1._version() == 2
+        assert t1._get_version() == 2
 
         # can't revert past version 0
         t1.revert()

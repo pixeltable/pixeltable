@@ -190,7 +190,7 @@ class InsertableTable(Table):
 
     def _validate_input_rows(self, rows: list[dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
-        valid_col_names = set(self._schema().keys())
+        valid_col_names = set(self._get_schema().keys())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get().get_required_col_names())
         computed_col_names = set(self._tbl_version_path.tbl_version.get().get_computed_col_names())
         for row in rows:
@@ -235,7 +235,7 @@ class InsertableTable(Table):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             return self._tbl_version.get().delete(where=where)
 
-    def _base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> Optional['Table']:
         return None
 
     @property

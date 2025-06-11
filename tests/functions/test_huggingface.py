@@ -66,12 +66,12 @@ class TestHuggingface:
             t.add_computed_column(
                 **{col_name: sentence_transformer(t.input, model_id=model_id, normalize_embeddings=True)}
             )
-            assert t._schema()[col_name].is_array_type()
+            assert t._get_schema()[col_name].is_array_type()
             list_col_name = f'embed_list{idx}'
             t.add_computed_column(
                 **{list_col_name: sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)}
             )
-            assert t._schema()[list_col_name] == ts.JsonType(nullable=True)
+            assert t._get_schema()[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
@@ -107,10 +107,10 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
             t.add_computed_column(**{col_name: cross_encoder(t.input, t.input, model_id=model_id)})
-            assert t._schema()[col_name] == ts.FloatType(nullable=True)
+            assert t._get_schema()[col_name] == ts.FloatType(nullable=True)
             list_col_name = f'embed_list{idx}'
             t.add_computed_column(**{list_col_name: cross_encoder_list(t.input, t.input_list, model_id=model_id)})
-            assert t._schema()[list_col_name] == ts.JsonType(nullable=True)
+            assert t._get_schema()[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx in range(len(model_ids)):
@@ -144,10 +144,10 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed_text{idx}'
             t.add_computed_column(**{col_name: clip(t.text, model_id=model_id)})
-            assert t._schema()[col_name].is_array_type()
+            assert t._get_schema()[col_name].is_array_type()
             col_name = f'embed_img{idx}'
             t.add_computed_column(**{col_name: clip(t.img, model_id=model_id)})
-            assert t._schema()[col_name].is_array_type()
+            assert t._get_schema()[col_name].is_array_type()
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx, _ in enumerate(model_ids):

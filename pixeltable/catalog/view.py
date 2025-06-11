@@ -291,7 +291,7 @@ class View(Table):
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')
 
-    def _base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> Optional['Table']:
         # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
         # for the snapshot itself)
         base_id = self._tbl_version_path.tbl_id if self._snapshot_only else self._tbl_version_path.base.tbl_id
@@ -309,7 +309,7 @@ class View(Table):
         display_name = 'Snapshot' if self._snapshot_only else 'View'
         result = [f'{display_name} {self._path()!r}']
         bases_descrs: list[str] = []
-        for base, effective_version in zip(self._base_tables(), self._effective_base_versions):
+        for base, effective_version in zip(self._get_base_tables(), self._effective_base_versions):
             if effective_version is None:
                 bases_descrs.append(f'{base._path()!r}')
             else:
