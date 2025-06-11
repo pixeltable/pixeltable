@@ -31,7 +31,10 @@ def _groq_client() -> 'groq.AsyncGroq':
 
 @pxt.udf(resource_pool='request-rate:groq')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None,
+    messages: list[dict[str, str]],
+    *,
+    model: str,
+    model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
