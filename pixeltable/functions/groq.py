@@ -8,8 +8,11 @@ the [Working with Groq](https://pixeltable.readme.io/docs/working-with-groq) tut
 from typing import TYPE_CHECKING, Any, Optional
 
 import pixeltable as pxt
+from pixeltable import exprs
 from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
+
+from .openai import _openai_response_to_pxt_tool_calls
 
 if TYPE_CHECKING:
     import groq
@@ -28,7 +31,9 @@ def _groq_client() -> 'groq.AsyncGroq':
 
 @pxt.udf(resource_pool='request-rate:groq')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Chat Completion API.
@@ -64,12 +69,33 @@ async def chat_completions(
         model_kwargs = {}
 
     Env.get().require_package('groq')
+
+    if tools is not None:
+        model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
+
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            model_kwargs['tool_choice'] = 'auto'
+        elif tool_choice['required']:
+            model_kwargs['tool_choice'] = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
+
+    if tool_choice is not None and not tool_choice['parallel_tool_calls']:
+        model_kwargs['parallel_tool_calls'] = False
+
     result = await _groq_client().chat.completions.create(
         messages=messages,  # type: ignore[arg-type]
         model=model,
         **model_kwargs,
     )
     return result.model_dump()
+
+
+def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
 
 
 __all__ = local_public_names(__name__)
