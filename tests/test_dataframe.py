@@ -303,7 +303,7 @@ class TestDataFrame:
         print(res[0]['get_lim'])
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
 
-        with pytest.raises(excs.Error, match='must be of type int'):
+        with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.limit(5.3).collect()  # type: ignore[arg-type]
 
         v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})

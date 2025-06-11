@@ -42,6 +42,12 @@ class SchemaObject:
 
     def get_metadata(self) -> dict[str, Any]:
         """Returns metadata associated with this schema object."""
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(for_write=False):
+            return self._get_metadata()
+
+    def _get_metadata(self) -> dict[str, Any]:
         return {'name': self._name, 'path': self._path()}
 
     @classmethod

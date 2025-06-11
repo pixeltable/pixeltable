@@ -29,6 +29,7 @@ from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_syst
 from pixeltable.catalog import Catalog, is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
+from pixeltable.plan import Planner, SampleClause
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
@@ -174,6 +175,7 @@ class DataFrame:
     grouping_tbl: Optional[catalog.TableVersion]
     order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
     limit_val: Optional[exprs.Expr]
+    sample_clause: Optional[SampleClause]
 
     def __init__(
         self,
@@ -184,6 +186,7 @@ class DataFrame:
         grouping_tbl: Optional[catalog.TableVersion] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
         limit: Optional[exprs.Expr] = None,
+        sample_clause: Optional[SampleClause] = None,
     ):
         self._from_clause = from_clause
 
@@ -203,6 +206,7 @@ class DataFrame:
         self.grouping_tbl = grouping_tbl
         self.order_by_clause = copy.deepcopy(order_by_clause)
         self.limit_val = limit
+        self.sample_clause = sample_clause
 
     @classmethod
     def _normalize_select_list(
@@ -245,8 +249,7 @@ class DataFrame:
 
     @property
     def _first_tbl(self) -> catalog.TableVersionPath:
-        assert len(self._from_clause.tbls) == 1
-        return self._from_clause.tbls[0]
+        return self._from_clause._first_tbl
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
@@ -270,6 +273,36 @@ class DataFrame:
             elif unique_vars[var.name].col_type != var.col_type:
                 raise excs.Error(f'Multiple definitions of parameter {var.name}')
         return unique_vars
+
+    @classmethod
+    def _convert_param_to_typed_expr(
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
+    ) -> Optional[exprs.Expr]:
+        if v is None:
+            if required:
+                raise excs.Error(f'{name!r} parameter must be present')
+            return v
+        v_expr = exprs.Expr.from_object(v)
+        if not v_expr.col_type.matches(required_type):
+            raise excs.Error(f'{name!r} parameter must be of type {required_type!r}, instead of {v_expr.col_type}')
+        if range is not None:
+            if not isinstance(v_expr, exprs.Literal):
+                raise excs.Error(f'{name!r} parameter must be a constant, not {v_expr}')
+            if range[0] is not None and not (v_expr.val >= range[0]):
+                raise excs.Error(f'{name!r} parameter must be >= {range[0]}')
+            if range[1] is not None and not (v_expr.val <= range[1]):
+                raise excs.Error(f'{name!r} parameter must be <= {range[1]}')
+        return v_expr
+
+    @classmethod
+    def validate_constant_type_range(
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
+    ) -> Any:
+        """Validate that the given named parameter is a constant of the required type and within the specified range."""
+        v_expr = cls._convert_param_to_typed_expr(v, required_type, required, name, range)
+        if v_expr is None:
+            return None
+        return v_expr.val
 
     def parameters(self) -> dict[str, ColumnType]:
         """Return a dict mapping parameter name to parameter type.
@@ -315,7 +348,7 @@ class DataFrame:
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
             assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-            group_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
+            group_by_clause = self.__rowid_columns(num_rowid_cols)
         elif self.group_by_clause is not None:
             group_by_clause = self.group_by_clause
 
@@ -327,14 +360,21 @@ class DataFrame:
             self._select_list_exprs,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
-            order_by_clause=self.order_by_clause if self.order_by_clause is not None else [],
+            order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            sample_clause=self.sample_clause,
         )
+
+    def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
+        """Return list of RowidRef for the given number of associated rowids"""
+        return Planner.rowid_columns(self._first_tbl.tbl_version, num_rowid_cols)
 
     def _has_joins(self) -> bool:
         return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> DataFrameResultSet:
+        if self.sample_clause is not None:
+            raise excs.Error('show() cannot be used with sample()')
         assert n is not None
         return self.limit(n).collect()
 
@@ -357,6 +397,8 @@ class DataFrame:
             raise excs.Error('head() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error('head() not supported for joins')
+        if self.sample_clause is not None:
+            raise excs.Error('head() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.Error('head() cannot be used with group_by()')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
@@ -382,6 +424,8 @@ class DataFrame:
             raise excs.Error('tail() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error('tail() not supported for joins')
+        if self.sample_clause is not None:
+            raise excs.Error('tail() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.Error('tail() cannot be used with group_by()')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
@@ -466,7 +510,9 @@ class DataFrame:
         raise excs.Error(msg) from e
 
     def _output_row_iterator(self) -> Iterator[list]:
-        with Catalog.get().begin_xact(for_write=False):
+        # TODO: extend begin_xact() to accept multiple TVPs for joins
+        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
+        with Catalog.get().begin_xact(tbl=single_tbl, for_write=False):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
@@ -498,7 +544,7 @@ class DataFrame:
 
         from pixeltable.plan import Planner
 
-        with Catalog.get().begin_xact(for_write=False) as conn:
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
             stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
@@ -545,6 +591,9 @@ class DataFrame:
         if self.limit_val is not None:
             heading_vals.append('Limit')
             info_vals.append(self.limit_val.display_str(inline=False))
+        if self.sample_clause is not None:
+            heading_vals.append('Sample')
+            info_vals.append(self.sample_clause.display_str(inline=False))
         assert len(heading_vals) == len(info_vals)
         return pd.DataFrame(info_vals, index=heading_vals)
 
@@ -679,6 +728,8 @@ class DataFrame:
         """
         if self.where_clause is not None:
             raise excs.Error('Where clause already specified')
+        if self.sample_clause is not None:
+            raise excs.Error('where cannot be used after sample()')
         if not isinstance(pred, exprs.Expr):
             raise excs.Error(f'Where() requires a Pixeltable expression, but instead got {type(pred)}')
         if not pred.col_type.is_bool_type():
@@ -806,6 +857,8 @@ class DataFrame:
 
             >>> df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        if self.sample_clause is not None:
+            raise excs.Error('join() cannot be used with sample()')
         join_pred: Optional[exprs.Expr]
         if how == 'cross':
             if on is not None:
@@ -873,6 +926,9 @@ class DataFrame:
         """
         if self.group_by_clause is not None:
             raise excs.Error('Group-by already specified')
+        if self.sample_clause is not None:
+            raise excs.Error('group_by() cannot be used with sample()')
+
         grouping_tbl: Optional[catalog.TableVersion] = None
         group_by_clause: Optional[list[exprs.Expr]] = None
         for item in grouping_items:
@@ -884,7 +940,7 @@ class DataFrame:
                 grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self._first_tbl.find_tbl_version(grouping_tbl.id)
-                if base is None or base.id == self._first_tbl.tbl_id():
+                if base is None or base.id == self._first_tbl.tbl_id:
                     raise excs.Error(
                         f'group_by(): {grouping_tbl.name} is not a base table of {self._first_tbl.tbl_name()}'
                     )
@@ -956,6 +1012,8 @@ class DataFrame:
 
             >>> df = book.order_by(t.price, asc=False).order_by(t.pages)
         """
+        if self.sample_clause is not None:
+            raise excs.Error('group_by() cannot be used with sample()')
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
                 raise excs.Error(f'Invalid expression in order_by(): {e}')
@@ -980,10 +1038,10 @@ class DataFrame:
         Returns:
             A new DataFrame with the specified limited rows.
         """
-        assert n is not None
-        n = exprs.Expr.from_object(n)
-        if not n.col_type.is_int_type():
-            raise excs.Error(f'limit(): parameter must be of type int, instead of {n.col_type}')
+        if self.sample_clause is not None:
+            raise excs.Error('limit() cannot be used with sample()')
+
+        limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         return DataFrame(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -991,7 +1049,124 @@ class DataFrame:
             group_by_clause=self.group_by_clause,
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
-            limit=n,
+            limit=limit_expr,
+        )
+
+    def sample(
+        self,
+        n: Optional[int] = None,
+        n_per_stratum: Optional[int] = None,
+        fraction: Optional[float] = None,
+        seed: Optional[int] = None,
+        stratify_by: Any = None,
+    ) -> DataFrame:
+        """
+        Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.
+
+        The size of the sample can be specified in three ways:
+
+        - `n`: the total number of rows to produce as a sample
+        - `n_per_stratum`: the number of rows to produce per stratum as a sample
+        - `fraction`: the fraction of available rows to produce as a sample
+
+        The sample can be stratified by one or more columns, which means that the sample will
+        be selected from each stratum separately.
+
+        The data is shuffled before creating the sample.
+
+        Args:
+            n: Total number of rows to produce as a sample.
+            n_per_stratum: Number of rows to produce per stratum as a sample. This parameter is only valid if
+                `stratify_by` is specified. Only one of `n` or `n_per_stratum` can be specified.
+            fraction: Fraction of available rows to produce as a sample. This parameter is not usable with `n` or
+                `n_per_stratum`. The fraction must be between 0.0 and 1.0.
+            seed: Random seed for reproducible shuffling
+            stratify_by: If specified, the sample will be stratified by these values.
+
+        Returns:
+            A new DataFrame which specifies the sampled rows
+
+        Examples:
+            Given the Table `person` containing the field 'age', we can create samples of the table in various ways:
+
+            Sample 100 rows from the above Table:
+
+            >>> df = person.sample(n=100)
+
+            Sample 10% of the rows from the above Table:
+
+            >>> df = person.sample(fraction=0.1)
+
+            Sample 10% of the rows from the above Table, stratified by the column 'age':
+
+            >>> df = person.sample(fraction=0.1, stratify_by=t.age)
+
+            Equal allocation sampling: Sample 2 rows from each age present in the above Table:
+
+            >>> df = person.sample(n_per_stratum=2, stratify_by=t.age)
+
+            Sampling is compatible with the where clause, so we can also sample from a filtered DataFrame:
+
+            >>> df = person.where(t.age > 30).sample(n=100)
+        """
+        # Check context of usage
+        if self.sample_clause is not None:
+            raise excs.Error('sample() cannot be used with sample()')
+        if self.group_by_clause is not None:
+            raise excs.Error('sample() cannot be used with group_by()')
+        if self.order_by_clause is not None:
+            raise excs.Error('sample() cannot be used with order_by()')
+        if self.limit_val is not None:
+            raise excs.Error('sample() cannot be used with limit()')
+        if self._has_joins():
+            raise excs.Error('sample() cannot be used with join()')
+
+        # Check paramter combinations
+        if (n is not None) + (n_per_stratum is not None) + (fraction is not None) != 1:
+            raise excs.Error('Exactly one of `n`, `n_per_stratum`, or `fraction` must be specified.')
+        if n_per_stratum is not None and stratify_by is None:
+            raise excs.Error('Must specify `stratify_by` to use `n_per_stratum`')
+
+        # Check parameter types and values
+        n = self.validate_constant_type_range(n, ts.IntType(nullable=False), False, 'n', (1, None))
+        n_per_stratum = self.validate_constant_type_range(
+            n_per_stratum, ts.IntType(nullable=False), False, 'n_per_stratum', (1, None)
+        )
+        fraction = self.validate_constant_type_range(
+            fraction, ts.FloatType(nullable=False), False, 'fraction', (0.0, 1.0)
+        )
+        seed = self.validate_constant_type_range(seed, ts.IntType(nullable=False), False, 'seed')
+
+        # analyze stratify list
+        stratify_exprs: list[exprs.Expr] = []
+        if stratify_by is not None:
+            if isinstance(stratify_by, exprs.Expr):
+                stratify_by = [stratify_by]
+            if not isinstance(stratify_by, (list, tuple)):
+                raise excs.Error('`stratify_by` must be a list of scalar expressions')
+            for expr in stratify_by:
+                if expr is None or not isinstance(expr, exprs.Expr):
+                    raise excs.Error(f'Invalid expression: {expr}')
+                if not expr.col_type.is_scalar_type():
+                    raise excs.Error(f'Invalid type: expression must be a scalar type (not {expr.col_type})')
+                if not expr.is_bound_by(self._from_clause.tbls):
+                    raise excs.Error(
+                        f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
+                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
+                    )
+                stratify_exprs.append(expr)
+
+        sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
+
+        return DataFrame(
+            from_clause=self._from_clause,
+            select_list=self.select_list,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
+            sample_clause=sample_clause,
         )
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
@@ -1023,8 +1198,7 @@ class DataFrame:
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        tbl_id = self._first_tbl.tbl_id()
-        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True):
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
@@ -1047,8 +1221,7 @@ class DataFrame:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot delete from view')
-        tbl_id = self._first_tbl.tbl_id()
-        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True):
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
@@ -1090,6 +1263,7 @@ class DataFrame:
             if self.order_by_clause is not None
             else None,
             'limit_val': self.limit_val.as_dict() if self.limit_val is not None else None,
+            'sample_clause': self.sample_clause.as_dict() if self.sample_clause is not None else None,
         }
         return d
 
@@ -1116,6 +1290,7 @@ class DataFrame:
                 else None
             )
             limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+            sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
             return DataFrame(
                 from_clause=from_clause,
@@ -1125,6 +1300,7 @@ class DataFrame:
                 grouping_tbl=grouping_tbl,
                 order_by_clause=order_by_clause,
                 limit=limit_val,
+                sample_clause=sample_clause,
             )
 
     def _hash_result_set(self) -> str:
@@ -1166,7 +1342,8 @@ class DataFrame:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            with Catalog.get().begin_xact(for_write=False):
+            # TODO: extend begin_xact() to accept multiple TVPs for joins
+            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1211,7 +1388,7 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with Catalog.get().begin_xact(for_write=False):
+            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
                 export_parquet(self, dest_path, inline_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

@@ -53,8 +53,8 @@ async def generate_content(
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. For details on the parameters, see:
             <https://googleapis.github.io/python-genai/genai.html#module-genai.types>
-        tools: Optional list of Pixeltable tools to use. It is also possible to specify tools manually via the
-            `config.tools` parameter, but at most one of `config.tools` or `tools` may be used.
+        tools: An optional list of Pixeltable tools to use. It is also possible to specify tools manually via the
+            `config['tools']` parameter, but at most one of `config['tools']` or `tools` may be used.
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -103,7 +103,6 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
-    print(response)
     pxt_tool_calls: dict[str, list[dict]] = {}
     for part in response['candidates'][0]['content']['parts']:
         tool_call = part.get('function_call')

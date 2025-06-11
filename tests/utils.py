@@ -23,6 +23,8 @@ from pixeltable.env import Env
 from pixeltable.io import SyncStatus
 from pixeltable.utils import sha256sum
 
+TESTS_DIR = Path(os.path.dirname(__file__))
+
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
     if t == ts.ColumnType.Type.STRING:
@@ -88,7 +90,7 @@ def create_table_data(
     if len(col_names) == 0:
         col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
 
-    col_types = t._schema
+    col_types = t._get_schema()
     for col_name in col_names:
         col_type = col_types[col_name]
         col_data: Any = None
@@ -275,8 +277,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[
     """
     if path_col_names is None:
         path_col_names = []
-    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
-    glob_result = glob.glob(f'{tests_dir}/**/{dir_name}', recursive=True)
+    glob_result = glob.glob(f'{TESTS_DIR}/**/{dir_name}', recursive=True)
     assert len(glob_result) == 1, f'Could not find {dir_name}'
     abs_path = Path(glob_result[0])
     data_file_path = abs_path / file_name
@@ -289,8 +290,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[
 
 
 def get_video_files(include_bad_video: bool = False) -> list[str]:
-    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
-    glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
+    glob_result = glob.glob(f'{TESTS_DIR}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
 
@@ -300,8 +300,7 @@ def get_video_files(include_bad_video: bool = False) -> list[str]:
 
 
 def get_test_video_files() -> list[str]:
-    tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
-    glob_result = glob.glob(f'{tests_dir}/**/test_videos/*', recursive=True)
+    glob_result = glob.glob(f'{TESTS_DIR}/**/test_videos/*', recursive=True)
     return glob_result
 
 
@@ -316,8 +315,7 @@ __IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
 def get_image_files(include_bad_image: bool = False) -> list[str]:
     global __IMAGE_FILES, __IMAGE_FILES_WITH_BAD_IMAGE  # noqa: PLW0603
     if not __IMAGE_FILES:
-        tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
-        img_files_path = Path(tests_dir) / 'data' / 'imagenette2-160'
+        img_files_path = TESTS_DIR / 'data' / 'imagenette2-160'
         glob_result = glob.glob(f'{img_files_path}/*.JPEG')
         assert len(glob_result) > 1000
         bad_image = next(f for f in glob_result if 'bad_image' in f)
@@ -367,8 +365,7 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
 
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
-    tests_dir = Path(os.path.dirname(__file__))
-    audio_dir = tests_dir / 'data' / 'audio'
+    audio_dir = TESTS_DIR / 'data' / 'audio'
     glob_result = glob.glob(f'{audio_dir}/*', recursive=True)
     if not include_bad_audio:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
@@ -376,22 +373,19 @@ def get_audio_files(include_bad_audio: bool = False) -> list[str]:
 
 
 def get_audio_file(name: str) -> Optional[str]:
-    tests_dir = Path(os.path.dirname(__file__))
-    audio_dir = tests_dir / 'data' / 'audio'
+    audio_dir = TESTS_DIR / 'data' / 'audio'
     file_path = audio_dir / name
     glob_result = glob.glob(f'{file_path}', recursive=True)
     return glob_result.pop(0) if len(glob_result) > 0 else None
 
 
 def get_documents() -> list[str]:
-    tests_dir = Path(os.path.dirname(__file__))
-    docs_dir = tests_dir / 'data' / 'documents'
+    docs_dir = TESTS_DIR / 'data' / 'documents'
     return glob.glob(f'{docs_dir}/*', recursive=True)
 
 
 def get_sentences(n: int = 100) -> list[str]:
-    tests_dir = os.path.dirname(__file__)
-    path = glob.glob(f'{tests_dir}/**/jeopardy.json', recursive=True)[0]
+    path = glob.glob(f'{TESTS_DIR}/**/jeopardy.json', recursive=True)[0]
     with open(path, 'r', encoding='utf8') as f:
         questions_list = json.load(f)
     # this dataset contains \' around the questions

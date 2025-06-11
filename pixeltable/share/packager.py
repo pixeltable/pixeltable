@@ -1,4 +1,7 @@
+import base64
 import datetime
+import io
+import itertools
 import json
 import logging
 import tarfile
@@ -10,15 +13,18 @@ from typing import Any, Iterator, Optional
 from uuid import UUID
 
 import more_itertools
+import numpy as np
+import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs, metadata
+from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
+from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
@@ -46,6 +52,10 @@ class TablePackager:
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
     md: dict[str, Any]
 
+    bundle_path: Path
+    preview_header: dict[str, str]
+    preview: list[list[Any]]
+
     def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
         self.table = table
         self.tmp_dir = Path(Env.get().create_tmp_path())
@@ -67,7 +77,8 @@ class TablePackager:
         Export the table to a tarball containing Parquet tables and media files.
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
-        _logger.info(f"Packaging table '{self.table._path()}' and its ancestors in: {self.tmp_dir}")
+
+        _logger.info(f'Packaging table {self.table._path()!r} and its ancestors in: {self.tmp_dir}')
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
@@ -75,12 +86,20 @@ class TablePackager:
         self.tables_dir.mkdir()
         with catalog.Catalog.get().begin_xact(for_write=False):
             for tv in self.table._tbl_version_path.get_tbl_versions():
-                _logger.info(f"Exporting table '{tv.get().versioned_name}'.")
+                _logger.info(f'Exporting table {tv.get().versioned_name!r}.')
                 self.__export_table(tv.get())
+
         _logger.info('Building archive.')
-        bundle_path = self.__build_tarball()
-        _logger.info(f'Packaging complete: {bundle_path}')
-        return bundle_path
+        self.bundle_path = self.__build_tarball()
+
+        _logger.info('Extracting preview data.')
+        self.md['count'] = self.table.count()
+        preview_header, preview = self.__extract_preview_data()
+        self.md['preview_header'] = preview_header
+        self.md['preview'] = preview
+
+        _logger.info(f'Packaging complete: {self.bundle_path}')
+        return self.bundle_path
 
     def __export_table(self, tv: catalog.TableVersion) -> None:
         """
@@ -108,7 +127,7 @@ class TablePackager:
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
         parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
-        filter_tv = self.table._tbl_version.get()
+        filter_tv = self.table._tbl_version_path.tbl_version.get()
         row_iter = tv.store_tbl.dump_rows(tv.version, filter_tv.store_tbl, filter_tv.version)
         for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, parquet_schema):
             parquet_writer.write_table(pa_table)
@@ -206,6 +225,96 @@ class TablePackager:
             for src_file, dest_name in self.media_files.items():
                 tf.add(src_file, arcname=f'media/{dest_name}')
         return bundle_path
+
+    def __extract_preview_data(self) -> tuple[dict[str, str], list[list[Any]]]:
+        """
+        Extract a preview of the table data for display in the UI.
+
+        In order to bound the size of the output data, all "unbounded" data types are resized:
+        - Strings are abbreviated as per Formatter.abbreviate()
+        - Arrays and JSON are shortened and formatted as strings
+        - Images are resized to thumbnail size as a base64-encoded webp
+        - Videos are replaced by their first frame and resized as above
+        - Documents are replaced by a thumbnail as a base64-encoded webp
+        """
+        # First 8 columns
+        preview_cols = dict(itertools.islice(self.table._get_schema().items(), 0, 8))
+        select_list = [self.table[col_name] for col_name in preview_cols]
+        # First 5 rows
+        rows = list(self.table.select(*select_list).head(n=5))
+
+        preview_header = {col_name: str(col_type._type) for col_name, col_type in preview_cols.items()}
+        preview = [
+            [self.__encode_preview_data(val, col_type)]
+            for row in rows
+            for val, col_type in zip(row.values(), preview_cols.values())
+        ]
+
+        return preview_header, preview
+
+    def __encode_preview_data(self, val: Any, col_type: ts.ColumnType) -> Any:
+        if val is None:
+            return None
+
+        match col_type._type:
+            case ts.ColumnType.Type.STRING:
+                assert isinstance(val, str)
+                return Formatter.abbreviate(val)
+
+            case ts.ColumnType.Type.INT | ts.ColumnType.Type.FLOAT | ts.ColumnType.Type.BOOL:
+                return val
+
+            case ts.ColumnType.Type.TIMESTAMP | ts.ColumnType.Type.DATE:
+                return str(val)
+
+            case ts.ColumnType.Type.ARRAY:
+                assert isinstance(val, np.ndarray)
+                return Formatter.format_array(val)
+
+            case ts.ColumnType.Type.JSON:
+                # We need to escape the JSON string server-side for security reasons.
+                # Therefore we don't escape it here, in order to avoid double-escaping.
+                return Formatter.format_json(val, escape_strings=False)
+
+            case ts.ColumnType.Type.IMAGE:
+                # Rescale the image to minimize data transfer size
+                assert isinstance(val, PIL.Image.Image)
+                return self.__encode_image(val)
+
+            case ts.ColumnType.Type.VIDEO:
+                assert isinstance(val, str)
+                return self.__encode_video(val)
+
+            case ts.ColumnType.Type.AUDIO:
+                return None
+
+            case ts.ColumnType.Type.DOCUMENT:
+                assert isinstance(val, str)
+                return self.__encode_document(val)
+
+            case _:
+                raise AssertionError(f'Unrecognized column type: {col_type._type}')
+
+    def __encode_image(self, img: PIL.Image.Image) -> str:
+        # Heuristic for thumbnail sizing:
+        # Standardize on a width of 240 pixels (to most efficiently utilize the columnar display).
+        # But, if the aspect ratio is below 2:3, bound the height at 360 pixels (to avoid unboundedly tall thumbnails
+        #     in the case of highly oblong images).
+        if img.height > img.width * 1.5:
+            scaled_img = img.resize((img.width * 360 // img.height, 360))
+        else:
+            scaled_img = img.resize((240, img.height * 240 // img.width))
+        with io.BytesIO() as buffer:
+            scaled_img.save(buffer, 'webp')
+            return base64.b64encode(buffer.getvalue()).decode()
+
+    def __encode_video(self, video_path: str) -> Optional[str]:
+        thumb = Formatter.extract_first_video_frame(video_path)
+        return self.__encode_image(thumb) if thumb is not None else None
+
+    def __encode_document(self, doc_path: str) -> Optional[str]:
+        thumb = Formatter.make_document_thumbnail(doc_path)
+        return self.__encode_image(thumb) if thumb is not None else None
 
 
 class TableRestorer:
