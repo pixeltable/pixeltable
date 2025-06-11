@@ -308,8 +308,7 @@ class SqlNode(ExecNode):
                 _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
             except Exception:
                 # log something if we can't log the compiled stmt
-                stmt_str = str(stmt)
-                _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt_str}')
+                _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
             self._log_explain(stmt)
 
             conn = Env.get().conn
@@ -596,16 +595,16 @@ class SqlSampleNode(SqlNode):
                 order_by = self._create_key_sql(self.input_cte)
                 return sql.select(*self.input_cte.c).where(s_key < fraction_sql).order_by(order_by)
 
-            return self._create_stmt_fraction(self.sample_clause.fraction)
+            return self._create_stmt_stratified_fraction(self.sample_clause.fraction)
         else:
             if len(self.stratify_exprs) == 0:
                 # No stratification, just return n samples from the input CTE
                 order_by = self._create_key_sql(self.input_cte)
                 return sql.select(*self.input_cte.c).order_by(order_by).limit(self.sample_clause.n)
 
-            return self._create_stmt_n(self.sample_clause.n, self.sample_clause.n_per_stratum)
+            return self._create_stmt_stratified_n(self.sample_clause.n, self.sample_clause.n_per_stratum)
 
-    def _create_stmt_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
+    def _create_stmt_stratified_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
         """Create a Select stmt that returns n samples across all strata or n_per_stratum samples per stratum"""
 
         sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]
@@ -626,7 +625,7 @@ class SqlSampleNode(SqlNode):
             secondary_order = self._create_key_sql(row_rank_cte)
             return sql.select(*final_columns).order_by(row_rank_cte.c.rank, secondary_order).limit(n)
 
-    def _create_stmt_fraction(self, fraction_samples: float) -> sql.Select:
+    def _create_stmt_stratified_fraction(self, fraction_samples: float) -> sql.Select:
         """Create a Select stmt that returns a fraction of the rows per strata"""
 
         # Build the strata count CTE
