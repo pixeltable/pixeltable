@@ -43,7 +43,7 @@ class TestPandas:
         df = pd.DataFrame(src_data)
 
         t = pxt.io.import_pandas('test_types', df)
-        assert t._schema == {
+        assert t._get_schema() == {
             'int_col': ts.IntType(nullable=True),
             'float_col': ts.FloatType(nullable=True),
             'bool_col': ts.BoolType(nullable=True),
@@ -80,7 +80,7 @@ class TestPandas:
         src_data = self.make_src_data()
         df = pd.DataFrame(src_data)
         t = pxt.io.import_pandas('test_types', df)
-        assert t._schema == {
+        assert t._get_schema() == {
             'int_col': ts.IntType(nullable=True),
             'float_col': ts.FloatType(nullable=True),
             'bool_col': ts.BoolType(nullable=True),
@@ -104,7 +104,7 @@ class TestPandas:
 
         t1 = import_csv('online_foods', 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
-        assert t1._schema == {
+        assert t1._get_schema() == {
             'Age': ts.IntType(nullable=True),
             'Gender': ts.StringType(nullable=True),
             'Marital_Status': ts.StringType(nullable=True),
@@ -130,7 +130,7 @@ class TestPandas:
 
         t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
-        assert t2._schema == {
+        assert t2._get_schema() == {
             'Date': ts.StringType(nullable=False),  # Primary key is non-nullable
             'Open': ts.FloatType(nullable=True),
             'High': ts.FloatType(nullable=True),
@@ -142,7 +142,7 @@ class TestPandas:
 
         t3 = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
         assert t3.count() == 4
-        assert t3._schema == {
+        assert t3._get_schema() == {
             'c__int': ts.IntType(nullable=True),
             'float': ts.FloatType(nullable=True),
             'float_n': ts.FloatType(nullable=True),
@@ -195,7 +195,7 @@ class TestPandas:
             'images', 'tests/data/datasets/images.csv', schema_overrides={'image': ts.ImageType(nullable=True)}
         )
         assert t4.count() == 4
-        assert t4._schema == {'name': ts.StringType(nullable=True), 'image': ts.ImageType(nullable=True)}
+        assert t4._get_schema() == {'name': ts.StringType(nullable=True), 'image': ts.ImageType(nullable=True)}
         result_set = t4.order_by(t4.name).select(t4.image.width).collect()
         assert result_set['width'] == [1024, None, 1024, 962]
 
@@ -205,20 +205,20 @@ class TestPandas:
 
         t4 = import_excel('fin_sample', 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
-        assert t4._schema['Date'] == ts.TimestampType(nullable=True)
+        assert t4._get_schema()['Date'] == ts.TimestampType(nullable=True)
         entry = t4.limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
         t5 = import_excel('sale_data', 'tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45
-        assert t5._schema['OrderDate'] == ts.TimestampType(nullable=True)
+        assert t5._get_schema()['OrderDate'] == ts.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
         assert t5.collect()[43]['OrderDate'] is None
 
         t6 = import_excel('questions', 'docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 8
         # Ensure that StringType is used when the column contains mixed types
-        assert t6._schema['correct_answer'] == ts.StringType(nullable=True)
+        assert t6._get_schema()['correct_answer'] == ts.StringType(nullable=True)
 
     def test_insert_pandas_excel(self, reset_db: None) -> None:
         skip_test_if_not_installed('openpyxl')

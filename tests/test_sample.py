@@ -12,7 +12,7 @@ from pixeltable import catalog, exceptions as excs
 from .utils import SAMPLE_IMAGE_URL, ReloadTester
 
 
-class TestSampling:
+class TestSample:
     @classmethod
     def create_sample_data(cls, row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
         schema = {
@@ -259,8 +259,8 @@ class TestSampling:
         # Create a new table from the sample
         new_table = pxt.create_table('new_table', source=df, if_exists='replace_force')
         assert new_table.count() == n_sample
-        assert new_table._schema == t._schema
-        assert new_table._schema == df.schema
+        assert new_table._get_schema() == t._get_schema()
+        assert new_table._get_schema() == df.schema
         r2 = new_table.collect()
         assert r2 == r
 
@@ -340,7 +340,7 @@ class TestSampling:
         )
         v_rows = v.count()
         print(f'total rows: {v_rows}')
-        print(v._schema)
+        print(v._get_schema)
 
         print('\n\nSELECT SAMPLE OF ITERATOR VIEW\n')
         df = v.select().sample(fraction=0.1)

@@ -1,10 +1,9 @@
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 
 from ..conftest import DO_RERUN
-from ..utils import skip_test_if_not_installed, validate_update_status
+from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -12,29 +11,30 @@ from ..utils import skip_test_if_not_installed, validate_update_status
 class TestTogether:
     def test_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
-        TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('together')
         from pixeltable.functions.together import completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(
-            output=completions(prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n'])
+            output=completions(
+                prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', model_kwargs={'stop': ['\n']}
+            )
         )
         t.add_computed_column(
             output_2=completions(
                 prompt=t.input,
                 model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
-                max_tokens=300,
-                stop=['\n'],
-                temperature=0.7,
-                top_p=0.9,
-                top_k=40,
-                repetition_penalty=1.1,
-                logprobs=1,
-                echo=True,
-                n=3,
-                # The safety model sometimes triggers even on an innocuous prompt, causing an
-                # exception to be thrown. Unclear if there's a reliable way to test this param.
-                # safety_model='Meta-Llama/Meta-Llama-Guard-3-8B'
+                model_kwargs={
+                    'max_tokens': 300,
+                    'stop': ['\n'],
+                    'temperature': 0.7,
+                    'top_p': 0.9,
+                    'top_k': 40,
+                    'repetition_penalty': 1.1,
+                    'logprobs': 1,
+                    'echo': True,
+                    'n': 3,
+                },
             )
         )
         validate_update_status(t.insert(input='I am going to the '), 1)
@@ -44,29 +44,32 @@ class TestTogether:
 
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
-        TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        messages = [{'role': 'user', 'content': t.input}]
+        skip_test_if_no_client('together')
         from pixeltable.functions.together import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
-            output=chat_completions(messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n'])
+            output=chat_completions(
+                messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', model_kwargs={'stop': ['\n']}
+            )
         )
         t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
                 model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
-                max_tokens=300,
-                stop=['\n'],
-                temperature=0.7,
-                top_p=0.9,
-                top_k=40,
-                repetition_penalty=1.1,
-                logprobs=1,
-                # echo=True,
-                n=3,
-                safety_model='Meta-Llama/Meta-Llama-Guard-3-8B',
-                response_format={'type': 'json_object'},
+                model_kwargs={
+                    'max_tokens': 300,
+                    'stop': ['\n'],
+                    'temperature': 0.7,
+                    'top_p': 0.9,
+                    'top_k': 40,
+                    'repetition_penalty': 1.1,
+                    'logprobs': 1,
+                    'n': 3,
+                    'safety_model': 'Meta-Llama/Meta-Llama-Guard-3-8B',
+                    'response_format': {'type': 'json_object'},
+                },
             )
         )
         validate_update_status(t.insert(input='Give me a typical example of a JSON structure.'), 1)
@@ -76,10 +79,10 @@ class TestTogether:
 
     def test_embeddings(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
-        TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        skip_test_if_no_client('together')
         from pixeltable.functions.together import embeddings
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-8k-retrieval'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
@@ -87,20 +90,24 @@ class TestTogether:
     @pytest.mark.expensive
     def test_image_generations(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
-        TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
+        skip_test_if_no_client('together')
         from pixeltable.functions.together import image_generations
 
-        t.add_computed_column(img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell'))
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
+        t.add_computed_column(
+            img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell', model_kwargs={'steps': 5})
+        )
         t.add_computed_column(
             img_2=image_generations(
                 t.input,
                 model='black-forest-labs/FLUX.1-schnell',
-                steps=5,
-                width=768,
-                height=1024,
-                seed=4171780,
-                negative_prompt=t.negative_prompt,
+                model_kwargs={
+                    'steps': 5,
+                    'width': 768,
+                    'height': 1024,
+                    'seed': 4171780,
+                    'negative_prompt': t.negative_prompt,
+                },
             )
         )
         validate_update_status(
@@ -112,18 +119,7 @@ class TestTogether:
             ),
             2,
         )
-        assert t.collect()['img'][0].size == (1024, 768)
+        assert t.collect()['img'][0].size == (1024, 1024)
         assert t.collect()['img_2'][0].size == (768, 1024)
-        assert t.collect()['img'][1].size == (1024, 768)
+        assert t.collect()['img'][1].size == (1024, 1024)
         assert t.collect()['img_2'][1].size == (768, 1024)
-
-    # This ensures that the test will be skipped, rather than returning an error, when no API key is
-    # available (for example, when a PR runs in CI).
-    @staticmethod
-    def skip_test_if_no_together_client() -> None:
-        try:
-            import pixeltable.functions.together
-
-            _ = pixeltable.functions.together._together_client()
-        except excs.Error as exc:
-            pytest.skip(str(exc))

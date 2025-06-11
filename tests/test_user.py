@@ -38,7 +38,7 @@ class TestUser:
         pxt.drop_table('test_dir.test_tbl')
         assert t.select().collect()['col'] == [5]
         assert marcel_t.select().collect()['col'] == [22]
-        with pytest.raises(excs.Error, match='table test_tbl has been dropped'):
+        with pytest.raises(excs.Error, match='Table was dropped'):
             asiegel_t.select().collect()
 
         # get_table operates over correct userspace
