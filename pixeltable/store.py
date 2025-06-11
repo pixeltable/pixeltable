@@ -356,7 +356,7 @@ class StoreBase:
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                batch_table_rows: list[list[Any]] = []
+                batch_table_rows: list[tuple[Any]] = []
 
                 # compute batch of rows and convert them into table rows
                 for row in row_batch:

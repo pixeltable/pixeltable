@@ -430,7 +430,7 @@ class RowBuilder:
     def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[list[Any], int]:
         """Create a table row from the slots that have an output column assigned
 
-        Return tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
+        Return tuple[list of stored row in `self.table_columns` order, # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
