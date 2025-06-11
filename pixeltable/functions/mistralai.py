@@ -54,8 +54,6 @@ async def chat_completions(
         model_kwargs: Additional keyword args for the Mistral `chat/completions` API.
             For details on the available parameters, see: <https://docs.mistral.ai/api/#tag/chat>
 
-    For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/chat>
-
     Returns:
         A dictionary containing the response and other metadata.
 

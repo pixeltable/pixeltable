@@ -33,34 +33,32 @@ async def chat_completions(
     """
     Chat Completion API.
 
-    Equivalent to the Mistral AI `chat/completions` API endpoint.
-    For additional details, see: <https://docs.mistral.ai/api/#tag/chat>
+    Equivalent to the Groq `chat/completions` API endpoint.
+    For additional details, see: <https://console.groq.com/docs/api-reference#chat-create>
 
     Request throttling:
-    Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate
+    Applies the rate limit set in the config (section `groq`, key `rate_limit`). If no rate
     limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
-    - `pip install mistralai`
+    - `pip install groq`
 
     Args:
-        messages: The prompt(s) to generate completions for.
-        model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
-        model_kwargs: Additional keyword args for the Mistral `chat/completions` API.
-            For details on the available parameters, see: <https://docs.mistral.ai/api/#tag/chat>
-
-    For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/chat>
+        messages: A list of messages comprising the conversation so far.
+        model: ID of the model to use. (See overview here: <https://console.groq.com/docs/models>)
+        model_kwargs: Additional keyword args for the Groq `chat/completions` API.
+            For details on the available parameters, see: <https://console.groq.com/docs/api-reference#chat-create>
 
     Returns:
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `mistral-latest-small`
+        Add a computed column that applies the model `llama3-8b-8192`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=completions(messages, model='mistral-latest-small'))
+        ... tbl.add_computed_column(response=chat_completions(messages, model='llama3-8b-8192'))
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -71,7 +69,7 @@ async def chat_completions(
         model=model,
         **model_kwargs,
     )
-    return result.dict()
+    return result.model_dump()
 
 
 __all__ = local_public_names(__name__)
