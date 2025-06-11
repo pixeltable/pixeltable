@@ -326,6 +326,12 @@ class TestSample:
         print('\n\nINSERT ONE IMAGE\n')
         t.insert(image=SAMPLE_IMAGE_URL)
 
+        print('\n\nSAMPLE IMAGE FROM TABLE\n')
+        df = t.select().sample(fraction=0.001)
+        r = df.collect()
+        print(f'total rows: {t.count()}, sample rows: {len(r)}')
+        assert t.count() > len(r)
+
         print('\n\nCREATE ITERATOR VIEW\n')
         v = pxt.create_view(
             'test_view',
@@ -340,14 +346,25 @@ class TestSample:
         df = v.select().sample(fraction=0.1)
         r = df.collect()
         print(f'total rows: {v_rows}, sample rows: {len(r)}')
+        assert v_rows > len(r)
         print(r)
 
-        print('\n\nCREATE VIEW OF SAMPLE OF VIEW\n')
+        print('\n\nCREATE VIEW OF FRACTIONAL SAMPLE OF ITERATOR VIEW\n')
+        df = v.select().sample(fraction=0.1)
+        r = df.collect()
         vs = pxt.create_view('test_view_sample', df)
         vs_rows = vs.count()
         print(f'total rows: {vs_rows}, sample rows: {len(r)}')
         print(r)
         assert vs_rows == len(r)
+
+        print('\n\nSELECT STRATIFIED SAMPLES OF ITERATOR VIEW\n')
+        df = v.select().sample(fraction=0.01, stratify_by=[v.pos % 10])
+        assert len(df.collect()) == 10
+        df = v.select().sample(n_per_stratum=1, stratify_by=[v.pos % 10])
+        assert len(df.collect()) == 10
+        df = v.select().sample(n=10, stratify_by=[v.pos % 10])
+        assert len(df.collect()) == 10
 
         print('\n\nRENAME tile COLUMN in ITERATOR VIEW\n')
         v.rename_column('tile', 'tile_renamed')
