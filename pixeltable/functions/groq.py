@@ -7,12 +7,8 @@ the [Working with Groq](https://pixeltable.readme.io/docs/working-with-groq) tut
 
 from typing import TYPE_CHECKING, Any, Optional
 
-import numpy as np
-
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.env import Env, register_client
-from pixeltable.func.signature import Batch
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -76,3 +72,10 @@ async def chat_completions(
         **model_kwargs,
     )
     return result.dict()
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__() -> list[str]:
+    return __all__
