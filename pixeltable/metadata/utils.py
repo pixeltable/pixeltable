@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
-
-from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
-from pixeltable.metadata import schema
+from typing import Any, Optional
 
 
-class fooby:
+class MetadataUtils:
     @classmethod
     def _diff_md(cls, old_md: Optional[dict[int, dict[str, Any]]], new_md: Optional[dict[int, dict[str, Any]]]) -> str:
         """Return a string reporting the differences in a specific entry in two dictionaries
@@ -42,8 +39,7 @@ class fooby:
         return r
 
     @classmethod
-#    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[str, Any]]]) -> dict[int, str]:
-    def _create_md_change_dict(cls, md_list:list[tuple[int, dict[int, dict[str, Any]]]]) -> dict[int, str]:
+    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[int, dict[str, Any]]]]) -> dict[int, str]:
         """Return a dictionary of schema changes by version
         Args:
             md_list: a list of tuples, each containing a version number and a metadata dictionary.

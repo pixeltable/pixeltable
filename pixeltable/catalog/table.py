@@ -18,6 +18,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
+from pixeltable.metadata.utils import MetadataUtils
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -1582,7 +1583,6 @@ class Table(SchemaObject):
             A list of rows of data.
         """
         from pixeltable.catalog import Catalog
-        from pixeltable.metadata.utils import fooby
 
         if n is None:
             n = 1000_000_000
@@ -1596,7 +1596,7 @@ class Table(SchemaObject):
 
         # Construct the metadata change description dictionary
         md_list = [(row.TableVersion.version, row.TableSchemaVersion.md['columns']) for row in src_rows]
-        md_dict = fooby._create_md_change_dict(md_list)
+        md_dict = MetadataUtils._create_md_change_dict(md_list)
 
         # Construct report lines
         if len(src_rows) > n:

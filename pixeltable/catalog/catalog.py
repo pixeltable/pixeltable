@@ -1240,8 +1240,8 @@ class Catalog:
             n: the maximum number of versions desired.
 
         Returns:
-            A sequence of rows, each containing a TableVersion and a TableSchemaVersion object, ordered by version number.
-
+            A sequence of rows, ordered by version number
+            Each row contains a TableVersion and a TableSchemaVersion object.
         """
         q = (
             sql.select(schema.TableVersion, schema.TableSchemaVersion)
