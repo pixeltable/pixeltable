@@ -1,15 +1,18 @@
 import inspect
-from typing import Any, Optional
-
-import mcp
-from mcp.client.streamable_http import streamablehttp_client
+from typing import TYPE_CHECKING, Any, Optional
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.func.signature import Parameter
 
+if TYPE_CHECKING:
+    import mcp
+
 
 async def mcp_udfs(url: str) -> list['pxt.func.Function']:
+    import mcp
+    from mcp.client.streamable_http import streamablehttp_client
+
     list_tools_result: Optional[mcp.types.ListToolsResult] = None
     async with (
         streamablehttp_client(url) as (read_stream, write_stream, _),
@@ -22,7 +25,10 @@ async def mcp_udfs(url: str) -> list['pxt.func.Function']:
     return [mcp_tool_to_udf(url, tool) for tool in list_tools_result.tools]
 
 
-def mcp_tool_to_udf(url: str, mcp_tool: mcp.types.Tool) -> 'pxt.func.Function':
+def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function':
+    import mcp
+    from mcp.client.streamable_http import streamablehttp_client
+
     async def invoke(**kwargs: Any) -> str:
         # TODO: Cache session objects rather than creating a new one each time?
         async with (
