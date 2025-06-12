@@ -1233,8 +1233,15 @@ class Catalog:
         self, tbl_id: UUID, n: int
     ) -> Sequence[sql.Row[tuple[schema.TableVersion, schema.TableSchemaVersion]]]:
         """
-        Returns the history of all versions of the table with the given UUID.
-        The history is returned as a list of FullTableMd objects, ordered by version number.
+        Returns the history of up to n versions of the table with the given UUID.
+
+        Args:
+            tbl_id: the UUID of the table to collect history for.
+            n: the maximum number of versions desired.
+
+        Returns:
+            A sequence of rows, each containing a TableVersion and a TableSchemaVersion object, ordered by version number.
+
         """
         q = (
             sql.select(schema.TableVersion, schema.TableSchemaVersion)
@@ -1247,7 +1254,7 @@ class Catalog:
             .where(schema.TableVersion.tbl_id == tbl_id)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
             .order_by(schema.TableVersion.version.desc())
-            .limit(n + 1)
+            .limit(n)
         )
         src_rows = Env.get().session.execute(q).fetchall()
         return src_rows

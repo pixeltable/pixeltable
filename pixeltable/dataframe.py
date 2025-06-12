@@ -109,29 +109,6 @@ class DataFrameResultSet:
     def __hash__(self) -> int:
         return hash(self.to_pandas())
 
-    class ReportSpec(NamedTuple):
-        """
-        Specification for the production of a column in a DataFrameResultSet report.
-        Contains the column name, the ColumnType, the index of the column in the source row,
-        and an optional function to apply to the value for each row.
-        """
-
-        name: str  # Column name in the report - should be a valid pixeltable identifier
-        col_type: ColumnType  # Pixeltable ColumnType for the column
-        src_row_idx: int  # Index of the column in the source row
-        func: Optional[Callable[[Any], Any]] = None  # Optional conversion function for the value from the row
-
-    @classmethod
-    def _create_report(cls, schema_list: list[ReportSpec], src_rows: Sequence[Any]) -> DataFrameResultSet:
-        """
-        Create the schema and rows for a DataFrameResultSet from a list of specifications and source rows.
-        """
-        schema_dir = {k: v for k, v, *_ in schema_list}
-        dst_rows = [
-            [spec[3](row[spec[2]]) if spec[3] is not None else row[spec[2]] for spec in schema_list] for row in src_rows
-        ]
-        return DataFrameResultSet(rows=dst_rows, schema=schema_dir)
-
 
 # # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
 # class AnalysisInfo:

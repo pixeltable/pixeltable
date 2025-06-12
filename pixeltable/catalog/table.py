@@ -1563,65 +1563,6 @@ class Table(SchemaObject):
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._get_schema().keys())
 
-    @classmethod
-    def _diff_md(cls, old_md: Optional[dict[str, Any]], new_md: Optional[dict[str, Any]]) -> str:
-        """Return a string reporting the difference between two schema versions"""
-        assert new_md is not None
-        if old_md is None:
-            return 'Initial Version'
-        if old_md == new_md:
-            return ''
-        added = {k: v['name'] for k, v in new_md.items() if k not in old_md}
-        changed = {
-            k: f'{old_md[k]["name"]} to {v["name"]}'
-            for k, v in new_md.items()
-            if k in old_md and old_md[k]['name'] != v['name']
-        }
-        deleted = {k: v['name'] for k, v in old_md.items() if k not in new_md}
-        if len(added) == 0 and len(changed) == 0 and len(deleted) == 0:
-            return ''
-        # Format the result
-        t = []
-        if len(added) > 0:
-            t.append('Added: ' + ', '.join(added.values()))
-        if len(changed) > 0:
-            t.append('Changed: ' + ', '.join(changed.values()))
-        if len(deleted) > 0:
-            t.append('Deleted: ' + ', '.join(deleted.values()))
-        r = ', '.join(t)
-        return r
-
-    @classmethod
-    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[str, Any]]]) -> dict[int, str]:
-        """Return a dictionary of schema changes by version
-        Args:
-            md_list: a list of tuples, each containing a version number and a metadata dictionary.
-        """
-        r: dict[int, str] = {}
-        if md_list is None or len(md_list) == 0:
-            return r
-        md_list.sort()
-
-        first_retrieved_version = md_list[0][0]
-        if first_retrieved_version == 0:
-            prev_md = None
-            prev_ver = -1
-            start = 0
-        else:
-            prev_md = md_list[0][1]
-            prev_ver = first_retrieved_version
-            start = 1
-
-        for ver, curr_md in md_list[start:]:
-            if ver == prev_ver:
-                continue
-            assert ver > prev_ver
-            tf = cls._diff_md(prev_md, curr_md)
-            if tf != '':
-                r[ver] = tf
-            prev_md = curr_md
-        return r
-
     def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
         """Returns rows of information about the versions of this table, most recent first.
 
@@ -1641,6 +1582,7 @@ class Table(SchemaObject):
             A list of rows of data.
         """
         from pixeltable.catalog import Catalog
+        from pixeltable.metadata.utils import fooby
 
         if n is None:
             n = 1000_000_000
@@ -1649,11 +1591,12 @@ class Table(SchemaObject):
 
         # Retrieve the table history components from the catalog
         tbl_id = self._id
-        src_rows = Catalog.get().collect_tbl_history(tbl_id, n)
+        # Collect an extra version, if available, to allow for computation of the first version's schema change
+        src_rows = Catalog.get().collect_tbl_history(tbl_id, n + 1)
 
         # Construct the metadata change description dictionary
         md_list = [(row.TableVersion.version, row.TableSchemaVersion.md['columns']) for row in src_rows]
-        md_dict = self._create_md_change_dict(md_list)
+        md_dict = fooby._create_md_change_dict(md_list)
 
         # Construct report lines
         if len(src_rows) > n:
@@ -1675,11 +1618,10 @@ class Table(SchemaObject):
             ]
             rpt_lines.append(rpt_line)
 
-        rpt_spec = pxt.dataframe.DataFrameResultSet.ReportSpec
-        report_spec = [
-            rpt_spec('version', ts.IntType(), 0, int),
-            rpt_spec('created_at', ts.TimestampType(), 1, None),
-            rpt_spec('change', ts.StringType(), 2, None),
-            rpt_spec('schema_change', ts.StringType(), 3, None),
-        ]
-        return pxt.dataframe.DataFrameResultSet._create_report(schema_list=report_spec, src_rows=rpt_lines)
+        rpt_schema = {
+            'version': ts.IntType(),
+            'created_at': ts.TimestampType(),
+            'change': ts.StringType(),
+            'schema_change': ts.StringType(),
+        }
+        return pxt.dataframe.DataFrameResultSet(rpt_lines, rpt_schema)
