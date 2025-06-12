@@ -395,6 +395,36 @@ class ColumnType:
                 raise excs.Error(f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead')
         raise excs.Error(f'Unknown type: {t}')
 
+    @classmethod
+    def from_json_schema(cls, schema: dict[str, Any]) -> Optional[ColumnType]:
+        # We first express the JSON schema as a Python type, and then convert it to a Pixeltable type.
+        # TODO: Is there a meaningful fallback if one of these operations fails? (Maybe another use case for a pxt Any
+        #     type?)
+        py_type = cls.__json_schema_to_py_type(schema)
+        return cls.from_python_type(py_type) if py_type is not None else None
+
+    @classmethod
+    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> Union[type, _GenericAlias, None]:
+        if 'type' in schema:
+            if schema['type'] == 'null':
+                return type(None)
+            if schema['type'] == 'string':
+                return str
+            if schema['type'] == 'integer':
+                return int
+            if schema['type'] == 'number':
+                return float
+            if schema['type'] == 'boolean':
+                return bool
+            if schema['type'] in ('array', 'object'):
+                return list
+        elif 'anyOf' in schema:
+            subscripts = tuple(cls.__json_schema_to_py_type(subschema) for subschema in schema['anyOf'])
+            if all(subscript is not None for subscript in subscripts):
+                return Union[subscripts]
+
+        return None
+
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
         if val is None:
