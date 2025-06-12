@@ -50,7 +50,7 @@ def generate(
         template: Prompt template to use.
         context: The context parameter returned from a previous call to `generate()`.
         raw: If `True`, no formatting will be applied to the prompt.
-        options: Additional options to pass to the `chat` call, such as `max_tokens`, `temperature`, `top_p`, and
+        options: Additional options for the Ollama `chat` call, such as `max_tokens`, `temperature`, `top_p`, and
             `top_k`. For details, see the
             [Valid Parameters and Values](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values)
             section of the Ollama documentation.

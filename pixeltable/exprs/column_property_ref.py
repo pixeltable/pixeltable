@@ -64,8 +64,9 @@ class ColumnPropertyRef(Expr):
         # perform runtime checks and update state
         tv = self._col_ref.tbl_version.get()
         assert tv.is_validated
+        # we can assume at this point during query execution that the column exists
+        assert self._col_ref.col_id in tv.cols_by_id
         col = tv.cols_by_id[self._col_ref.col_id]
-        # TODO: check for column being dropped
 
         # the errortype/-msg properties of a read-validated media column need to be extracted from the DataRow
         if (

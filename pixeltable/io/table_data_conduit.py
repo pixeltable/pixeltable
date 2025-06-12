@@ -101,7 +101,7 @@ class TableDataConduit:
     def add_table_info(self, table: pxt.Table) -> None:
         """Add information about the table into which we are inserting data"""
         assert isinstance(table, pxt.Table)
-        self.pxt_schema = table._schema
+        self.pxt_schema = table._get_schema()
         self.pxt_pk = table._tbl_version.get().primary_key
         for col in table._tbl_version_path.columns():
             if col.is_required_for_insert:
