@@ -6,7 +6,7 @@ import httpx
 
 import pixeltable as pxt
 from pixeltable import env, exprs
-from pixeltable.func import Tools
+from pixeltable.func import Tools, ToolChoice # Added ToolChoice
 from pixeltable.utils.code import local_public_names
 
 from .openai import _opt, invoke_tools
@@ -38,20 +38,16 @@ async def chat_completions(
     *,
     model: str,
     frequency_penalty: Optional[float] = None,
-    # logit_bias: Optional[dict] = None, # Seems unsupported based on OpenAI compatibility docs
     logprobs: Optional[bool] = None,
     top_logprobs: Optional[int] = None,
     max_tokens: Optional[int] = None,
-    # n: Optional[int] = None, # Seems unsupported
     presence_penalty: Optional[float] = None,
     response_format: Optional[dict] = None,
-    # seed: Optional[int] = None, # Seems unsupported
     stop: Optional[list[str]] = None,
     temperature: Optional[float] = None,
-    tools: Optional[list[dict]] = None,
-    tool_choice: Optional[dict] = None,
+    tools: Optional[Tools] = None,  # Changed from list[dict] to Tools
+    tool_choice: Optional[Union[dict, exprs.ToolChoice]] = None, # Allow ToolChoice object
     top_p: Optional[float] = None,
-    # user: Optional[str] = None, # Seems unsupported
 ) -> dict:
     """
     Creates a model response for the given chat conversation using the Llama API.
@@ -85,10 +81,10 @@ async def chat_completions(
         ... ]
         ... tbl.add_computed_column(response=chat_completions(messages, model='llama3-70b'))
     """
-    if tools is not None:
-        tools = [{'type': 'function', 'function': tool} for tool in tools]
+    tools_param = tools.spec if tools is not None else exprs.NoValue
+    tool_choice_param = tool_choice.spec if isinstance(tool_choice, exprs.ToolChoice) else tool_choice
 
-    tool_choice_: Optional[dict] = tool_choice
+    
     result = await _llama_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
@@ -100,8 +96,8 @@ async def chat_completions(
         response_format=_opt(cast(Any, response_format)),
         stop=_opt(stop),
         temperature=_opt(temperature),
-        tools=_opt(cast(Any, tools)),
-        tool_choice=_opt(cast(Any, tool_choice_)),
+        tools=_opt(cast(Any, tools_param)),
+        tool_choice=_opt(cast(Any, tool_choice_param)),
         top_p=_opt(top_p),
     )
 
