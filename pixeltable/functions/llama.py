@@ -56,13 +56,16 @@ async def chat_completions(
     """
     Creates a model response for the given chat conversation using the Llama API.
 
+    Equivalent to the Llama `chat_completion` API endpoint.
+    For additional details, see: <https://llama.developer.meta.com/docs/features/chat-completion/>
+
     This function uses the Llama API's OpenAI compatibility endpoint.
     It requires the `openai` package.
 
     __Requirements:__
 
     - `pip install openai`
-    - An `LLAMA_API_KEY` environment variable or Pixeltable secret.
+    - An `LLAMA_API_KEY` environment variable.
 
     Args:
         messages: A list of messages comprising the conversation so far, conforming to the OpenAI message format.
