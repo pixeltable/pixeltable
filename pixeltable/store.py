@@ -41,6 +41,9 @@ class StoreBase:
     v_max_col: sql.Column
     base: Optional[StoreBase]
 
+    # In my cursory experiments this was the optimal batch size: it was an improvement over 5_000 and there was no real
+    # benefit to going higher.
+    # TODO: Perform more rigorous experiments with different table structures and OS environments to refine this.
     __INSERT_BATCH_SIZE = 10_000
 
     def __init__(self, tbl_version: catalog.TableVersion):
@@ -151,19 +154,6 @@ class StoreBase:
         """Move tmp media files that we generated to a permanent location"""
         for n, col in media_cols_by_sql_idx.items():
             table_row[n] = self._move_tmp_media_file(table_row[n], col, v_min)
-
-    def _create_table_row(
-        self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: set[int], pk: tuple[int, ...]
-    ) -> tuple[list[Any], int]:
-        """Return Tuple[complete table row, # of exceptions] for insert()
-        Creates a row that includes the PK columns, with the values from input_row.pk.
-        Returns:
-            Tuple[complete table row, # of exceptions]
-        """
-        table_row, num_excs = row_builder.create_table_row(input_row, exc_col_ids)
-        assert len(pk) == len(self._pk_cols)
-        table_row = [*pk, *table_row]
-        return table_row, num_excs
 
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
@@ -359,7 +349,8 @@ class StoreBase:
 
                     rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                     pk = (*rowid, v_min)
-                    table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, pk)
+                    assert len(pk) == len(self._pk_cols)
+                    table_row, num_row_exc = row_builder.create_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
                     if show_progress:

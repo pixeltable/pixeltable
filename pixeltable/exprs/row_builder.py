@@ -436,14 +436,14 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[list[Any], int]:
+    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int], pk: tuple[int, ...]) -> tuple[list[Any], int]:
         """Create a table row from the slots that have an output column assigned
 
-        Return tuple[list of stored row in `self.table_columns` order, # of exceptions]
+        Return tuple[list of row values in `self.table_columns` order, # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
-        table_row: list[Any] = []
+        table_row: list[Any] = list(pk)
         for info in self.table_columns:
             col, slot_idx = info.col, info.slot_idx
             if data_row.has_exc(slot_idx):
