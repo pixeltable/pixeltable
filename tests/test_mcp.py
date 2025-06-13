@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import subprocess
 import time
@@ -17,7 +16,7 @@ class TestMcp:
     def test_mcp_server(self, reset_db: None, init_mcp_server: None) -> None:
         skip_test_if_not_installed('mcp')
 
-        udfs = asyncio.run(pxt.mcp_udfs('http://localhost:8000/mcp'))
+        udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
         assert udfs[0].name == 'pixelmultiple'
         assert udfs[0].comment() == 'Computes the Pixelmultiple of two integers.'
         assert udfs[1].name == 'pixeldict'
@@ -36,7 +35,7 @@ class TestMcp:
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai
 
-        udfs = asyncio.run(pxt.mcp_udfs('http://localhost:8000/mcp'))
+        udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
         tools = pxt.tools(*udfs)
 
         t = pxt.create_table('test_mcp', {'prompt': pxt.String})

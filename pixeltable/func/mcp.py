@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -9,7 +10,11 @@ if TYPE_CHECKING:
     import mcp
 
 
-async def mcp_udfs(url: str) -> list['pxt.func.Function']:
+def mcp_udfs(url: str) -> list['pxt.func.Function']:
+    return asyncio.run(mcp_udfs_async(url))
+
+
+async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
     import mcp
     from mcp.client.streamable_http import streamablehttp_client
 
