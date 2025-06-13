@@ -86,6 +86,9 @@ endif
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
+	@echo 'Installing voxel51 ...'
+	@python -m pip install fiftyone==1.5.2
+	@python -m pip install sse-starlette==2.3.6
 	@echo 'Installing Jupyter kernel ...'
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@$(TOUCH) .make-install/others
