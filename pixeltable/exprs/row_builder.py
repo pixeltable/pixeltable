@@ -94,7 +94,13 @@ class RowBuilder:
         target_slot_idxs: list[int]  # slot idxs of target exprs; might contain duplicates
         target_exprs: list[Expr]  # exprs corresponding to target_slot_idxs
 
-    def __init__(self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr], tbl: Optional[catalog.TableVersion] = None):
+    def __init__(
+        self,
+        output_exprs: Sequence[Expr],
+        columns: Sequence[catalog.Column],
+        input_exprs: Iterable[Expr],
+        tbl: Optional[catalog.TableVersion] = None,
+    ):
         """
         Args:
             output_exprs: list of Exprs to be evaluated
