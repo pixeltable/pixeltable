@@ -13,7 +13,7 @@ import more_itertools
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
-from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable import catalog, exceptions as excs
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
