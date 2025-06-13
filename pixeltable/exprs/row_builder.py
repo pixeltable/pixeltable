@@ -63,6 +63,7 @@ class RowBuilder:
 
     input_exprs: ExprSet
 
+    tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
     table_columns: list[ColumnSlotIdx]
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
@@ -93,7 +94,7 @@ class RowBuilder:
         target_slot_idxs: list[int]  # slot idxs of target exprs; might contain duplicates
         target_exprs: list[Expr]  # exprs corresponding to target_slot_idxs
 
-    def __init__(self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr]):
+    def __init__(self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr], tbl: Optional[catalog.TableVersion] = None):
         """
         Args:
             output_exprs: list of Exprs to be evaluated
@@ -125,6 +126,7 @@ class RowBuilder:
         #   * further references to that column (eg, computed cols) need to resolve to the validating ColumnRef
         from .column_ref import ColumnRef
 
+        self.tbl = tbl
         self.table_columns: list[ColumnSlotIdx] = []
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
@@ -229,6 +231,7 @@ class RowBuilder:
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
+        assert self.tbl is not None
         self.table_columns.append(ColumnSlotIdx(col, slot_idx))
 
     def output_slot_idxs(self) -> list[ColumnSlotIdx]:
@@ -456,3 +459,23 @@ class RowBuilder:
                     table_row.extend((None, None))
 
         return table_row, num_excs
+
+    def store_column_names(self) -> tuple[list[str], dict[int, catalog.Column]]:
+        """
+        Returns the list of store column names corresponding to the table_columns of this RowBuilder.
+        The second tuple element of the return value is a dictionary containing all media columns in the
+        table; it's the mapping {list_index: column}.
+        """
+        assert self.tbl is not None, self.table_columns
+        store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
+        media_cols: dict[int, catalog.Column] = {}
+
+        for col in self.table_columns:
+            if col.col.col_type.is_media_type():
+                media_cols[len(store_col_names)] = col.col
+            store_col_names.append(col.col.store_name())
+            if col.col.records_errors:
+                store_col_names.append(col.col.errortype_store_name())
+                store_col_names.append(col.col.errormsg_store_name())
+
+        return store_col_names, media_cols

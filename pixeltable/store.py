@@ -340,15 +340,7 @@ class StoreBase:
         progress_bar: Optional[tqdm] = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
 
-        store_col_names: list[str] = [pk_col.name for pk_col in self._pk_cols]
-        media_cols_by_sql_idx: dict[int, catalog.Column] = {}
-        for col in row_builder.table_columns:
-            if col.col.col_type.is_media_type():
-                media_cols_by_sql_idx[len(store_col_names)] = col.col
-            store_col_names.append(col.col.store_name())
-            if col.col.records_errors:
-                store_col_names.append(col.col.errortype_store_name())
-                store_col_names.append(col.col.errormsg_store_name())
+        store_col_names, media_cols_by_idx = row_builder.store_column_names()
 
         try:
             table_rows: list[tuple[Any]] = []
@@ -381,7 +373,7 @@ class StoreBase:
                             )
                         progress_bar.update(1)
 
-                    self._move_tmp_media_files(table_row, media_cols_by_sql_idx, v_min)
+                    self._move_tmp_media_files(table_row, media_cols_by_idx, v_min)
                     batch_table_rows.append(tuple(table_row))
 
                 table_rows.extend(batch_table_rows)
