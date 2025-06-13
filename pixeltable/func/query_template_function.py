@@ -157,11 +157,13 @@ def retrieval_udf(
     """
     # Argument validation
     col_refs: list[exprs.ColumnRef]
+    # TODO: get rid of references to ColumnRef internals and replace instead with a public interface
+    col_names = table.columns()
     if parameters is None:
-        col_refs = [table[col_name] for col_name in table.columns if not table[col_name].col.is_computed]
+        col_refs = [table[col_name] for col_name in col_names if not table[col_name].col.is_computed]
     else:
         for param in parameters:
-            if isinstance(param, str) and param not in table.columns:
+            if isinstance(param, str) and param not in col_names:
                 raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path()!r}')
         col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
 

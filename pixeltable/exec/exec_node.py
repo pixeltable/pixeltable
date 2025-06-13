@@ -73,6 +73,8 @@ class ExecNode(abc.ABC):
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
+            loop.slow_callback_duration = 3600
 
         if _logger.isEnabledFor(logging.DEBUG):
             loop.set_debug(True)
