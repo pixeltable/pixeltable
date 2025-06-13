@@ -26,7 +26,7 @@ class TestMcp:
         t = pxt.create_table('test_mcp', {'a': pxt.Int, 'b': pxt.Int})
         t.add_computed_column(pixelmultiple=udfs[0](a=t.a, b=t.b))
         t.insert([{'a': 3, 'b': 4}, {'a': 5, 'b': 6}])
-        res = t.select(t.pixelmultiple).head()
+        res = t.order_by(t.a).collect()
         assert res[0]['pixelmultiple'] == str((3 + 22) * 4)
         assert res[1]['pixelmultiple'] == str((5 + 22) * 6)
 
