@@ -932,7 +932,7 @@ class TableVersion:
 
             plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
             status = view.get()._insert(plan, timestamp, print_stats=print_stats)
-            result.accumulate(status, True)
+            result += status.to_cascade()
 
         if print_stats:
             plan.ctx.profile.print(num_rows=status.num_rows)  # This is the net rows after all propagations
@@ -1009,8 +1009,8 @@ class TableVersion:
             if error_if_not_exists:
                 raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
             if insert_if_not_exists:
-                insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
-                result.accumulate(insert_status, True)
+                status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                result += status.to_cascade()
         return result
 
     def _validate_update_spec(
@@ -1078,7 +1078,7 @@ class TableVersion:
             # we're creating a new version
             self.version += 1
             cols_with_excs, status = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
-            result.accumulate(status, as_update=True)
+            result += status.insert_to_update()
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
@@ -1098,7 +1098,7 @@ class TableVersion:
                 status = view.get().propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
-                result.accumulate(status, True)
+                result += status.to_cascade()
 
         return result
 
@@ -1158,7 +1158,7 @@ class TableVersion:
             status = view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
-            result.accumulate(status, True)
+            result += status.to_cascade()
         return result
 
     def revert(self) -> None:

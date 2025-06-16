@@ -178,10 +178,8 @@ class InsertableTable(Table):
             else:
                 status = UpdateStatus()
                 for row_batch in data_source.valid_row_batch():
-                    status.accumulate(
-                        self._tbl_version.get().insert(
-                            rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
-                        )
+                    status += self._tbl_version.get().insert(
+                        rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
 
         Env.get().console_logger.info(status.insert_msg)

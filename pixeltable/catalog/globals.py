@@ -6,6 +6,7 @@ import itertools
 import logging
 from typing import Optional
 
+# from typing_extensions import Self
 import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
@@ -19,7 +20,7 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: Optional[set[str]] = None
 
 
-@dataclasses.dataclass()
+@dataclasses.dataclass(frozen=True)
 class RowCountStats:
     """
     Statistics about the counts of rows affected by a table operation.
@@ -31,33 +32,33 @@ class RowCountStats:
     exc_rows: int = 0  # rows that had exceptions during the operation
     num_excs: int = 0  # total number of exceptions
 
-    @property
-    def is_empty(self) -> bool:
+    def insert_to_update(self) -> 'RowCountStats':
         """
-        Return true if the row count stats are empty (i.e., all counts are zero).
-        """
-        return (
-            self.ins_rows == 0
-            and self.del_rows == 0
-            and self.upd_rows == 0
-            and self.exc_rows == 0
-            and self.num_excs == 0
-        )
-
-    def accumulate(self, other: 'RowCountStats', as_update: bool = False) -> 'RowCountStats':
-        """
-        Accumulate the row count stats from another RowCountStats object.
+        Convert insert row count stats to update row count stats.
+        This is used when an insert operation is treated as an update.
         """
         return RowCountStats(
-            ins_rows=self.ins_rows + (other.ins_rows if not as_update else 0),
+            ins_rows=0,
+            del_rows=self.del_rows,
+            upd_rows=self.upd_rows + self.ins_rows,
+            exc_rows=self.exc_rows,
+            num_excs=self.num_excs,
+        )
+
+    def __add__(self, other: 'RowCountStats') -> 'RowCountStats':
+        """
+        Add the stats from two RowCountStats objects together.
+        """
+        return RowCountStats(
+            ins_rows=self.ins_rows + other.ins_rows,
             del_rows=self.del_rows + other.del_rows,
-            upd_rows=self.upd_rows + (other.upd_rows + other.ins_rows if as_update else 0),
+            upd_rows=self.upd_rows + other.upd_rows,
             exc_rows=self.exc_rows + other.exc_rows,
             num_excs=self.num_excs + other.num_excs,
         )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass()
 class UpdateStatus:
     """
     Information about updates that resulted from a table operation.
@@ -76,25 +77,48 @@ class UpdateStatus:
     # stats for changes cascaded to other tables
     cascade_row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
 
-    def accumulate(self, other: 'UpdateStatus', as_update: bool = False, cascade: bool = False) -> None:
+    def insert_to_update(self) -> 'UpdateStatus':
         """
-        Accumulate the update status from another UpdateStatus object.
+        Convert the update status from an insert operation to an update operation.
+        This is used when an insert operation is treated as an update.
         """
-        self.num_rows += other.num_rows
-        self.num_computed_values += other.num_computed_values
-        self.num_excs += other.num_excs
-        self.updated_cols = list(dict.fromkeys(self.updated_cols + other.updated_cols))
-        self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
+        return UpdateStatus(
+            num_rows=self.num_rows,
+            num_computed_values=self.num_computed_values,
+            num_excs=self.num_excs,
+            updated_cols=self.updated_cols,
+            cols_with_excs=self.cols_with_excs,
+            row_count_stats=self.row_count_stats.insert_to_update(),
+            cascade_row_count_stats=self.cascade_row_count_stats.insert_to_update(),
+        )
 
-        if cascade:
-            # If the other stats are a result of a cascaded operation, accumulate all stats into cascade stats
-            self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(
-                other.row_count_stats, as_update=as_update
-            )
-        else:
-            self.row_count_stats = self.row_count_stats.accumulate(other.row_count_stats, as_update=as_update)
-        self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(
-            other.cascade_row_count_stats, as_update=as_update
+    def to_cascade(self) -> 'UpdateStatus':
+        """
+        Convert the update status to a cascade update status.
+        This is used when an operation cascades changes to other tables.
+        """
+        return UpdateStatus(
+            num_rows=self.num_rows,
+            num_computed_values=self.num_computed_values,
+            num_excs=self.num_excs,
+            updated_cols=self.updated_cols,
+            cols_with_excs=self.cols_with_excs,
+            row_count_stats=RowCountStats(),
+            cascade_row_count_stats=self.cascade_row_count_stats + self.row_count_stats,
+        )
+
+    def __add__(self, other: 'UpdateStatus') -> UpdateStatus:
+        """
+        Add the update status from two UpdateStatus objects together.
+        """
+        return UpdateStatus(
+            num_rows=self.num_rows + other.num_rows,
+            num_computed_values=self.num_computed_values + other.num_computed_values,
+            num_excs=self.num_excs + other.num_excs,
+            updated_cols=list(dict.fromkeys(self.updated_cols + other.updated_cols)),
+            cols_with_excs=list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs)),
+            row_count_stats=self.row_count_stats + other.row_count_stats,
+            cascade_row_count_stats=self.cascade_row_count_stats + other.cascade_row_count_stats,
         )
 
     @property
