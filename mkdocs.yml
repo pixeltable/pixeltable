@@ -49,6 +49,7 @@ nav:
     - deepseek: pixeltable/functions/deepseek.md
     - fireworks: pixeltable/functions/fireworks.md
     - gemini: pixeltable/functions/gemini.md
+    - groq: pixeltable/functions/groq.md
     - huggingface: pixeltable/functions/huggingface.md
     - llama_cpp: pixeltable/functions/llama_cpp.md
     - mistralai: pixeltable/functions/mistralai.md

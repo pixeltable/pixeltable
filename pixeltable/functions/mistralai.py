@@ -5,7 +5,7 @@ first `pip install mistralai` and configure your Mistral AI credentials, as desc
 the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mistralai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -16,7 +16,7 @@ from pixeltable.func.signature import Batch
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import mistralai.types.basemodel
+    import mistralai
 
 
 @register_client('mistral')
@@ -53,8 +53,6 @@ async def chat_completions(
         model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
         model_kwargs: Additional keyword args for the Mistral `chat/completions` API.
             For details on the available parameters, see: <https://docs.mistral.ai/api/#tag/chat>
-
-    For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/chat>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -154,15 +152,6 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
 def _(model: str) -> ts.ArrayType:
     dimensions = _embedding_dimensions_cache.get(model)  # `None` if unknown model
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
-
-
-_T = TypeVar('_T')
-
-
-def _opt(arg: Optional[_T]) -> Union[_T, 'mistralai.types.basemodel.Unset']:
-    from mistralai.types import UNSET
-
-    return arg if arg is not None else UNSET
 
 
 __all__ = local_public_names(__name__)
