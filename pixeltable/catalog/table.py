@@ -1595,7 +1595,7 @@ class Table(SchemaObject):
         src_rows = Catalog.get().collect_tbl_history(tbl_id, n + 1)
 
         # Construct the metadata change description dictionary
-        md_list = [(row.TableVersion.version, row.TableSchemaVersion.md['columns']) for row in src_rows]
+        md_list = [(row.tbl_version.version, row.schema_version.md['columns']) for row in src_rows]
         md_dict = MetadataUtils._create_md_change_dict(md_list)
 
         # Construct report lines
@@ -1607,12 +1607,12 @@ class Table(SchemaObject):
 
         rpt_lines: list[list[Any]] = []
         for row in src_rows[0 : len(src_rows) - over_count]:
-            version = row.TableVersion.version
+            version = row.tbl_version.version
             schema_change = md_dict.get(version, '')
             change_type = 'schema' if schema_change != '' else 'data'
             rpt_line = [
                 version,
-                datetime.datetime.fromtimestamp(row.TableVersion.md['created_at']),
+                datetime.datetime.fromtimestamp(row.tbl_version.md['created_at']),
                 change_type,
                 schema_change,
             ]

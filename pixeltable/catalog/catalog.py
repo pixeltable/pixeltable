@@ -7,7 +7,7 @@ import random
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, NamedTuple, Optional, TypeVar
 from uuid import UUID
 
 import psycopg
@@ -1228,10 +1228,16 @@ class Catalog:
         self._tbls[tbl_id] = view
         return view
 
+    class HistoryRecord(NamedTuple):
+        """
+        A named tuple to hold the history of a table version and its schema version.
+        """
+
+        tbl_version: schema.TableVersion
+        schema_version: schema.TableSchemaVersion
+
     @_retry_loop(for_write=False)
-    def collect_tbl_history(
-        self, tbl_id: UUID, n: int
-    ) -> Sequence[sql.Row[tuple[schema.TableVersion, schema.TableSchemaVersion]]]:
+    def collect_tbl_history(self, tbl_id: UUID, n: int) -> list[Catalog.HistoryRecord]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 
@@ -1257,7 +1263,7 @@ class Catalog:
             .limit(n)
         )
         src_rows = Env.get().session.execute(q).fetchall()
-        return src_rows
+        return [Catalog.HistoryRecord(row.TableVersion, row.TableSchemaVersion) for row in src_rows]
 
     def load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> schema.FullTableMd:
         """
