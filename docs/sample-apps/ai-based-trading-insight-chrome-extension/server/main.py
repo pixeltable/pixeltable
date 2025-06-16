@@ -228,12 +228,7 @@ analysis_table.add_computed_column(
     claude_response=messages(
         model='claude-3-sonnet-20240229',
         messages=analysis_table.messages,
-        model_kwargs={
-            'max_tokens': 1500,
-            'temperature': 0.1,
-            'top_p': 0.3,
-            'top_k': 10,
-        },
+        model_kwargs={'max_tokens': 1500, 'temperature': 0.1, 'top_p': 0.3, 'top_k': 10},
         system="""
 You are a professional market analyst specializing in technical analysis for day trading. Analyze trading charts with precision and provide structured insights to determine current trends leveraging MACD, RSI, Money Flow Index, EMA, SMA, Bollinger Bands, Stochastic oscillator, VWAP, Volume for options trading.
 
