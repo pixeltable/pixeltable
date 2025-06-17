@@ -251,7 +251,7 @@ class LabelStudioProject(Project):
         t_rl_cols: list[Column],
         rl_info: list['_RectangleLabel'],
     ) -> SyncStatus:
-        ext_data_cols = [self.col_mapping[col] for col in t_data_cols]
+        ext_data_cols = [self.col_mapping[col.handle] for col in t_data_cols]
         expr_refs: dict[str, Expr] = {}  # kwargs for the select statement
         for col in t_data_cols:
             col_name = col.name
@@ -396,7 +396,7 @@ class LabelStudioProject(Project):
             for task in tasks.values()
         }
 
-        local_annotations_col = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
+        local_annotations_col = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN).get()
 
         # Prune the annotations down to just the ones that have actually changed.
         rows = t.select(t[local_annotations_col.name])

@@ -153,7 +153,7 @@ class Project(ExternalStore, abc.ABC):
         return proxy_col
 
     @property
-    def col_mapping(self) -> dict[ColumnHandle, ColumnHandle]:
+    def col_mapping(self) -> dict[ColumnHandle, str]:
         return self._col_mapping
 
     @abc.abstractmethod
