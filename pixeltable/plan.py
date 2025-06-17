@@ -75,6 +75,88 @@ class FromClause:
     tbls: list[catalog.TableVersionPath]
     join_clauses: list[JoinClause] = dataclasses.field(default_factory=list)
 
+    @property
+    def _first_tbl(self) -> catalog.TableVersionPath:
+        assert len(self.tbls) == 1
+        return self.tbls[0]
+
+
+@dataclasses.dataclass
+class SampleClause:
+    """Defines a sampling clause for a table."""
+
+    version: Optional[int]
+    n: Optional[int]
+    n_per_stratum: Optional[int]
+    fraction: Optional[float]
+    seed: Optional[int]
+    stratify_exprs: Optional[list[exprs.Expr]]
+
+    # This seed value is used if one is not supplied
+    DEFAULT_SEED = 0
+
+    # The version of the hashing algorithm used for ordering and fractional sampling.
+    CURRENT_VERSION = 1
+
+    def __post_init__(self) -> None:
+        """If no version was provided, provide the default version"""
+        if self.version is None:
+            self.version = self.CURRENT_VERSION
+        if self.seed is None:
+            self.seed = self.DEFAULT_SEED
+
+    @property
+    def is_stratified(self) -> bool:
+        """Check if the sampling is stratified"""
+        return self.stratify_exprs is not None and len(self.stratify_exprs) > 0
+
+    @property
+    def is_repeatable(self) -> bool:
+        """Return true if the same rows will continue to be sampled if source rows are added or deleted."""
+        return not self.is_stratified and self.fraction is not None
+
+    def display_str(self, inline: bool = False) -> str:
+        return str(self)
+
+    def as_dict(self) -> dict:
+        """Return a dictionary representation of the object"""
+        d = dataclasses.asdict(self)
+        d['_classname'] = self.__class__.__name__
+        if self.is_stratified:
+            d['stratify_exprs'] = [e.as_dict() for e in self.stratify_exprs]
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> SampleClause:
+        """Create a SampleClause from a dictionary representation"""
+        d_cleaned = {key: value for key, value in d.items() if key != '_classname'}
+        s = cls(**d_cleaned)
+        if s.is_stratified:
+            s.stratify_exprs = [exprs.Expr.from_dict(e) for e in d_cleaned.get('stratify_exprs', [])]
+        return s
+
+    def __repr__(self) -> str:
+        s = ','.join(e.display_str(inline=True) for e in self.stratify_exprs)
+        return (
+            f'sample_{self.version}(n={self.n}, n_per_stratum={self.n_per_stratum}, '
+            f'fraction={self.fraction}, seed={self.seed}, [{s}])'
+        )
+
+    @classmethod
+    def fraction_to_md5_hex(cls, fraction: float) -> str:
+        """Return the string representation of an approximation (to ~1e-9) of a fraction of the total space
+        of md5 hash values.
+        This is used for fractional sampling.
+        """
+        # Maximum count for the upper 32 bits of MD5: 2^32
+        max_md5_value = (2**32) - 1
+
+        # Calculate the fraction of this value
+        threshold_int = max_md5_value * int(1_000_000_000 * fraction) // 1_000_000_000
+
+        # Convert to hexadecimal string with padding
+        return format(threshold_int, '08x') + 'ffffffffffffffffffffffff'
+
 
 class Analyzer:
     """
@@ -87,6 +169,8 @@ class Analyzer:
     group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
     grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
     order_by_clause: OrderByClause
+    stratify_exprs: list[exprs.Expr]  # [] if no stratiifcation is required
+    sample_clause: Optional[SampleClause]  # None if no sampling clause is present
 
     sql_elements: exprs.SqlElementCache
 
@@ -107,6 +191,7 @@ class Analyzer:
         where_clause: Optional[exprs.Expr] = None,
         group_by_clause: Optional[list[exprs.Expr]] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
+        sample_clause: Optional[SampleClause] = None,
     ):
         if order_by_clause is None:
             order_by_clause = []
@@ -120,6 +205,11 @@ class Analyzer:
         self.group_by_clause = (
             [e.resolve_computed_cols() for e in group_by_clause] if group_by_clause is not None else None
         )
+        self.sample_clause = sample_clause
+        if self.sample_clause is not None and self.sample_clause.is_stratified:
+            self.stratify_exprs = [e.resolve_computed_cols() for e in sample_clause.stratify_exprs]
+        else:
+            self.stratify_exprs = []
         self.order_by_clause = [OrderByItem(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
 
         self.sql_where_clause = None
@@ -135,8 +225,11 @@ class Analyzer:
                 self.all_exprs.append(join_clause.join_predicate)
         if self.group_by_clause is not None:
             self.all_exprs.extend(self.group_by_clause)
+        self.all_exprs.extend(self.stratify_exprs)
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
+            if sample_clause is not None:
+                raise excs.Error(f'Filter {self.filter} not expressible in SQL')
             self.all_exprs.append(self.filter)
 
         self.agg_order_by = []
@@ -260,7 +353,7 @@ class Planner:
     # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
     def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None) -> sql.Select:
-        stmt = sql.select(sql.func.count())
+        stmt = sql.select(sql.func.count().label('all_count'))
         refd_tbl_ids: set[UUID] = set()
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
@@ -321,6 +414,13 @@ class Planner:
             )
         )
         return plan
+
+    @classmethod
+    def rowid_columns(cls, target: TableVersionHandle, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
+        """Return list of RowidRef for the given number of associated rowids"""
+        if num_rowid_cols is None:
+            num_rowid_cols = target.get().num_rowid_columns()
+        return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
 
     @classmethod
     def create_df_insert_plan(
@@ -591,8 +691,13 @@ class Planner:
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
-        row_builder = exprs.RowBuilder(iterator_args, stored_cols, [])
+        from_clause = FromClause(tbls=[view.base])
+        base_analyzer = Analyzer(
+            from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
+        )
+        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [])
 
+        # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
@@ -603,8 +708,11 @@ class Planner:
             for e in row_builder.default_eval_ctx.target_exprs
             if e.is_bound_by([view]) and not e.is_bound_by([view.base])
         ]
-        # if we're propagating an insert, we only want to see those base rows that were created for the current version
-        base_analyzer = Analyzer(FromClause(tbls=[view.base]), base_output_exprs, where_clause=target.predicate)
+
+        # Create a new analyzer reflecting exactly what is required from the base table
+        base_analyzer = Analyzer(
+            from_clause, base_output_exprs, where_clause=target.predicate, sample_clause=target.sample_clause
+        )
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(
             row_builder=row_builder,
@@ -701,6 +809,7 @@ class Planner:
         group_by_clause: Optional[list[exprs.Expr]] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
         limit: Optional[exprs.Expr] = None,
+        sample_clause: Optional[SampleClause] = None,
         ignore_errors: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:
@@ -714,12 +823,14 @@ class Planner:
             order_by_clause = []
         if exact_version_only is None:
             exact_version_only = []
+
         analyzer = Analyzer(
             from_clause,
             select_list,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
             order_by_clause=order_by_clause,
+            sample_clause=sample_clause,
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
 
@@ -773,6 +884,7 @@ class Planner:
         # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
+        # - all stratify exprs
         candidates = list(
             exprs.Expr.list_subexprs(
                 analyzer.select_list,
@@ -787,10 +899,12 @@ class Planner:
             candidates.extend(
                 exprs.Expr.subexprs(analyzer.filter, filter=sql_elements.contains, traverse_matches=False)
             )
-        if analyzer.group_by_clause is not None:
-            candidates.extend(
-                exprs.Expr.list_subexprs(analyzer.group_by_clause, filter=sql_elements.contains, traverse_matches=False)
-            )
+        candidates.extend(
+            exprs.Expr.list_subexprs(analyzer.grouping_exprs, filter=sql_elements.contains, traverse_matches=False)
+        )
+        candidates.extend(
+            exprs.Expr.list_subexprs(analyzer.stratify_exprs, filter=sql_elements.contains, traverse_matches=False)
+        )
         # not isinstance(...): we don't want to materialize Literals via a Select
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
@@ -834,6 +948,15 @@ class Planner:
         if len(analyzer.window_fn_calls) > 0:
             # we need to order the input for window functions
             plan.set_order_by(analyzer.get_window_fn_ob_clause())
+
+        if analyzer.sample_clause is not None:
+            plan = exec.SqlSampleNode(
+                row_builder,
+                input=plan,
+                select_list=tbl_scan_exprs,
+                sample_clause=analyzer.sample_clause,
+                stratify_exprs=analyzer.stratify_exprs,
+            )
 
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder, plan)
 

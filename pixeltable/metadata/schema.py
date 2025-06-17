@@ -147,6 +147,9 @@ class ViewMd:
     # filter predicate applied to the base table; view-only
     predicate: Optional[dict[str, Any]]
 
+    # sampling predicate applied to the base table; view-only
+    sample_clause: Optional[dict[str, Any]]
+
     # ComponentIterator subclass; only for component views
     iterator_class_fqn: Optional[str]
 
@@ -173,6 +176,11 @@ class TableMd:
     # - used to assign the rowid column in the storage table
     # - every row is assigned a unique and immutable rowid on insertion
     next_row_id: int
+
+    # sequence number to track changes in the set of mutable views of this table (ie, this table = the view base)
+    # - incremented for each add/drop of a mutable view
+    # - only maintained for mutable tables
+    view_sn: int
 
     # Metadata format for external stores:
     # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}

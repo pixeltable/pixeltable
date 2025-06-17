@@ -17,6 +17,7 @@ Another difference to pandas is that query execution needs to be initiated expli
 | [`order_by`][pixeltable.DataFrame.order_by] | Order output rows                                     |
 | [`limit`][pixeltable.DataFrame.limit]       | Limit the number of output rows                       |
 | [`distinct`][pixeltable.DataFrame.distinct] | Remove duplicate rows                                 |
+| [`sample`][pixeltable.DataFrame.sample]     | Select shuffled sample of rows                        |
 
 | Query Execution                           |                                     |
 |-------------------------------------------|-------------------------------------|
@@ -47,3 +48,4 @@ Another difference to pandas is that query execution needs to be initiated expli
       - to_coco_dataset
       - where
       - distinct
+      - sample
