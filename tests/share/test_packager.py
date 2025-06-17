@@ -90,8 +90,8 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._base_tables) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._base_tables)):
+        assert len(md['md']['tables']) == len(tbl._get_base_tables()) + 1
+        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._get_base_tables())):
             assert t_md['table_id'] == str(t._tbl_version.id)
 
     def __check_parquet_tbl(
@@ -177,9 +177,9 @@ class TestPackager:
         """
         Runs the query `tbl.head(n=5000)`, packages the table into a bundle, and returns a BundleInfo.
         """
-        assert tbl._tbl_version.get().is_snapshot
+        assert tbl.get_metadata()['is_snapshot']
 
-        schema = tbl._schema
+        schema = tbl._get_schema()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
 
@@ -199,7 +199,7 @@ class TestPackager:
 
     def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
-        assert t._schema == bundle_info.schema
+        assert t._get_schema() == bundle_info.schema
         assert t._tbl_version_path.path_len() == bundle_info.depth
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
@@ -252,9 +252,9 @@ class TestPackager:
         snapshot_replica = pxt.get_table('new_replica')
         assert snapshot_replica._snapshot_only
         assert snapshot_replica.count() == snapshot_row_count
-        v_replica = snapshot_replica.base_table
+        v_replica = snapshot_replica.get_base_table()
         assert v_replica.count() == snapshot_row_count
-        t_replica = v_replica.base_table
+        t_replica = v_replica.get_base_table()
         assert t_replica.count() == 2
 
     def test_multi_view_round_trip_1(self, reset_db: None) -> None:

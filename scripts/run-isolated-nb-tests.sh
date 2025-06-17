@@ -3,7 +3,13 @@
 IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
+PY_VERSION="$1"
 TEST_PATH="target/nb-tests"
+
+if [ -z "$PY_VERSION" ]; then
+    echo "Usage: run-isolated-nb-tests.sh <python-version>"
+    exit 1
+fi
 
 # Initialize conda in this subshell
 eval "$(conda shell.bash hook)"
@@ -21,7 +27,7 @@ FAILURES=0
 for nb in "$TEST_PATH"/*.ipynb; do
     echo "Testing notebook: $nb"
     echo "Creating conda environment ..."
-    conda create -y --name nb-test-env python=3.9
+    conda create -y --name nb-test-env python="$PY_VERSION"
     echo "Activating conda environment ..."
     conda activate nb-test-env
     conda info

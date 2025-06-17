@@ -136,6 +136,7 @@ fireworks-ai = ">=0.17.6"
 mistralai = ">=1.8.2"
 replicate = "^1.0.2"
 google-genai = "^1.15.0"
+groq = ">=0.26.0"
 boto3 = "==1.36.23"  # Locking a specific version of boto3/botocore dramatically improves `poetry lock` runtimes
 botocore = "==1.36.23"
 spacy = ">=3.7"
@@ -150,9 +151,9 @@ openai-whisper = ">=20240930"
 # Don't include whisperx on Intel Mac instances
 whisperx = { version = ">=3.3.1", python = "<3.13", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
 label-studio-sdk = "^0.0.32"
-fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
 llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
+mcp = ">=1.9.4"
 pixeltable-yolox = "==0.4.2"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
