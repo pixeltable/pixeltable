@@ -227,7 +227,7 @@ class LabelStudioProject(Project):
                 _logger.debug('`coco_annotations`: %s', coco_annotations)
                 predictions = [
                     self.__coco_to_predictions(
-                        coco_annotations[i], self.col_mapping[t_rl_cols[i]], rl_info[i], task_id=task_id
+                        coco_annotations[i], self.col_mapping[t_rl_cols[i].handle], rl_info[i], task_id=task_id
                     )
                     for i in range(len(coco_annotations))
                 ]
@@ -261,11 +261,11 @@ class LabelStudioProject(Project):
                 assert self.media_import_method == 'file'
                 if not col.col_type.is_media_type():
                     # Not a media column; query the data directly
-                    expr_refs[col_name] = cast(ColumnRef, t[col_name])
-                elif col in self.stored_proxies:
+                    expr_refs[col_name] = t[col_name]
+                elif col.handle in self.stored_proxies:
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
-                    stored_proxy_col = self.stored_proxies[col]
+                    stored_proxy_col = self.stored_proxies[col.handle].get()
                     expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
@@ -300,7 +300,7 @@ class LabelStudioProject(Project):
                         assert self.media_import_method == 'file'
                         data_vals[i] = self.__localpath_to_lspath(data_vals[i])
             predictions = [
-                self.__coco_to_predictions(coco_annotations[i], self.col_mapping[t_rl_cols[i]], rl_info[i])
+                self.__coco_to_predictions(coco_annotations[i], self.col_mapping[t_rl_cols[i].handle], rl_info[i])
                 for i in range(len(coco_annotations))
             ]
             return {
