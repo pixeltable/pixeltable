@@ -145,3 +145,9 @@ jobs:
           conda info
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh
+      - name: Print debugging info
+        if: ${{ always() }}
+        run: |
+          conda activate nb-test-env
+          conda info
+          pip list
