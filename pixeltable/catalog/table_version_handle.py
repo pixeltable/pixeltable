@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -83,7 +83,4 @@ class ColumnHandle:
 
     @classmethod
     def from_dict(cls, d: dict) -> ColumnHandle:
-        return cls(
-            tbl_version=TableVersionHandle.from_dict(d['tbl_version']),
-            col_id=d['col_id'],
-        )
+        return cls(tbl_version=TableVersionHandle.from_dict(d['tbl_version']), col_id=d['col_id'])

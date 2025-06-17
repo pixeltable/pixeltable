@@ -15,7 +15,7 @@ from .globals import MediaValidation, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
-    from .table_version_handle import ColumnHandle, TableVersionHandle
+    from .table_version_handle import ColumnHandle
     from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')

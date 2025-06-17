@@ -4,16 +4,16 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional, cast
+from typing import Any, Iterator, Literal, Optional
 from xml.etree import ElementTree as ET
 
 import label_studio_sdk  # type: ignore[import-untyped]
 import PIL.Image
 from requests.exceptions import HTTPError
 
-from pixeltable.catalog import ColumnHandle
 import pixeltable.type_system as ts
 from pixeltable import Column, Table, env, exceptions as excs
+from pixeltable.catalog import ColumnHandle
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus
@@ -157,7 +157,9 @@ class LabelStudioProject(Project):
         config = self.__project_config
 
         # Columns in `t` that map to Label Studio data keys
-        t_data_cols = [t_col.get() for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys]
+        t_data_cols = [
+            t_col.get() for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys
+        ]
 
         if len(t_data_cols) == 0:
             return SyncStatus.empty()
@@ -431,9 +433,7 @@ class LabelStudioProject(Project):
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
             'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [
-                [k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()
-            ],
+            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()],
         }
 
     @classmethod

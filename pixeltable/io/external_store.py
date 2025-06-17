@@ -5,13 +5,11 @@ import itertools
 import logging
 from dataclasses import dataclass
 from typing import Any, Optional
-from uuid import UUID
 
-from pixeltable.catalog import ColumnHandle
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
-from pixeltable.catalog import TableVersion
+from pixeltable.catalog import ColumnHandle, TableVersion
 
 _logger = logging.getLogger('pixeltable')
 
@@ -69,7 +67,12 @@ class Project(ExternalStore, abc.ABC):
     _col_mapping: dict[ColumnHandle, str]  # col -> external col name
     stored_proxies: dict[ColumnHandle, ColumnHandle]  # original col -> proxy col
 
-    def __init__(self, name: str, col_mapping: dict[ColumnHandle, str], stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]]):
+    def __init__(
+        self,
+        name: str,
+        col_mapping: dict[ColumnHandle, str],
+        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]],
+    ):
         super().__init__(name)
         self._col_mapping = col_mapping
 
@@ -289,8 +292,8 @@ class MockProject(Project):
         name: str,
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
-        col_mapping: dict[Column, str],
-        stored_proxies: Optional[dict[Column, Column]] = None,
+        col_mapping: dict[ColumnHandle, str],
+        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
     ):
         super().__init__(name, col_mapping, stored_proxies)
         self.export_cols = export_cols
@@ -331,9 +334,7 @@ class MockProject(Project):
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
             'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
             'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [
-                [k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()
-            ],
+            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()],
         }
 
     @classmethod
