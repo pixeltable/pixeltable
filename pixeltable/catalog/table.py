@@ -840,11 +840,12 @@ class Table(SchemaObject):
             _ = self._get_views(recursive=True, include_snapshots=False)
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
+            col_handle = col.handle
             dependent_stores = [
                 (view, store)
                 for view in (self, *self._get_views(recursive=True, include_snapshots=False))
                 for store in view._tbl_version.get().external_stores.values()
-                if col in store.get_local_columns()
+                if col_handle in store.get_local_columns()
             ]
             if len(dependent_stores) > 0:
                 dependent_store_names = [

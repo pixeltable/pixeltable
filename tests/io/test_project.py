@@ -159,12 +159,12 @@ class TestProject:
         )
         t._link_external_store(store1)
         assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking + 2
-        assert t.rot_img.col in store1.stored_proxies  # Stored proxy
-        assert store1.stored_proxies[t.rot_img.col].tbl.id == t._tbl_version.id
-        assert t.rot_other_img.col in store1.stored_proxies  # Stored proxy
-        assert store1.stored_proxies[t.rot_other_img.col].tbl.id == t._tbl_version.id
+        assert t.rot_img.col.handle in store1.stored_proxies  # Stored proxy
+        assert store1.stored_proxies[t.rot_img.col.handle].get().tbl.id == t._tbl_version.id
+        assert t.rot_other_img.col.handle in store1.stored_proxies  # Stored proxy
+        assert store1.stored_proxies[t.rot_other_img.col.handle].get().tbl.id == t._tbl_version.id
         # Verify that the stored proxies are properly materialized, and we can query them
-        ref = ColumnRef(store1.stored_proxies[t.rot_img.col])
+        ref = ColumnRef(store1.stored_proxies[t.rot_img.col.handle].get())
         proxies = t.select(img=ref, path=ref.localpath).collect()
         assert all(os.path.isfile(proxies['path'][i]) for i in range(len(proxies)))
         proxies['img'][0].load()
@@ -177,7 +177,7 @@ class TestProject:
         # a column before linking, to ensure that column associations are preserved by reference
         # (tbl/column ID), not by name.
         t.rename_column('rot_img', 'rot_img_renamed')
-        assert t.rot_img_renamed.col in store1.stored_proxies
+        assert t.rot_img_renamed.col.handle in store1.stored_proxies
         store2 = MockProject.create(
             t, 'store2', {'push_img': ts.ImageType()}, {'pull_str': ts.StringType()}, {'rot_img_renamed': 'push_img'}
         )
@@ -193,7 +193,7 @@ class TestProject:
         # Now rot_img_renamed is still linked through store2, but rot_other_img
         # is not linked to any store. So just rot_img_renamed should have a proxy
         assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking + 1
-        assert t.rot_img_renamed.col in store2.stored_proxies
+        assert t.rot_img_renamed.col.handle in store2.stored_proxies
 
         if with_reloads:
             reload_catalog()
@@ -219,8 +219,8 @@ class TestProject:
             v1 = pxt.get_table('test_view_1')
 
         assert t.rot_img_renamed.col == v1.rot_img_renamed.col
-        assert t.rot_img_renamed.col in storev1.stored_proxies
-        assert storev1.stored_proxies[t.rot_img_renamed.col].tbl.id == v1._id
+        assert t.rot_img_renamed.col.handle in storev1.stored_proxies
+        assert storev1.stored_proxies[t.rot_img_renamed.col.handle].get().tbl.id == v1._id
 
         storev2 = MockProject.create(
             t, 'storev2', {'push_img': ts.ImageType()}, {'pull_str': ts.StringType()}, {'rot_img_renamed': 'push_img'}
@@ -237,7 +237,7 @@ class TestProject:
 
         # Check that the same column correctly gets mapped to two distinct stored proxies, one
         # for each view
-        assert t.rot_img_renamed.col in storev1.stored_proxies
-        assert t.rot_img_renamed.col in storev2.stored_proxies
-        assert storev1.stored_proxies[t.rot_img_renamed.col].tbl.id == v1._id
-        assert storev2.stored_proxies[t.rot_img_renamed.col].tbl.id == v2._id
+        assert t.rot_img_renamed.col.handle in storev1.stored_proxies
+        assert t.rot_img_renamed.col.handle in storev2.stored_proxies
+        assert storev1.stored_proxies[t.rot_img_renamed.col.handle].get().tbl.id == v1._id
+        assert storev2.stored_proxies[t.rot_img_renamed.col.handle].get().tbl.id == v2._id

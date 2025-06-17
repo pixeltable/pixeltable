@@ -41,7 +41,7 @@ class ExternalStore(abc.ABC):
         """Removes store-specific metadata created in link()."""
 
     @abc.abstractmethod
-    def get_local_columns(self) -> list[Column]:
+    def get_local_columns(self) -> list[ColumnHandle]:
         """
         Gets a list of all local (Pixeltable) columns that are associated with this external store.
         """
@@ -88,7 +88,7 @@ class Project(ExternalStore, abc.ABC):
         else:
             self.stored_proxies = stored_proxies
 
-    def get_local_columns(self) -> list[int]:
+    def get_local_columns(self) -> list[ColumnHandle]:
         return list(self.col_mapping.keys())
 
     def link(self, tbl_version: TableVersion) -> None:
