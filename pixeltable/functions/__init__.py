@@ -10,6 +10,7 @@ from . import (
     deepseek,
     fireworks,
     gemini,
+    groq,
     huggingface,
     image,
     json,

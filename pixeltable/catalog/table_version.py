@@ -174,18 +174,6 @@ class TableVersion:
         self.idxs_by_name = {}
         self.external_stores = {}
 
-    def init(self) -> None:
-        """
-        Initialize schema-related in-memory metadata separately, now that this TableVersion instance is visible
-        in Catalog.
-        """
-        from .catalog import Catalog
-
-        assert (self.id, self.effective_version) in Catalog.get()._tbl_versions
-        self._init_schema()
-        # init external stores; this needs to happen after the schema is created
-        self._init_external_stores()
-
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -241,6 +229,7 @@ class TableVersion:
             next_col_id=len(cols),
             next_idx_id=0,
             next_row_id=0,
+            view_sn=0,
             column_md=column_md,
             index_md={},
             external_stores=[],
@@ -345,24 +334,39 @@ class TableVersion:
         return tbl_version
 
     def drop(self) -> None:
-        from .catalog import Catalog
-
         if self.is_view and self.is_mutable:
             # update mutable_views
+            # TODO: invalidate base to force reload
             from .table_version_handle import TableVersionHandle
 
             assert self.base is not None
             if self.base.get().is_mutable:
                 self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        cat = Catalog.get()
+        # cat = Catalog.get()
         # delete this table and all associated data
         MediaStore.delete(self.id)
         FileCache.get().clear(tbl_id=self.id)
-        cat.delete_tbl_md(self.id)
+        # cat.delete_tbl_md(self.id)
         self.store_tbl.drop()
         # de-register table version from catalog
-        cat.remove_tbl_version(self)
+        # cat.remove_tbl_version(self)
+
+    def init(self) -> None:
+        """
+        Initialize schema-related in-memory metadata separately, now that this TableVersion instance is visible
+        in Catalog.
+        """
+        from .catalog import Catalog
+
+        cat = Catalog.get()
+        assert (self.id, self.effective_version) in cat._tbl_versions
+        self._init_schema()
+        if not self.is_snapshot:
+            cat.record_column_dependencies(self)
+
+        # init external stores; this needs to happen after the schema is created
+        self._init_external_stores()
 
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
@@ -371,6 +375,10 @@ class TableVersion:
             self._init_idxs()
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
+
+        # created value_exprs after everything else has been initialized
+        for col in self.cols_by_id.values():
+            col.init_value_expr()
 
     def _init_cols(self) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
@@ -398,6 +406,7 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 value_expr_dict=col_md.value_expr,
+                tbl=self,
             )
             col.tbl = self
             self.cols.append(col)
@@ -413,10 +422,10 @@ class TableVersion:
                 self.cols_by_name[col.name] = col
             self.cols_by_id[col.id] = col
 
-            # make sure to traverse columns ordered by position = order in which cols were created;
-            # this guarantees that references always point backwards
-            if not self.is_snapshot and col_md.value_expr is not None:
-                self._record_refd_columns(col)
+            # # make sure to traverse columns ordered by position = order in which cols were created;
+            # # this guarantees that references always point backwards
+            # if not self.is_snapshot and col_md.value_expr is not None:
+            #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
         # self.idx_md = tbl_md.index_md
@@ -484,11 +493,6 @@ class TableVersion:
         Catalog.get().store_tbl_md(
             self.id, None, self._tbl_md, version_md, self._schema_version_md if new_schema_version else None
         )
-
-    def ensure_md_loaded(self) -> None:
-        """Ensure that table metadata is loaded."""
-        for col in self.cols_by_id.values():
-            _ = col.value_expr
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""
@@ -704,9 +708,6 @@ class TableVersion:
             if col.name is not None:
                 self.cols_by_name[col.name] = col
             self.cols_by_id[col.id] = col
-            if col.value_expr is not None:
-                col.check_value_expr()
-                self._record_refd_columns(col)
 
             # also add to stored md
             self._tbl_md.column_md[col.id] = schema.ColumnMd(
@@ -765,9 +766,12 @@ class TableVersion:
                 run_cleanup_on_exception(cleanup_on_error)
                 plan.close()
 
+        pxt.catalog.Catalog.get().record_column_dependencies(self)
+
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
-        # TODO(mkornacker): what to do about system columns with exceptions?
+
+        # TODO: what to do about system columns with exceptions?
         row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
         return UpdateStatus(
             num_rows=row_count,
@@ -812,13 +816,6 @@ class TableVersion:
         assert not self.is_snapshot
 
         for col in cols:
-            if col.value_expr is not None:
-                # update Column.dependent_cols
-                for c in self.cols:
-                    if c == col:
-                        break
-                    c.dependent_cols.discard(col)
-
             col.schema_version_drop = self.schema_version
             if col.name is not None:
                 assert col.name in self.cols_by_name
@@ -835,6 +832,7 @@ class TableVersion:
             schema_col.pos = pos
 
         self.store_tbl.create_sa_tbl()
+        pxt.catalog.Catalog.get().record_column_dependencies(self)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
@@ -1457,18 +1455,6 @@ class TableVersion:
         names = [c.name for c in self.cols_by_name.values() if c.is_computed]
         return names
 
-    def _record_refd_columns(self, col: Column) -> None:
-        """Update Column.dependent_cols for all cols referenced in col.value_expr."""
-        from pixeltable import exprs
-
-        if col.value_expr_dict is not None:
-            # if we have a value_expr_dict, use that instead of instantiating the value_expr
-            refd_cols = exprs.Expr.get_refd_columns(col.value_expr_dict)
-        else:
-            refd_cols = [e.col for e in col.value_expr.subexprs(expr_class=exprs.ColumnRef)]
-        for refd_col in refd_cols:
-            refd_col.dependent_cols.add(col)
-
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
         result = {info.val_col for col in cols for info in col.get_idx_info().values()}
         return result
@@ -1477,7 +1463,8 @@ class TableVersion:
         """
         Return the set of columns that transitively depend on any of the given ones.
         """
-        result = {dependent_col for col in cols for dependent_col in col.dependent_cols}
+        cat = pxt.catalog.Catalog.get()
+        result = set().union(*[cat.get_column_dependents(col.tbl.id, col.id) for col in cols])
         if len(result) > 0:
             result.update(self.get_dependent_columns(result))
         return result

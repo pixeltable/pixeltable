@@ -5,7 +5,7 @@ first `pip install mistralai` and configure your Mistral AI credentials, as desc
 the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mistralai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -16,7 +16,7 @@ from pixeltable.func.signature import Batch
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import mistralai.types.basemodel
+    import mistralai
 
 
 @register_client('mistral')
@@ -32,16 +32,7 @@ def _mistralai_client() -> 'mistralai.Mistral':
 
 @pxt.udf(resource_pool='request-rate:mistral')
 async def chat_completions(
-    messages: list[dict[str, str]],
-    *,
-    model: str,
-    temperature: Optional[float] = 0.7,
-    top_p: Optional[float] = 1.0,
-    max_tokens: Optional[int] = None,
-    stop: Optional[list[str]] = None,
-    random_seed: Optional[int] = None,
-    response_format: Optional[dict] = None,
-    safe_prompt: Optional[bool] = False,
+    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> dict:
     """
     Chat Completion API.
@@ -60,8 +51,8 @@ async def chat_completions(
     Args:
         messages: The prompt(s) to generate completions for.
         model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
-
-    For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/chat>
+        model_kwargs: Additional keyword args for the Mistral `chat/completions` API.
+            For details on the available parameters, see: <https://docs.mistral.ai/api/#tag/chat>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -73,34 +64,20 @@ async def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(response=completions(messages, model='mistral-latest-small'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     Env.get().require_package('mistralai')
     result = await _mistralai_client().chat.complete_async(
         messages=messages,  # type: ignore[arg-type]
         model=model,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=_opt(max_tokens),
-        stop=stop,
-        random_seed=_opt(random_seed),
-        response_format=response_format,  # type: ignore[arg-type]
-        safe_prompt=safe_prompt,
+        **model_kwargs,
     )
     return result.dict()
 
 
 @pxt.udf(resource_pool='request-rate:mistral')
-async def fim_completions(
-    prompt: str,
-    *,
-    model: str,
-    temperature: Optional[float] = 0.7,
-    top_p: Optional[float] = 1.0,
-    max_tokens: Optional[int] = None,
-    min_tokens: Optional[int] = None,
-    stop: Optional[list[str]] = None,
-    random_seed: Optional[int] = None,
-    suffix: Optional[str] = None,
-) -> dict:
+async def fim_completions(prompt: str, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
     """
     Fill-in-the-middle Completion API.
 
@@ -118,6 +95,8 @@ async def fim_completions(
     Args:
         prompt: The text/code to complete.
         model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
+        model_kwargs: Additional keyword args for the Mistral `fim/completions` API.
+            For details on the available parameters, see: <https://docs.mistral.ai/api/#tag/fim>
 
     For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/fim>
 
@@ -130,18 +109,11 @@ async def fim_completions(
 
         >>> tbl.add_computed_column(response=completions(tbl.prompt, model='codestral-latest'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     Env.get().require_package('mistralai')
-    result = await _mistralai_client().fim.complete_async(
-        prompt=prompt,
-        model=model,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=_opt(max_tokens),
-        min_tokens=_opt(min_tokens),
-        stop=stop,
-        random_seed=_opt(random_seed),
-        suffix=_opt(suffix),
-    )
+    result = await _mistralai_client().fim.complete_async(prompt=prompt, model=model, **model_kwargs)
     return result.dict()
 
 
@@ -180,15 +152,6 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
 def _(model: str) -> ts.ArrayType:
     dimensions = _embedding_dimensions_cache.get(model)  # `None` if unknown model
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
-
-
-_T = TypeVar('_T')
-
-
-def _opt(arg: Optional[_T]) -> Union[_T, 'mistralai.types.basemodel.Unset']:
-    from mistralai.types import UNSET
-
-    return arg if arg is not None else UNSET
 
 
 __all__ = local_public_names(__name__)
