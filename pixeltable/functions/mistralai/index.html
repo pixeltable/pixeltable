@@ -991,6 +991,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../groq/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    groq
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../huggingface/" class="md-nav__link">
         
   
@@ -1449,16 +1470,7 @@ the <a href="https://pixeltable.readme.io/docs/working-with-mistralai">Working w
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">chat_completions</span><span class="p">(</span>
-    <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.7</span><span class="p">,</span>
-    <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-    <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">random_seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">response_format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">safe_prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1494,8 +1506,18 @@ limit is configured, uses a default of 600 RPM.</p>
             <p>ID of the model to use. (See overview here: <a href="https://docs.mistral.ai/getting-started/models/">https://docs.mistral.ai/getting-started/models/</a>)</p>
           </div>
         </li>
+        <li class="doc-section-item field-body">
+          <b><code>model_kwargs</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional keyword args for the Mistral <code>chat/completions</code> API.
+For details on the available parameters, see: <a href="https://docs.mistral.ai/api/#tag/chat">https://docs.mistral.ai/api/#tag/chat</a></p>
+          </div>
+        </li>
     </ul>
-      <p>For details on the other parameters, see: <a href="https://docs.mistral.ai/api/#tag/chat">https://docs.mistral.ai/api/#tag/chat</a></p>
 
 
 <p><span class="doc-section-title">Returns:</span></p>
@@ -1599,16 +1621,7 @@ limit is configured, uses a default of 600 RPM.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">fim_completions</span><span class="p">(</span>
-    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.7</span><span class="p">,</span>
-    <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-    <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">min_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">random_seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">suffix</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1642,6 +1655,17 @@ limit is configured, uses a default of 600 RPM.</p>
           –
           <div class="doc-md-description">
             <p>ID of the model to use. (See overview here: <a href="https://docs.mistral.ai/getting-started/models/">https://docs.mistral.ai/getting-started/models/</a>)</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>model_kwargs</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional keyword args for the Mistral <code>fim/completions</code> API.
+For details on the available parameters, see: <a href="https://docs.mistral.ai/api/#tag/fim">https://docs.mistral.ai/api/#tag/fim</a></p>
           </div>
         </li>
     </ul>

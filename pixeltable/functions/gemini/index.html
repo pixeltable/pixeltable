@@ -14,7 +14,7 @@
         <link rel="prev" href="../fireworks/">
       
       
-        <link rel="next" href="../huggingface/">
+        <link rel="next" href="../groq/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -1030,6 +1030,33 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.gemini.generate_images" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;generate_images
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.gemini.generate_videos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;generate_videos
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.gemini.invoke_tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;invoke_tools
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1039,6 +1066,27 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../groq/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    groq
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -1346,6 +1394,33 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.gemini.generate_images" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;generate_images
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.gemini.generate_videos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;generate_videos
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.gemini.invoke_tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;invoke_tools
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1416,23 +1491,15 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
     <span class="n">contents</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">candidate_count</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">stop_sequences</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">max_output_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">top_k</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">response_mime_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">response_schema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">presence_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">frequency_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tools</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
       <p>Generate content from the specified model. For additional details, see:
-<a href="https://ai.google.dev/gemini-api/docs">https://ai.google.dev/gemini-api/docs</a></p>
+<a href="https://ai.google.dev/gemini-api/docs/text-generation">https://ai.google.dev/gemini-api/docs/text-generation</a></p>
 <p>Request throttling:
 Applies the rate limit set in the config (section <code>gemini</code>, key <code>rate_limit</code>). If no rate
 limit is configured, uses a default of 600 RPM.</p>
@@ -1460,8 +1527,30 @@ limit is configured, uses a default of 600 RPM.</p>
             <p>The name of the model to use.</p>
           </div>
         </li>
+        <li class="doc-section-item field-body">
+          <b><code>config</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Configuration for generation, corresponding to keyword arguments of
+<code>genai.types.GenerateContentConfig</code>. For details on the parameters, see:
+<a href="https://googleapis.github.io/python-genai/genai.html#module-genai.types">https://googleapis.github.io/python-genai/genai.html#module-genai.types</a></p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>tools</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional list of Pixeltable tools to use. It is also possible to specify tools manually via the
+<code>config['tools']</code> parameter, but at most one of <code>config['tools']</code> or <code>tools</code> may be used.</p>
+          </div>
+        </li>
     </ul>
-      <p>For details on the other parameters, see: <a href="https://ai.google.dev/gemini-api/docs">https://ai.google.dev/gemini-api/docs</a></p>
 
 
 <p><span class="doc-section-title">Returns:</span></p>
@@ -1477,10 +1566,210 @@ limit is configured, uses a default of 600 RPM.</p>
 
 
 <p><span class="doc-section-title">Examples:</span></p>
-    <p>Add a computed column that applies the model <code>gemini-1.5-flash</code>
+    <p>Add a computed column that applies the model <code>gemini-2.0-flash</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">generate_content</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;gemini-1.5-flash&#39;</span><span class="p">))</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">generate_content</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;gemini-2.0-flash&#39;</span><span class="p">))</span>
 </code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.gemini.generate_images" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">generate_images</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">generate_images</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Generates images based on a text description and configuration. For additional details, see:
+<a href="https://ai.google.dev/gemini-api/docs/image-generation">https://ai.google.dev/gemini-api/docs/image-generation</a></p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install google-genai</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>prompt</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>A text description of the images to generate.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>model</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>The model to use.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>config</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Configuration for generation, corresponding to keyword arguments of
+<code>genai.types.GenerateImagesConfig</code>. For details on the parameters, see:
+<a href="https://googleapis.github.io/python-genai/genai.html#module-genai.types">https://googleapis.github.io/python-genai/genai.html#module-genai.types</a></p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Image</code>
+          –
+          <div class="doc-md-description">
+            <p>The generated image.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column that applies the model <code>imagen-3.0-generate-002</code>
+to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">generate_images</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;imagen-3.0-generate-002&#39;</span><span class="p">))</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.gemini.generate_videos" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">generate_videos</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">generate_videos</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Video</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Generates videos based on a text description and configuration. For additional details, see:
+<a href="https://ai.google.dev/gemini-api/docs/video-generation">https://ai.google.dev/gemini-api/docs/video-generation</a></p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install google-genai</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>prompt</code></b>
+              (<code>Optional[String]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>A text description of the videos to generate.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>image</code></b>
+              (<code>Optional[Image]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional image to use as the first frame of the video. At least one of <code>prompt</code> or <code>image</code> must be
+provided. (It is ok to specify both.)</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>model</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>The model to use.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>config</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Configuration for generation, corresponding to keyword arguments of
+<code>genai.types.GenerateVideosConfig</code>. For details on the parameters, see:
+<a href="https://googleapis.github.io/python-genai/genai.html#module-genai.types">https://googleapis.github.io/python-genai/genai.html#module-genai.types</a></p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Video</code>
+          –
+          <div class="doc-md-description">
+            <p>The generated video.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column that applies the model <code>veo-2.0-generate-001</code>
+to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">generate_videos</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;veo-2.0-generate-001&#39;</span><span class="p">))</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.gemini.invoke_tools" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">invoke_tools</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">invoke_tools</span><span class="p">(</span><span class="n">tools</span><span class="p">:</span> <span class="n"><span title="pixeltable.func.Tools">Tools</span></span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.exprs.InlineDict">InlineDict</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Converts an OpenAI response dict to Pixeltable tool invocation format and calls <code>tools._invoke()</code>.</p>
 
     </div>
 

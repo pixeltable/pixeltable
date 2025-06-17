@@ -594,15 +594,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#pixeltable.Table.columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;columns
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#pixeltable.Table.add_column" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_column
@@ -651,6 +642,15 @@
   <a href="#pixeltable.Table.collect" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;collect
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;columns
     </span>
   </a>
   
@@ -795,6 +795,15 @@
   <a href="#pixeltable.Table.revert" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;revert
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;sample
     </span>
   </a>
   
@@ -1352,6 +1361,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/groq/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    groq
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/huggingface/" class="md-nav__link">
         
   
@@ -1650,15 +1680,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#pixeltable.Table.columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;columns
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#pixeltable.Table.add_column" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_column
@@ -1707,6 +1728,15 @@
   <a href="#pixeltable.Table.collect" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;collect
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;columns
     </span>
   </a>
   
@@ -1851,6 +1881,15 @@
   <a href="#pixeltable.Table.revert" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;revert
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;sample
     </span>
   </a>
   
@@ -2076,6 +2115,8 @@ Views are created by calling <a class="autorefs autorefs-internal" href="../pixe
 
       <p>A handle to a table, view, or snapshot. This class is the primary interface through which table operations
 (queries, insertions, updates, etc.) are performed in Pixeltable.</p>
+<p>Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+FileCache.emit_eviction_warnings() at the end of the operation.</p>
 
 
 
@@ -2087,29 +2128,6 @@ Views are created by calling <a class="autorefs autorefs-internal" href="../pixe
 
 
 
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h3 id="pixeltable.Table.columns" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">columns</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-property"><code>property</code></small>
-  </span>
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">columns</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-      <p>Return the names of the columns in this table.</p>
-    </div>
-
-</div>
 
 
 
@@ -2701,6 +2719,25 @@ the row with new <code>id</code> 3 (assuming this key does not exist):</p>
     <div class="doc doc-contents ">
 
       <p>Return rows from this table.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.columns" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">columns</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">columns</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the names of the columns in this table.</p>
 
     </div>
 
@@ -3520,6 +3557,32 @@ all sub-views (including views of views, etc.)</p>
       <p>Reverts the table to the previous version.</p>
 <p>.. warning::
     This operation is irreversible.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.sample" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">sample</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">sample</span><span class="p">(</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">n_per_stratum</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fraction</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stratify_by</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Choose a shuffled sample of rows</p>
+<p>See <a class="autorefs autorefs-internal" href="../data-frame/#pixeltable.DataFrame.sample"><code>DataFrame.sample</code></a> for more details.</p>
 
     </div>
 

@@ -991,6 +991,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../groq/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    groq
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../huggingface/" class="md-nav__link">
         
   
@@ -1409,7 +1430,7 @@
     <span class="n">model_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">repo_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">repo_filename</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1465,14 +1486,14 @@ pretrained model).</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>args</code></b>
+          <b><code>model_kwargs</code></b>
               (<code>Optional[Json]</code>, default:
                   <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>Additional arguments to pass to the <code>create_chat_completions</code> call, such as <code>max_tokens</code>, <code>temperature</code>,
-<code>top_p</code>, and <code>top_k</code>. For details, see the
+            <p>Additional keyword args for the llama_cpp <code>create_chat_completions</code> API, such as <code>max_tokens</code>,
+<code>temperature</code>, <code>top_p</code>, and <code>top_k</code>. For details, see the
 <a href="https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion">llama_cpp create_chat_completions documentation</a>.</p>
           </div>
         </li>

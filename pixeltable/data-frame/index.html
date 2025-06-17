@@ -689,6 +689,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.DataFrame.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;sample
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1172,6 +1181,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/groq/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    groq
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/huggingface/" class="md-nav__link">
         
   
@@ -1586,6 +1616,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.DataFrame.sample" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;sample
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1652,6 +1691,10 @@ Another difference to pandas is that query execution needs to be initiated expli
 <td><a class="autorefs autorefs-internal" href="#pixeltable.DataFrame.distinct"><code>distinct</code></a></td>
 <td>Remove duplicate rows</td>
 </tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.DataFrame.sample"><code>sample</code></a></td>
+<td>Select shuffled sample of rows</td>
+</tr>
 </tbody>
 </table>
 <table>
@@ -1717,6 +1760,7 @@ Another difference to pandas is that query execution needs to be initiated expli
     <span class="n">grouping_tbl</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.TableVersion">TableVersion</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">order_by_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">list</span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n">bool</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">limit</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sample_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.plan.SampleClause">SampleClause</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2494,6 +2538,128 @@ In the absence of a select clause, by default, all columns are selected in the g
 </code></pre></div>
     <p>Select unique locations (street, city) in the state of <code>CA</code></p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">addresses</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">addresses</span><span class="o">.</span><span class="n">street</span><span class="p">,</span> <span class="n">addresses</span><span class="o">.</span><span class="n">city</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">addresses</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s1">&#39;CA&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">distinct</span><span class="p">()</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.DataFrame.sample" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">sample</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">sample</span><span class="p">(</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">n_per_stratum</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fraction</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stratify_by</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.</p>
+<p>The size of the sample can be specified in three ways:</p>
+<ul>
+<li><code>n</code>: the total number of rows to produce as a sample</li>
+<li><code>n_per_stratum</code>: the number of rows to produce per stratum as a sample</li>
+<li><code>fraction</code>: the fraction of available rows to produce as a sample</li>
+</ul>
+<p>The sample can be stratified by one or more columns, which means that the sample will
+be selected from each stratum separately.</p>
+<p>The data is shuffled before creating the sample.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Total number of rows to produce as a sample.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>n_per_stratum</code></b>
+              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of rows to produce per stratum as a sample. This parameter is only valid if
+<code>stratify_by</code> is specified. Only one of <code>n</code> or <code>n_per_stratum</code> can be specified.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fraction</code></b>
+              (<code><span title="typing.Optional">Optional</span>[float]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Fraction of available rows to produce as a sample. This parameter is not usable with <code>n</code> or
+<code>n_per_stratum</code>. The fraction must be between 0.0 and 1.0.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>seed</code></b>
+              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Random seed for reproducible shuffling</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>stratify_by</code></b>
+              (<code><span title="typing.Any">Any</span></code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If specified, the sample will be stratified by these values.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></code>
+          –
+          <div class="doc-md-description">
+            <p>A new DataFrame which specifies the sampled rows</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Given the Table <code>person</code> containing the field 'age', we can create samples of the table in various ways:</p>
+<p>Sample 100 rows from the above Table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+</code></pre></div>
+    <p>Sample 10% of the rows from the above Table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">fraction</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+</code></pre></div>
+    <p>Sample 10% of the rows from the above Table, stratified by the column 'age':</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">fraction</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">stratify_by</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">age</span><span class="p">)</span>
+</code></pre></div>
+    <p>Equal allocation sampling: Sample 2 rows from each age present in the above Table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">n_per_stratum</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">stratify_by</span><span class="o">=</span><span class="n">t</span><span class="o">.</span><span class="n">age</span><span class="p">)</span>
+</code></pre></div>
+    <p>Sampling is compatible with the where clause, so we can also sample from a filtered DataFrame:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">age</span> <span class="o">&gt;</span> <span class="mi">30</span><span class="p">)</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
 </code></pre></div>
 
     </div>

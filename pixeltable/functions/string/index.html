@@ -806,6 +806,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.contains_re" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;contains_re
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.string.count" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;count
@@ -1088,6 +1097,24 @@
   <a href="#pixeltable.functions.string.replace" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;replace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.replace_re" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;replace_re
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.reverse" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;reverse
     </span>
   </a>
   
@@ -1492,6 +1519,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../groq/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    groq
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../huggingface/" class="md-nav__link">
         
   
@@ -1815,6 +1863,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.contains_re" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;contains_re
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.string.count" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;count
@@ -2103,6 +2160,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.replace_re" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;replace_re
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.reverse" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;reverse
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.string.rfind" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rfind
@@ -2377,24 +2452,18 @@ t.select(t.str_col.capitalize()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">contains</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">case</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">regex</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">contains</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Test if string contains pattern or regex.</p>
+      <p>Test if string contains a substring.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>pattern</code></b>
+          <b><code>substr</code></b>
               (<code>String</code>)
           –
           <div class="doc-md-description">
@@ -2411,6 +2480,38 @@ t.select(t.str_col.capitalize()).collect()
             <p>if False, ignore case</p>
           </div>
         </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.contains_re" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">contains_re</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">contains_re</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Test if string contains a regular expression pattern.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>regular expression pattern</p>
+          </div>
+        </li>
         <li class="doc-section-item field-body">
           <b><code>flags</code></b>
               (<code>Int</code>, default:
@@ -2419,16 +2520,6 @@ t.select(t.str_col.capitalize()).collect()
           –
           <div class="doc-md-description">
             <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
-          </div>
-        </li>
-        <li class="doc-section-item field-body">
-          <b><code>regex</code></b>
-              (<code>Bool</code>, default:
-                  <code>True</code>
-)
-          –
-          <div class="doc-md-description">
-            <p>if True, treat pattern as a regular expression</p>
           </div>
         </li>
     </ul>
@@ -2487,7 +2578,7 @@ t.select(t.str_col.capitalize()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">endswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">endswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2499,7 +2590,7 @@ t.select(t.str_col.capitalize()).collect()
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>pattern</code></b>
+          <b><code>substr</code></b>
               (<code>String</code>)
           –
           <div class="doc-md-description">
@@ -2564,10 +2655,7 @@ t.select(t.str_col.capitalize()).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">find</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
@@ -2589,7 +2677,7 @@ t.select(t.str_col.capitalize()).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -2740,10 +2828,7 @@ t.select(t.str_col.capitalize()).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">index</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
@@ -2766,7 +2851,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -3382,31 +3467,24 @@ containing string itself, followed by two empty strings.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">replace</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">repl</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">n</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">case</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">regex</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">repl</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Replace occurrences of <code>pattern</code> with <code>repl</code>.</p>
-<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.replace"><code>str.replace()</code></a> or
-<a href="https://docs.python.org/3/library/re.html#re.sub"><code>re.sub()</code></a>, depending on the value of regex.</p>
+      <p>Replace occurrences of <code>substr</code> with <code>repl</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.replace"><code>str.replace()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>pattern</code></b>
+          <b><code>substr</code></b>
               (<code>String</code>)
           –
           <div class="doc-md-description">
-            <p>string literal or regular expression</p>
+            <p>string literal</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3419,22 +3497,69 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>n</code></b>
-              (<code>Int</code>, default:
-                  <code>-1</code>
+              (<code>Optional[Int]</code>, default:
+                  <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>number of replacements to make (-1 for all)</p>
+            <p>number of replacements to make (if <code>None</code>, replace all occurrences)</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.replace_re" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">replace_re</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">replace_re</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">repl</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Replace occurrences of a regular expression pattern with <code>repl</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/re.html#re.sub"><code>re.sub()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>pattern</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>regular expression pattern</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>case</code></b>
-              (<code>Bool</code>, default:
-                  <code>True</code>
+          <b><code>repl</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>replacement string</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code>Optional[Int]</code>, default:
+                  <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>if False, ignore case</p>
+            <p>number of replacements to make (if <code>None</code>, replace all occurrences)</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3447,17 +3572,27 @@ containing string itself, followed by two empty strings.</p>
             <p><a href="https://docs.python.org/3/library/re.html#flags">flags</a> for the <code>re</code> module</p>
           </div>
         </li>
-        <li class="doc-section-item field-body">
-          <b><code>regex</code></b>
-              (<code>Bool</code>, default:
-                  <code>False</code>
-)
-          –
-          <div class="doc-md-description">
-            <p>if True, treat pattern as a regular expression</p>
-          </div>
-        </li>
     </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.string.reverse" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">reverse</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reverse</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a reversed copy of the string.</p>
+<p>Equivalent to <code>str[::-1]</code>.</p>
 
     </div>
 
@@ -3771,19 +3906,19 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">startswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">startswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Return <code>True</code> if string starts with <code>pattern</code>, otherwise return <code>False</code>.</p>
+      <p>Return <code>True</code> if string starts with <code>substr</code>, otherwise return <code>False</code>.</p>
 <p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.startswith"><code>str.startswith()</code></a>.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>pattern</code></b>
+          <b><code>substr</code></b>
               (<code>String</code>)
           –
           <div class="doc-md-description">
