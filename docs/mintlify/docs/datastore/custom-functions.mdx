@@ -215,18 +215,14 @@ table.add_computed_column(
         messages: list,
         *,
         model: str,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        timeout: Optional[float] = None,
+        model_kwargs: Optional[dict] = None,
     ) -> dict:
 
         # Setup API request with proper context management
-        result = await openai_client.chat.completions.with_raw_response.create(
+        result = await openai_client.chat_completions(
             messages=messages,
             model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout
+            model_kwargs=model_kwargs
         )
         
         # Process response

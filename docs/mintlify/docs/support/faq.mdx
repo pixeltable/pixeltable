@@ -260,7 +260,8 @@ icon: 'circle-question'
     table.add_computed_column(
         analysis=anthropic.messages(
             model='claude-3-sonnet-20240229',
-            messages=table.prompt
+            messages=table.prompt,
+            model_kwargs={'max_tokens': 200}
         )
     )
     
