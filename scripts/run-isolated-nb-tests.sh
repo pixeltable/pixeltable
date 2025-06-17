@@ -24,7 +24,7 @@ rm -f target/nb-tests/working-with-llama-cpp.ipynb  # isolated test fails in CI 
 
 FAILURES=0
 
-for nb in "$TEST_PATH"/working-with-anthropic.ipynb; do
+for nb in "$TEST_PATH"/*.ipynb; do
     echo "Testing notebook: $nb"
     echo "Creating conda environment ..."
     conda create -y --name nb-test-env python="$PY_VERSION"

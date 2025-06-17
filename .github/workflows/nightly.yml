@@ -106,7 +106,12 @@ jobs:
   isolated-nb-tests:
     # Runs a script that tests each notebook in a fresh conda environment with a clean Pixeltable DB,
     # to ensure the notebook is capturing dependencies correctly and that the dependencies still work.
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04]
+        python-version: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash -el {0}  # Needed for conda to work
@@ -139,7 +144,7 @@ jobs:
           miniconda-version: latest
           use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Run isolated notebook tests
-        run: ./scripts/run-isolated-nb-tests.sh 3.10
+        run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
       - name: Print debugging info
         if: ${{ always() }}
         run: |
