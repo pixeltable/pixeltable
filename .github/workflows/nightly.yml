@@ -35,10 +35,10 @@ jobs:
         python-version: ["3.10", "3.12"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision 'transformers<4.51'"  # transformers 4.51 has bugs
+          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
           - "anthropic fireworks-ai google-genai mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
+          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
           - "label_studio_sdk"
         include:
           # Test the basic pixeltable installation on other platforms.
@@ -134,7 +134,7 @@ jobs:
           df -h
       - name: Install ollama
         run: |
-          curl -fsSL https://raw.githubusercontent.com/ollama/ollama/4759d879f2376ffb9b82f296e442ec8ef137f27b/scripts/install.sh | sh
+          curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
