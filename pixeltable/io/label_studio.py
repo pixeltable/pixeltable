@@ -11,6 +11,7 @@ import label_studio_sdk  # type: ignore[import-untyped]
 import PIL.Image
 from requests.exceptions import HTTPError
 
+from pixeltable.catalog import ColumnHandle
 import pixeltable.type_system as ts
 from pixeltable import Column, Table, env, exceptions as excs
 from pixeltable.config import Config
@@ -45,13 +46,17 @@ class LabelStudioProject(Project):
     for synchronizing between a Pixeltable table and a Label Studio project.
     """
 
+    project_id: int  # Label Studio project ID
+    media_import_method: Literal['post', 'file', 'url']
+    _project: Optional[ls_project.Project]
+
     def __init__(
         self,
         name: str,
         project_id: int,
         media_import_method: Literal['post', 'file', 'url'],
-        col_mapping: dict[Column, str],
-        stored_proxies: Optional[dict[Column, Column]] = None,
+        col_mapping: dict[ColumnHandle, str],
+        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
     ):
         """
         The constructor will NOT create a new Label Studio project; it is also used when loading
@@ -59,7 +64,7 @@ class LabelStudioProject(Project):
         """
         self.project_id = project_id
         self.media_import_method = media_import_method
-        self._project: Optional[ls_project.Project] = None
+        self._project = None
         super().__init__(name, col_mapping, stored_proxies)
 
     @property
@@ -152,20 +157,20 @@ class LabelStudioProject(Project):
         config = self.__project_config
 
         # Columns in `t` that map to Label Studio data keys
-        t_data_cols = [t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys]
+        t_data_cols = [t_col.get() for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys]
 
         if len(t_data_cols) == 0:
             return SyncStatus.empty()
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
-            t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.rectangle_labels
+            t_col.get() for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.rectangle_labels
         ]
 
         # Destinations for `rectanglelabels` preannotations
         rl_info = list(config.rectangle_labels.values())
 
-        _logger.debug('`t_data_cols`: %s', t_data_cols)
+        _logger.debug('`t_data_col_ids`: %s', t_data_cols)
         _logger.debug('`t_rl_cols`: %s', t_rl_cols)
         _logger.debug('`rl_info`: %s', rl_info)
 
@@ -425,9 +430,9 @@ class LabelStudioProject(Project):
             'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
-            'col_mapping': [[self._column_as_dict(k), v] for k, v in self.col_mapping.items()],
+            'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
             'stored_proxies': [
-                [self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()
+                [k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()
             ],
         }
 
@@ -437,8 +442,8 @@ class LabelStudioProject(Project):
             md['name'],
             md['project_id'],
             md['media_import_method'],
-            {cls._column_from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
-            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']},
+            {ColumnHandle.from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
+            {ColumnHandle.from_dict(entry[0]): ColumnHandle.from_dict(entry[1]) for entry in md['stored_proxies']},
         )
 
     def __repr__(self) -> str:

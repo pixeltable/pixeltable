@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
@@ -7,7 +8,7 @@ from uuid import UUID
 from .table_version import TableVersion
 
 if TYPE_CHECKING:
-    pass
+    from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
 
@@ -67,3 +68,22 @@ class TableVersionHandle:
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
         return cls(UUID(d['id']), d['effective_version'])
+
+
+@dataclass(frozen=True)
+class ColumnHandle:
+    tbl_version: TableVersionHandle
+    col_id: int
+
+    def get(self) -> 'Column':
+        return self.tbl_version.get().cols_by_id[self.col_id]
+
+    def as_dict(self) -> dict:
+        return {'tbl_version': self.tbl_version.as_dict(), 'col_id': self.col_id}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> ColumnHandle:
+        return cls(
+            tbl_version=TableVersionHandle.from_dict(d['tbl_version']),
+            col_id=d['col_id'],
+        )
