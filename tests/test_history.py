@@ -27,8 +27,6 @@ class TestHistory:
         r = t.history()
         print(r.schema)
         print(r)
-        p = r.to_pandas()
-        print(p)
 
         with pytest.raises(excs.Error, match='Invalid value for'):
             t.history(n=0)

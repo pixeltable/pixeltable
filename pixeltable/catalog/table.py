@@ -1580,7 +1580,7 @@ class Table(SchemaObject):
             >>> tbl.history(n=5)
 
         Returns:
-            A list of rows of data.
+            A list of information about each version, ordered from most recent to oldest version.
         """
         from pixeltable.catalog import Catalog
 
@@ -1592,36 +1592,36 @@ class Table(SchemaObject):
         # Retrieve the table history components from the catalog
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
-        src_rows = Catalog.get().collect_tbl_history(tbl_id, n + 1)
+        vers_list = Catalog.get().collect_tbl_history(tbl_id, n + 1)
 
         # Construct the metadata change description dictionary
-        md_list = [(row.tbl_version.version, row.schema_version.md['columns']) for row in src_rows]
+        md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
         md_dict = MetadataUtils._create_md_change_dict(md_list)
 
         # Construct report lines
-        if len(src_rows) > n:
-            assert len(src_rows) == n + 1
+        if len(vers_list) > n:
+            assert len(vers_list) == n + 1
             over_count = 1
         else:
             over_count = 0
 
-        rpt_lines: list[list[Any]] = []
-        for row in src_rows[0 : len(src_rows) - over_count]:
-            version = row.tbl_version.version
+        report_lines: list[list[Any]] = []
+        for vers_md in vers_list[0 : len(vers_list) - over_count]:
+            version = vers_md.version_md.version
             schema_change = md_dict.get(version, '')
             change_type = 'schema' if schema_change != '' else 'data'
-            rpt_line = [
+            report_line = [
                 version,
-                datetime.datetime.fromtimestamp(row.tbl_version.md['created_at']),
+                datetime.datetime.fromtimestamp(vers_md.version_md.created_at),
                 change_type,
                 schema_change,
             ]
-            rpt_lines.append(rpt_line)
+            report_lines.append(report_line)
 
-        rpt_schema = {
+        report_schema = {
             'version': ts.IntType(),
             'created_at': ts.TimestampType(),
             'change': ts.StringType(),
             'schema_change': ts.StringType(),
         }
-        return pxt.dataframe.DataFrameResultSet(rpt_lines, rpt_schema)
+        return pxt.dataframe.DataFrameResultSet(report_lines, report_schema)

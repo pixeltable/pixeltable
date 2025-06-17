@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
+
+from pixeltable.metadata import schema
 
 
 class MetadataUtils:
     @classmethod
-    def _diff_md(cls, old_md: Optional[dict[int, dict[str, Any]]], new_md: Optional[dict[int, dict[str, Any]]]) -> str:
+    def _diff_md(
+        cls, old_md: Optional[dict[int, schema.SchemaColumn]], new_md: Optional[dict[int, schema.SchemaColumn]]
+    ) -> str:
         """Return a string reporting the differences in a specific entry in two dictionaries
 
         Results are formatted as follows:
@@ -18,13 +22,11 @@ class MetadataUtils:
             return 'Initial Version'
         if old_md == new_md:
             return ''
-        added = {k: v['name'] for k, v in new_md.items() if k not in old_md}
+        added = {k: v.name for k, v in new_md.items() if k not in old_md}
         changed = {
-            k: f'{old_md[k]["name"]} to {v["name"]}'
-            for k, v in new_md.items()
-            if k in old_md and old_md[k]['name'] != v['name']
+            k: f'{old_md[k].name} to {v.name}' for k, v in new_md.items() if k in old_md and old_md[k].name != v.name
         }
-        deleted = {k: v['name'] for k, v in old_md.items() if k not in new_md}
+        deleted = {k: v.name for k, v in old_md.items() if k not in new_md}
         if len(added) == 0 and len(changed) == 0 and len(deleted) == 0:
             return ''
         # Format the result
@@ -39,7 +41,7 @@ class MetadataUtils:
         return r
 
     @classmethod
-    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[int, dict[str, Any]]]]) -> dict[int, str]:
+    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]]) -> dict[int, str]:
         """Return a dictionary of schema changes by version
         Args:
             md_list: a list of tuples, each containing a version number and a metadata dictionary.
