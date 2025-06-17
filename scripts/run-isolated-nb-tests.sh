@@ -41,6 +41,8 @@ done
 
 if [[ "$FAILURES" > 0 ]]; then
     echo "There were $FAILURES failed notebook(s)."
+    conda info
+    pip list
     exit 1
 else
     echo "All notebooks succeeded."
