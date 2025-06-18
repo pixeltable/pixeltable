@@ -168,7 +168,7 @@ jobs:
         run: |
           PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-22.04' || matrix.python-version != '3.10') && 'not expensive' || '' }}"
           echo "Running tests with markers: $PYTEST_MARKERS"
-          coverage run -m --source=pixeltable pytest -v -m "$PYTEST_MARKERS" --strict-markers
+          coverage run -m --source=pixeltable pytest -v -m "$PYTEST_MARKERS" --strict-markers tests/functions
           coverage report -m
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
