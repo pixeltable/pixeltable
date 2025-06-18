@@ -119,7 +119,7 @@ mkdocs-material = "^9.5.23"
 mkdocstrings-python = "^1.10.2"
 black = ">=24.4"  # Needed for mkdocs
 # other
-pycocotools = "^2.0.7"
+pycocotools = ">=2.0.10"
 ipykernel = "^6.27.1"
 tabulate = ">=0.9"
 nbmake = "^1.4.6"
@@ -139,11 +139,11 @@ google-genai = "^1.15.0"
 groq = ">=0.26.0"
 boto3 = "==1.36.23"  # Locking a specific version of boto3/botocore dramatically improves `poetry lock` runtimes
 botocore = "==1.36.23"
-spacy = ">=3.7"
+spacy = ">=3.8,<4.0"
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.7"
-sentence-transformers = "^2.0.0"
-transformers = "^4.20"
+sentence-transformers = "^4.0"
+transformers = "^4.52"
 timm = "^1.0.11"
 datasets = ">=3.2.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
