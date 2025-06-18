@@ -54,8 +54,8 @@ jobs:
         # for now; it just has too many problems.
         # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
         os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
-                && fromJSON('["ubuntu-22.04", "macos-13", "windows-2022", "ubuntu-x64-t4"]')
-                || fromJSON('["ubuntu-22.04", "macos-13", "windows-2022"]') }}
+                && fromJSON('["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]')
+                || fromJSON('["ubuntu-22.04", "macos-15", "windows-2022"]') }}
         python-version: ["3.10", "3.12"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
