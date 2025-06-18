@@ -12,7 +12,7 @@ from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import replicate  # type: ignore[import-untyped]
+    import replicate
 
 
 @register_client('replicate')
@@ -63,7 +63,9 @@ async def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
         ... tbl.add_computed_column(image=tbl.response.output[0].astype(pxt.Image))
     """
     Env.get().require_package('replicate')
-    return await _replicate_client().async_run(ref, input, use_file_output=False)
+    result = await _replicate_client().async_run(ref, input, use_file_output=False)
+    assert isinstance(result, dict)
+    return result
 
 
 __all__ = local_public_names(__name__)

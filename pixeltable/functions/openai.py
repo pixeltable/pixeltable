@@ -205,12 +205,7 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[d
     if model_kwargs is None:
         model_kwargs = {}
 
-    content = await _openai_client().audio.speech.create(
-        input=input,
-        model=model,
-        voice=voice,  # type: ignore
-        **model_kwargs,
-    )
+    content = await _openai_client().audio.speech.create(input=input, model=model, voice=voice, **model_kwargs)
     ext = model_kwargs.get('response_format', 'mp3')
     output_filename = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}.{ext}')
     content.write_to_file(output_filename)

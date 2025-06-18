@@ -51,7 +51,7 @@ def sentence_transformer(
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
-    from sentence_transformers import SentenceTransformer  # type: ignore
+    from sentence_transformers import SentenceTransformer
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
     model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
@@ -170,7 +170,7 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import CLIPModel, CLIPProcessor  # type: ignore
+    from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
@@ -395,19 +395,20 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
     device = resolve_torch_device('auto', allow_mps=False)  # Doesn't seem to work on 'mps'; use 'cpu' instead
     import torch
     import torchaudio  # type: ignore[import-untyped]
-    from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
+    from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor, Speech2TextTokenizer
 
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
     processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
+    tokenizer: Speech2TextTokenizer = processor.tokenizer
     assert isinstance(processor, Speech2TextProcessor)
 
-    if language is not None and language not in processor.tokenizer.lang_code_to_id:
+    if language is not None and language not in tokenizer.lang_code_to_id:
         raise excs.Error(
             f"Language code '{language}' is not supported by the model '{model_id}'. "
-            f'Supported languages are: {list(processor.tokenizer.lang_code_to_id.keys())}'
+            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
         )
 
-    forced_bos_token_id: Optional[int] = None if language is None else processor.tokenizer.lang_code_to_id[language]
+    forced_bos_token_id: Optional[int] = None if language is None else tokenizer.lang_code_to_id[language]
 
     # Get the model's sampling rate. Default to 16 kHz (the standard) if not in config
     model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
