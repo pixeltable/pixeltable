@@ -399,8 +399,9 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
 
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
     processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
-    tokenizer: Speech2TextTokenizer = processor.tokenizer
+    tokenizer = processor.tokenizer
     assert isinstance(processor, Speech2TextProcessor)
+    assert isinstance(tokenizer, Speech2TextTokenizer)
 
     if language is not None and language not in tokenizer.lang_code_to_id:
         raise excs.Error(

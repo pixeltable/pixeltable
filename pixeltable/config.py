@@ -86,6 +86,12 @@ class Config:
             return None
 
         try:
+            if expected_type is bool and isinstance(value, str):
+                if value.lower() == 'true':
+                    return True
+                if value.lower() == 'false':
+                    return False
+                raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
             return expected_type(value)  # type: ignore[call-arg]
         except ValueError as exc:
             raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
