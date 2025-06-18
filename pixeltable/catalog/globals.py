@@ -7,7 +7,6 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-# from typing_extensions import Self
 import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
@@ -21,7 +20,7 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: Optional[set[str]] = None
 
 
-@dataclasses.dataclass()
+@dataclasses.dataclass(frozen=True)
 class QColumnId:
     """Qualified column id"""
 
