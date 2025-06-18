@@ -10,8 +10,8 @@ def resolve_torch_device(device: str, allow_mps: bool = True) -> str:
     if device == 'auto':
         if torch.cuda.is_available():
             return 'cuda'
-        #if allow_mps and torch.backends.mps.is_available():
-        #    return 'mps'
+        if allow_mps and torch.backends.mps.is_available():
+            return 'mps'
         return 'cpu'
     return device
 
