@@ -151,8 +151,8 @@ openai-whisper = ">=20240930"
 # Don't include whisperx on Intel Mac instances
 whisperx = { version = ">=3.3.1", python = "<3.13", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
 label-studio-sdk = "^0.0.32"
-ollama = ">=0.4.8"
-llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
+ollama = ">=0.5.1"
+llama-cpp-python = { version = ">=0.3.9", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
 mcp = ">=1.9.4"
 pixeltable-yolox = "==0.4.2"
 scipy = ">=1.15.3"
