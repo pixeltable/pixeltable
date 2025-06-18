@@ -3614,14 +3614,14 @@ typing = ["fire", "mypy (>=1.0.0)", "types-setuptools"]
 
 [[package]]
 name = "llama-cpp-python"
-version = "0.3.9"
+version = "0.3.7"
 description = "Python bindings for the llama.cpp library"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
 markers = "sys_platform != \"win32\""
 files = [
-    {file = "llama_cpp_python-0.3.9.tar.gz", hash = "sha256:a3a985f558385e2f5de5b663f4e9b0817506d6af98122450142cd98e79216370"},
+    {file = "llama_cpp_python-0.3.7.tar.gz", hash = "sha256:0566a0dcc0f38005c4093309a87f67c2452449522e3e17e15cd735a62957894c"},
 ]
 
 [package.dependencies]
@@ -10241,4 +10241,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "613d5d9f8f66cb6ddb6df1b60188a14cbc519c2b31e5d447c8f28dc6900a8949"
+content-hash = "9da142b35811f912213a0e3444746e256bf25895ba3573b145a95d26a397eb16"
