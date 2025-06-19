@@ -13,7 +13,7 @@ on:
 
 env:
   PXTTEST_IN_CI: 1
-  PIXELTABLE_ENABLE_MPS: false
+  PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   # in a PR, the secrets will be empty
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
