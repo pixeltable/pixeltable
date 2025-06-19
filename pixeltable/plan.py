@@ -478,7 +478,7 @@ class Planner:
             assert len(update_targets) == 0
             recomputed_cols = {recompute_target}
             if cascade:
-                recomputed_cols = recomputed_cols | target.get_dependent_columns(recomputed_cols)
+                recomputed_cols |= target.get_dependent_columns(recomputed_cols)
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated/recomputed column
