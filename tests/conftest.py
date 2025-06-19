@@ -48,6 +48,8 @@ def pytest_configure(config: Config) -> None:
 def pxt_test_harness() -> Iterator[None]:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
+    pxtf.huggingface._model_cache.clear()
+    pxtf.huggingface._processor_cache.clear()
     yield
     _logger.info(f'Finished Pixeltable test: {current_test}')
 

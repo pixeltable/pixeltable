@@ -96,7 +96,8 @@
         "docs/datastore/filtering-and-selecting",
         "docs/datastore/computed-columns",
         "docs/datastore/vector-database",
-        "docs/datastore/custom-functions"       
+        "docs/datastore/custom-functions",
+        "docs/datastore/sampling"
       ]
     },    
     {
@@ -112,7 +113,7 @@
         "docs/libraries/pixelagent",
         "docs/libraries/mcp",
         "docs/libraries/yolox"
-    ]
+      ]
     },    
     {
       "group": "Support",

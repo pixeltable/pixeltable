@@ -295,7 +295,7 @@ class TestDocument:
         )
 
         # test with 'sentence' separator
-        # The text is split into 23 sentences.
+        # The text is split into 22 sentences.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
             'chunks',
@@ -303,18 +303,18 @@ class TestDocument:
             iterator=DocumentSplitter.create(document=doc_t.doc, separators='sentence', metadata='page'),
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
-        assert len(res) == 23
+        assert len(res) == 22
         assert res[0]['text'] == (
             'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n\nMain Themes:\n\n'
             'AI Data Infrastructure: Pixeltable is a Python library designed to simplify the management '
             'and processing of multimodal data for machine learning workflows.\n'
         )
         assert len(res[0]['text']) == 245
-        assert res[22]['text'] == (
+        assert res[21]['text'] == (
             'Its declarative approach, incremental updates, and seamless Python integration make it a '
             'valuable tool for streamlining AI development and enhancing productivity.\n'
         )
-        assert len(res[22]['text']) == 163
+        assert len(res[21]['text']) == 163
 
         # test with 'char_limit' separator
         # The text is split into 67 chunks, each with a maximum of 50 characters.
