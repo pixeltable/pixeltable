@@ -27,7 +27,7 @@ def _replicate_client() -> 'replicate.Client':
 
 
 @pxt.udf(resource_pool='request-rate:replicate')
-async def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
+async def run(input: dict[str, Any], *, ref: str) -> pxt.Json:
     """
     Run a model on Replicate.
 
@@ -63,9 +63,7 @@ async def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
         ... tbl.add_computed_column(image=tbl.response.output[0].astype(pxt.Image))
     """
     Env.get().require_package('replicate')
-    result = await _replicate_client().async_run(ref, input, use_file_output=False)
-    assert isinstance(result, dict)
-    return result
+    return await _replicate_client().async_run(ref, input, use_file_output=False)
 
 
 __all__ = local_public_names(__name__)
