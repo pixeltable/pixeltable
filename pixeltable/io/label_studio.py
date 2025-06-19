@@ -157,22 +157,20 @@ class LabelStudioProject(Project):
         config = self.__project_config
 
         # Columns in `t` that map to Label Studio data keys
-        t_data_cols = [
-            t_col.get() for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys
-        ]
+        t_data_cols = [t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys]
 
         if len(t_data_cols) == 0:
             return SyncStatus.empty()
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
-            t_col.get() for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.rectangle_labels
+            t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.rectangle_labels
         ]
 
         # Destinations for `rectanglelabels` preannotations
         rl_info = list(config.rectangle_labels.values())
 
-        _logger.debug('`t_data_col_ids`: %s', t_data_cols)
+        _logger.debug('`t_data_cols`: %s', t_data_cols)
         _logger.debug('`t_rl_cols`: %s', t_rl_cols)
         _logger.debug('`rl_info`: %s', rl_info)
 
@@ -190,15 +188,15 @@ class LabelStudioProject(Project):
         self,
         t: Table,
         existing_tasks: dict[tuple, dict],
-        media_col: Column,
-        t_rl_cols: list[Column],
+        media_col: ColumnHandle,
+        t_rl_cols: list[ColumnHandle],
         rl_info: list['_RectangleLabel'],
     ) -> SyncStatus:
-        is_stored = media_col.is_stored
+        is_stored = media_col.get().is_stored
         # If it's a stored column, we can use `localpath`
-        localpath_col_opt = [t[media_col.name].localpath] if is_stored else []
+        localpath_col_opt = [t[media_col.get().name].localpath] if is_stored else []
         # Select the media column, rectanglelabels columns, and localpath (if appropriate)
-        rows = t.select(t[media_col.name], *[t[col.name] for col in t_rl_cols], *localpath_col_opt)
+        rows = t.select(t[media_col.get().name], *[t[col.get().name] for col in t_rl_cols], *localpath_col_opt)
         tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
 
@@ -229,7 +227,7 @@ class LabelStudioProject(Project):
                 _logger.debug('`coco_annotations`: %s', coco_annotations)
                 predictions = [
                     self.__coco_to_predictions(
-                        coco_annotations[i], self.col_mapping[t_rl_cols[i].handle], rl_info[i], task_id=task_id
+                        coco_annotations[i], self.col_mapping[t_rl_cols[i]], rl_info[i], task_id=task_id
                     )
                     for i in range(len(coco_annotations))
                 ]
@@ -249,32 +247,32 @@ class LabelStudioProject(Project):
         self,
         t: Table,
         existing_tasks: dict[tuple, dict],
-        t_data_cols: list[Column],
-        t_rl_cols: list[Column],
+        t_data_cols: list[ColumnHandle],
+        t_rl_cols: list[ColumnHandle],
         rl_info: list['_RectangleLabel'],
     ) -> SyncStatus:
-        ext_data_cols = [self.col_mapping[col.handle] for col in t_data_cols]
+        ext_data_cols = [self.col_mapping[col] for col in t_data_cols]
         expr_refs: dict[str, Expr] = {}  # kwargs for the select statement
         for col in t_data_cols:
-            col_name = col.name
+            col_name = col.get().name
             if self.media_import_method == 'url':
                 expr_refs[col_name] = t[col_name].fileurl
             else:
                 assert self.media_import_method == 'file'
-                if not col.col_type.is_media_type():
+                if not col.get().col_type.is_media_type():
                     # Not a media column; query the data directly
                     expr_refs[col_name] = t[col_name]
-                elif col.handle in self.stored_proxies:
+                elif col in self.stored_proxies:
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
-                    stored_proxy_col = self.stored_proxies[col.handle].get()
+                    stored_proxy_col = self.stored_proxies[col].get()
                     expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
                     # and we can just use the localpath
                     expr_refs[col_name] = t[col_name].localpath
 
-        df = t.select(*[t[col.name] for col in t_rl_cols], **expr_refs)
+        df = t.select(*[t[col.get().name] for col in t_rl_cols], **expr_refs)
         # The following buffers will hold `DataRow` indices that correspond to each of the selected
         # columns. `rl_col_idxs` holds the indices for the columns that map to RectangleLabels
         # preannotations; `data_col_idxs` holds the indices for the columns that map to data fields.
@@ -293,16 +291,16 @@ class LabelStudioProject(Project):
             data_vals = [row[idx] for idx in data_col_idxs]
             coco_annotations = [row[idx] for idx in rl_col_idxs]
             for i in range(len(t_data_cols)):
-                if t_data_cols[i].col_type.is_media_type():
+                if t_data_cols[i].get().col_type.is_media_type():
                     # Special handling for media columns
                     assert isinstance(data_vals[i], str)
                     if self.media_import_method == 'url':
-                        data_vals[i] = self.__validate_fileurl(t_data_cols[i], data_vals[i])
+                        data_vals[i] = self.__validate_fileurl(t_data_cols[i].get(), data_vals[i])
                     else:
                         assert self.media_import_method == 'file'
                         data_vals[i] = self.__localpath_to_lspath(data_vals[i])
             predictions = [
-                self.__coco_to_predictions(coco_annotations[i], self.col_mapping[t_rl_cols[i].handle], rl_info[i])
+                self.__coco_to_predictions(coco_annotations[i], self.col_mapping[t_rl_cols[i]], rl_info[i])
                 for i in range(len(coco_annotations))
             ]
             return {

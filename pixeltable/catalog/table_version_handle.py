@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
+from pixeltable import exceptions as excs
+
 from .table_version import TableVersion
 
 if TYPE_CHECKING:
@@ -76,6 +78,11 @@ class ColumnHandle:
     col_id: int
 
     def get(self) -> 'Column':
+        if self.col_id not in self.tbl_version.get().cols_by_id:
+            raise excs.Error(
+                f'Column has been dropped (no record for column ID {self.col_id} '
+                f'in table {self.tbl_version.get().versioned_name!r})'
+            )
         return self.tbl_version.get().cols_by_id[self.col_id]
 
     def as_dict(self) -> dict:
