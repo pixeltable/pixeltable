@@ -38,8 +38,8 @@ class TestGroq:
 
     @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
     def test_tool_invocations(self, reset_db: None) -> None:
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('openai')
+        skip_test_if_not_installed('groq')
+        skip_test_if_no_client('groq')
         from pixeltable.functions import groq
 
         def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
