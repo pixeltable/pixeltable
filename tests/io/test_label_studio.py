@@ -497,7 +497,7 @@ def init_ls(init_env: None) -> Iterator[None]:
     subprocess.run(f'{python_binary} -m pip install --upgrade pip'.split(' '), check=True)
     subprocess.run(f'{python_binary} -m pip install --no-cache-dir label-studio=={ls_version}'.split(' '), check=True)
     _logger.info('Spawning Label Studio pytest fixture.')
-    import label_studio_sdk  # type: ignore[import-untyped]
+    import label_studio_sdk
 
     ls_process = subprocess.Popen(
         [

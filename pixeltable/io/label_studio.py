@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Iterator, Literal, Optional, cast
 from xml.etree import ElementTree as ET
 
-import label_studio_sdk  # type: ignore[import-untyped]
+import label_studio_sdk
 import PIL.Image
 from requests.exceptions import HTTPError
 
@@ -25,7 +25,7 @@ try:
     import label_studio_sdk.project as ls_project  # type: ignore
 except ImportError:
     # label_studio_sdk>=1 compatibility
-    import label_studio_sdk._legacy.project as ls_project  # type: ignore
+    import label_studio_sdk._legacy.project as ls_project
 
 _logger = logging.getLogger('pixeltable')
 
