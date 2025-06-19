@@ -1419,6 +1419,52 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return status
 
+    def recompute_column(
+        self, column: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
+    ) -> UpdateStatus:
+        """Recompute the values in a computed column of this table.
+
+        Args:
+            column: The name of reference of the computed column to recompute.
+            errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the columns
+                `errortype` property is non-None).
+            cascade: if True, also update all computed columns that transitively depend on the recomputed column.
+
+        Examples:
+            Recompute computed column `c1` for all rows in this table, and everything that transitively depends on it:
+
+            >>> tbl.recompute_column('c1')
+
+            Recompute computed column `c1` for all rows in this table, but don't recompute other columns that depend on
+            it:
+
+            >>> tbl.recompute_column('c1', cascade=False)
+
+            Recompute column `c1` and its dependents, but only for rows that have errors in it:
+
+            >>> tbl.recompute_column('c1', errors_only=True)
+        """
+        from pixeltable.catalog import Catalog
+
+        cat = Catalog.get()
+        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot drop column from a snapshot.')
+            col_name: str
+            if isinstance(column, str):
+                col = self._tbl_version_path.get_column(column, include_bases=False)
+                if col is None:
+                    raise excs.Error(f'Column {column!r} unknown')
+                col_name = column
+            else:
+                if not self._tbl_version_path.has_column(column.col, include_bases=False):
+                    raise excs.Error(f'Unknown column: {column.col.qualified_name!r}')
+                col_name = column.col.name
+            status = self._tbl_version.get().recompute_column(col_name, errors_only=errors_only, cascade=cascade)
+            FileCache.get().emit_eviction_warnings()
+            return status
+
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 

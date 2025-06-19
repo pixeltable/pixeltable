@@ -961,7 +961,7 @@ class TableVersion:
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, None, where, cascade)
         from pixeltable.exprs import SqlElementCache
 
         result = self.propagate_update(
@@ -1060,6 +1060,38 @@ class TableVersion:
             update_targets[col] = value_expr
 
         return update_targets
+
+    def recompute_column(self, col_name: str, errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
+        if self.is_snapshot:
+            raise excs.Error('Cannot update a snapshot')
+        if col_name not in self.cols_by_name:
+            raise excs.Error(f'Column {col_name!r} unknown')
+
+        from pixeltable.plan import Planner
+
+        target_column = self.cols_by_name[col_name]
+        where_clause: Optional[exprs.Expr] = None
+        if errors_only:
+            where_clause = (
+                exprs.ColumnPropertyRef(exprs.ColumnRef(target_column), exprs.ColumnPropertyRef.Property.ERRORTYPE)
+                != None
+            )
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(
+            self.path, update_targets={}, recompute_target=target_column, where_clause=where_clause, cascade=cascade
+        )
+        from pixeltable.exprs import SqlElementCache
+
+        result = self.propagate_update(
+            plan,
+            where_clause.sql_expr(SqlElementCache()) if where_clause is not None else None,
+            recomputed_cols,
+            base_versions=[],
+            timestamp=time.time(),
+            cascade=cascade,
+            show_progress=True,
+        )
+        result.updated_cols = updated_cols
+        return result
 
     def propagate_update(
         self,

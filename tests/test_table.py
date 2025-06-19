@@ -4,7 +4,7 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Optional, Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -1947,6 +1947,56 @@ class TestTable:
         _ = reload_tester.run_query(t.select(t.c1))
 
         reload_tester.run_reload_test()
+
+    recompute_udf_increment = 0
+    recompute_udf_error_val: Optional[int] = None
+
+    @staticmethod
+    @pxt.udf
+    def recompute_udf(i: int) -> int:
+        if TestTable.recompute_udf_error_val is not None and i % TestTable.recompute_udf_error_val == 0:
+            raise RuntimeError(f'Error in recompute_udf for value {i}')
+        return i + TestTable.recompute_udf_increment
+
+    def test_recompute_column(self, reset_db: None) -> None:
+        t = pxt.create_table('recompute_test', schema={'i': pxt.Int})
+        status = t.add_computed_column(c1=self.recompute_udf(t.i))
+        assert status.num_excs == 0
+        status = t.add_computed_column(c2=t.c1 * 2)
+        assert status.num_excs == 0
+        v = pxt.create_view('recompute_view', base=t.where(t.i < 20), additional_columns={'c3': t.c2 + 1})
+        validate_update_status(t.insert({'i': i} for i in range(100)), expected_rows=100 + 20)
+
+        # recompute with a different increment
+        TestTable.recompute_udf_increment = 1
+        status = t.recompute_column(t.c1)
+        assert status.num_rows == 100 + 20
+        assert set(status.updated_cols) == set(['recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'])
+        result = t.select(t.c1, t.c2).order_by(t.i).collect()
+        assert result['c1'] == list(i + 1 for i in range(100))
+        assert result['c2'] == list(2 * (i + 1) for i in range(100))
+        result = v.select(v.c3).order_by(v.i).collect()
+        assert result['c3'] == list(2 * (i + 1) + 1 for i in range(20))
+
+        # add some errors
+        TestTable.recompute_udf_increment = 0
+        TestTable.recompute_udf_error_val = 10
+        status = t.recompute_column(t.c1)
+        assert status.num_rows == 100 + 20
+        assert status.num_excs == 4 * 10  # c1 and c2 plus their index value cols
+        assert set(status.updated_cols) == set(['recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'])
+        #assert status.cols_with_excs == ['recompute_test.c1']
+        assert t.where(t.c1.errortype != None).count() == 10
+        assert t.where(t.c2.errortype != None).count() == 10
+        assert t.where(t.c1.errortype == None).count() == 90
+        assert t.where(t.c2.errortype == None).count() == 90
+
+        # recompute errors
+        TestTable.recompute_udf_error_val = None
+        status = t.recompute_column(t.c1, errors_only=True)
+        assert status.num_rows == 10 + 2
+        assert status.num_excs == 0
+        assert set(status.updated_cols) == set(['recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'])
 
     def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
         """Test the if_not_exists parameter of drop_column API"""
