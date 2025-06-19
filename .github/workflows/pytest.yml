@@ -127,18 +127,14 @@ jobs:
       - name: Install ollama
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
         run: |
-          curl -fsSL https://raw.githubusercontent.com/ollama/ollama/4759d879f2376ffb9b82f296e442ec8ef137f27b/scripts/install.sh | sh
+          curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
       - name: Install poetry
-        # setuptools >= 69.2 has been causing problems with github actions even when its
-        # version is enforced in poetry. For now, explicitly revert to setuptools 69.1.1
-        # prior to installing project dependencies.
         run: |
           python -m pip install --upgrade pip
           python -m pip install poetry==$POETRY_VERSION
-          python -m pip install setuptools==69.1.1
       - name: Define a venv cache
         uses: actions/cache@v4
         if: false
