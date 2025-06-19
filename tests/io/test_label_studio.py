@@ -514,6 +514,7 @@ def init_ls(init_env: None) -> Iterator[None]:
             'pxt-api-token',
             '--data-dir',
             'target/ls-data',
+            '--enable-legacy-api-token',
         ],
         env={'LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED': 'true'},
     )
