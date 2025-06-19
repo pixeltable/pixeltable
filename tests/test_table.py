@@ -1971,7 +1971,7 @@ class TestTable:
         TestTable.recompute_udf_increment = 1
         status = t.recompute_column(t.c1)
         assert status.num_rows == 100 + 20
-        assert set(status.updated_cols) == set('recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3')
+        assert set(status.updated_cols) == {'recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'}
         result = t.select(t.c1, t.c2).order_by(t.i).collect()
         assert result['c1'] == [i + 1 for i in range(100)]
         assert result['c2'] == [2 * (i + 1) for i in range(100)]
@@ -1984,7 +1984,7 @@ class TestTable:
         status = t.recompute_column(t.c1)
         assert status.num_rows == 100 + 20
         assert status.num_excs == 4 * 10  # c1 and c2 plus their index value cols
-        assert set(status.updated_cols) == set('recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3')
+        assert set(status.updated_cols) == {'recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'}
         # assert status.cols_with_excs == ['recompute_test.c1']
         assert t.where(t.c1.errortype != None).count() == 10
         assert t.where(t.c2.errortype != None).count() == 10
@@ -1996,7 +1996,7 @@ class TestTable:
         status = t.recompute_column(t.c1, errors_only=True)
         assert status.num_rows == 10 + 2
         assert status.num_excs == 0
-        assert set(status.updated_cols) == set('recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3')
+        assert set(status.updated_cols) == {'recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'}
 
     def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
         """Test the if_not_exists parameter of drop_column API"""
