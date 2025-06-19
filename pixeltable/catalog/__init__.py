@@ -18,6 +18,6 @@ from .path import Path
 from .schema_object import SchemaObject
 from .table import Table
 from .table_version import TableVersion
-from .table_version_handle import TableVersionHandle
+from .table_version_handle import ColumnHandle, TableVersionHandle
 from .table_version_path import TableVersionPath
 from .view import View
