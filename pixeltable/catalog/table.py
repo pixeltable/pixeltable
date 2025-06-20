@@ -1456,17 +1456,25 @@ class Table(SchemaObject):
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot drop column from a snapshot.')
+                raise excs.Error('Cannot recompute column of a snapshot.')
             col_name: str
+            col: Column
             if isinstance(column, str):
-                col = self._tbl_version_path.get_column(column, include_bases=False)
+                col = self._tbl_version_path.get_column(column, include_bases=True)
                 if col is None:
-                    raise excs.Error(f'Column {column!r} unknown')
+                    raise excs.Error(f'Unknown column: {column!r}')
                 col_name = column
             else:
-                if not self._tbl_version_path.has_column(column.col, include_bases=False):
-                    raise excs.Error(f'Unknown column: {column.col.qualified_name!r}')
-                col_name = column.col.name
+                assert isinstance(column, ColumnRef)
+                col = column.col
+                if not self._tbl_version_path.has_column(col, include_bases=True):
+                    raise excs.Error(f'Unknown column: {col.name!r}')
+                col_name = col.name
+            if not col.is_computed:
+                raise excs.Error(f'Column {col_name!r} is not a computed column')
+            if col.tbl.id != self._tbl_version_path.tbl_id:
+                raise excs.Error('Cannot recompute column of a base')
+
             status = self._tbl_version.get().recompute_column(col_name, errors_only=errors_only, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
             return status

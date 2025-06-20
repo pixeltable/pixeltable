@@ -1978,9 +1978,9 @@ class TestTable:
         result = v.select(v.c3).order_by(v.i).collect()
         assert result['c3'] == [2 * i + 1 for i in range(20)]
 
-        # recompute with propagation
+        # recompute with propagation, via a ColumnRef
         TestTable.recompute_udf_increment = 1
-        status = t.recompute_column(t.c1)
+        status = t.c1.recompute()
         assert status.num_rows == 100 + 20
         assert set(status.updated_cols) == {'recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'}
         result = t.select(t.c1, t.c2).order_by(t.i).collect()
@@ -2010,6 +2010,18 @@ class TestTable:
         assert status.num_rows == 10 + 2
         assert status.num_excs == 0
         assert set(status.updated_cols) == {'recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'}
+
+        with pytest.raises(excs.Error, match='Unknown column'):
+            t.recompute_column('h')
+        with pytest.raises(excs.Error, match='is not a computed column'):
+            t.recompute_column(t.i)
+        with pytest.raises(excs.Error, match='of a snapshot'):
+            s = pxt.create_snapshot('recompute_snap', t, additional_columns={'s1': t.c2 + 1})
+            s.recompute_column(s.s1)
+        with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
+            v.recompute_column(v.c1)
+        with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
+            v.c1.recompute()
 
     def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
         """Test the if_not_exists parameter of drop_column API"""
