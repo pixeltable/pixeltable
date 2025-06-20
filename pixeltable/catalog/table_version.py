@@ -1068,10 +1068,8 @@ class TableVersion:
         return update_targets
 
     def recompute_column(self, col_name: str, errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
-        if self.is_snapshot:
-            raise excs.Error('Cannot update a snapshot')
-        if col_name not in self.cols_by_name:
-            raise excs.Error(f'Column {col_name!r} unknown')
+        assert not self.is_snapshot
+        assert col_name in self.cols_by_name
 
         from pixeltable.plan import Planner
 

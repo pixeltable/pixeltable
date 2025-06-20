@@ -1967,7 +1967,18 @@ class TestTable:
         v = pxt.create_view('recompute_view', base=t.where(t.i < 20), additional_columns={'c3': t.c2 + 1})
         validate_update_status(t.insert({'i': i} for i in range(100)), expected_rows=100 + 20)
 
-        # recompute with a different increment
+        # recompute without propagation
+        TestTable.recompute_udf_increment = 1
+        status = t.recompute_column(t.c1, cascade=False)
+        assert status.num_rows == 100
+        assert set(status.updated_cols) == {'recompute_test.c1'}
+        result = t.select(t.c1, t.c2).order_by(t.i).collect()
+        assert result['c1'] == [i + 1 for i in range(100)]
+        assert result['c2'] == [2 * i for i in range(100)]
+        result = v.select(v.c3).order_by(v.i).collect()
+        assert result['c3'] == [2 * i + 1 for i in range(20)]
+
+        # recompute with propagation
         TestTable.recompute_udf_increment = 1
         status = t.recompute_column(t.c1)
         assert status.num_rows == 100 + 20
@@ -1985,9 +1996,11 @@ class TestTable:
         assert status.num_rows == 100 + 20
         assert status.num_excs == 4 * 10  # c1 and c2 plus their index value cols
         assert set(status.updated_cols) == {'recompute_test.c1', 'recompute_test.c2', 'recompute_view.c3'}
-        # assert status.cols_with_excs == ['recompute_test.c1']
+        _ = t.select(t.c2.errormsg).where(t.c2.errormsg != None).collect()
         assert t.where(t.c1.errortype != None).count() == 10
+        assert t.where(t.c1.errormsg.startswith('Error in recompute_udf') != None).count() == 10
         assert t.where(t.c2.errortype != None).count() == 10
+        assert t.where(t.c2.errormsg.startswith('Error in recompute_udf') != None).count() == 10
         assert t.where(t.c1.errortype == None).count() == 90
         assert t.where(t.c2.errortype == None).count() == 90
 
