@@ -15,6 +15,7 @@ from .globals import MediaValidation, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
+    from .table_version_handle import ColumnHandle
     from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
@@ -147,6 +148,15 @@ class Column:
                 .format(validation_error=self._value_expr.validation_error)
             )
             warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+
+    @property
+    def handle(self) -> 'ColumnHandle':
+        """Returns a ColumnHandle for this Column."""
+        from .table_version_handle import ColumnHandle
+
+        assert self.tbl is not None
+        assert self.id is not None
+        return ColumnHandle(self.tbl.handle, self.id)
 
     @property
     def value_expr(self) -> Optional[exprs.Expr]:

@@ -39,10 +39,11 @@ documents.add_computed_column(
 Learn more about UDFs and UDAs with our [in-depth guide](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb).
 </Info>
 
-This guide covers three types of custom functions in Pixeltable:
+This guide covers four types of custom functions in Pixeltable:
 1. Basic User-Defined Functions (UDFs)
 2. Tables as UDFs
 3. User-Defined Aggregates (UDAs)
+4. MCP UDFs
 
 ## 1. Basic User-Defined Functions (UDFs)
 
@@ -634,6 +635,52 @@ table.group_by(table.category).select(
 - Optimize for performance
 - Use appropriate type hints
 - Document expected behavior
+
+## 4. MCP UDFs
+
+### Overview
+MCP UDFs allow you to:
+- Connect to a running MCP server.
+- Use tools exposed by the MCP server as Pixeltable UDFs.
+- Integrate external services and custom logic into your Pixeltable workflows.
+
+### Example
+
+Here is a simple example of an MCP server running in a separate Python script:
+
+<CodeGroup>
+```python MCP Server (mcp_server.py)
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP('PixeltableDemo', stateless_http=True)
+
+@mcp.tool()
+def pixelmultiple(a: int, b: int) -> int:
+    """Computes the Pixelmultiple of two integers."""
+    return (a + 22) * b
+
+if __name__ == '__main__':
+    mcp.run(transport='streamable-http')
+```
+
+```python Pixeltable Client
+import pixeltable as pxt
+
+# Connect to the MCP server
+# This returns a list of UDFs, one for each tool.
+udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
+pixelmultiple_udf = udfs[0]
+
+# Use the UDF in a table
+t = pxt.create_table('test_mcp', {'a': pxt.Int, 'b': pxt.Int})
+t.add_computed_column(
+    pixelmultiple=pixelmultiple_udf(a=t.a, b=t.b)
+)
+t.insert([{'a': 3, 'b': 4}])
+# The 'pixelmultiple' column will contain (3 + 22) * 4 = 100
+t.collect()
+```
+</CodeGroup>
 
 ## Additional Resources
 
