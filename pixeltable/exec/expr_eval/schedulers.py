@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Collection, Optional
 
 from pixeltable import env, func
 from pixeltable.config import Config
+
 from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
@@ -252,13 +253,13 @@ class RequestRateScheduler(Scheduler):
     TIME_FORMAT = '%H:%M.%S %f'
     MAX_RETRIES = 3
     DEFAULT_RATE_LIMIT = 600  # requests per minute
-    RATE_LIMIT_INDICATORS = ['rate limit', 'too many requests', '429', 'quota exceeded', 'throttled', 'rate exceeded']
-    RETRY_AFTER_PATTERNS = [
+    RATE_LIMIT_INDICATORS = ('rate limit', 'too many requests', '429', 'quota exceeded', 'throttled', 'rate exceeded')
+    RETRY_AFTER_PATTERNS = (
         r'retry after (\d+(?:\.\d+)?)\s*seconds?',
         r'try again in (\d+(?:\.\d+)?)\s*seconds?',
         r'wait (\d+(?:\.\d+)?)\s*seconds?',
         r'retry-after:\s*(\d+(?:\.\d+)?)',
-    ]
+    )
 
     # Exponential backoff defaults
     BASE_RETRY_DELAY = 1.0  # in seconds
@@ -379,7 +380,7 @@ class RequestRateScheduler(Scheduler):
         is_rate_limit_error = False
         retry_delay: Optional[float] = None
 
-        # requests.HTTPError
+        # requests.HTTPError/httpx.HTTPStatusError
         if (
             hasattr(exc, 'response')
             and hasattr(exc.response, 'status_code')
@@ -387,22 +388,14 @@ class RequestRateScheduler(Scheduler):
         ):
             is_rate_limit_error = True
             retry_delay = self._extract_retry_delay_from_headers(exc.response.headers)
-        # urllib.error.HTTPError
-        elif hasattr(exc, 'code') and exc.code == HTTPStatus.TOO_MANY_REQUESTS.value:
-            is_rate_limit_error = True
-            retry_delay = self._extract_retry_delay_from_headers(exc.headers)
-        # aiohttp.ClientResponseError
-        elif hasattr(exc, 'status') and exc.status == HTTPStatus.TOO_MANY_REQUESTS.value:
-            is_rate_limit_error = True
-            retry_delay = self._extract_retry_delay_from_headers(exc.headers)
-        # httpx.HTTPStatusError
         elif (
-            hasattr(exc, 'response')
-            and hasattr(exc.response, 'status_code')
-            and exc.response.status_code == HTTPStatus.TOO_MANY_REQUESTS.value
-        ):
+            # urllib.error.HTTPError
+            (hasattr(exc, 'code') and exc.code == HTTPStatus.TOO_MANY_REQUESTS.value)
+            # aiohttp.ClientResponseError
+            or (hasattr(exc, 'status') and exc.status == HTTPStatus.TOO_MANY_REQUESTS.value)
+        ) and hasattr(exc, 'headers'):
             is_rate_limit_error = True
-            retry_delay = self._extract_retry_delay_from_headers(exc.response.headers)
+            retry_delay = self._extract_retry_delay_from_headers(exc.headers)
 
         if is_rate_limit_error:
             return True, retry_delay
@@ -430,9 +423,11 @@ class RequestRateScheduler(Scheduler):
                 header_dict = dict(headers)
             except (TypeError, ValueError):
                 return None
+        # normalize dict keys: lowercase and remove dashes
+        header_dict = {k.lower().replace('-', ''): v for k, v in header_dict.items()}
 
         # check Retry-After header
-        retry_after = header_dict.get('Retry-After') or header_dict.get('retry-after')
+        retry_after = header_dict.get('retryafter')
         if retry_after is not None:
             try:
                 return float(retry_after)
@@ -440,11 +435,7 @@ class RequestRateScheduler(Scheduler):
                 pass
 
         # check X-RateLimit-Reset (Unix timestamp)
-        reset_time = (
-            header_dict.get('X-RateLimit-Reset')
-            or header_dict.get('x-ratelimit-reset')
-            or header_dict.get('X-Rate-Limit-Reset')
-        )
+        reset_time = header_dict.get('xratelimitreset')
         if reset_time is not None:
             try:
                 reset_timestamp = float(reset_time)
@@ -454,7 +445,7 @@ class RequestRateScheduler(Scheduler):
                 pass
 
         # check X-RateLimit-Reset-After (seconds from now)
-        reset_after = header_dict.get('X-RateLimit-Reset-After') or header_dict.get('x-ratelimit-reset-after')
+        reset_after = header_dict.get('xratelimitresetafter')
         if reset_after is not None:
             try:
                 return float(reset_after)
@@ -489,8 +480,8 @@ class RequestRateScheduler(Scheduler):
             # Use server-suggested delay, but cap it at max_delay
             return min(retry_after, self.MAX_RETRY_DELAY)
         else:
-            delay = self.BASE_RETRY_DELAY * (self.RETRY_BACKOFF_MULTIPLIER ** num_retries)
-            return min(delay, self.MAX_RETRY_DELAY)
+            delay = self.BASE_RETRY_DELAY * (self.RETRY_BACKOFF_MULTIPLIER**num_retries)
+            return max(min(delay, self.MAX_RETRY_DELAY), self.BASE_RETRY_DELAY)
 
 
 # all concrete Scheduler subclasses that implement matches()
