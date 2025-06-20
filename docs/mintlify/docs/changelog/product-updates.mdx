@@ -4,6 +4,25 @@ description: 'Keep track of changes'
 icon: 'newspaper'
 ---
 
+<Update label="2025-06-16" description="v0.4.0">
+### Highlights
+* Added support for concurrent insert/query and table/view operations
+* Introduced sample() operator for deterministic, pseudo-random samples of tables and data frames
+* Enhanced API flexibility for optional LLM parameters
+* Added Groq integration
+* Added MCP (Model Context Protocol) integration
+* Added HEIC image support
+
+### Enhancements
+* Implemented SQL generation for many string methods
+* Refactored inference API integrations to use model_kwargs dicts instead of explicit parameters
+* Made TableVersion timestamps consistent across propagated changes
+* Consolidated SQL generation related to sampling inside SqlSampleNode
+* Improved handling of nullary JsonMapper expressions
+* Enhanced concurrent view interactions
+
+</Update>
+
 <Update label="2025-06-03" description="v0.3.15">
 ### Highlights
 * Added UDFs for Google Imagen and Veo

@@ -840,11 +840,12 @@ class Table(SchemaObject):
             _ = self._get_views(recursive=True, include_snapshots=False)
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
+            col_handle = col.handle
             dependent_stores = [
                 (view, store)
                 for view in (self, *self._get_views(recursive=True, include_snapshots=False))
                 for store in view._tbl_version.get().external_stores.values()
-                if col in store.get_local_columns()
+                if col_handle in store.get_local_columns()
             ]
             if len(dependent_stores) > 0:
                 dependent_store_names = [
@@ -1320,6 +1321,9 @@ class Table(SchemaObject):
             value_spec: a dictionary mapping column names to literal values or Pixeltable expressions.
             where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
+
+        Returns:
+            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
 
         Examples:
             Set column `int_col` to 1 for all rows:

@@ -911,7 +911,7 @@ class Catalog:
                     'This is likely due to data corruption in the replicated table.'
                 )
 
-        self.store_tbl_md(UUID(tbl_id), new_tbl_md, new_version_md, new_schema_version_md)
+        self.store_tbl_md(UUID(tbl_id), None, new_tbl_md, new_version_md, new_schema_version_md)
 
     @_retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
@@ -1297,19 +1297,27 @@ class Catalog:
     def store_tbl_md(
         self,
         tbl_id: UUID,
+        dir_id: Optional[UUID],
         tbl_md: Optional[schema.TableMd],
         version_md: Optional[schema.TableVersionMd],
         schema_version_md: Optional[schema.TableSchemaVersionMd],
     ) -> None:
         """
-        Stores metadata to the DB. If specified, `tbl_md` will be updated in place (only one such record can exist
-        per UUID); `version_md` and `schema_version_md` will be inserted as new records.
+        Stores metadata to the DB.
+
+        Args:
+            tbl_id: UUID of the table to store metadata for.
+            dir_id: If specified, the tbl_md will be added to the given directory; if None, the table must already exist
+            tbl_md: If specified, `tbl_md` will be inserted, or updated (only one such record can exist per UUID)
+            version_md: inserted as a new record if present
+            schema_version_md: will be inserted as a new record if present
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
-        conn = Env.get().conn
         assert self._in_write_xact
+        session = Env.get().session
 
+        # Construct and insert or update table record if requested.
         if tbl_md is not None:
             assert tbl_md.tbl_id == str(tbl_id)
             if version_md is not None:
@@ -1317,32 +1325,37 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
-            result = conn.execute(
-                sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(tbl_md)})
-                .where(schema.Table.id == tbl_id)
-            )
-            assert result.rowcount == 1, result.rowcount
+            if dir_id is not None:
+                # We are inserting a record while creating a new table.
+                tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md))
+                session.add(tbl_record)
+            else:
+                # Update the existing table record.
+                result = session.execute(
+                    sql.update(schema.Table.__table__)
+                    .values({schema.Table.md: dataclasses.asdict(tbl_md)})
+                    .where(schema.Table.id == tbl_id)
+                )
+                assert result.rowcount == 1, result.rowcount
 
+        # Construct and insert new table version record if requested.
         if version_md is not None:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
                 assert version_md.schema_version == schema_version_md.schema_version
-            conn.execute(
-                sql.insert(schema.TableVersion.__table__).values(
-                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
-                )
+            tbl_version_record = schema.TableVersion(
+                tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
             )
+            session.add(tbl_version_record)
 
+        # Construct and insert a new schema version record if requested.
         if schema_version_md is not None:
             assert schema_version_md.tbl_id == str(tbl_id)
-            conn.execute(
-                sql.insert(schema.TableSchemaVersion.__table__).values(
-                    tbl_id=tbl_id,
-                    schema_version=schema_version_md.schema_version,
-                    md=dataclasses.asdict(schema_version_md),
-                )
+            schema_version_record = schema.TableSchemaVersion(
+                tbl_id=tbl_id, schema_version=schema_version_md.schema_version, md=dataclasses.asdict(schema_version_md)
             )
+            session.add(schema_version_record)
+        session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """

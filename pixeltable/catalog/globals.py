@@ -7,8 +7,6 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from typing_extensions import Self
-
 import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
@@ -29,8 +27,43 @@ class QColumnId:
     tbl_id: UUID
     col_id: int
 
-    # def __hash__(self) -> int:
-    #     return hash((self.tbl_id, self.col_id))
+
+@dataclasses.dataclass(frozen=True)
+class RowCountStats:
+    """
+    Statistics about the counts of rows affected by a table operation.
+    """
+
+    ins_rows: int = 0  # rows inserted
+    del_rows: int = 0  # rows deleted
+    upd_rows: int = 0  # rows updated
+    exc_rows: int = 0  # rows that had exceptions during the operation
+    num_excs: int = 0  # total number of exceptions
+
+    def insert_to_update(self) -> 'RowCountStats':
+        """
+        Convert insert row count stats to update row count stats.
+        This is used when an insert operation is treated as an update.
+        """
+        return RowCountStats(
+            ins_rows=0,
+            del_rows=self.del_rows,
+            upd_rows=self.upd_rows + self.ins_rows,
+            exc_rows=self.exc_rows,
+            num_excs=self.num_excs,
+        )
+
+    def __add__(self, other: 'RowCountStats') -> 'RowCountStats':
+        """
+        Add the stats from two RowCountStats objects together.
+        """
+        return RowCountStats(
+            ins_rows=self.ins_rows + other.ins_rows,
+            del_rows=self.del_rows + other.del_rows,
+            upd_rows=self.upd_rows + other.upd_rows,
+            exc_rows=self.exc_rows + other.exc_rows,
+            num_excs=self.num_excs + other.num_excs,
+        )
 
 
 @dataclasses.dataclass
@@ -46,13 +79,55 @@ class UpdateStatus:
     updated_cols: list[str] = dataclasses.field(default_factory=list)
     cols_with_excs: list[str] = dataclasses.field(default_factory=list)
 
-    def __iadd__(self, other: 'UpdateStatus') -> Self:
-        self.num_rows += other.num_rows
-        self.num_computed_values += other.num_computed_values
-        self.num_excs += other.num_excs
-        self.updated_cols = list(dict.fromkeys(self.updated_cols + other.updated_cols))
-        self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
-        return self
+    # stats for the rows affected by the operation
+    row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+
+    # stats for changes cascaded to other tables
+    cascade_row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+
+    def insert_to_update(self) -> 'UpdateStatus':
+        """
+        Convert the update status from an insert operation to an update operation.
+        This is used when an insert operation is treated as an update.
+        """
+        return UpdateStatus(
+            num_rows=self.num_rows,
+            num_computed_values=self.num_computed_values,
+            num_excs=self.num_excs,
+            updated_cols=self.updated_cols,
+            cols_with_excs=self.cols_with_excs,
+            row_count_stats=self.row_count_stats.insert_to_update(),
+            cascade_row_count_stats=self.cascade_row_count_stats.insert_to_update(),
+        )
+
+    def to_cascade(self) -> 'UpdateStatus':
+        """
+        Convert the update status to a cascade update status.
+        This is used when an operation cascades changes to other tables.
+        """
+        return UpdateStatus(
+            num_rows=self.num_rows,
+            num_computed_values=self.num_computed_values,
+            num_excs=self.num_excs,
+            updated_cols=self.updated_cols,
+            cols_with_excs=self.cols_with_excs,
+            row_count_stats=RowCountStats(),
+            cascade_row_count_stats=self.cascade_row_count_stats + self.row_count_stats,
+        )
+
+    def __add__(self, other: 'UpdateStatus') -> UpdateStatus:
+        """
+        Add the update status from two UpdateStatus objects together.
+        """
+        return UpdateStatus(
+            num_rows=self.num_rows + other.num_rows,
+            num_computed_values=self.num_computed_values + other.num_computed_values,
+            num_excs=self.num_excs + other.num_excs,
+            updated_cols=list(dict.fromkeys(self.updated_cols + other.updated_cols)),
+            cols_with_excs=list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs)),
+            row_count_stats=self.row_count_stats + other.row_count_stats,
+            cascade_row_count_stats=self.cascade_row_count_stats + other.cascade_row_count_stats,
+        )
 
     @property
     def insert_msg(self) -> str:
