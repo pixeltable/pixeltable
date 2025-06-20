@@ -10,7 +10,6 @@ import logging
 import os
 import platform
 import shutil
-import subprocess
 import sys
 import threading
 import uuid
@@ -748,18 +747,11 @@ class Env:
         have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
         """
         import spacy
-        from spacy.cli.download import get_model_filename
+        from spacy.cli.download import download
 
         spacy_model = 'en_core_web_sm'
-        spacy_model_version = '3.7.1'
-        filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
-        url = f'{spacy.about.__download_url__}/{filename}'
-        # Try to `pip install` the model. We set check=False; if the pip command fails, it's not necessarily
-        # a problem, because the model might have been installed on a previous attempt.
-        self._logger.info(f'Ensuring spaCy model is installed: {filename}')
-        ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
-        if ret.returncode != 0:
-            self._logger.warning(f'pip install failed for spaCy model: {filename}')
+        self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
+        download(spacy_model)
         self._logger.info(f'Loading spaCy model: {spacy_model}')
         try:
             self._spacy_nlp = spacy.load(spacy_model)
