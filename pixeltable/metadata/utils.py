@@ -24,7 +24,9 @@ class MetadataUtils:
             return ''
         added = {k: v.name for k, v in new_md.items() if k not in old_md}
         changed = {
-            k: f'{old_md[k].name} to {v.name}' for k, v in new_md.items() if k in old_md and old_md[k].name != v.name
+            k: f'{old_md[k].name!r} to {v.name!r}'
+            for k, v in new_md.items()
+            if k in old_md and old_md[k].name != v.name
         }
         deleted = {k: v.name for k, v in old_md.items() if k not in new_md}
         if len(added) == 0 and len(changed) == 0 and len(deleted) == 0:
@@ -34,14 +36,16 @@ class MetadataUtils:
         if len(added) > 0:
             t.append('Added: ' + ', '.join(added.values()))
         if len(changed) > 0:
-            t.append('Changed: ' + ', '.join(changed.values()))
+            t.append('Renamed: ' + ', '.join(changed.values()))
         if len(deleted) > 0:
             t.append('Deleted: ' + ', '.join(deleted.values()))
         r = ', '.join(t)
         return r
 
     @classmethod
-    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]]) -> dict[int, str]:
+    def _create_md_change_dict(
+        cls, md_list: Optional[list[tuple[int, dict[int, schema.SchemaColumn]]]]
+    ) -> dict[int, str]:
         """Return a dictionary of schema changes by version
         Args:
             md_list: a list of tuples, each containing a version number and a metadata dictionary.
@@ -49,6 +53,8 @@ class MetadataUtils:
         r: dict[int, str] = {}
         if md_list is None or len(md_list) == 0:
             return r
+
+        # Sort the list in place by version number
         md_list.sort()
 
         first_retrieved_version = md_list[0][0]

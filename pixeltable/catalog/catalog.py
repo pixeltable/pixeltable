@@ -1229,13 +1229,13 @@ class Catalog:
         return view
 
     @_retry_loop(for_write=False)
-    def collect_tbl_history(self, tbl_id: UUID, n: int) -> list[schema.FullTableMd]:
+    def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 
         Args:
             tbl_id: the UUID of the table to collect history for.
-            n: the maximum number of versions desired.
+            n: Optional limit on the maximum number of versions returned.
 
         Returns:
             A sequence of rows, ordered by version number
@@ -1252,8 +1252,9 @@ class Catalog:
             .where(schema.TableVersion.tbl_id == tbl_id)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
             .order_by(schema.TableVersion.version.desc())
-            .limit(n)
         )
+        if n is not None:
+            q = q.limit(n)
         src_rows = Env.get().session.execute(q).fetchall()
         return [
             schema.FullTableMd(
