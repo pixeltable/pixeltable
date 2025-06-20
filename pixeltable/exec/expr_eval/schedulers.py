@@ -250,7 +250,7 @@ class RequestRateScheduler(Scheduler):
     total_retried: int
 
     TIME_FORMAT = '%H:%M.%S %f'
-    MAX_RETRIES = 10
+    MAX_RETRIES = 3
     DEFAULT_RATE_LIMIT = 600  # requests per minute
     RATE_LIMIT_INDICATORS = ['rate limit', 'too many requests', '429', 'quota exceeded', 'throttled', 'rate exceeded']
     RETRY_AFTER_PATTERNS = [
@@ -349,7 +349,7 @@ class RequestRateScheduler(Scheduler):
             self.dispatcher.dispatch(request.rows, exec_ctx)
 
         except Exception as exc:
-            _logger.debug(f'exception for {self.resource_pool}: {exc}')
+            _logger.debug(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
             is_rate_limit_error, retry_after = self._is_rate_limit_error(exc)
             if is_rate_limit_error and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
