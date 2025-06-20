@@ -1228,6 +1228,43 @@ class Catalog:
         self._tbls[tbl_id] = view
         return view
 
+    @_retry_loop(for_write=False)
+    def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
+        """
+        Returns the history of up to n versions of the table with the given UUID.
+
+        Args:
+            tbl_id: the UUID of the table to collect history for.
+            n: Optional limit on the maximum number of versions returned.
+
+        Returns:
+            A sequence of rows, ordered by version number
+            Each row contains a TableVersion and a TableSchemaVersion object.
+        """
+        q = (
+            sql.select(schema.TableVersion, schema.TableSchemaVersion)
+            .select_from(schema.TableVersion)
+            .join(
+                schema.TableSchemaVersion,
+                sql.cast(schema.TableVersion.md['schema_version'], sql.Integer)
+                == schema.TableSchemaVersion.schema_version,
+            )
+            .where(schema.TableVersion.tbl_id == tbl_id)
+            .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+            .order_by(schema.TableVersion.version.desc())
+        )
+        if n is not None:
+            q = q.limit(n)
+        src_rows = Env.get().session.execute(q).fetchall()
+        return [
+            schema.FullTableMd(
+                None,
+                schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
+                schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
+            )
+            for row in src_rows
+        ]
+
     def load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> schema.FullTableMd:
         """
         Loads metadata from the store for a given table UUID and version.
