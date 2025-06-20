@@ -62,6 +62,10 @@ def push_replica(
         'datafile': bundle.name,
         'size': bundle.stat().st_size,
         'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
+        'rows': packager.md['rows'],
+        'preview_header': packager.md['preview_header'],
+        'preview_data': packager.md['preview_data'],
+
     }
     # TODO: Use Pydantic for validation
     finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=headers_json)
