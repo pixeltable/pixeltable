@@ -5,23 +5,57 @@ from pixeltable import exceptions as excs
 
 
 class TestHistory:
+    def pr_us(self, us: pxt.UpdateStatus, op: str = '') -> None:
+        """Print contents of UpdateStatus"""
+        print(f'=========================== pr_us =========================== op: {op}')
+        print(f'num_rows: {us.num_rows}')
+        print(f'num_computed_values: {us.num_computed_values}')
+        print(f'num_excs: {us.num_excs}')
+        print(f'updated_cols: {us.updated_cols}')
+        print(f'cols_with_excs: {us.cols_with_excs}')
+        print(us.row_count_stats)
+        print(us.cascade_row_count_stats)
+        print('============================================================')
+
     def test_history(self, reset_db: None) -> None:
         t = pxt.create_table(
             'test',
-            {'c1': pxt.Required[pxt.Int], 'c2': pxt.String},
+            source=[{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}],
+            schema_overrides={'c1': pxt.Required[pxt.Int], 'c2': pxt.String},
             comment='some random table comment',
             primary_key=['c1'],
         )
-        t.insert([{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}])
-        t.add_computed_column(c3=t.c1 + 10)
-        t.add_computed_column(c4=t.c2.upper())
-        t.add_computed_column(c5=t.c1 + 10)
-        t.add_columns({'c6': pxt.String, 'c7': pxt.Int})
-        t.insert([{'c1': 3, 'c2': 'c'}, {'c1': 4, 'c2': 'd'}])
-        t.insert([{'c1': 5, 'c2': 'e'}, {'c1': 6, 'c2': 'e'}])
-        t.insert([{'c1': 7, 'c2': 'a'}, {'c1': 8, 'c2': 'b'}])
-        t.delete((t.c1 >= 4) & (t.c1 <= 5))
-        t.batch_update([{'c1': 2, 'c2': 'xxx'}])
+        s = t.insert([{'c1': 0, 'c2': 'c'}])
+        self.pr_us(s, 'i')
+        s = t.add_computed_column(c3=t.c1 + 10)
+        self.pr_us(s, 'acc')
+        s = t.add_computed_column(c4=t.c2.upper())
+        self.pr_us(s, 'acc')
+        v = pxt.create_view('view_of_test', t, comment='view of test table')
+        r = v.history()
+        print(r)
+        assert len(r) == 1
+        s = t.add_computed_column(c5=t.c1 + 20)
+        self.pr_us(s, 'acc')
+        s = t.add_columns({'c6': pxt.String, 'c7': pxt.Int, 'c8': pxt.Float})
+        self.pr_us(s, 'ac')
+        s = t.insert(
+            [
+                {'c1': 3, 'c2': 'c', 'c6': 'yyy', 'c7': 100, 'c8': 1.0},
+                {'c1': 4, 'c2': 'd', 'c6': 'xxx', 'c7': 200, 'c8': 2.0},
+            ]
+        )
+        self.pr_us(s, 'i1')
+        s = t.insert([{'c1': 5, 'c2': 'e'}, {'c1': 6, 'c2': 'e'}])
+        self.pr_us(s, 'i')
+        s = v.add_computed_column(v1=v.c2 + '_view')
+        self.pr_us(s, 'vacc')
+        s = t.insert([{'c1': 7, 'c2': 'a'}, {'c1': 8, 'c2': 'b'}])
+        self.pr_us(s, 'i2')
+        s = t.delete((t.c1 >= 4) & (t.c1 <= 5))
+        self.pr_us(s, 'd')
+        s = t.batch_update([{'c1': 2, 'c2': 'xxx'}])
+        self.pr_us(s, 'u')
         t.rename_column('c2', 'c2_renamed')
         t.drop_column('c4')
         r = t.history()
@@ -39,12 +73,11 @@ class TestHistory:
 
         r = t.history()
         print(r)
-        assert len(r) == 13
+        assert len(r) == 14
 
-        v = pxt.create_view('view_of_test', t, comment='view of test table')
         r = v.history()
         print(r)
-        assert len(r) == 1
+        assert len(r) == 7
 
         s = pxt.create_snapshot('snapshot_of_test_view', t, comment='snapshot of view of test table')
         r = s.history()
