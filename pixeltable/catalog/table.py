@@ -1322,6 +1322,9 @@ class Table(SchemaObject):
             where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
 
+        Returns:
+            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
+
         Examples:
             Set column `int_col` to 1 for all rows:
 
