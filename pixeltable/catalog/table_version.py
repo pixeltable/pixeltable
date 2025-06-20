@@ -190,6 +190,12 @@ class TableVersion:
         else:
             return f'{self.name}:{self.effective_version}'
 
+    @property
+    def handle(self) -> 'TableVersionHandle':
+        from .table_version_handle import TableVersionHandle
+
+        return TableVersionHandle(self.id, self.effective_version, self)
+
     @classmethod
     def create(
         cls,

@@ -5,12 +5,11 @@ import itertools
 import logging
 from dataclasses import dataclass
 from typing import Any, Optional
-from uuid import UUID
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
-from pixeltable.catalog import TableVersion
+from pixeltable.catalog import ColumnHandle, TableVersion
 
 _logger = logging.getLogger('pixeltable')
 
@@ -21,6 +20,8 @@ class ExternalStore(abc.ABC):
     table. Subclasses of `ExternalStore` provide functionality for synchronizing between Pixeltable
     and stateful external stores.
     """
+
+    __name: str
 
     def __init__(self, name: str) -> None:
         self.__name = name
@@ -38,7 +39,7 @@ class ExternalStore(abc.ABC):
         """Removes store-specific metadata created in link()."""
 
     @abc.abstractmethod
-    def get_local_columns(self) -> list[Column]:
+    def get_local_columns(self) -> list[ColumnHandle]:
         """
         Gets a list of all local (Pixeltable) columns that are associated with this external store.
         """
@@ -63,9 +64,15 @@ class Project(ExternalStore, abc.ABC):
     additional capabilities specific to such projects.
     """
 
-    stored_proxies: dict[Column, Column]
+    _col_mapping: dict[ColumnHandle, str]  # col -> external col name
+    stored_proxies: dict[ColumnHandle, ColumnHandle]  # original col -> proxy col
 
-    def __init__(self, name: str, col_mapping: dict[Column, str], stored_proxies: Optional[dict[Column, Column]]):
+    def __init__(
+        self,
+        name: str,
+        col_mapping: dict[ColumnHandle, str],
+        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]],
+    ):
         super().__init__(name)
         self._col_mapping = col_mapping
 
@@ -80,11 +87,11 @@ class Project(ExternalStore, abc.ABC):
         # Note from aaron-siegel: This methodology is inefficient in the case where a table has many views with a high
         # proportion of overlapping rows, all proxying the same base column.
         if stored_proxies is None:
-            self.stored_proxies: dict[Column, Column] = {}
+            self.stored_proxies: dict[ColumnHandle, ColumnHandle] = {}
         else:
             self.stored_proxies = stored_proxies
 
-    def get_local_columns(self) -> list[Column]:
+    def get_local_columns(self) -> list[ColumnHandle]:
         return list(self.col_mapping.keys())
 
     def link(self, tbl_version: TableVersion) -> None:
@@ -92,15 +99,16 @@ class Project(ExternalStore, abc.ABC):
         # This ensures that the media in those columns resides in the media store.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         stored_proxies_needed: list[Column] = []
-        for col in self.col_mapping:
+        for col_handle in self.col_mapping:
+            col = col_handle.get()
             if col.col_type.is_media_type() and not (col.is_stored and col.is_computed):
                 # If this column is already proxied in some other Project, use the existing proxy to avoid
                 # duplication. Otherwise, we'll create a new one.
                 for store in tbl_version.external_stores.values():
-                    if isinstance(store, Project) and col in store.stored_proxies:
-                        self.stored_proxies[col] = store.stored_proxies[col]
+                    if isinstance(store, Project) and col_handle in store.stored_proxies:
+                        self.stored_proxies[col_handle] = store.stored_proxies[col_handle]
                         break
-                if col not in self.stored_proxies:
+                if col_handle not in self.stored_proxies:
                     # We didn't find it in an existing Project
                     stored_proxies_needed.append(col)
 
@@ -110,17 +118,20 @@ class Project(ExternalStore, abc.ABC):
             proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
             # Add the columns; this will also update table metadata.
             tbl_version.add_columns(proxy_cols, print_stats=False, on_error='ignore')
+            self.stored_proxies.update(
+                {col.handle: proxy_col.handle for col, proxy_col in zip(stored_proxies_needed, proxy_cols)}
+            )
 
     def unlink(self, tbl_version: TableVersion) -> None:
         # Determine which stored proxies can be deleted. (A stored proxy can be deleted if it is not referenced by
         # any *other* external store for this table.)
-        deletions_needed: set[Column] = set(self.stored_proxies.values())
+        deletions_needed: set[ColumnHandle] = set(self.stored_proxies.values())
         for name, store in tbl_version.external_stores.items():
             if isinstance(store, Project) and name != self.name:
                 deletions_needed = deletions_needed.difference(set(store.stored_proxies.values()))
         if len(deletions_needed) > 0:
-            _logger.info(f'Removing stored proxies for columns: {[col.name for col in deletions_needed]}')
-            tbl_version._drop_columns(deletions_needed)
+            _logger.info(f'Removing stored proxies for columns: {[col.get().name for col in deletions_needed]}')
+            tbl_version._drop_columns(col.get() for col in deletions_needed)
             self.stored_proxies.clear()
 
     def create_stored_proxy(self, col: Column) -> Column:
@@ -142,11 +153,10 @@ class Project(ExternalStore, abc.ABC):
             computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
         )
-        self.stored_proxies[col] = proxy_col
         return proxy_col
 
     @property
-    def col_mapping(self) -> dict[Column, str]:
+    def col_mapping(self) -> dict[ColumnHandle, str]:
         return self._col_mapping
 
     @abc.abstractmethod
@@ -181,7 +191,7 @@ class Project(ExternalStore, abc.ABC):
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
         col_mapping: Optional[dict[str, str]],
-    ) -> dict[Column, str]:
+    ) -> dict[ColumnHandle, str]:
         """
         Verifies that the specified `col_mapping` is valid. In particular, checks that:
         (i) the keys of `col_mapping` are valid columns of the specified `Table`;
@@ -199,7 +209,7 @@ class Project(ExternalStore, abc.ABC):
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
 
-        resolved_col_mapping: dict[Column, str] = {}
+        resolved_col_mapping: dict[ColumnHandle, str] = {}
 
         # Validate names
         t_cols = set(table._get_schema().keys())
@@ -223,7 +233,8 @@ class Project(ExternalStore, abc.ABC):
                 )
             col_ref = table[t_col]
             assert isinstance(col_ref, exprs.ColumnRef)
-            resolved_col_mapping[col_ref.col] = ext_col
+            resolved_col_mapping[col_ref.col.handle] = ext_col
+
         # Validate column specs
         t_col_types = table._get_schema()
         for t_col, ext_col in col_mapping.items():
@@ -249,18 +260,6 @@ class Project(ExternalStore, abc.ABC):
                         f'(incompatible types; expecting `{ext_col_type}`)'
                     )
         return resolved_col_mapping
-
-    @classmethod
-    def _column_as_dict(cls, col: Column) -> dict[str, Any]:
-        return {'tbl_id': str(col.tbl.id), 'col_id': col.id}
-
-    @classmethod
-    def _column_from_dict(cls, d: dict[str, Any]) -> Column:
-        from pixeltable.catalog import Catalog
-
-        tbl_id = UUID(d['tbl_id'])
-        col_id = d['col_id']
-        return Catalog.get().get_tbl_version(tbl_id, None).cols_by_id[col_id]
 
 
 @dataclass(frozen=True)
@@ -293,8 +292,8 @@ class MockProject(Project):
         name: str,
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
-        col_mapping: dict[Column, str],
-        stored_proxies: Optional[dict[Column, Column]] = None,
+        col_mapping: dict[ColumnHandle, str],
+        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
     ):
         super().__init__(name, col_mapping, stored_proxies)
         self.export_cols = export_cols
@@ -334,10 +333,8 @@ class MockProject(Project):
             'name': self.name,
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
             'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
-            'col_mapping': [[self._column_as_dict(k), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [
-                [self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()
-            ],
+            'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()],
         }
 
     @classmethod
@@ -346,8 +343,8 @@ class MockProject(Project):
             md['name'],
             {k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
             {k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()},
-            {cls._column_from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
-            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']},
+            {ColumnHandle.from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
+            {ColumnHandle.from_dict(entry[0]): ColumnHandle.from_dict(entry[1]) for entry in md['stored_proxies']},
         )
 
     def __eq__(self, other: object) -> bool:

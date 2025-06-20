@@ -27,9 +27,6 @@ class QColumnId:
     tbl_id: UUID
     col_id: int
 
-    # def __hash__(self) -> int:
-    #     return hash((self.tbl_id, self.col_id))
-
 
 @dataclasses.dataclass(frozen=True)
 class RowCountStats:

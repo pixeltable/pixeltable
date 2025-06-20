@@ -209,14 +209,14 @@ class TestMigration:
         assert isinstance(store0, MockProject)
         assert store0.get_export_columns() == {'int_field': ts.IntType()}
         assert store0.get_import_columns() == {'str_field': ts.StringType()}
-        assert store0.col_mapping == {v.view_test_udf.col: 'int_field', t.c1.col: 'str_field'}
+        assert store0.col_mapping == {v.view_test_udf.col.handle: 'int_field', t.c1.col.handle: 'str_field'}
         store1 = stores[1]
         assert isinstance(store1, LabelStudioProject)
         assert store1.project_id == 4171780
 
         # Test that the stored proxies were retained properly
         assert len(store1.stored_proxies) == 1
-        assert t.base_table_image_rot.col in store1.stored_proxies
+        assert t.base_table_image_rot.col.handle in store1.stored_proxies
 
     @classmethod
     def _run_v19_tests(cls) -> None:
