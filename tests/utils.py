@@ -454,9 +454,10 @@ def strip_lines(s: str) -> str:
     return '\n'.join(line.strip() for line in lines)
 
 
-def skip_test_if_not_installed(package: str) -> None:
-    if not Env.get().is_installed_package(package):
-        pytest.skip(f'Package `{package}` is not installed.')
+def skip_test_if_not_installed(*packages: str) -> None:
+    for package in packages:
+        if not Env.get().is_installed_package(package):
+            pytest.skip(f'Package `{package}` is not installed.')
 
 
 def skip_test_if_no_client(client_name: str) -> None:

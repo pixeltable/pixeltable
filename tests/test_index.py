@@ -408,7 +408,7 @@ class TestIndex:
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
     def test_embedding_access(self, img_tbl: pxt.Table, e5_embed: func.Function) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'sentence_transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing

@@ -561,8 +561,7 @@ class TestDataFrame:
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """tests all types are handled correctly in this conversion"""
-        skip_test_if_not_installed('torch')
-        skip_test_if_not_installed('pyarrow')
+        skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
 
         t = all_datatypes_tbl
@@ -592,9 +591,7 @@ class TestDataFrame:
 
     def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.Table) -> None:
         """tests the image_format parameter is honored"""
-        skip_test_if_not_installed('torch')
-        skip_test_if_not_installed('torchvision')
-        skip_test_if_not_installed('pyarrow')
+        skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
         import torchvision.transforms  # type: ignore[import-untyped]
 
@@ -709,8 +706,7 @@ class TestDataFrame:
         2. adding a row to the table invalidates the cached version
         3. changing the select list invalidates the cached version
         """
-        skip_test_if_not_installed('torch')
-        skip_test_if_not_installed('pyarrow')
+        skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         t = all_datatypes_tbl
