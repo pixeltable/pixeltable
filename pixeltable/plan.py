@@ -378,7 +378,7 @@ class Planner:
 
         cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
 
-        row_builder = exprs.RowBuilder([], stored_cols, [])
+        row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
 
         # create InMemoryDataNode for 'rows'
         plan: exec.ExecNode = exec.InMemoryDataNode(
@@ -588,7 +588,7 @@ class Planner:
         sql_exprs = list(
             exprs.Expr.list_subexprs(analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False)
         )
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs, target)
         analyzer.finalize(row_builder)
         sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, sql_exprs, sa_key_cols, key_vals)
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
@@ -695,7 +695,7 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
         )
-        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [])
+        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target)
 
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
@@ -832,7 +832,11 @@ class Planner:
             order_by_clause=order_by_clause,
             sample_clause=sample_clause,
         )
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
+        # If the from_clause has a single table, we can use it as the context table for the RowBuilder.
+        # Otherwise there is no context table, but that's ok, because the context table is only needed for
+        # table mutations, which can't happen during a join.
+        context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -1044,7 +1048,7 @@ class Planner:
             value_expr slot idx for the plan output (for computed cols)
         """
         assert isinstance(tbl, catalog.TableVersionPath)
-        row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[])
+        row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[], tbl=tbl.tbl_version.get())
         analyzer = Analyzer(FromClause(tbls=[tbl]), row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(
             row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True
