@@ -12,7 +12,7 @@ from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import replicate  # type: ignore[import-untyped]
+    import replicate
 
 
 @register_client('replicate')
@@ -27,7 +27,7 @@ def _replicate_client() -> 'replicate.Client':
 
 
 @pxt.udf(resource_pool='request-rate:replicate')
-async def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
+async def run(input: dict[str, Any], *, ref: str) -> pxt.Json:
     """
     Run a model on Replicate.
 
