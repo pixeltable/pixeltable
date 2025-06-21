@@ -453,7 +453,7 @@ class Planner:
         cls,
         tbl: catalog.TableVersionPath,
         update_targets: dict[catalog.Column, exprs.Expr],
-        recompute_target: Optional[catalog.Column],
+        recompute_targets: list[catalog.Column],
         where_clause: Optional[exprs.Expr],
         cascade: bool,
     ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
@@ -474,9 +474,9 @@ class Planner:
         target = tbl.tbl_version.get()  # the one we need to update
         updated_cols = list(update_targets.keys())
         recomputed_cols: set[Column]
-        if recompute_target is not None:
+        if len(recompute_targets) > 0:
             assert len(update_targets) == 0
-            recomputed_cols = {recompute_target}
+            recomputed_cols = {*recompute_targets}
             if cascade:
                 recomputed_cols |= target.get_dependent_columns(recomputed_cols)
         else:

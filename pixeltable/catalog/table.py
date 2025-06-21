@@ -1425,30 +1425,31 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return status
 
-    def recompute_column(
-        self, column: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
+    def recompute_columns(
+        self, *columns: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
     ) -> UpdateStatus:
-        """Recompute the values in a computed column of this table.
+        """Recompute the values in one or more computed columns of this table.
 
         Args:
-            column: The name of reference of the computed column to recompute.
-            errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the columns
-                `errortype` property is non-None).
-            cascade: if True, also update all computed columns that transitively depend on the recomputed column.
+            columns: The names or references of the computed columns to recompute.
+            errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
+                `errortype` property is non-None). Only allowed for recomputing a single column.
+            cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
 
         Examples:
-            Recompute computed column `c1` for all rows in this table, and everything that transitively depends on it:
+            Recompute computed columns `c1` and `c2` for all rows in this table, and everything that transitively
+            depends on them:
 
-            >>> tbl.recompute_column('c1')
+            >>> tbl.recompute_columns('c1', 'c2')
 
             Recompute computed column `c1` for all rows in this table, but don't recompute other columns that depend on
             it:
 
-            >>> tbl.recompute_column('c1', cascade=False)
+            >>> tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
 
             Recompute column `c1` and its dependents, but only for rows that have errors in it:
 
-            >>> tbl.recompute_column('c1', errors_only=True)
+            >>> tbl.recompute_columns('c1', errors_only=True)
         """
         from pixeltable.catalog import Catalog
 
@@ -1456,26 +1457,34 @@ class Table(SchemaObject):
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot recompute column of a snapshot.')
-            col_name: str
-            col: Column
-            if isinstance(column, str):
-                col = self._tbl_version_path.get_column(column, include_bases=True)
-                if col is None:
-                    raise excs.Error(f'Unknown column: {column!r}')
-                col_name = column
-            else:
-                assert isinstance(column, ColumnRef)
-                col = column.col
-                if not self._tbl_version_path.has_column(col, include_bases=True):
-                    raise excs.Error(f'Unknown column: {col.name!r}')
-                col_name = col.name
-            if not col.is_computed:
-                raise excs.Error(f'Column {col_name!r} is not a computed column')
-            if col.tbl.id != self._tbl_version_path.tbl_id:
-                raise excs.Error('Cannot recompute column of a base')
+                raise excs.Error('Cannot recompute columns of a snapshot.')
+            if len(columns) == 0:
+                raise excs.Error('At least one column must be specified to recompute')
+            if errors_only and len(columns) > 1:
+                raise excs.Error('Cannot use errors_only=True with multiple columns')
 
-            status = self._tbl_version.get().recompute_column(col_name, errors_only=errors_only, cascade=cascade)
+            col_names: list[str] = []
+            for column in columns:
+                col_name: str
+                col: Column
+                if isinstance(column, str):
+                    col = self._tbl_version_path.get_column(column, include_bases=True)
+                    if col is None:
+                        raise excs.Error(f'Unknown column: {column!r}')
+                    col_name = column
+                else:
+                    assert isinstance(column, ColumnRef)
+                    col = column.col
+                    if not self._tbl_version_path.has_column(col, include_bases=True):
+                        raise excs.Error(f'Unknown column: {col.name!r}')
+                    col_name = col.name
+                if not col.is_computed:
+                    raise excs.Error(f'Column {col_name!r} is not a computed column')
+                if col.tbl.id != self._tbl_version_path.tbl_id:
+                    raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
+                col_names.append(col_name)
+
+            status = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
             return status
 

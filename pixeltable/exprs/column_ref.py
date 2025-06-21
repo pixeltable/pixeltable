@@ -177,7 +177,7 @@ class ColumnRef(Expr):
             if tbl_version.is_snapshot:
                 raise excs.Error('Cannot recompute column of a snapshot.')
             col_name = self.col_handle.get().name
-            status = tbl_version.recompute_column(col_name, errors_only=errors_only, cascade=cascade)
+            status = tbl_version.recompute_columns([col_name], errors_only=errors_only, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
             return status
 
