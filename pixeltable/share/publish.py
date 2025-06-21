@@ -23,7 +23,7 @@ PIXELTABLE_API_URL = 'https://dev-internal-api.pixeltable.com'
 def push_replica(
     dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, is_public: bool | None = False
 ) -> str:
-    if not src_tbl._tbl_version.get().is_snapshot:
+    if not src_tbl._tbl_version_path.is_snapshot():
         raise excs.Error('Only snapshots may be published.')
 
     packager = TablePackager(
