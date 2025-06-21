@@ -376,7 +376,9 @@ class RequestRateScheduler(Scheduler):
         """Returns True if the exception indicates a rate limit error, and the retry delay in seconds."""
         from http import HTTPStatus
 
-        # Check for HTTP status TOO_MANY_REQUESTS in various exception classes
+        # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
+        # We look for attributes that contain status codes, instead of checking the type of the exception,
+        # in order to handle a wider variety of exception classes.
         is_rate_limit_error = False
         retry_delay: Optional[float] = None
 
@@ -478,7 +480,7 @@ class RequestRateScheduler(Scheduler):
         """
         if retry_after is not None and retry_after > 0:
             # Use server-suggested delay, but cap it at max_delay
-            return min(retry_after, self.MAX_RETRY_DELAY)
+            return max(min(retry_after, self.MAX_RETRY_DELAY), self.BASE_RETRY_DELAY)
         else:
             delay = self.BASE_RETRY_DELAY * (self.RETRY_BACKOFF_MULTIPLIER**num_retries)
             return max(min(delay, self.MAX_RETRY_DELAY), self.BASE_RETRY_DELAY)
