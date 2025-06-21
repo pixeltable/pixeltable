@@ -136,7 +136,7 @@ def create_label_studio_project(
     if sync_immediately:
         return t.sync()
     else:
-        return SyncStatus.empty()
+        return SyncStatus()
 
 
 def export_images_as_fo_dataset(
