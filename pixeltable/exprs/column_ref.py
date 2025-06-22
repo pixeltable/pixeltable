@@ -167,7 +167,7 @@ class ColumnRef(Expr):
             idx_info = embedding_idx_info
         return idx_info
 
-    def recompute(self, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
+    def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = catalog.Catalog.get()
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
