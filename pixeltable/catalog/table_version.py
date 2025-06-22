@@ -1067,6 +1067,38 @@ class TableVersion:
 
         return update_targets
 
+    def recompute_columns(self, col_names: list[str], errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
+        assert not self.is_snapshot
+        assert all(name in self.cols_by_name for name in col_names)
+        assert len(col_names) > 0
+        assert len(col_names) == 1 or not errors_only
+
+        from pixeltable.plan import Planner
+
+        target_columns = [self.cols_by_name[name] for name in col_names]
+        where_clause: Optional[exprs.Expr] = None
+        if errors_only:
+            where_clause = (
+                exprs.ColumnPropertyRef(exprs.ColumnRef(target_columns[0]), exprs.ColumnPropertyRef.Property.ERRORTYPE)
+                != None
+            )
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(
+            self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
+        )
+        from pixeltable.exprs import SqlElementCache
+
+        result = self.propagate_update(
+            plan,
+            where_clause.sql_expr(SqlElementCache()) if where_clause is not None else None,
+            recomputed_cols,
+            base_versions=[],
+            timestamp=time.time(),
+            cascade=cascade,
+            show_progress=True,
+        )
+        result.updated_cols = updated_cols
+        return result
+
     def propagate_update(
         self,
         plan: Optional[exec.ExecNode],

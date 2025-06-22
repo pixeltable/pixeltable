@@ -473,15 +473,19 @@ class Planner:
         assert isinstance(tbl, catalog.TableVersionPath)
         target = tbl.tbl_version.get()  # the one we need to update
         updated_cols = list(update_targets.keys())
+        recomputed_cols: set[Column]
         if len(recompute_targets) > 0:
-            recomputed_cols = set(recompute_targets)
+            assert len(update_targets) == 0
+            recomputed_cols = {*recompute_targets}
+            if cascade:
+                recomputed_cols |= target.get_dependent_columns(recomputed_cols)
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-            # regardless of cascade, we need to update all indices on any updated column
-            idx_val_cols = target.get_idx_val_columns(updated_cols)
-            recomputed_cols.update(idx_val_cols)
-            # we only need to recompute stored columns (unstored ones are substituted away)
-            recomputed_cols = {c for c in recomputed_cols if c.is_stored}
+        # regardless of cascade, we need to update all indices on any updated/recomputed column
+        idx_val_cols = target.get_idx_val_columns(set(updated_cols) | recomputed_cols)
+        recomputed_cols.update(idx_val_cols)
+        # we only need to recompute stored columns (unstored ones are substituted away)
+        recomputed_cols = {c for c in recomputed_cols if c.is_stored}
 
         cls.__check_valid_columns(tbl.tbl_version.get(), recomputed_cols, 'updated in')
 
