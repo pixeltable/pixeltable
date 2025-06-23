@@ -4,6 +4,7 @@ import dataclasses
 import enum
 import itertools
 import logging
+from dataclasses import dataclass, field
 from typing import Optional
 from uuid import UUID
 
@@ -20,7 +21,7 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: Optional[set[str]] = None
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class QColumnId:
     """Qualified column id"""
 
@@ -28,7 +29,7 @@ class QColumnId:
     col_id: int
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class RowCountStats:
     """
     Statistics about the counts of rows affected by a table operation.
@@ -71,7 +72,7 @@ class RowCountStats:
         )
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class UpdateStatus:
     """
     Information about updates that resulted from a table operation.
@@ -81,10 +82,10 @@ class UpdateStatus:
     cols_with_excs: list[str] = dataclasses.field(default_factory=list)
 
     # stats for the rows affected by the operation
-    row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+    row_count_stats: RowCountStats = field(default_factory=RowCountStats)
 
     # stats for changes cascaded to other tables
-    cascade_row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+    cascade_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
 
     @property
     def num_rows(self) -> int:
