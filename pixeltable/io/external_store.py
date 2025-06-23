@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import abc
-import dataclasses
 import itertools
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import pixeltable.exceptions as excs
@@ -263,13 +263,13 @@ class Project(ExternalStore, abc.ABC):
         return resolved_col_mapping
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class SyncStatus:
     # stats for the rows affected by the operation in the external store
-    ext_row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+    ext_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
 
     # stats for the rows affected by the operation
-    row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+    row_count_stats: RowCountStats = field(default_factory=RowCountStats)
 
     @property
     def num_excs(self) -> int:

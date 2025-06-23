@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import dataclasses
 import enum
 import itertools
 import logging
+from dataclasses import dataclass, field
 from typing import Optional
 from uuid import UUID
 
@@ -20,7 +20,7 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: Optional[set[str]] = None
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class QColumnId:
     """Qualified column id"""
 
@@ -28,7 +28,7 @@ class QColumnId:
     col_id: int
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class RowCountStats:
     """
     Statistics about the counts of rows affected by a table operation.
@@ -66,7 +66,7 @@ class RowCountStats:
         )
 
 
-@dataclasses.dataclass
+@dataclass
 class UpdateStatus:
     """
     Information about updates that resulted from a table operation.
@@ -76,14 +76,14 @@ class UpdateStatus:
     # TODO: disambiguate what this means: # of slots computed or # of columns computed?
     num_computed_values: int = 0
     num_excs: int = 0
-    updated_cols: list[str] = dataclasses.field(default_factory=list)
-    cols_with_excs: list[str] = dataclasses.field(default_factory=list)
+    updated_cols: list[str] = field(default_factory=list)
+    cols_with_excs: list[str] = field(default_factory=list)
 
     # stats for the rows affected by the operation
-    row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+    row_count_stats: RowCountStats = field(default_factory=RowCountStats)
 
     # stats for changes cascaded to other tables
-    cascade_row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+    cascade_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
 
     def insert_to_update(self) -> 'UpdateStatus':
         """
