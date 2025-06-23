@@ -10,6 +10,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, iterators as iters
 
 from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -41,7 +42,8 @@ class ColumnRef(Expr):
     insert them into the EvalCtxs as needed
     """
 
-    col: catalog.Column
+    col: catalog.Column  # TODO: merge with col_handle
+    col_handle: catalog.ColumnHandle
     reference_tbl: Optional[catalog.TableVersionPath]
     is_unstored_iter_col: bool
     iter_arg_ctx: Optional[RowBuilder.EvalCtx]
@@ -51,10 +53,6 @@ class ColumnRef(Expr):
     pos_idx: Optional[int]
     id: int
     perform_validation: bool  # if True, performs media validation
-
-    # needed by sql_expr() to re-resolve Column instance after a metadata reload
-    tbl_version: catalog.TableVersionHandle
-    col_id: int
 
     def __init__(
         self,
@@ -66,8 +64,7 @@ class ColumnRef(Expr):
         assert col.tbl is not None
         self.col = col
         self.reference_tbl = reference_tbl
-        self.tbl_version = catalog.TableVersionHandle(col.tbl.id, col.tbl.effective_version)
-        self.col_id = col.id
+        self.col_handle = catalog.ColumnHandle(col.tbl.handle, col.id)
 
         self.is_unstored_iter_col = col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None
@@ -170,6 +167,20 @@ class ColumnRef(Expr):
             idx_info = embedding_idx_info
         return idx_info
 
+    def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
+        cat = catalog.Catalog.get()
+        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
+            tbl_version = self.col_handle.tbl_version.get()
+            if tbl_version.id != self.reference_tbl.tbl_id:
+                raise excs.Error('Cannot recompute column of a base.')
+            if tbl_version.is_snapshot:
+                raise excs.Error('Cannot recompute column of a snapshot.')
+            col_name = self.col_handle.get().name
+            status = tbl_version.recompute_columns([col_name], errors_only=errors_only, cascade=cascade)
+            FileCache.get().emit_eviction_warnings()
+            return status
+
     def similarity(self, item: Any, *, idx: Optional[str] = None) -> Expr:
         from .similarity_expr import SimilarityExpr
 
@@ -241,16 +252,7 @@ class ColumnRef(Expr):
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if self.perform_validation:
             return None
-        # we need to reestablish that we have the correct Column instance, there could have been a metadata
-        # reload since init()
-        # TODO: add an explicit prepare phase (ie, Expr.prepare()) that gives every subclass instance a chance to
-        # perform runtime checks and update state
-        tv = self.tbl_version.get()
-        assert tv.is_validated
-        # we can assume at this point during query execution that the column exists
-        assert self.col_id in tv.cols_by_id
-        self.col = tv.cols_by_id[self.col_id]
-        assert self.col.tbl is tv
+        self.col = self.col_handle.get()
         return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

@@ -753,7 +753,7 @@ class TableVersion:
                 if excs_per_col > 0:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
-                computed_values += row_count
+                computed_values += plan.ctx.num_computed_exprs * row_count
             finally:
                 # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
                 def cleanup_on_error() -> None:
@@ -778,11 +778,10 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
+        row_counts = RowCountStats(
+            upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
+        )  # add_columns
         return UpdateStatus(
-            num_rows=row_count,
-            num_computed_values=computed_values,
-            num_excs=num_excs,
             cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
@@ -927,7 +926,7 @@ class TableVersion:
         cols_with_excs, result = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
-        result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
+        result += UpdateStatus(cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs])
         self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
         # update views
@@ -939,7 +938,7 @@ class TableVersion:
             result += status.to_cascade()
 
         if print_stats:
-            plan.ctx.profile.print(num_rows=status.num_rows)  # This is the net rows after all propagations
+            plan.ctx.profile.print(num_rows=result.num_rows)  # This is the net rows after all propagations
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
@@ -979,7 +978,7 @@ class TableVersion:
             cascade=cascade,
             show_progress=True,
         )
-        result.updated_cols = updated_cols
+        result += UpdateStatus(updated_cols=updated_cols)
         return result
 
     def batch_update(
@@ -1006,15 +1005,15 @@ class TableVersion:
         result = self.propagate_update(
             plan, delete_where_clause, recomputed_cols, base_versions=[], timestamp=time.time(), cascade=cascade
         )
-        result.updated_cols = [c.qualified_name for c in updated_cols]
+        result += UpdateStatus(updated_cols=[c.qualified_name for c in updated_cols])
 
         unmatched_rows = row_update_node.unmatched_rows()
         if len(unmatched_rows) > 0:
             if error_if_not_exists:
                 raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
             if insert_if_not_exists:
-                status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
-                result += status.to_cascade()
+                insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                result += insert_status.to_cascade()
         return result
 
     def _validate_update_spec(
@@ -1067,6 +1066,38 @@ class TableVersion:
 
         return update_targets
 
+    def recompute_columns(self, col_names: list[str], errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
+        assert not self.is_snapshot
+        assert all(name in self.cols_by_name for name in col_names)
+        assert len(col_names) > 0
+        assert len(col_names) == 1 or not errors_only
+
+        from pixeltable.plan import Planner
+
+        target_columns = [self.cols_by_name[name] for name in col_names]
+        where_clause: Optional[exprs.Expr] = None
+        if errors_only:
+            where_clause = (
+                exprs.ColumnPropertyRef(exprs.ColumnRef(target_columns[0]), exprs.ColumnPropertyRef.Property.ERRORTYPE)
+                != None
+            )
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(
+            self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
+        )
+        from pixeltable.exprs import SqlElementCache
+
+        result = self.propagate_update(
+            plan,
+            where_clause.sql_expr(SqlElementCache()) if where_clause is not None else None,
+            recomputed_cols,
+            base_versions=[],
+            timestamp=time.time(),
+            cascade=cascade,
+            show_progress=True,
+        )
+        result += UpdateStatus(updated_cols=updated_cols)
+        return result
+
     def propagate_update(
         self,
         plan: Optional[exec.ExecNode],
@@ -1077,17 +1108,20 @@ class TableVersion:
         cascade: bool,
         show_progress: bool = True,
     ) -> UpdateStatus:
-        result = UpdateStatus()
         if plan is not None:
             # we're creating a new version
             self.version += 1
             cols_with_excs, status = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
-            result += status.insert_to_update()
-            result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
+            result = status.insert_to_update()
+            result += UpdateStatus(
+                cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
+            )
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
             self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
+        else:
+            result = UpdateStatus()
 
         if cascade:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
@@ -1153,7 +1187,7 @@ class TableVersion:
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
         )
         row_counts = RowCountStats(del_rows=del_rows)  # delete
-        result = UpdateStatus(num_rows=del_rows, row_count_stats=row_counts)
+        result = UpdateStatus(row_count_stats=row_counts)
         if del_rows > 0:
             # we're creating a new version
             self.version += 1
