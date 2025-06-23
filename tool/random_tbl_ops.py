@@ -1,11 +1,9 @@
 # Script that runs an infinite sequence of random directory operations.
 
-from datetime import datetime
-import logging
 import random
 import sys
 import time
-from typing import Any, TextIO
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -115,7 +113,7 @@ def main() -> None:
     else:
         worker_id = int(sys.argv[1])
 
-    t = pxt.create_table(f'random_tbl', schema={'c1': pxt.Int}, if_exists='ignore')
+    t = pxt.create_table('random_tbl', schema={'c1': pxt.Int}, if_exists='ignore')
     t.add_computed_column(computed1=t.c1 + 10, if_exists='ignore')
 
     RandomTblOps(worker_id, t).run()
