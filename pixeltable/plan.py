@@ -606,8 +606,7 @@ class Planner:
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-
-        ctx = exec.ExecContext(row_builder)
+        ctx = exec.ExecContext(row_builder, num_computed_exprs=len(recomputed_exprs))
         # we're returning everything to the user, so we might as well do it in a single batch
         ctx.batch_size = 0
         plan.set_ctx(ctx)
