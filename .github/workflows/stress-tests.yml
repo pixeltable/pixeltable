@@ -1,0 +1,70 @@
+name: stress-tests
+
+on:
+  schedule:
+    - cron: "33 1 * * *"  # Daily at 01:33 UTC
+  workflow_dispatch:
+    inputs:
+      enable_tmate:
+        type: boolean
+        description: 'Enable SSH debugging with tmate'
+        required: false
+        default: false
+
+jobs:
+  random-tbl-ops:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+      - name: Delete unnecessary files
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /opt/hostedtoolcache
+          df -h
+      - name: Install conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+          activate-environment: pxt
+          use-only-tar-bz2: true  # Needed to use conda with cache action
+      - name: Install python
+        run: |
+          conda install -y python=3.10 pip=25.0
+          conda info
+      - name: Install poetry
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install poetry==2.1.1
+      - name: Install the project dependencies
+        # Retry 3 times to be resilient against transient connectivity issues.
+        run: ./scripts/retry.sh 3 60 poetry install
+      - name: Run the stress tests
+        run: python tool/worker_harness.py 8 60 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops.log
+      - name: Check for errors
+        run: |
+          ERRORS=$(grep ERROR random-tbl-ops.log | head -5)
+          if [ -n "$ERRORS" ]; then
+            echo "Errors occurred during the stress test, such as:"
+            echo "$ERRORS"
+            echo "See the logs for more details."
+            exit 1
+          else
+            echo "No errors."
+          fi
+      - name: Archive log files
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: random-tbl-ops-log
+          path: random-tbl-ops.log
