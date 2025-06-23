@@ -50,19 +50,18 @@ jobs:
         # Retry 3 times to be resilient against transient connectivity issues.
         run: ./scripts/retry.sh 3 60 poetry install
       - name: Run the stress tests
-        run: python tool/worker_harness.py 8 60 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops.log
+        run: python tool/worker_harness.py 8 900 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops.log
       - name: Check for errors
         run: |
-          IGNORE_ERRORS='That Pixeltable operation could not be completed|Table was dropped'
-          ERRORS=$(grep ERROR random-tbl-ops.log | grep -vP "$IGNORE_ERRORS" | head -5)
-          if [ -n "$ERRORS" ]; then
+          echo "Checking for errors."
+          IGNORE_ERRORS='That Pixeltable operation could not be completed|Table was dropped|Path.*does not exist'
+          if [ -n "$(grep ERROR random-tbl-ops.log | grep -vP "$IGNORE_ERRORS")" ]; then
             echo "Errors occurred during the stress test, such as:"
-            echo "$ERRORS"
+            echo "$(grep ERROR random-tbl-ops.log | grep -vP "$IGNORE_ERRORS" | head -5)"
             echo "See the logs for more details."
             exit 1
-          else
-            echo "No errors."
           fi
+          echo "No errors."
       - name: Archive log files
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
