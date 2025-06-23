@@ -1095,7 +1095,7 @@ class TableVersion:
             cascade=cascade,
             show_progress=True,
         )
-        result.updated_cols = updated_cols
+        result += UpdateStatus(updated_cols=updated_cols)
         return result
 
     def propagate_update(
