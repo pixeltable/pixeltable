@@ -22,6 +22,7 @@ on:
 
 env:
   PXTTEST_IN_CI: 1
+  PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   POETRY_VERSION: 2.1.1
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
@@ -37,6 +38,7 @@ env:
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
@@ -53,8 +55,8 @@ jobs:
         # for now; it just has too many problems.
         # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
         os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
-                && fromJSON('["ubuntu-22.04", "macos-13", "windows-2022", "ubuntu-x64-t4"]')
-                || fromJSON('["ubuntu-22.04", "macos-13", "windows-2022"]') }}
+                && fromJSON('["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]')
+                || fromJSON('["ubuntu-22.04", "macos-15", "windows-2022"]') }}
         python-version: ["3.10", "3.12"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
@@ -125,18 +127,14 @@ jobs:
       - name: Install ollama
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
         run: |
-          curl -fsSL https://raw.githubusercontent.com/ollama/ollama/4759d879f2376ffb9b82f296e442ec8ef137f27b/scripts/install.sh | sh
+          curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
       - name: Install poetry
-        # setuptools >= 69.2 has been causing problems with github actions even when its
-        # version is enforced in poetry. For now, explicitly revert to setuptools 69.1.1
-        # prior to installing project dependencies.
         run: |
           python -m pip install --upgrade pip
           python -m pip install poetry==$POETRY_VERSION
-          python -m pip install setuptools==69.1.1
       - name: Define a venv cache
         uses: actions/cache@v4
         if: false
@@ -151,10 +149,18 @@ jobs:
       - name: Install the project dependencies
         # Retry 3 times to be resilient against transient connectivity issues.
         run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
+      - name: Install additional dependencies
+        run: |
+          python -m pip install fiftyone==1.5.2
+          python -m pip install sse-starlette==2.3.6
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
         run: pip install pytest pytest-xdist pytest-rerunfailures coverage
+      - name: Delete the pypoetry cache
+        # Delete the pypoetry cache to free up space on the runner
+        if: ${{ matrix.os == 'ubuntu-22.04' }}
+        run: rm -rf /home/runner/.cache/pypoetry
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.10. The other tests

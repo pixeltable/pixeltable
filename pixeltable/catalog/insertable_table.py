@@ -174,10 +174,11 @@ class InsertableTable(Table):
         status = pxt.UpdateStatus()
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if isinstance(data_source, DFTableDataConduit):
-                status += self._tbl_version.get().insert(
+                status = self._tbl_version.get().insert(
                     rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
                 )
             else:
+                status = UpdateStatus()
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
                         rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception

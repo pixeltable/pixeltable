@@ -229,7 +229,7 @@ class View(Table):
 
             try:
                 plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
-                num_rows, num_excs, _ = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+                _, status = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
             except:
                 # we need to remove the orphaned TableVersion instance
                 del catalog.Catalog.get()._tbl_versions[tbl_version.id, tbl_version.effective_version]
@@ -238,7 +238,9 @@ class View(Table):
                     # also remove tbl_version from the base
                     base_tbl_version.mutable_views.remove(TableVersionHandle.create(tbl_version))
                 raise
-            Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
+            Env.get().console_logger.info(
+                f'Created view `{name}` with {status.num_rows} rows, {status.num_excs} exceptions.'
+            )
 
         session.commit()
         return view
