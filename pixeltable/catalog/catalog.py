@@ -308,7 +308,11 @@ class Catalog:
                     # we still got a serialization error, despite getting x-locks at the beginning
                     msg = f'{tbl.tbl_name()} ({tbl.tbl_id})' if tbl is not None else ''
                     _logger.debug(f'Exception: serialization failure: {msg} ({e})')
-                    raise excs.Error('Serialization failure. Please re-run the operation.') from None
+                    raise excs.Error(
+                        'That Pixeltable operation could not be completed because it conflicted with another '
+                        'operation that was run on a different process.\n'
+                        'Please re-run the operation.'
+                    ) from None
                 else:
                     raise
 
