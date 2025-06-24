@@ -92,8 +92,9 @@ jobs:
           python -m pip install pixeltable ${{ matrix.package-configs }}
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures
       - name: Run the unit tests
-        run: |
-          pytest -v -m '' tests
+        env:
+          PXTTEST_CI_OS: ${{ matrix.os }}
+        run: pytest -v -m '' tests
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
