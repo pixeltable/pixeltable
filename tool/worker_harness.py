@@ -14,8 +14,20 @@ def run_workers(num_workers: int, duration: float, script: str) -> None:
 
     time.sleep(duration)
 
+    success = True
+
+    for i, p in enumerate(processes):
+        if p.returncode is not None and p.returncode != 0:
+            success = False
+            print(f'Worker {i} exited abnormally (exit code {p.returncode}).')
+
     for p in processes:
         p.kill()
+
+    time.sleep(2.0)
+
+    if not success:
+        sys.exit(1)
 
 
 def main() -> None:
