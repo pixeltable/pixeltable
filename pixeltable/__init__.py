@@ -20,6 +20,7 @@ from .globals import (
     list_dirs,
     list_functions,
     list_tables,
+    ls,
     move,
     tool,
     tools,
