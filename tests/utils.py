@@ -622,3 +622,6 @@ class ReloadTester:
 
 # This will be set to True if the tests are running in a CI environment.
 IN_CI = bool(os.environ.get('PXTTEST_IN_CI'))
+
+# The OS id (e.g., 'unbuntu-latest') on which the tests are running in CI, or None if not in CI.
+CI_OS = os.environ.get('PXTTEST_CI_OS')

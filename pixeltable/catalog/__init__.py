@@ -8,6 +8,7 @@ from .globals import (
     IfNotExistsParam,
     MediaValidation,
     QColumnId,
+    RowCountStats,
     UpdateStatus,
     is_valid_identifier,
     is_valid_path,
