@@ -654,7 +654,6 @@ def ls(path: str = '') -> pd.DataFrame:
                 tbl = cat.get_table_by_id(entry.table.id)
                 tvp = tbl._tbl_version_path
                 tv = tvp.tbl_version.get()
-                version = tv.version
                 if tvp.is_snapshot():
                     kind = 'snapshot'
                     version = ''

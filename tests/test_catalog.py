@@ -1,4 +1,5 @@
 from textwrap import dedent
+
 import pytest
 
 import pixeltable as pxt
@@ -58,7 +59,7 @@ class TestCatalog:
         with pytest.raises(StopIteration):
             next(ancestors)
 
-    def test_ls(self, reset_db) -> None:
+    def test_ls(self, reset_db: None) -> None:
         t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
         snapshot = pxt.create_snapshot('snapshot_for_replica', t)
         packager = TablePackager(snapshot)
