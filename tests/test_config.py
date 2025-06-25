@@ -1,5 +1,6 @@
 import subprocess
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from pixeltable import exceptions as excs
 class TestConfig:
     def test_config_errors(self) -> None:
         def spawn_cmd(cmd: str, expected_error_msg: str) -> None:
+            cmd = cmd.replace('\\', r'\\')  # Escape backslashes for Windows compatibility
             result = subprocess.run(
                 ('python', '-c', f'import pixeltable as pxt\n{cmd}'), capture_output=True, check=False
             )
@@ -21,7 +23,7 @@ class TestConfig:
             'pixeltable.exceptions.Error: Unrecognized configuration variable: NOT_A_CONFIG_VAR',
         )
 
-        tmp = tempfile.mktemp('.toml')
+        tmp = Path(tempfile.mktemp('.toml'))
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('This is neither a directory nor a valid TOML file.')
         spawn_cmd(f'pxt.init(PIXELTABLE_HOME="{tmp}")', f'pixeltable.exceptions.Error: Not a directory: {tmp}')
