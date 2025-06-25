@@ -220,9 +220,7 @@ class StoreBase:
             if col.store_name() not in existing_cols:
                 self.add_column(col)
 
-    def load_column(
-        self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, abort_on_exc: bool
-    ) -> int:
+    def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
         Returns:
@@ -234,22 +232,22 @@ class StoreBase:
         assert col.tbl.id == self.tbl_version.id
         num_excs = 0
         num_rows = 0
-        cols_with_excs: set[int] = set()
         # create temp table to store output of exec_plan, with the same primary key as the store table
         tmp_name = f'temp_{self._storage_name()}'
         tmp_pk_cols = tuple(sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns())
+        tmp_val_col_sql_idx = len(tmp_pk_cols)
         tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
+        tmp_cols = [*tmp_pk_cols, tmp_val_col]
         # add error columns if the store column records errors
         if col.records_errors:
             tmp_errortype_col = sql.Column(col.sa_errortype_col.name, col.sa_errortype_col.type)
             tmp_errormsg_col = sql.Column(col.sa_errormsg_col.name, col.sa_errormsg_col.type)
-            tmp_cols = (*tmp_pk_cols, tmp_val_col, tmp_errortype_col, tmp_errormsg_col)
-        else:
-            tmp_cols = (*tmp_pk_cols, tmp_val_col)
+            tmp_cols.extend((tmp_errortype_col, tmp_errormsg_col))
+        tmp_col_names = tuple(col.name for col in tmp_cols)
+
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
         conn = Env.get().conn
         tmp_tbl.create(bind=conn)
-        tmp_col_names = tuple(col.name for col in tmp_cols)
 
         row_builder = exec_plan.row_builder
 
@@ -265,10 +263,10 @@ class StoreBase:
                     if abort_on_exc and row.has_exc():
                         exc = row.get_first_exc()
                         raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}') from exc
-                    table_row, num_row_exc = row_builder.create_table_row(row, cols_with_excs, row.pk)
+                    table_row, num_row_exc = row_builder.create_table_row(row, None, row.pk)
                     if col.col_type.is_media_type():
-                        table_row[len(tmp_pk_cols)] = self._move_tmp_media_file(
-                            table_row[len(tmp_pk_cols)], col, row.pk[-1]
+                        table_row[tmp_val_col_sql_idx] = self._move_tmp_media_file(
+                            table_row[tmp_val_col_sql_idx], col, row.pk[-1]
                         )
                     num_excs += num_row_exc
                     batch_table_rows.append(tuple(table_row))

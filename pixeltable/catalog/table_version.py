@@ -741,12 +741,12 @@ class TableVersion:
             # populate the column
             from pixeltable.plan import Planner
 
-            plan, value_expr_slot_idx = Planner.create_add_column_plan(self.path, col)
+            plan = Planner.create_add_column_plan(self.path, col)
             plan.ctx.num_rows = row_count
             try:
                 plan.open()
                 try:
-                    excs_per_col = self.store_tbl.load_column(col, plan, value_expr_slot_idx, on_error == 'abort')
+                    excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql.exc.DBAPIError as exc:
                     # Wrap the DBAPIError in an excs.Error to unify processing in the subsequent except block
                     raise excs.Error(f'SQL error during execution of computed column `{col.name}`:\n{exc}') from exc

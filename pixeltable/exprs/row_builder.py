@@ -436,7 +436,7 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int], pk: tuple[int, ...]) -> tuple[list[Any], int]:
+    def create_table_row(self, data_row: DataRow, cols_with_excs: Optional[set[int]], pk: tuple[int, ...]) -> tuple[list[Any], int]:
         """Create a table row from the slots that have an output column assigned
 
         Return tuple[list of row values in `self.table_columns` order, # of exceptions]
@@ -449,7 +449,8 @@ class RowBuilder:
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
-                exc_col_ids.add(col.id)
+                if cols_with_excs is not None:
+                    cols_with_excs.add(col.id)
                 table_row.append(None)
                 if col.records_errors:
                     # exceptions get stored in the errortype/-msg columns

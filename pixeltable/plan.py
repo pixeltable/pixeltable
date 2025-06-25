@@ -1042,9 +1042,7 @@ class Planner:
         return Analyzer(FromClause(tbls=[tbl]), [], where_clause=where_clause)
 
     @classmethod
-    def create_add_column_plan(
-        cls, tbl: catalog.TableVersionPath, col: catalog.Column
-    ) -> tuple[exec.ExecNode, Optional[int]]:
+    def create_add_column_plan(cls, tbl: catalog.TableVersionPath, col: catalog.Column) -> exec.ExecNode:
         """Creates a plan for InsertableTable.add_column()
         Returns:
             plan: the plan to execute
@@ -1063,5 +1061,4 @@ class Planner:
         # we want to flush images
         if col.is_computed and col.is_stored and col.col_type.is_image_type():
             plan.set_stored_img_cols(row_builder.output_slot_idxs())
-        value_expr_slot_idx = row_builder.output_slot_idxs()[0].slot_idx if col.is_computed else None
-        return plan, value_expr_slot_idx
+        return plan
