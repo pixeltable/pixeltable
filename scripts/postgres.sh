@@ -6,4 +6,4 @@ if [ -z "$PIXELTABLE_HOME" ]; then
     PIXELTABLE_HOME=~/.pixeltable
 fi
 PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
-"$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres
+"$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres "$@"
