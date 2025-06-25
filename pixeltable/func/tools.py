@@ -1,8 +1,9 @@
+import json
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 import pydantic
 
-import pixeltable.exceptions as excs
+from pixeltable import exceptions as excs, type_system as ts
 
 from .function import Function
 from .signature import Parameter
@@ -69,7 +70,9 @@ class Tool(pydantic.BaseModel):
             return _extract_float_tool_arg(kwargs, param_name=param.name)
         if param.col_type.is_bool_type():
             return _extract_bool_tool_arg(kwargs, param_name=param.name)
-        raise AssertionError()
+        if param.col_type.is_json_type():
+            return _extract_json_tool_arg(kwargs, param_name=param.name)
+        raise AssertionError(param.col_type)
 
 
 class ToolChoice(pydantic.BaseModel):
@@ -135,6 +138,13 @@ def _extract_float_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional
 @udf
 def _extract_bool_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[bool]:
     return _extract_arg(bool, kwargs, param_name)
+
+
+@udf
+def _extract_json_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[ts.Json]:
+    if param_name in kwargs:
+        return json.loads(kwargs[param_name])
+    return None
 
 
 T = TypeVar('T')

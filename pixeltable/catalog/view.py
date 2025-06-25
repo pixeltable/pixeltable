@@ -12,6 +12,10 @@ from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
+if TYPE_CHECKING:
+    from pixeltable.plan import SampleClause
+
+
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
 from .table import Table
@@ -37,6 +41,8 @@ class View(Table):
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath, snapshot_only: bool):
         super().__init__(id, dir_id, name, tbl_version_path)
         self._snapshot_only = snapshot_only
+        if not snapshot_only:
+            self._tbl_version = tbl_version_path.tbl_version
 
     @classmethod
     def _display_name(cls) -> str:
@@ -66,6 +72,7 @@ class View(Table):
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
         additional_columns: dict[str, Any],
         predicate: Optional['exprs.Expr'],
+        sample_clause: Optional['SampleClause'],
         is_snapshot: bool,
         num_retained_versions: int,
         comment: str,
@@ -73,6 +80,8 @@ class View(Table):
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
     ) -> View:
+        from pixeltable.plan import SampleClause
+
         # Convert select_list to more additional_columns if present
         include_base_columns: bool = select_list is None
         select_list_columns: List[Column] = []
@@ -84,12 +93,23 @@ class View(Table):
         columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)
 
-        # verify that filter can be evaluated in the context of the base
+        # verify that filters can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by([base]):
                 raise excs.Error(f'Filter cannot be computed in the context of the base {base.tbl_name()}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
+        if sample_clause is not None:
+            # make sure that the sample clause can be computed in the context of the base
+            if sample_clause.stratify_exprs is not None and not all(
+                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
+            ):
+                raise excs.Error(f'Sample clause cannot be computed in the context of the base {base.tbl_name()}')
+            # create a copy that we can modify and store
+            sc = sample_clause
+            sample_clause = SampleClause(
+                sc.version, sc.n, sc.n_per_stratum, sc.fraction, sc.seed, sc.stratify_exprs.copy()
+            )
 
         # same for value exprs
         for col in columns:
@@ -160,6 +180,8 @@ class View(Table):
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
         if is_snapshot:
             predicate = predicate.retarget(base_version_path) if predicate is not None else None
+            if sample_clause is not None:
+                exprs.Expr.retarget_list(sample_clause.stratify_exprs, base_version_path)
             iterator_args_expr = (
                 iterator_args_expr.retarget(base_version_path) if iterator_args_expr is not None else None
             )
@@ -171,6 +193,7 @@ class View(Table):
             is_snapshot=is_snapshot,
             include_base_columns=include_base_columns,
             predicate=predicate.as_dict() if predicate is not None else None,
+            sample_clause=sample_clause.as_dict() if sample_clause is not None else None,
             base_versions=base_version_path.as_md(),
             iterator_class_fqn=iterator_class_fqn,
             iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
@@ -204,9 +227,20 @@ class View(Table):
 
             from pixeltable.plan import Planner
 
-            plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
-            num_rows, num_excs, _ = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
-            Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
+            try:
+                plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
+                _, status = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+            except:
+                # we need to remove the orphaned TableVersion instance
+                del catalog.Catalog.get()._tbl_versions[tbl_version.id, tbl_version.effective_version]
+                base_tbl_version = base.tbl_version.get()
+                if tbl_version.effective_version is None and not base_tbl_version.is_snapshot:
+                    # also remove tbl_version from the base
+                    base_tbl_version.mutable_views.remove(TableVersionHandle.create(tbl_version))
+                raise
+            Env.get().console_logger.info(
+                f'Created view `{name}` with {status.num_rows} rows, {status.num_excs} exceptions.'
+            )
 
         session.commit()
         return view
@@ -237,17 +271,8 @@ class View(Table):
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
-    def _drop(self) -> None:
-        if self._snapshot_only:
-            # there is not TableVersion to drop
-            self._check_is_dropped()
-            self.is_dropped = True
-            catalog.Catalog.get().delete_tbl_md(self._id)
-        else:
-            super()._drop()
-
-    def get_metadata(self) -> dict[str, Any]:
-        md = super().get_metadata()
+    def _get_metadata(self) -> dict[str, Any]:
+        md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         return md
@@ -268,11 +293,10 @@ class View(Table):
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')
 
-    @property
-    def _base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> Optional['Table']:
         # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
         # for the snapshot itself)
-        base_id = self._tbl_version.id if self._snapshot_only else self._tbl_version_path.base.tbl_version.id
+        base_id = self._tbl_version_path.tbl_id if self._snapshot_only else self._tbl_version_path.base.tbl_id
         return catalog.Catalog.get().get_table_by_id(base_id)
 
     @property
@@ -285,16 +309,18 @@ class View(Table):
 
     def _table_descriptor(self) -> str:
         display_name = 'Snapshot' if self._snapshot_only else 'View'
-        result = [f'{display_name} {self._path!r}']
+        result = [f'{display_name} {self._path()!r}']
         bases_descrs: list[str] = []
-        for base, effective_version in zip(self._base_tables, self._effective_base_versions):
+        for base, effective_version in zip(self._get_base_tables(), self._effective_base_versions):
             if effective_version is None:
-                bases_descrs.append(f'{base._path!r}')
+                bases_descrs.append(f'{base._path()!r}')
             else:
-                base_descr = f'{base._path}:{effective_version}'
+                base_descr = f'{base._path()}:{effective_version}'
                 bases_descrs.append(f'{base_descr!r}')
         result.append(f' (of {", ".join(bases_descrs)})')
 
-        if self._tbl_version.get().predicate is not None:
-            result.append(f'\nWhere: {self._tbl_version.get().predicate!s}')
+        if self._tbl_version_path.tbl_version.get().predicate is not None:
+            result.append(f'\nWhere: {self._tbl_version_path.tbl_version.get().predicate!s}')
+        if self._tbl_version_path.tbl_version.get().sample_clause is not None:
+            result.append(f'\nSample: {self._tbl_version.get().sample_clause!s}')
         return ''.join(result)

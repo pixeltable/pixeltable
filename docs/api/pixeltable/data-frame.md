@@ -8,14 +8,16 @@ Another difference to pandas is that query execution needs to be initiated expli
 
 ## Overview
 
-| Query Construction                          |                                                        |
-|---------------------------------------------|--------------------------------------------------------|
-| [`select`][pixeltable.DataFrame.select]     | Select output expressions                              |
-| [`join`][pixeltable.DataFrame.join]         | Join to another table                                  |
-| [`where`][pixeltable.DataFrame.where]       | Filter table rows                                      |
+| Query Construction                          |                                                       |
+|---------------------------------------------|-------------------------------------------------------|
+| [`select`][pixeltable.DataFrame.select]     | Select output expressions                             |
+| [`join`][pixeltable.DataFrame.join]         | Join to another table                                 |
+| [`where`][pixeltable.DataFrame.where]       | Filter table rows                                     |
 | [`group_by`][pixeltable.DataFrame.group_by] | Group table rows in order to apply aggregate functions |
-| [`order_by`][pixeltable.DataFrame.order_by] | Order output rows                                      |
-| [`limit`][pixeltable.DataFrame.limit]       | Limit the number of output rows                        |
+| [`order_by`][pixeltable.DataFrame.order_by] | Order output rows                                     |
+| [`limit`][pixeltable.DataFrame.limit]       | Limit the number of output rows                       |
+| [`distinct`][pixeltable.DataFrame.distinct] | Remove duplicate rows                                 |
+| [`sample`][pixeltable.DataFrame.sample]     | Select shuffled sample of rows                        |
 
 | Query Execution                           |                                     |
 |-------------------------------------------|-------------------------------------|
@@ -45,3 +47,5 @@ Another difference to pandas is that query execution needs to be initiated expli
       - to_pytorch_dataset
       - to_coco_dataset
       - where
+      - distinct
+      - sample

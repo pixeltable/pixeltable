@@ -4,15 +4,17 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional, cast
+from typing import Any, Iterator, Literal, Optional
 from xml.etree import ElementTree as ET
 
-import label_studio_sdk  # type: ignore[import-untyped]
+import label_studio_sdk
 import PIL.Image
 from requests.exceptions import HTTPError
 
 import pixeltable.type_system as ts
 from pixeltable import Column, Table, env, exceptions as excs
+from pixeltable.catalog import ColumnHandle
+from pixeltable.catalog.globals import RowCountStats
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus
@@ -25,7 +27,7 @@ try:
     import label_studio_sdk.project as ls_project  # type: ignore
 except ImportError:
     # label_studio_sdk>=1 compatibility
-    import label_studio_sdk._legacy.project as ls_project  # type: ignore
+    import label_studio_sdk._legacy.project as ls_project
 
 _logger = logging.getLogger('pixeltable')
 
@@ -45,13 +47,17 @@ class LabelStudioProject(Project):
     for synchronizing between a Pixeltable table and a Label Studio project.
     """
 
+    project_id: int  # Label Studio project ID
+    media_import_method: Literal['post', 'file', 'url']
+    _project: Optional[ls_project.Project]
+
     def __init__(
         self,
         name: str,
         project_id: int,
         media_import_method: Literal['post', 'file', 'url'],
-        col_mapping: dict[Column, str],
-        stored_proxies: Optional[dict[Column, Column]] = None,
+        col_mapping: dict[ColumnHandle, str],
+        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
     ):
         """
         The constructor will NOT create a new Label Studio project; it is also used when loading
@@ -59,7 +65,7 @@ class LabelStudioProject(Project):
         """
         self.project_id = project_id
         self.media_import_method = media_import_method
-        self._project: Optional[ls_project.Project] = None
+        self._project = None
         super().__init__(name, col_mapping, stored_proxies)
 
     @property
@@ -112,13 +118,13 @@ class LabelStudioProject(Project):
         )
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
-        sync_status = SyncStatus.empty()
+        sync_status = SyncStatus()
         if export_data:
             export_sync_status = self.__update_tasks(t, tasks)
-            sync_status = sync_status.combine(export_sync_status)
+            sync_status += export_sync_status
         if import_data:
             import_sync_status = self.__update_table_from_tasks(t, tasks)
-            sync_status = sync_status.combine(import_sync_status)
+            sync_status += import_sync_status
         return sync_status
 
     def __fetch_all_tasks(self) -> Iterator[dict[str, Any]]:
@@ -155,7 +161,7 @@ class LabelStudioProject(Project):
         t_data_cols = [t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys]
 
         if len(t_data_cols) == 0:
-            return SyncStatus.empty()
+            return SyncStatus()
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
@@ -183,15 +189,15 @@ class LabelStudioProject(Project):
         self,
         t: Table,
         existing_tasks: dict[tuple, dict],
-        media_col: Column,
-        t_rl_cols: list[Column],
+        media_col: ColumnHandle,
+        t_rl_cols: list[ColumnHandle],
         rl_info: list['_RectangleLabel'],
     ) -> SyncStatus:
-        is_stored = media_col.is_stored
+        is_stored = media_col.get().is_stored
         # If it's a stored column, we can use `localpath`
-        localpath_col_opt = [t[media_col.name].localpath] if is_stored else []
+        localpath_col_opt = [t[media_col.get().name].localpath] if is_stored else []
         # Select the media column, rectanglelabels columns, and localpath (if appropriate)
-        rows = t.select(t[media_col.name], *[t[col.name] for col in t_rl_cols], *localpath_col_opt)
+        rows = t.select(t[media_col.get().name], *[t[col.get().name] for col in t_rl_cols], *localpath_col_opt)
         tasks_created = 0
         row_ids_in_pxt: set[tuple] = set()
 
@@ -232,42 +238,42 @@ class LabelStudioProject(Project):
 
         env.Env.get().console_logger.info(f'Created {tasks_created} new task(s) in {self}.')
 
-        sync_status = SyncStatus(external_rows_created=tasks_created)
+        sync_status = SyncStatus(ext_row_count_stats=RowCountStats(ins_rows=tasks_created))
 
         deletion_sync_status = self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
-
-        return sync_status.combine(deletion_sync_status)
+        sync_status += deletion_sync_status
+        return sync_status
 
     def __update_tasks_by_files(
         self,
         t: Table,
         existing_tasks: dict[tuple, dict],
-        t_data_cols: list[Column],
-        t_rl_cols: list[Column],
+        t_data_cols: list[ColumnHandle],
+        t_rl_cols: list[ColumnHandle],
         rl_info: list['_RectangleLabel'],
     ) -> SyncStatus:
         ext_data_cols = [self.col_mapping[col] for col in t_data_cols]
         expr_refs: dict[str, Expr] = {}  # kwargs for the select statement
         for col in t_data_cols:
-            col_name = col.name
+            col_name = col.get().name
             if self.media_import_method == 'url':
                 expr_refs[col_name] = t[col_name].fileurl
             else:
                 assert self.media_import_method == 'file'
-                if not col.col_type.is_media_type():
+                if not col.get().col_type.is_media_type():
                     # Not a media column; query the data directly
-                    expr_refs[col_name] = cast(ColumnRef, t[col_name])
+                    expr_refs[col_name] = t[col_name]
                 elif col in self.stored_proxies:
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
-                    stored_proxy_col = self.stored_proxies[col]
+                    stored_proxy_col = self.stored_proxies[col].get()
                     expr_refs[f'{col_name}_proxy'] = ColumnRef(stored_proxy_col).localpath
                 else:
                     # Media column without a stored proxy; this means it's a stored computed column,
                     # and we can just use the localpath
                     expr_refs[col_name] = t[col_name].localpath
 
-        df = t.select(*[t[col.name] for col in t_rl_cols], **expr_refs)
+        df = t.select(*[t[col.get().name] for col in t_rl_cols], **expr_refs)
         # The following buffers will hold `DataRow` indices that correspond to each of the selected
         # columns. `rl_col_idxs` holds the indices for the columns that map to RectangleLabels
         # preannotations; `data_col_idxs` holds the indices for the columns that map to data fields.
@@ -286,11 +292,11 @@ class LabelStudioProject(Project):
             data_vals = [row[idx] for idx in data_col_idxs]
             coco_annotations = [row[idx] for idx in rl_col_idxs]
             for i in range(len(t_data_cols)):
-                if t_data_cols[i].col_type.is_media_type():
+                if t_data_cols[i].get().col_type.is_media_type():
                     # Special handling for media columns
                     assert isinstance(data_vals[i], str)
                     if self.media_import_method == 'url':
-                        data_vals[i] = self.__validate_fileurl(t_data_cols[i], data_vals[i])
+                        data_vals[i] = self.__validate_fileurl(t_data_cols[i].get(), data_vals[i])
                     else:
                         assert self.media_import_method == 'file'
                         data_vals[i] = self.__localpath_to_lspath(data_vals[i])
@@ -336,11 +342,11 @@ class LabelStudioProject(Project):
             f'Created {tasks_created} new task(s) and updated {tasks_updated} existing task(s) in {self}.'
         )
 
-        sync_status = SyncStatus(external_rows_created=tasks_created, external_rows_updated=tasks_updated)
+        sync_status = SyncStatus(ext_row_count_stats=RowCountStats(ins_rows=tasks_created, upd_rows=tasks_updated))
 
         deletion_sync_status = self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
-
-        return sync_status.combine(deletion_sync_status)
+        sync_status += deletion_sync_status
+        return sync_status
 
     @classmethod
     def __validate_fileurl(cls, col: Column, url: str) -> Optional[str]:
@@ -377,11 +383,11 @@ class LabelStudioProject(Project):
         for rowid in deleted_rowids:
             del existing_tasks[rowid]
 
-        return SyncStatus(external_rows_deleted=len(deleted_rowids))
+        return SyncStatus(ext_row_count_stats=RowCountStats(del_rows=len(deleted_rowids)))
 
     def __update_table_from_tasks(self, t: Table, tasks: dict[tuple, dict]) -> SyncStatus:
         if ANNOTATIONS_COLUMN not in self.col_mapping.values():
-            return SyncStatus.empty()
+            return SyncStatus()
 
         annotations = {
             # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
@@ -391,7 +397,7 @@ class LabelStudioProject(Project):
             for task in tasks.values()
         }
 
-        local_annotations_col = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN)
+        local_annotations_col = next(k for k, v in self.col_mapping.items() if v == ANNOTATIONS_COLUMN).get()
 
         # Prune the annotations down to just the ones that have actually changed.
         rows = t.select(t[local_annotations_col.name])
@@ -412,23 +418,21 @@ class LabelStudioProject(Project):
             # TODO(aaron-siegel): Simplify this once propagation is properly implemented in batch_update
             ancestor = t
             while local_annotations_col not in ancestor._tbl_version.get().cols:
-                assert ancestor._base_table is not None
-                ancestor = ancestor._base_table
+                assert ancestor._get_base_table is not None
+                ancestor = ancestor._get_base_table()
             update_status = ancestor.batch_update(updates)
             env.Env.get().console_logger.info(f'Updated annotation(s) from {len(updates)} task(s) in {self}.')
-            return SyncStatus(pxt_rows_updated=update_status.num_rows, num_excs=update_status.num_excs)
+            return SyncStatus.from_update_status(update_status)
         else:
-            return SyncStatus.empty()
+            return SyncStatus()
 
     def as_dict(self) -> dict[str, Any]:
         return {
             'name': self.name,
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
-            'col_mapping': [[self._column_as_dict(k), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [
-                [self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()
-            ],
+            'col_mapping': [[k.as_dict(), v] for k, v in self.col_mapping.items()],
+            'stored_proxies': [[k.as_dict(), v.as_dict()] for k, v in self.stored_proxies.items()],
         }
 
     @classmethod
@@ -437,8 +441,8 @@ class LabelStudioProject(Project):
             md['name'],
             md['project_id'],
             md['media_import_method'],
-            {cls._column_from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
-            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']},
+            {ColumnHandle.from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
+            {ColumnHandle.from_dict(entry[0]): ColumnHandle.from_dict(entry[1]) for entry in md['stored_proxies']},
         )
 
     def __repr__(self) -> str:
@@ -560,7 +564,7 @@ class LabelStudioProject(Project):
 
         if name is None:
             # Create a default name that's unique to the table
-            all_stores = t.external_stores
+            all_stores = t.external_stores()
             n = 0
             while f'ls_project_{n}' in all_stores:
                 n += 1
@@ -576,8 +580,8 @@ class LabelStudioProject(Project):
                 local_annotations_column = ANNOTATIONS_COLUMN
             else:
                 local_annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
-            if local_annotations_column not in t._schema:
-                t.add_columns({local_annotations_column: ts.JsonType(nullable=True)})
+            if local_annotations_column not in t._get_schema():
+                t.add_columns({local_annotations_column: ts.Json})
 
         resolved_col_mapping = cls.validate_columns(
             t, config.export_columns, {ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}, col_mapping

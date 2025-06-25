@@ -10,7 +10,6 @@ import logging
 import os
 import platform
 import shutil
-import subprocess
 import sys
 import threading
 import uuid
@@ -25,6 +24,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
+from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -191,6 +191,7 @@ class Env:
         assert self._dbms is not None
         return self._dbms
 
+    @property
     def in_xact(self) -> bool:
         return self._current_conn is not None
 
@@ -201,20 +202,17 @@ class Env:
 
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
-        """Return a context manager that yields a connection to the database. Idempotent."""
+        """Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly."""
         if self._current_conn is None:
             assert self._current_session is None
             try:
                 with self.engine.begin() as conn, sql.orm.Session(conn) as session:
-                    # TODO: remove print() once we're done with debugging the concurrent update behavior
-                    # print(f'{datetime.datetime.now()}: start xact')
                     self._current_conn = conn
                     self._current_session = session
                     yield conn
             finally:
                 self._current_session = None
                 self._current_conn = None
-                # print(f'{datetime.datetime.now()}: end xact')
         else:
             assert self._current_session is not None
             yield self._current_conn
@@ -600,6 +598,7 @@ class Env:
 
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
+        register_heif_opener()
         self._start_web_server()
         self.__register_packages()
 
@@ -610,10 +609,12 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
-        self.__register_package('google.generativeai', library_name='google-generativeai')
+        self.__register_package('google.genai', library_name='google-genai')
+        self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
+        self.__register_package('mcp')
         self.__register_package('mistralai')
         self.__register_package('mistune')
         self.__register_package('ollama')
@@ -746,18 +747,11 @@ class Env:
         have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
         """
         import spacy
-        from spacy.cli.download import get_model_filename
+        from spacy.cli.download import download
 
         spacy_model = 'en_core_web_sm'
-        spacy_model_version = '3.7.1'
-        filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
-        url = f'{spacy.about.__download_url__}/{filename}'
-        # Try to `pip install` the model. We set check=False; if the pip command fails, it's not necessarily
-        # a problem, because the model might have been installed on a previous attempt.
-        self._logger.info(f'Ensuring spaCy model is installed: {filename}')
-        ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
-        if ret.returncode != 0:
-            self._logger.warning(f'pip install failed for spaCy model: {filename}')
+        self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
+        download(spacy_model)
         self._logger.info(f'Loading spaCy model: {spacy_model}')
         try:
             self._spacy_nlp = spacy.load(spacy_model)

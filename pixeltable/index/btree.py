@@ -59,6 +59,11 @@ class BtreeIndex(IndexBase):
         conn = Env.get().conn
         idx.create(bind=conn)
 
+    def drop_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
+        """Drop the index on the index value column"""
+        # TODO: implement
+        raise NotImplementedError()
+
     @classmethod
     def display_name(cls) -> str:
         return 'btree'

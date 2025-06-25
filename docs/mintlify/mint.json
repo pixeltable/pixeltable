@@ -7,15 +7,16 @@
   },
   "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#19191B",
-    "light": "#71717A",
-    "dark": "#09080B",
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704",
     "anchors": {
-      "from": "#0A2F5C",
-      "to": "#404040"
+      "from": "#F1AE03",
+      "to": "#DC2404"
     },
     "background": {
-      "dark": "#08080B"
+      "light": "#FAF6F0",
+      "dark": "#020704"
     }
   },
   "font": {
@@ -80,7 +81,9 @@
       "pages": [
         "docs/overview/pixeltable",
         "docs/overview/installation",
-        "docs/overview/quick-start"
+        "docs/overview/configuration",
+        "docs/overview/quick-start",
+        "docs/overview/building-pixeltable-with-llms"        
       ]
     },
     {
@@ -93,7 +96,8 @@
         "docs/datastore/filtering-and-selecting",
         "docs/datastore/computed-columns",
         "docs/datastore/vector-database",
-        "docs/datastore/custom-functions"       
+        "docs/datastore/custom-functions",
+        "docs/datastore/sampling"
       ]
     },    
     {
@@ -109,7 +113,7 @@
         "docs/libraries/pixelagent",
         "docs/libraries/mcp",
         "docs/libraries/yolox"
-    ]
+      ]
     },    
     {
       "group": "Support",

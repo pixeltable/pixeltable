@@ -2,6 +2,11 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    39: 'ColumnHandles in external stores',
+    38: 'Added TableMd.view_sn',
+    37: 'Add support for the sample() method on DataFrames',
+    36: 'Added Table.lock_dummy',
+    35: 'Track reference_tbl in ColumnRef',
     34: 'Set default value for is_pk field in column metadata to False',
     33: 'Add is_replica field to table metadata',
     32: 'Add the lock_dummy BIGINT column to the dirs table',

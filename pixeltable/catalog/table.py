@@ -4,11 +4,12 @@ import abc
 import builtins
 import json
 import logging
+from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-from keyword import iskeyword as is_python_keyword
+import datetime
 from uuid import UUID
 
 import pandas as pd
@@ -16,8 +17,8 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
-from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.metadata.utils import MetadataUtils
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -49,26 +50,23 @@ class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
+
+    Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+    FileCache.emit_eviction_warnings() at the end of the operation.
     """
 
-    # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
-    # FileCache.emit_eviction_warnings() at the end of the operation.
+    # the chain of TableVersions needed to run queries and supply metadata (eg, schema)
+    _tbl_version_path: TableVersionPath
 
-    _is_dropped: bool
-    __tbl_version_path: TableVersionPath
+    # the physical TableVersion backing this Table; None for pure snapshots
+    _tbl_version: Optional[TableVersionHandle]
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
-        self._is_dropped = False
-        self.__tbl_version_path = tbl_version_path
-
-    # @property
-    # def _has_dependents(self) -> bool:
-    #     """Returns True if this table has any dependent views, or snapshots."""
-    #     return len(self._get_views(recursive=False)) > 0
+        self._tbl_version_path = tbl_version_path
+        self._tbl_version = None
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
-        self._check_is_dropped()
         super()._move(new_name, new_dir_id)
         conn = env.Env.get().conn
         stmt = sql.text(
@@ -81,6 +79,7 @@ class Table(SchemaObject):
         )
         conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
+    # this is duplicated from SchemaObject so that our API docs show the docstring for Table
     def get_metadata(self) -> dict[str, Any]:
         """
         Retrieves metadata associated with this table.
@@ -106,47 +105,34 @@ class Table(SchemaObject):
                 }
                 ```
         """
-        self._check_is_dropped()
-        with env.Env.get().begin_xact():
-            md = super().get_metadata()
-            md['base'] = self._base_table._path if self._base_table is not None else None
-            md['schema'] = self._schema
-            md['is_replica'] = self._tbl_version.get().is_replica
-            md['version'] = self._version
-            md['schema_version'] = self._tbl_version.get().schema_version
-            md['comment'] = self._comment
-            md['num_retained_versions'] = self._num_retained_versions
-            md['media_validation'] = self._media_validation.name.lower()
-            return md
+        return super().get_metadata()
 
-    @property
-    def _version(self) -> int:
+    def _get_metadata(self) -> dict[str, Any]:
+        md = super()._get_metadata()
+        base = self._get_base_table()
+        md['base'] = base._path() if base is not None else None
+        md['schema'] = self._get_schema()
+        md['is_replica'] = self._tbl_version_path.is_replica()
+        md['version'] = self._get_version()
+        md['schema_version'] = self._tbl_version_path.schema_version()
+        md['comment'] = self._get_comment()
+        md['num_retained_versions'] = self._get_num_retained_versions()
+        md['media_validation'] = self._get_media_validation().name.lower()
+        return md
+
+    def _get_version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
-        return self._tbl_version.get().version
-
-    @property
-    def _tbl_version(self) -> TableVersionHandle:
-        """Return TableVersion for just this table."""
-        return self._tbl_version_path.tbl_version
-
-    @property
-    def _tbl_version_path(self) -> TableVersionPath:
-        self._check_is_dropped()
-        return self.__tbl_version_path
+        return self._tbl_version_path.version()
 
     def __hash__(self) -> int:
-        return hash(self._tbl_version.id)
-
-    def _check_is_dropped(self) -> None:
-        if self._is_dropped:
-            raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
+        return hash(self._tbl_version_path.tbl_id)
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Column {name!r} unknown')
-        return ColumnRef(col)
+        return ColumnRef(col, reference_tbl=self._tbl_version_path)
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
@@ -163,16 +149,21 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
-        self._check_is_dropped()
-        with env.Env.get().begin_xact():
-            return [t._path for t in self._get_views(recursive=recursive)]
+        from pixeltable.catalog import Catalog
 
-    def _get_views(self, *, recursive: bool = True) -> list['Table']:
+        with Catalog.get().begin_xact(for_write=False):
+            return [t._path() for t in self._get_views(recursive=recursive)]
+
+    def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
         views = [cat.get_table_by_id(id) for id in view_ids]
+        if not include_snapshots:
+            views = [t for t in views if not t._tbl_version_path.is_snapshot()]
         if recursive:
-            views.extend([t for view in views for t in view._get_views(recursive=True)])
+            views.extend(
+                t for view in views for t in view._get_views(recursive=True, include_snapshots=include_snapshots)
+            )
         return views
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
@@ -187,14 +178,20 @@ class Table(SchemaObject):
 
         See [`DataFrame.select`][pixeltable.DataFrame.select] for more details.
         """
-        return self._df().select(*items, **named_items)
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(for_write=False):
+            return self._df().select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
         """Filter rows from this table based on the expression.
 
         See [`DataFrame.where`][pixeltable.DataFrame.where] for more details.
         """
-        return self._df().where(pred)
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(for_write=False):
+            return self._df().where(pred)
 
     def join(
         self,
@@ -204,24 +201,53 @@ class Table(SchemaObject):
         how: 'pixeltable.plan.JoinType.LiteralType' = 'inner',
     ) -> 'pxt.DataFrame':
         """Join this table with another table."""
-        return self._df().join(other, on=on, how=how)
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(for_write=False):
+            return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
         """Order the rows of this table based on the expression.
 
         See [`DataFrame.order_by`][pixeltable.DataFrame.order_by] for more details.
         """
-        return self._df().order_by(*items, asc=asc)
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(for_write=False):
+            return self._df().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
         """Group the rows of this table based on the expression.
 
         See [`DataFrame.group_by`][pixeltable.DataFrame.group_by] for more details.
         """
-        return self._df().group_by(*items)
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(for_write=False):
+            return self._df().group_by(*items)
+
+    def distinct(self) -> 'pxt.DataFrame':
+        """Remove duplicate rows from table."""
+        return self._df().distinct()
 
     def limit(self, n: int) -> 'pxt.DataFrame':
         return self._df().limit(n)
+
+    def sample(
+        self,
+        n: Optional[int] = None,
+        n_per_stratum: Optional[int] = None,
+        fraction: Optional[float] = None,
+        seed: Optional[int] = None,
+        stratify_by: Any = None,
+    ) -> pxt.DataFrame:
+        """Choose a shuffled sample of rows
+
+        See [`DataFrame.sample`][pixeltable.DataFrame.sample] for more details.
+        """
+        return self._df().sample(
+            n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
+        )
 
     def collect(self) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table."""
@@ -243,35 +269,32 @@ class Table(SchemaObject):
         """Return the number of rows in this table."""
         return self._df().count()
 
-    @property
     def columns(self) -> list[str]:
         """Return the names of the columns in this table."""
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
-    @property
-    def _schema(self) -> dict[str, ts.ColumnType]:
+    def _get_schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
-    @property
-    def base_table(self) -> Optional['Table']:
-        with env.Env.get().begin_xact():
-            return self._base_table
+    def get_base_table(self) -> Optional['Table']:
+        from pixeltable.catalog import Catalog
 
-    @property
+        with Catalog.get().begin_xact(for_write=False):
+            return self._get_base_table()
+
     @abc.abstractmethod
-    def _base_table(self) -> Optional['Table']:
-        """The base's Table instance"""
+    def _get_base_table(self) -> Optional['Table']:
+        """The base's Table instance. Requires a transaction context"""
 
-    @property
-    def _base_tables(self) -> list['Table']:
-        """The ancestor list of bases of this table, starting with its immediate base."""
-        bases = []
-        base = self._base_table
+    def _get_base_tables(self) -> list['Table']:
+        """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
+        bases: list[Table] = []
+        base = self._get_base_table()
         while base is not None:
             bases.append(base)
-            base = base._base_table
+            base = base._get_base_table()
         return bases
 
     @property
@@ -279,17 +302,14 @@ class Table(SchemaObject):
     def _effective_base_versions(self) -> list[Optional[int]]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
-    @property
-    def _comment(self) -> str:
-        return self._tbl_version.get().comment
+    def _get_comment(self) -> str:
+        return self._tbl_version_path.comment()
 
-    @property
-    def _num_retained_versions(self) -> int:
-        return self._tbl_version.get().num_retained_versions
+    def _get_num_retained_versions(self) -> int:
+        return self._tbl_version_path.num_retained_versions()
 
-    @property
-    def _media_validation(self) -> MediaValidation:
-        return self._tbl_version.get().media_validation
+    def _get_media_validation(self) -> MediaValidation:
+        return self._tbl_version_path.media_validation()
 
     def __repr__(self) -> str:
         return self._descriptors().to_string()
@@ -301,18 +321,21 @@ class Table(SchemaObject):
         """
         Constructs a list of descriptors for this table that can be pretty-printed.
         """
-        helper = DescriptionHelper()
-        helper.append(self._table_descriptor())
-        helper.append(self._col_descriptor())
-        idxs = self._index_descriptor()
-        if not idxs.empty:
-            helper.append(idxs)
-        stores = self._external_store_descriptor()
-        if not stores.empty:
-            helper.append(stores)
-        if self._comment:
-            helper.append(f'COMMENT: {self._comment}')
-        return helper
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(for_write=False):
+            helper = DescriptionHelper()
+            helper.append(self._table_descriptor())
+            helper.append(self._col_descriptor())
+            idxs = self._index_descriptor()
+            if not idxs.empty:
+                helper.append(idxs)
+            stores = self._external_store_descriptor()
+            if not stores.empty:
+                helper.append(stores)
+            if self._get_comment():
+                helper.append(f'COMMENT: {self._get_comment()}')
+            return helper
 
     def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return pd.DataFrame(
@@ -328,6 +351,8 @@ class Table(SchemaObject):
     def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         from pixeltable import index
 
+        if self._tbl_version is None:
+            return pd.DataFrame([])
         pd_rows = []
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
@@ -347,7 +372,7 @@ class Table(SchemaObject):
 
     def _external_store_descriptor(self) -> pd.DataFrame:
         pd_rows = []
-        for name, store in self._tbl_version.get().external_stores.items():
+        for name, store in self._tbl_version_path.tbl_version.get().external_stores.items():
             row = {'External Store': name, 'Type': type(store).__name__}
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
@@ -356,18 +381,12 @@ class Table(SchemaObject):
         """
         Print the table schema.
         """
-        self._check_is_dropped()
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import Markdown, display
 
             display(Markdown(self._repr_html_()))
         else:
             print(repr(self))
-
-    def _drop(self) -> None:
-        self._check_is_dropped()
-        self._tbl_version.get().drop()
-        self._is_dropped = True
 
     # TODO Factor this out into a separate module.
     # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
@@ -386,9 +405,11 @@ class Table(SchemaObject):
     def _column_has_dependents(self, col: Column) -> bool:
         """Returns True if the column has dependents, False otherwise."""
         assert col is not None
-        assert col.name in self._schema
-        if any(c.name is not None for c in col.dependent_cols):
+        assert col.name in self._get_schema()
+        cat = catalog.Catalog.get()
+        if any(c.name is not None for c in cat.get_column_dependents(col.tbl.id, col.id)):
             return True
+        assert self._tbl_version is not None
         return any(
             col in store.get_local_columns()
             for view in (self, *self._get_views(recursive=True))
@@ -400,8 +421,8 @@ class Table(SchemaObject):
 
         If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_names`.
         """
-        assert not self.get_metadata()['is_snapshot']
-        existing_col_names = set(self._schema.keys())
+        assert self._tbl_version is not None
+        existing_col_names = set(self._get_schema().keys())
         cols_to_ignore = []
         for new_col_name in new_col_names:
             if new_col_name in existing_col_names:
@@ -469,15 +490,17 @@ class Table(SchemaObject):
             ... }
             ... tbl.add_columns(schema)
         """
-        self._check_is_dropped()
-        if self.get_metadata()['is_snapshot']:
-            raise excs.Error('Cannot add column to a snapshot.')
-        col_schema = {
-            col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
-            for col_name, spec in schema.items()
-        }
+        from pixeltable.catalog import Catalog
 
-        with Env.get().begin_xact():
+        # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot add column to a snapshot.')
+            col_schema = {
+                col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
+                for col_name, spec in schema.items()
+            }
+
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
                 list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
@@ -492,6 +515,7 @@ class Table(SchemaObject):
             new_cols = self._create_columns(col_schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
+            assert self._tbl_version is not None
             status = self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
             FileCache.get().emit_eviction_warnings()
             return status
@@ -530,22 +554,24 @@ class Table(SchemaObject):
 
             >>> tbl.add_columns({'new_col': pxt.Int})
         """
-        self._check_is_dropped()
-        # verify kwargs
-        if self._tbl_version.get().is_snapshot:
-            raise excs.Error('Cannot add column to a snapshot.')
-        # verify kwargs and construct column schema dict
-        if len(kwargs) != 1:
-            raise excs.Error(
-                f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
-                f'got {len(kwargs)} instead ({", ".join(kwargs.keys())})'
-            )
-        col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(
-                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
-            )
-        return self.add_columns(kwargs, if_exists=if_exists)
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            # verify kwargs
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot add column to a snapshot.')
+            # verify kwargs and construct column schema dict
+            if len(kwargs) != 1:
+                raise excs.Error(
+                    f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
+                    f'got {len(kwargs)} instead ({", ".join(kwargs.keys())})'
+                )
+            col_type = next(iter(kwargs.values()))
+            if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
+                raise excs.Error(
+                    'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+                )
+            return self.add_columns(kwargs, if_exists=if_exists)
 
     def add_computed_column(
         self,
@@ -594,33 +620,34 @@ class Table(SchemaObject):
 
             >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
         """
-        self._check_is_dropped()
-        if self.get_metadata()['is_snapshot']:
-            raise excs.Error('Cannot add column to a snapshot.')
-        if len(kwargs) != 1:
-            raise excs.Error(
-                f'add_computed_column() requires exactly one keyword argument of the form '
-                '"column-name=type|value-expression"; '
-                f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
-            )
-        col_name, spec = next(iter(kwargs.items()))
-        if not is_valid_identifier(col_name):
-            raise excs.Error(f'Invalid column name: {col_name!r}')
+        from pixeltable.catalog import Catalog
 
-        col_schema: dict[str, Any] = {'value': spec}
-        if stored is not None:
-            col_schema['stored'] = stored
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot add column to a snapshot.')
+            if len(kwargs) != 1:
+                raise excs.Error(
+                    f'add_computed_column() requires exactly one keyword argument of the form '
+                    '"column-name=type|value-expression"; '
+                    f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
+                )
+            col_name, spec = next(iter(kwargs.items()))
+            if not is_valid_identifier(col_name):
+                raise excs.Error(f'Invalid column name: {col_name!r}')
 
-        # Raise an error if the column expression refers to a column error property
-        if isinstance(spec, exprs.Expr):
-            for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
-                if e.is_error_prop():
-                    raise excs.Error(
-                        'Use of a reference to an error property of another column is not allowed in a computed '
-                        f'column. The specified computation for this column contains this reference: `{e!r}`'
-                    )
+            col_schema: dict[str, Any] = {'value': spec}
+            if stored is not None:
+                col_schema['stored'] = stored
 
-        with Env.get().begin_xact():
+            # Raise an error if the column expression refers to a column error property
+            if isinstance(spec, exprs.Expr):
+                for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+                    if e.is_error_prop():
+                        raise excs.Error(
+                            'Use of a reference to an error property of another column is not allowed in a computed '
+                            f'column. The specified computation for this column contains this reference: `{e!r}`'
+                        )
+
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
                 [col_name], IfExistsParam.validated(if_exists, 'if_exists')
@@ -633,6 +660,7 @@ class Table(SchemaObject):
 
             new_col = self._create_columns({col_name: col_schema})[0]
             self._verify_column(new_col)
+            assert self._tbl_version is not None
             status = self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
             FileCache.get().emit_eviction_warnings()
             return status
@@ -777,43 +805,49 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
-        self._check_is_dropped()
-        if self._tbl_version_path.is_snapshot():
-            raise excs.Error('Cannot drop column from a snapshot.')
-        col: Column = None
-        if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-        if isinstance(column, str):
-            col = self._tbl_version_path.get_column(column, include_bases=False)
-            if col is None:
-                if if_not_exists_ == IfNotExistsParam.ERROR:
-                    raise excs.Error(f'Column {column!r} unknown')
-                assert if_not_exists_ == IfNotExistsParam.IGNORE
-                return
-            col = self._tbl_version.get().cols_by_name[column]
-        else:
-            exists = self._tbl_version_path.has_column(column.col, include_bases=False)
-            if not exists:
-                if if_not_exists_ == IfNotExistsParam.ERROR:
-                    raise excs.Error(f'Unknown column: {column.col.qualified_name}')
-                assert if_not_exists_ == IfNotExistsParam.IGNORE
-                return
-            col = column.col
+        from pixeltable.catalog import Catalog
 
-        dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
-        if len(dependent_user_cols) > 0:
-            raise excs.Error(
-                f'Cannot drop column `{col.name}` because the following columns depend on it:\n'
-                f'{", ".join(c.name for c in dependent_user_cols)}'
-            )
+        cat = Catalog.get()
+        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot drop column from a snapshot.')
+            col: Column = None
+            if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-        with Env.get().begin_xact():
+            if isinstance(column, str):
+                col = self._tbl_version_path.get_column(column, include_bases=False)
+                if col is None:
+                    if if_not_exists_ == IfNotExistsParam.ERROR:
+                        raise excs.Error(f'Column {column!r} unknown')
+                    assert if_not_exists_ == IfNotExistsParam.IGNORE
+                    return
+                col = self._tbl_version.get().cols_by_name[column]
+            else:
+                exists = self._tbl_version_path.has_column(column.col, include_bases=False)
+                if not exists:
+                    if if_not_exists_ == IfNotExistsParam.ERROR:
+                        raise excs.Error(f'Unknown column: {column.col.qualified_name}')
+                    assert if_not_exists_ == IfNotExistsParam.IGNORE
+                    return
+                col = column.col
+
+            dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
+            if len(dependent_user_cols) > 0:
+                raise excs.Error(
+                    f'Cannot drop column `{col.name}` because the following columns depend on it:\n'
+                    f'{", ".join(c.name for c in dependent_user_cols)}'
+                )
+
+            _ = self._get_views(recursive=True, include_snapshots=False)
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
+            col_handle = col.handle
             dependent_stores = [
                 (view, store)
-                for view in (self, *self._get_views(recursive=True))
+                for view in (self, *self._get_views(recursive=True, include_snapshots=False))
                 for store in view._tbl_version.get().external_stores.values()
-                if col in store.get_local_columns()
+                if col_handle in store.get_local_columns()
             ]
             if len(dependent_stores) > 0:
                 dependent_store_names = [
@@ -843,7 +877,9 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.rename_column('col1', 'col2')
         """
-        with Env.get().begin_xact():
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             self._tbl_version.get().rename_column(old_name, new_name)
 
     def _list_index_info_for_test(self) -> list[dict[str, Any]]:
@@ -854,7 +890,6 @@ class Table(SchemaObject):
             A list of index information, each containing the index's
             id, name, and the name of the column it indexes.
         """
-        assert not self._is_dropped
         index_info = []
         for idx_name, idx in self._tbl_version.get().idxs_by_name.items():
             index_info.append({'_id': idx.id, '_name': idx_name, '_column': idx.col.name})
@@ -951,11 +986,13 @@ class Table(SchemaObject):
             ...     image_embed=image_embedding_fn
             ... )
         """
-        if self._tbl_version_path.is_snapshot():
-            raise excs.Error('Cannot add an index to a snapshot')
-        col = self._resolve_column_parameter(column)
+        from pixeltable.catalog import Catalog
 
-        with Env.get().begin_xact():
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot add an index to a snapshot')
+            col = self._resolve_column_parameter(column)
+
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
                 if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
                 # An index with the same name already exists.
@@ -1035,15 +1072,17 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_embedding_index(idx_name='idx1', if_not_exists='ignore')
         """
+        from pixeltable.catalog import Catalog
+
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        col: Column = None
-        if idx_name is None:
-            col = self._resolve_column_parameter(column)
-            assert col is not None
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            col: Column = None
+            if idx_name is None:
+                col = self._resolve_column_parameter(column)
+                assert col is not None
 
-        with Env.get().begin_xact():
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
 
     def _resolve_column_parameter(self, column: Union[str, ColumnRef]) -> Column:
@@ -1112,15 +1151,17 @@ class Table(SchemaObject):
             ... tbl.drop_index(idx_name='idx1', if_not_exists='ignore')
 
         """
+        from pixeltable.catalog import Catalog
+
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        col: Column = None
-        if idx_name is None:
-            col = self._resolve_column_parameter(column)
-            assert col is not None
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+            col: Column = None
+            if idx_name is None:
+                col = self._resolve_column_parameter(column)
+                assert col is not None
 
-        with Env.get().begin_xact():
             self._drop_index(col=col, idx_name=idx_name, if_not_exists=if_not_exists)
 
     def _drop_index(
@@ -1131,6 +1172,8 @@ class Table(SchemaObject):
         _idx_class: Optional[type[index.IndexBase]] = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
+        from pixeltable.catalog import Catalog
+
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         assert (col is None) != (idx_name is None)
@@ -1146,7 +1189,7 @@ class Table(SchemaObject):
         else:
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.get().name}!r)'
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name!r})'
                 )
             idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
@@ -1162,7 +1205,10 @@ class Table(SchemaObject):
             idx_info = idx_info_list[0]
 
         # Find out if anything depends on this index
-        dependent_user_cols = [c for c in idx_info.val_col.dependent_cols if c.name is not None]
+        val_col = idx_info.val_col
+        dependent_user_cols = [
+            c for c in Catalog.get().get_column_dependents(val_col.tbl.id, val_col.id) if c.name is not None
+        ]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
                 f'Cannot drop index because the following columns depend on it:\n'
@@ -1278,6 +1324,9 @@ class Table(SchemaObject):
             where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
 
+        Returns:
+            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
+
         Examples:
             Set column `int_col` to 1 for all rows:
 
@@ -1295,7 +1344,11 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        with Env.get().begin_xact():
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot update a snapshot')
             status = self._tbl_version.get().update(value_spec, where, cascade)
             FileCache.get().emit_eviction_warnings()
             return status
@@ -1331,35 +1384,37 @@ class Table(SchemaObject):
                 [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
                 if_not_exists='insert')
         """
-        if self._tbl_version_path.is_snapshot():
-            raise excs.Error('Cannot update a snapshot')
-        rows = list(rows)
+        from pixeltable.catalog import Catalog
 
-        row_updates: list[dict[Column, exprs.Expr]] = []
-        pk_col_names = {c.name for c in self._tbl_version.get().primary_key_columns()}
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot update a snapshot')
+            rows = list(rows)
 
-        # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
-        has_rowid = _ROWID_COLUMN_NAME in rows[0]
-        rowids: list[tuple[int, ...]] = []
-        if len(pk_col_names) == 0 and not has_rowid:
-            raise excs.Error('Table must have primary key for batch update')
+            row_updates: list[dict[Column, exprs.Expr]] = []
+            pk_col_names = {c.name for c in self._tbl_version.get().primary_key_columns()}
 
-        for row_spec in rows:
-            col_vals = self._tbl_version.get()._validate_update_spec(
-                row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
-            )
-            if has_rowid:
-                # we expect the _rowid column to be present for each row
-                assert _ROWID_COLUMN_NAME in row_spec
-                rowids.append(row_spec[_ROWID_COLUMN_NAME])
-            else:
-                col_names = {col.name for col in col_vals}
-                if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
-                    missing_cols = pk_col_names - {col.name for col in col_vals}
-                    raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
-            row_updates.append(col_vals)
+            # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
+            has_rowid = _ROWID_COLUMN_NAME in rows[0]
+            rowids: list[tuple[int, ...]] = []
+            if len(pk_col_names) == 0 and not has_rowid:
+                raise excs.Error('Table must have primary key for batch update')
 
-        with Env.get().begin_xact():
+            for row_spec in rows:
+                col_vals = self._tbl_version.get()._validate_update_spec(
+                    row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
+                )
+                if has_rowid:
+                    # we expect the _rowid column to be present for each row
+                    assert _ROWID_COLUMN_NAME in row_spec
+                    rowids.append(row_spec[_ROWID_COLUMN_NAME])
+                else:
+                    col_names = {col.name for col in col_vals}
+                    if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
+                        missing_cols = pk_col_names - {col.name for col in col_vals}
+                        raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
+                row_updates.append(col_vals)
+
             status = self._tbl_version.get().batch_update(
                 row_updates,
                 rowids,
@@ -1367,6 +1422,69 @@ class Table(SchemaObject):
                 insert_if_not_exists=if_not_exists == 'insert',
                 cascade=cascade,
             )
+            FileCache.get().emit_eviction_warnings()
+            return status
+
+    def recompute_columns(
+        self, *columns: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
+    ) -> UpdateStatus:
+        """Recompute the values in one or more computed columns of this table.
+
+        Args:
+            columns: The names or references of the computed columns to recompute.
+            errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
+                `errortype` property is non-None). Only allowed for recomputing a single column.
+            cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
+
+        Examples:
+            Recompute computed columns `c1` and `c2` for all rows in this table, and everything that transitively
+            depends on them:
+
+            >>> tbl.recompute_columns('c1', 'c2')
+
+            Recompute computed column `c1` for all rows in this table, but don't recompute other columns that depend on
+            it:
+
+            >>> tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
+
+            Recompute column `c1` and its dependents, but only for rows that have errors in it:
+
+            >>> tbl.recompute_columns('c1', errors_only=True)
+        """
+        from pixeltable.catalog import Catalog
+
+        cat = Catalog.get()
+        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot recompute columns of a snapshot.')
+            if len(columns) == 0:
+                raise excs.Error('At least one column must be specified to recompute')
+            if errors_only and len(columns) > 1:
+                raise excs.Error('Cannot use errors_only=True with multiple columns')
+
+            col_names: list[str] = []
+            for column in columns:
+                col_name: str
+                col: Column
+                if isinstance(column, str):
+                    col = self._tbl_version_path.get_column(column, include_bases=True)
+                    if col is None:
+                        raise excs.Error(f'Unknown column: {column!r}')
+                    col_name = column
+                else:
+                    assert isinstance(column, ColumnRef)
+                    col = column.col
+                    if not self._tbl_version_path.has_column(col, include_bases=True):
+                        raise excs.Error(f'Unknown column: {col.name!r}')
+                    col_name = col.name
+                if not col.is_computed:
+                    raise excs.Error(f'Column {col_name!r} is not a computed column')
+                if col.tbl.id != self._tbl_version_path.tbl_id:
+                    raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
+                col_names.append(col_name)
+
+            status = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
             return status
 
@@ -1393,12 +1511,15 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        if self._tbl_version_path.is_snapshot():
-            raise excs.Error('Cannot revert a snapshot')
-        with Env.get().begin_xact():
-            self._tbl_version.get().revert()
+        from pixeltable.catalog import Catalog
 
-    @property
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot revert a snapshot')
+            self._tbl_version.get().revert()
+            # remove cached md in order to force a reload on the next operation
+            self._tbl_version_path.clear_cached_md()
+
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())
 
@@ -1406,12 +1527,16 @@ class Table(SchemaObject):
         """
         Links the specified `ExternalStore` to this table.
         """
-        if self._tbl_version.get().is_snapshot:
-            raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
-        if store.name in self.external_stores:
-            raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
-        _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
-        with Env.get().begin_xact():
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
+            if store.name in self.external_stores():
+                raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
+            _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
+
+            store.link(self._tbl_version.get())  # might call tbl_version.add_columns()
             self._tbl_version.get().link_external_store(store)
             env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
@@ -1433,24 +1558,33 @@ class Table(SchemaObject):
             delete_external_data (bool): If `True`, then the external data store will also be deleted. WARNING: This
                 is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
         """
-        self._check_is_dropped()
-        all_stores = self.external_stores
+        from pixeltable.catalog import Catalog
 
-        if stores is None:
-            stores = all_stores
-        elif isinstance(stores, str):
-            stores = [stores]
+        if self._tbl_version_path.is_snapshot():
+            return
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+            all_stores = self.external_stores()
 
-        # Validation
-        if not ignore_errors:
-            for store in stores:
-                if store not in all_stores:
-                    raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
+            if stores is None:
+                stores = all_stores
+            elif isinstance(stores, str):
+                stores = [stores]
 
-        with Env.get().begin_xact():
-            for store in stores:
-                self._tbl_version.get().unlink_external_store(store, delete_external_data=delete_external_data)
-                env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store}')
+            # Validation
+            if not ignore_errors:
+                for store_name in stores:
+                    if store_name not in all_stores:
+                        raise excs.Error(f'Table `{self._name}` has no external store with that name: {store_name}')
+
+            for store_name in stores:
+                store = self._tbl_version.get().external_stores[store_name]
+                # get hold of the store's debug string before deleting it
+                store_str = str(store)
+                store.unlink(self._tbl_version.get())  # might call tbl_version.drop_columns()
+                self._tbl_version.get().unlink_external_store(store)
+                if delete_external_data and isinstance(store, pxt.io.external_store.Project):
+                    store.delete()
+                env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store_str}')
 
     def sync(
         self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True
@@ -1464,29 +1598,97 @@ class Table(SchemaObject):
             export_data: If `True`, data from this table will be exported to the external stores during synchronization.
             import_data: If `True`, data from the external stores will be imported to this table during synchronization.
         """
-        self._check_is_dropped()
-        all_stores = self.external_stores
+        from pixeltable.catalog import Catalog
 
-        if stores is None:
-            stores = all_stores
-        elif isinstance(stores, str):
-            stores = [stores]
+        if self._tbl_version_path.is_snapshot():
+            return pxt.io.SyncStatus()
+        # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
+        # have their updates propagated down the tree
+        base_tv = self._tbl_version_path.get_tbl_versions()[-1]
+        with Catalog.get().begin_xact(tbl=TableVersionPath(base_tv), for_write=True, lock_mutable_tree=True):
+            all_stores = self.external_stores()
 
-        for store in stores:
-            if store not in all_stores:
-                raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
+            if stores is None:
+                stores = all_stores
+            elif isinstance(stores, str):
+                stores = [stores]
 
-        sync_status = pxt.io.SyncStatus.empty()
-        with Env.get().begin_xact():
+            for store in stores:
+                if store not in all_stores:
+                    raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
+
+            sync_status = pxt.io.SyncStatus()
             for store in stores:
                 store_obj = self._tbl_version.get().external_stores[store]
                 store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
-                sync_status = sync_status.combine(store_sync_status)
+                sync_status += store_sync_status
 
         return sync_status
 
     def __dir__(self) -> list[str]:
-        return list(super().__dir__()) + list(self._schema.keys())
+        return list(super().__dir__()) + list(self._get_schema().keys())
 
     def _ipython_key_completions_(self) -> list[str]:
-        return list(self._schema.keys())
+        return list(self._get_schema().keys())
+
+    def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
+        """Returns rows of information about the versions of this table, most recent first.
+
+        Args:
+            n: a limit to the number of versions listed
+
+        Examples:
+            Report history:
+
+            >>> tbl.history()
+
+            Report only the most recent 5 changes to the table:
+
+            >>> tbl.history(n=5)
+
+        Returns:
+            A list of information about each version, ordered from most recent to oldest version.
+        """
+        from pixeltable.catalog import Catalog
+
+        if n is None:
+            n = 1000_000_000
+        if not isinstance(n, int) or n < 1:
+            raise excs.Error(f'Invalid value for n: {n}')
+
+        # Retrieve the table history components from the catalog
+        tbl_id = self._id
+        # Collect an extra version, if available, to allow for computation of the first version's schema change
+        vers_list = Catalog.get().collect_tbl_history(tbl_id, n + 1)
+
+        # Construct the metadata change description dictionary
+        md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
+        md_dict = MetadataUtils._create_md_change_dict(md_list)
+
+        # Construct report lines
+        if len(vers_list) > n:
+            assert len(vers_list) == n + 1
+            over_count = 1
+        else:
+            over_count = 0
+
+        report_lines: list[list[Any]] = []
+        for vers_md in vers_list[0 : len(vers_list) - over_count]:
+            version = vers_md.version_md.version
+            schema_change = md_dict.get(version, '')
+            change_type = 'schema' if schema_change != '' else 'data'
+            report_line = [
+                version,
+                datetime.datetime.fromtimestamp(vers_md.version_md.created_at),
+                change_type,
+                schema_change,
+            ]
+            report_lines.append(report_line)
+
+        report_schema = {
+            'version': ts.IntType(),
+            'created_at': ts.TimestampType(),
+            'change': ts.StringType(),
+            'schema_change': ts.StringType(),
+        }
+        return pxt.dataframe.DataFrameResultSet(report_lines, report_schema)

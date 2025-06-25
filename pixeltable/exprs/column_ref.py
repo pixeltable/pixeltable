@@ -10,6 +10,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, iterators as iters
 
 from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -31,12 +32,19 @@ class ColumnRef(Expr):
     - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
     - the non-validating ColumnRef is used for SQL translation
 
+    A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
+    if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
+    their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
+    as `v.my_col.head()`.
+
     TODO:
     separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
     insert them into the EvalCtxs as needed
     """
 
-    col: catalog.Column
+    col: catalog.Column  # TODO: merge with col_handle
+    col_handle: catalog.ColumnHandle
+    reference_tbl: Optional[catalog.TableVersionPath]
     is_unstored_iter_col: bool
     iter_arg_ctx: Optional[RowBuilder.EvalCtx]
     base_rowid_len: int
@@ -46,20 +54,26 @@ class ColumnRef(Expr):
     id: int
     perform_validation: bool  # if True, performs media validation
 
-    def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None):
+    def __init__(
+        self,
+        col: catalog.Column,
+        reference_tbl: Optional[catalog.TableVersionPath] = None,
+        perform_validation: Optional[bool] = None,
+    ):
         super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
-        self.is_unstored_iter_col = (
-            col.tbl.get().is_component_view and col.tbl.get().is_iterator_column(col) and not col.is_stored
-        )
+        self.reference_tbl = reference_tbl
+        self.col_handle = catalog.ColumnHandle(col.tbl.handle, col.id)
+
+        self.is_unstored_iter_col = col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
-        self.base_rowid_len = col.tbl.get().base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl.base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
         self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx = col.tbl.get().num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
 
         self.perform_validation = False
         if col.col_type.is_media_type():
@@ -95,7 +109,7 @@ class ColumnRef(Expr):
         target = tbl_versions[self.col.tbl.id]
         assert self.col.id in target.cols_by_id
         col = target.cols_by_id[self.col.id]
-        return ColumnRef(col)
+        return ColumnRef(col, self.reference_tbl)
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
@@ -126,26 +140,26 @@ class ColumnRef(Expr):
 
         return super().__getattr__(name)
 
-    @classmethod
     def find_embedding_index(
-        cls, col: catalog.Column, idx_name: Optional[str], method_name: str
+        self, idx_name: Optional[str], method_name: str
     ) -> dict[str, catalog.TableVersion.IndexInfo]:
         """Return IndexInfo for a column, with an optional given name"""
-        # determine index to use
-        idx_info_dict = col.get_idx_info()
         from pixeltable import index
+
+        # determine index to use
+        idx_info_dict = self.col.get_idx_info(self.reference_tbl)
 
         embedding_idx_info = {
             info: value for info, value in idx_info_dict.items() if isinstance(value.idx, index.EmbeddingIndex)
         }
         if len(embedding_idx_info) == 0:
-            raise excs.Error(f'No indices found for {method_name!r} on column {col.name!r}')
+            raise excs.Error(f'No indices found for {method_name!r} on column {self.col.name!r}')
         if idx_name is not None and idx_name not in embedding_idx_info:
-            raise excs.Error(f'Index {idx_name!r} not found for {method_name!r} on column {col.name!r}')
+            raise excs.Error(f'Index {idx_name!r} not found for {method_name!r} on column {self.col.name!r}')
         if len(embedding_idx_info) > 1:
             if idx_name is None:
                 raise excs.Error(
-                    f'Column {col.name!r} has multiple indices; use the index name to disambiguate: '
+                    f'Column {self.col.name!r} has multiple indices; use the index name to disambiguate: '
                     f'`{method_name}(..., idx=<index_name>)`'
                 )
             idx_info = {idx_name: embedding_idx_info[idx_name]}
@@ -153,28 +167,49 @@ class ColumnRef(Expr):
             idx_info = embedding_idx_info
         return idx_info
 
+    def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
+        cat = catalog.Catalog.get()
+        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
+            tbl_version = self.col_handle.tbl_version.get()
+            if tbl_version.id != self.reference_tbl.tbl_id:
+                raise excs.Error('Cannot recompute column of a base.')
+            if tbl_version.is_snapshot:
+                raise excs.Error('Cannot recompute column of a snapshot.')
+            col_name = self.col_handle.get().name
+            status = tbl_version.recompute_columns([col_name], errors_only=errors_only, cascade=cascade)
+            FileCache.get().emit_eviction_warnings()
+            return status
+
     def similarity(self, item: Any, *, idx: Optional[str] = None) -> Expr:
         from .similarity_expr import SimilarityExpr
 
         return SimilarityExpr(self, item, idx_name=idx)
 
     def embedding(self, *, idx: Optional[str] = None) -> ColumnRef:
-        idx_info = ColumnRef.find_embedding_index(self.col, idx, 'embedding')
+        idx_info = self.find_embedding_index(idx, 'embedding')
         assert len(idx_info) == 1
         col = copy.copy(next(iter(idx_info.values())).val_col)
         col.name = f'{self.col.name}_embedding_{idx if idx is not None else ""}'
-        col.create_sa_cols()
+        # col.create_sa_cols()
         return ColumnRef(col)
 
     def default_column_name(self) -> Optional[str]:
-        return str(self)
+        return self.col.name if self.col is not None else None
 
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.perform_validation == other.perform_validation
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
-        tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
-        return tbl.select(self)
+        from pixeltable import plan
+
+        if self.reference_tbl is None:
+            # No reference table; use the current version of the table to which the column belongs
+            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
+            return tbl.select(self)
+        else:
+            # Explicit reference table; construct a DataFrame directly from it
+            return pxt.DataFrame(plan.FromClause([self.reference_tbl])).select(self)
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         return self._df().show(*args, **kwargs)
@@ -187,6 +222,10 @@ class ColumnRef(Expr):
 
     def count(self) -> int:
         return self._df().count()
+
+    def distinct(self) -> 'pxt.dataframe.DataFrame':
+        """Return distinct values in this column."""
+        return self._df().distinct()
 
     def __str__(self) -> str:
         if self.col.name is None:
@@ -203,7 +242,7 @@ class ColumnRef(Expr):
     def _descriptors(self) -> DescriptionHelper:
         tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
         helper = DescriptionHelper()
-        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path!r})')
+        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         helper.append(tbl._col_descriptor([self.col.name]))
         idxs = tbl._index_descriptor([self.col.name])
         if len(idxs) > 0:
@@ -211,7 +250,10 @@ class ColumnRef(Expr):
         return helper
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        return None if self.perform_validation else self.col.sa_col
+        if self.perform_validation:
+            return None
+        self.col = self.col_handle.get()
+        return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.perform_validation:
@@ -252,7 +294,7 @@ class ColumnRef(Expr):
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.tbl.get().iterator_cls(**iterator_args)
+            self.iterator = self.col.tbl.iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)
@@ -260,15 +302,21 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
-        version = tbl.get().version if tbl.get().is_snapshot else None
+        version = tbl.version if tbl.is_snapshot else None
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {
             'tbl_id': str(tbl.id),
             'tbl_version': version,
             'col_id': self.col.id,
+            'reference_tbl': self.reference_tbl.as_dict() if self.reference_tbl is not None else None,
             'perform_validation': self.perform_validation,
         }
+
+    @classmethod
+    def get_column_id(cls, d: dict) -> catalog.QColumnId:
+        tbl_id, col_id = UUID(d['tbl_id']), d['col_id']
+        return catalog.QColumnId(tbl_id, col_id)
 
     @classmethod
     def get_column(cls, d: dict) -> catalog.Column:
@@ -281,5 +329,6 @@ class ColumnRef(Expr):
     @classmethod
     def _from_dict(cls, d: dict, _: list[Expr]) -> ColumnRef:
         col = cls.get_column(d)
+        reference_tbl = None if d['reference_tbl'] is None else catalog.TableVersionPath.from_dict(d['reference_tbl'])
         perform_validation = d['perform_validation']
-        return cls(col, perform_validation=perform_validation)
+        return cls(col, reference_tbl, perform_validation=perform_validation)

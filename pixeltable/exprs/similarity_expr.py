@@ -26,7 +26,7 @@ class SimilarityExpr(Expr):
         from pixeltable import index
 
         # determine index to use
-        idx_dict = ColumnRef.find_embedding_index(col_ref.col, idx_name, 'similarity')
+        idx_dict = col_ref.find_embedding_index(idx_name, 'similarity')
         assert len(idx_dict) == 1
         self.idx_info = next(iter(idx_dict.values()))
         idx = self.idx_info.idx
@@ -54,6 +54,7 @@ class SimilarityExpr(Expr):
         return 'similarity'
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+        # TODO: validate that the index still exists
         if not isinstance(self.components[1], Literal):
             raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val

@@ -84,7 +84,8 @@ class Dir(Base):
     )
     parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # DirMd
-    # This field is updated to synchronize database operations across multiple sessions
+
+    # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
@@ -146,6 +147,9 @@ class ViewMd:
     # filter predicate applied to the base table; view-only
     predicate: Optional[dict[str, Any]]
 
+    # sampling predicate applied to the base table; view-only
+    sample_clause: Optional[dict[str, Any]]
+
     # ComponentIterator subclass; only for component views
     iterator_class_fqn: Optional[str]
 
@@ -173,6 +177,11 @@ class TableMd:
     # - every row is assigned a unique and immutable rowid on insertion
     next_row_id: int
 
+    # sequence number to track changes in the set of mutable views of this table (ie, this table = the view base)
+    # - incremented for each add/drop of a mutable view
+    # - only maintained for mutable tables
+    view_sn: int
+
     # Metadata format for external stores:
     # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}
     external_stores: list[dict[str, Any]]
@@ -199,6 +208,9 @@ class Table(Base):
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
+
+    # used to force acquisition of an X-lock via an Update stmt
+    lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
 @dataclasses.dataclass

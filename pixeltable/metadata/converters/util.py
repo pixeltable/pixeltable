@@ -33,9 +33,10 @@ def convert_table_md(
             the original entry will be replaced, and the traversal will continue with `v'`.
     """
     with engine.begin() as conn:
-        for row in conn.execute(sql.select(Table)):
+        # avoid a SELECT * here, which breaks when we add new columns to Table
+        for row in conn.execute(sql.select(Table.id, Table.md)):
             tbl_id = row[0]
-            table_md = row[2]
+            table_md = row[1]
             assert isinstance(table_md, dict)
             updated_table_md = copy.deepcopy(table_md)
             if table_md_updater is not None:
@@ -143,13 +144,6 @@ def __update_schema_column(table_schema_version_md: dict, schema_column_updater:
     assert isinstance(cols, dict)
     for schema_col in cols.values():
         schema_column_updater(schema_col)
-
-
-def convert_table_record(engine: sql.engine.Engine, table_record_updater: Optional[Callable[[Table], None]]) -> None:
-    with sql.orm.Session(engine, future=True) as session:
-        for record in session.query(Table).all():
-            table_record_updater(record)
-        session.commit()
 
 
 def convert_table_version_record(

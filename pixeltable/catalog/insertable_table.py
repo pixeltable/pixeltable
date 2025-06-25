@@ -51,6 +51,7 @@ class InsertableTable(Table):
     def __init__(self, dir_id: UUID, tbl_version: TableVersionHandle):
         tbl_version_path = TableVersionPath(tbl_version)
         super().__init__(tbl_version.id, dir_id, tbl_version.get().name, tbl_version_path)
+        self._tbl_version = tbl_version
 
     @classmethod
     def _display_name(cls) -> str:
@@ -103,8 +104,8 @@ class InsertableTable(Table):
         Env.get().console_logger.info(f'Created table `{name}`.')
         return tbl
 
-    def get_metadata(self) -> dict[str, Any]:
-        md = super().get_metadata()
+    def _get_metadata(self) -> dict[str, Any]:
+        md = super()._get_metadata()
         md['is_view'] = False
         md['is_snapshot'] = False
         return md
@@ -138,42 +139,46 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
+        from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
-        table = self
-        if source is None:
-            source = [kwargs]
-            kwargs = None
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            table = self
+            if source is None:
+                source = [kwargs]
+                kwargs = None
 
-        tds = UnkTableDataConduit(
-            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-        )
-        data_source = tds.specialize()
-        if data_source.source_column_map is None:
-            data_source.src_pk = []
+            tds = UnkTableDataConduit(
+                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+            )
+            data_source = tds.specialize()
+            if data_source.source_column_map is None:
+                data_source.src_pk = []
 
-        assert isinstance(table, Table)
-        data_source.add_table_info(table)
-        data_source.prepare_for_insert_into_table()
+            assert isinstance(table, Table)
+            data_source.add_table_info(table)
+            data_source.prepare_for_insert_into_table()
 
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        return table.insert_table_data_source(
-            data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
-        )
+            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+            return table.insert_table_data_source(
+                data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+            )
 
     def insert_table_data_source(
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
+        from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import DFTableDataConduit
 
         status = pxt.UpdateStatus()
-        with Env.get().begin_xact():
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if isinstance(data_source, DFTableDataConduit):
-                status += self._tbl_version.get().insert(
+                status = self._tbl_version.get().insert(
                     rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
                 )
             else:
+                status = UpdateStatus()
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
                         rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
@@ -186,7 +191,7 @@ class InsertableTable(Table):
 
     def _validate_input_rows(self, rows: list[dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
-        valid_col_names = set(self._schema.keys())
+        valid_col_names = set(self._get_schema().keys())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get().get_required_col_names())
         computed_col_names = set(self._tbl_version_path.tbl_version.get().get_computed_col_names())
         for row in rows:
@@ -226,11 +231,12 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        with Env.get().begin_xact():
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             return self._tbl_version.get().delete(where=where)
 
-    @property
-    def _base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> Optional['Table']:
         return None
 
     @property
@@ -238,4 +244,4 @@ class InsertableTable(Table):
         return []
 
     def _table_descriptor(self) -> str:
-        return f'Table {self._path!r}'
+        return f'Table {self._path()!r}'

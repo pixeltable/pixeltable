@@ -249,13 +249,17 @@ def create_view(
     where: Optional[exprs.Expr] = None
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
+        sample_clause = None
     elif isinstance(base, DataFrame):
         base._validate_mutable('create_view', allow_select=True)
         if len(base._from_clause.tbls) > 1:
             raise excs.Error('Cannot create a view of a join')
         tbl_version_path = base._from_clause.tbls[0]
         where = base.where_clause
+        sample_clause = base.sample_clause
         select_list = base.select_list
+        if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
+            raise excs.Error('Non-snapshot views cannot be created with non-fractional or stratified sampling')
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, (catalog.Table, DataFrame))
@@ -272,7 +276,7 @@ def create_view(
             if col_name in [c.name for c in tbl_version_path.columns()]:
                 raise excs.Error(
                     f'Column {col_name!r} already exists in the base table '
-                    f'{tbl_version_path.get_column(col_name).tbl.get().name}.'
+                    f'{tbl_version_path.get_column(col_name).tbl.name}.'
                 )
 
     return Catalog.get().create_view(
@@ -280,6 +284,7 @@ def create_view(
         tbl_version_path,
         select_list=select_list,
         where=where,
+        sample_clause=sample_clause,
         additional_columns=additional_columns,
         is_snapshot=is_snapshot,
         iterator=iterator,
@@ -422,7 +427,8 @@ def get_table(path: str) -> catalog.Table:
         >>> tbl = pxt.get_table('my_snapshot')
     """
     path_obj = catalog.Path(path)
-    return Catalog.get().get_table(path_obj)
+    tbl = Catalog.get().get_table(path_obj)
+    return tbl
 
 
 def move(path: str, new_path: str) -> None:
@@ -493,8 +499,8 @@ def drop_table(
     if isinstance(table, catalog.Table):
         # if we're dropping a table by handle, we first need to get the current path, then drop the S lock on
         # the Table record, and then get X locks in the correct order (first containing directory, then table)
-        with Env.get().begin_xact():
-            tbl_path = table._path
+        with Catalog.get().begin_xact(for_write=False):
+            tbl_path = table._path()
     else:
         assert isinstance(table, str)
         tbl_path = table
@@ -652,21 +658,21 @@ def ls(path: str = '') -> pd.DataFrame:
                 if tvp.is_snapshot():
                     kind = 'snapshot'
                     version = ''
-                    if tbl._id != tvp.tbl_id():
+                    if tbl._id != tvp.tbl_id:
                         # pure snapshot
-                        base_tbl = Catalog.get().get_table_by_id(tvp.tbl_id())
-                        base = f'{base_tbl._path}:{tv.version}'
+                        base_tbl = Catalog.get().get_table_by_id(tvp.tbl_id)
+                        base = f'{base_tbl._path()}:{tv.version}'
                     else:
                         assert tvp.base is not None
-                        base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id())
+                        base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id)
                         base_tv = tvp.base.tbl_version.get()
-                        base = f'{base_tbl._path}:{base_tv.version}'
+                        base = f'{base_tbl._path()}:{base_tv.version}'
                 elif tvp.is_view():
                     kind = 'view'
                     version = str(tv.version)
                     assert tvp.base is not None
-                    base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id())
-                    base = base_tbl._path
+                    base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id)
+                    base = base_tbl._path()
                 else:
                     kind = 'table'
                     version = str(tv.version)

@@ -15,7 +15,7 @@ class TestImport:
             data = json.loads(fp.read())
         t1 = pxt.io.import_rows('example1', data)
         assert t1.count() == 4
-        assert t1._schema == {
+        assert t1._get_schema() == {
             'name': ts.StringType(nullable=True),
             'human': ts.BoolType(nullable=True),
             'parents': ts.JsonType(nullable=True),
@@ -26,7 +26,7 @@ class TestImport:
 
         t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': ts.FloatType(nullable=True)})
         assert t2.count() == 4
-        assert t2._schema == {
+        assert t2._get_schema() == {
             'name': ts.StringType(nullable=True),
             'human': ts.BoolType(nullable=True),
             'parents': ts.JsonType(nullable=True),
@@ -84,7 +84,7 @@ class TestImport:
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json('example', str(example))
         assert t1.count() == 4
-        assert t1._schema == {
+        assert t1._get_schema() == {
             'name': ts.StringType(nullable=True),
             'human': ts.BoolType(nullable=True),
             'parents': ts.JsonType(nullable=True),

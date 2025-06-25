@@ -4,6 +4,53 @@ description: 'Keep track of changes'
 icon: 'newspaper'
 ---
 
+<Update label="2025-06-16" description="v0.4.0">
+### Highlights
+* Added support for concurrent insert/query and table/view operations
+* Introduced sample() operator for deterministic, pseudo-random samples of tables and data frames
+* Enhanced API flexibility for optional LLM parameters
+* Added Groq integration
+* Added MCP (Model Context Protocol) integration
+* Added HEIC image support
+
+### Enhancements
+* Implemented SQL generation for many string methods
+* Refactored inference API integrations to use model_kwargs dicts instead of explicit parameters
+* Made TableVersion timestamps consistent across propagated changes
+* Consolidated SQL generation related to sampling inside SqlSampleNode
+* Improved handling of nullary JsonMapper expressions
+* Enhanced concurrent view interactions
+
+</Update>
+
+<Update label="2025-06-03" description="v0.3.15">
+### Highlights
+* Added UDFs for Google Imagen and Veo
+* Added support for Tool Calling in Gemini
+* Improved handling of base table merging when pulling replicas
+
+### Enhancements
+* Enhanced consistency when merging different versions of base tables during replica pulls
+
+</Update>
+
+<Update label="2025-05-05" description="v0.3.13">
+### Highlights
+* Added AWS Bedrock Adapter for expanded LLM integration options
+* Built Reddit Agentic Bot
+
+### Enhancements
+* Improved Table._descriptors() functionality
+* Added markdown support when displaying table/dataframe descriptors
+* Removed internal column types from pixeltable top level module
+* Used source CTE explicitly to generate GROUP BY for query optimization
+* Added comprehensive user workflow test script with timing
+
+### Fixes
+* Improved error reporting in ExprEvalError
+* Ensured that extra_fields is properly set in TableDataConduit
+</Update>
+
 <Update label="2025-04-18" description="v0.3.12">
 ### Highlights
 * Introduced pxt.retrieval_tool() for exposing tabular data as a RAG data source

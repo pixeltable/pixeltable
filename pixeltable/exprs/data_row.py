@@ -42,6 +42,10 @@ class DataRow:
     has_val: np.ndarray  # of bool
     excs: np.ndarray  # of object
 
+    # If `may_have_exc` is False, then we guarantee that no slot has an exception set. This is used to optimize
+    # exception handling under normal operation.
+    _may_have_exc: bool
+
     # expr evaluation state; indexed by slot idx
     missing_slots: np.ndarray  # of bool; number of missing dependencies
     missing_dependents: np.ndarray  # of int16; number of missing dependents
@@ -90,6 +94,7 @@ class DataRow:
         self.vals = np.full(num_slots, None, dtype=object)
         self.has_val = np.zeros(num_slots, dtype=bool)
         self.excs = np.full(num_slots, None, dtype=object)
+        self._may_have_exc = False
         self.missing_slots = np.zeros(num_slots, dtype=bool)
         self.missing_dependents = np.zeros(num_slots, dtype=np.int16)
         self.is_scheduled = np.zeros(num_slots, dtype=bool)
@@ -136,6 +141,9 @@ class DataRow:
         """
         Returns True if an exception has been set for the given slot index, or for any slot index if slot_idx is None
         """
+        if not self._may_have_exc:
+            return False
+
         if slot_idx is not None:
             return self.excs[slot_idx] is not None
         return (self.excs != None).any()
@@ -154,6 +162,7 @@ class DataRow:
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
         assert self.excs[slot_idx] is None
         self.excs[slot_idx] = exc
+        self._may_have_exc = True
 
         # an exception means the value is None
         self.has_val[slot_idx] = True
@@ -214,6 +223,7 @@ class DataRow:
         """Assign in-memory cell value
         This allows overwriting
         """
+        assert isinstance(idx, int)
         assert self.excs[idx] is None
 
         if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
@@ -253,14 +263,15 @@ class DataRow:
         assert self.excs[index] is None
         if self.file_paths[index] is None:
             if filepath is not None:
-                # we want to save this to a file
-                self.file_paths[index] = filepath
-                self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
                 image = self.vals[index]
                 assert isinstance(image, PIL.Image.Image)
                 # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
                 # In that case, use WebP instead.
                 format = 'webp' if image.has_transparency_data else 'jpeg'
+                if not filepath.endswith(f'.{format}'):
+                    filepath += f'.{format}'
+                self.file_paths[index] = filepath
+                self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
                 image.save(filepath, format=format)
             else:
                 # we discard the content of this cell

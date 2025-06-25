@@ -35,7 +35,7 @@ def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     upload_id = response_json['upload_id']
     destination_uri = response_json['destination_uri']
 
-    Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path}' at: {dest_tbl_uri}")
+    Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path()}' at: {dest_tbl_uri}")
 
     bundle = packager.package()
 
@@ -106,7 +106,6 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     if not isinstance(response_json, dict) or 'table_uri' not in response_json:
         raise excs.Error(f'Error cloning shapshot: unexpected response from server.\n{response_json}')
 
-    print(response_json)
     primary_tbl_additional_md = response_json['md']['tables'][0]['table_md']['additional_md']
     bundle_uri = primary_tbl_additional_md['destination_uri']
     bundle_filename = primary_tbl_additional_md['datafile']
@@ -118,7 +117,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
 
     restorer = TableRestorer(dest_path, response_json)
     tbl = restorer.restore(bundle_path)
-    Env.get().console_logger.info(f'Created local replica {tbl._path!r} from URI: {src_tbl_uri}')
+    Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
 
 
@@ -144,7 +143,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
         unit='B',
         unit_scale=True,
         unit_divisor=1024,
-        miniters=1,  # Update every iteration (should be fine for an upload)
+        miniters=1,
         ncols=100,
         file=sys.stdout,
     )

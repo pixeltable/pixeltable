@@ -16,6 +16,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs, exprs, functions as pxtf
+from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
@@ -127,17 +128,19 @@ class TestExprs:
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
         sql_elements = exprs.SqlElementCache()
-        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
-        assert len(e.clauses) == 2
+        # Expr.sql_expr() needs to run in the context of a transaction
+        with Catalog.get().begin_xact(for_write=False):
+            e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
+            assert len(e.clauses) == 2
 
-        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
-        assert len(e.clauses) == 3
-        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
-        assert len(e.clauses) == 2
-        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
-        assert len(e.clauses) == 3
-        e = sql_elements.get((~(t.c1 == 'test string')))
-        assert isinstance(e, sql.sql.expression.BinaryExpression)
+            e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
+            assert len(e.clauses) == 3
+            e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
+            assert len(e.clauses) == 2
+            e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
+            assert len(e.clauses) == 3
+            e = sql_elements.get((~(t.c1 == 'test string')))
+            assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         with pytest.raises(TypeError) as exc_info:
             _ = t.where((t.c1 == 'test string') or (t.c6.f1 > 50)).collect()
@@ -1246,6 +1249,16 @@ class TestExprs:
         r4 = t.group_by(t.c_bool, t.c_string).select(two='2').collect()
         assert len(r1) == len(r4)
 
+        # we correctly apply a limit to the agg output
+        r5 = t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int)).collect()['s']
+        r6 = (
+            t.group_by(t.c_bool)
+            .select(s=pxtf.sum(t.c_int.apply(lambda x: x, col_type=pxt.Int)))
+            .limit(3)
+            .collect()['s']
+        )
+        assert set(r5) == set(r6)
+
         for pxt_fn, pd_fn in [
             (pxtf.sum, 'sum'),
             (pxtf.mean, 'mean'),
@@ -1549,6 +1562,35 @@ class TestExprs:
         assert list(results[1].values()) == ['AB', 'AAA', 'BBB', 'A/BA/B']
 
         reload_tester.run_reload_test()
+
+    def test_base_table_col_refs(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        # Filter down to just 5 rows of the table.
+        v = pxt.create_view('test_view', t.where(t.c2 < 5))
+
+        assert len(t.c2.head(n=100)) == 100
+        assert len(v.c2.head(n=100)) == 5
+        assert len(t.c2.tail(n=100)) == 100
+        assert len(v.c2.tail(n=100)) == 5
+        assert len(t.c2.show(n=100)) == 100
+        assert len(v.c2.show(n=100)) == 5
+
+        assert t.c2.head()._col_names == ['c2']
+        assert v.c2.head()._col_names == ['c2']
+
+        # Test snapshots of the base table and of the view, with and without additional_columns
+        snap1 = pxt.create_snapshot('test_snapshot_1', t)
+        snap2 = pxt.create_snapshot('test_snapshot_2', v)
+        snap3 = pxt.create_snapshot('test_snapshot_3', t, additional_columns={'x1': t.c2})
+        snap4 = pxt.create_snapshot('test_snapshot_4', v, additional_columns={'x1': v.c2})
+        t.delete()
+
+        assert len(t.c2.head(n=100)) == 0
+        assert len(v.c2.head(n=100)) == 0
+        assert len(snap1.c2.head(n=100)) == 100
+        assert len(snap2.c2.head(n=100)) == 5
+        assert len(snap3.c2.head(n=100)) == 100
+        assert len(snap4.c2.head(n=100)) == 5
 
 
 @pxt.udf

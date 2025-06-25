@@ -1,4 +1,4 @@
-import platform
+import os
 import sysconfig
 
 import pytest
@@ -9,14 +9,10 @@ from ..utils import get_audio_files, skip_test_if_not_installed, validate_update
 
 
 class TestWhisperx:
-    @pytest.mark.skip(reason='Temporarily disabled (failing in CI)')
     @pytest.mark.skipif(
-        platform.system() == 'Darwin' and platform.machine() != 'arm64',
-        reason='Does not run on Intel macOS machines (at least in CI)',
+        sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on CI Linux ARM instances'
     )
-    @pytest.mark.skipif(
-        sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
-    )
+    @pytest.mark.skipif(os.environ.get('PXTTEST_CI_OS') == 'ubuntu-x64-t4', reason='crashes on t4 CI instances')
     def test_whisperx(self, reset_db: None) -> None:
         skip_test_if_not_installed('whisperx')
         from pixeltable.ext.functions import whisperx

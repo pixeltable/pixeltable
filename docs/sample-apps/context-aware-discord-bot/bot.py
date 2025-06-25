@@ -4,7 +4,6 @@ from datetime import datetime
 
 import discord
 import numpy as np
-from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from message_formatter import MessageFormatter
@@ -118,10 +117,12 @@ class PixelTableBot:
                         {'role': 'user', 'content': self.chat_table.prompt},
                     ],
                     model='gpt-4o-mini',
-                    temperature=0.7,
-                    max_tokens=2000,
-                    presence_penalty=0.7,
-                    frequency_penalty=0.5,
+                    model_kwargs={
+                        'temperature': 0.7,
+                        'max_tokens': 2000,
+                        'presence_penalty': 0.7,
+                        'frequency_penalty': 0.5,
+                    },
                 )
                 .choices[0]
                 .message.content

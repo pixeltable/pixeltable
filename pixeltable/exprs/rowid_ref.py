@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -11,6 +12,8 @@ from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
+
+_logger = logging.getLogger('pixeltable')
 
 
 class RowidRef(Expr):
@@ -97,6 +100,7 @@ class RowidRef(Expr):
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
+        assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()
         assert self.rowid_component_idx <= len(rowid_cols), (
             f'{self.rowid_component_idx} not consistent with {rowid_cols}'
