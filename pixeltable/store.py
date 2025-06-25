@@ -130,7 +130,7 @@ class StoreBase:
         """Move tmp media file with given url to Env.media_dir and return new url, or given url if not a tmp_dir file"""
         if file_url is None:
             return None
-        assert isinstance(file_url, str)
+        assert isinstance(file_url, str), type(file_url)
         pxt_tmp_dir = str(Env.get().tmp_dir)
         parsed = urllib.parse.urlparse(file_url)
         # We should never be passed a local file path here. The "len > 1" ensures that Windows
@@ -221,7 +221,7 @@ class StoreBase:
                 self.add_column(col)
 
     def load_column(
-        self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, on_error: Literal['abort', 'ignore']
+        self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, abort_on_exc: bool
     ) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
@@ -234,22 +234,22 @@ class StoreBase:
         assert col.tbl.id == self.tbl_version.id
         num_excs = 0
         num_rows = 0
+        cols_with_excs: set[int] = set()
         # create temp table to store output of exec_plan, with the same primary key as the store table
         tmp_name = f'temp_{self._storage_name()}'
-        tmp_pk_cols = [sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns()]
-        tmp_cols = tmp_pk_cols.copy()
+        tmp_pk_cols = tuple(sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns())
         tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
-        tmp_cols.append(tmp_val_col)
         # add error columns if the store column records errors
         if col.records_errors:
             tmp_errortype_col = sql.Column(col.sa_errortype_col.name, col.sa_errortype_col.type)
-            tmp_cols.append(tmp_errortype_col)
             tmp_errormsg_col = sql.Column(col.sa_errormsg_col.name, col.sa_errormsg_col.type)
-            tmp_cols.append(tmp_errormsg_col)
+            tmp_cols = (*tmp_pk_cols, tmp_val_col, tmp_errortype_col, tmp_errormsg_col)
+        else:
+            tmp_cols = (*tmp_pk_cols, tmp_val_col)
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
         conn = Env.get().conn
         tmp_tbl.create(bind=conn)
-        tmp_col_names = [col.name for col in tmp_cols]
+        tmp_col_names = tuple(col.name for col in tmp_cols)
 
         row_builder = exec_plan.row_builder
 
@@ -261,10 +261,17 @@ class StoreBase:
                 num_rows += len(row_batch)
                 batch_table_rows: list[tuple[Any]] = []
 
-                for result_row in row_batch:
-                    tbl_row, num_row_exc = row_builder.create_table_row(result_row, set(), result_row.pk, abort_on_exc=(on_error == 'abort'), move_tmp_media_file=self._move_tmp_media_file)
+                for row in row_batch:
+                    if abort_on_exc and row.has_exc():
+                        exc = row.get_first_exc()
+                        raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}') from exc
+                    table_row, num_row_exc = row_builder.create_table_row(row, cols_with_excs, row.pk)
+                    if col.col_type.is_media_type():
+                        table_row[len(tmp_pk_cols)] = self._move_tmp_media_file(
+                            table_row[len(tmp_pk_cols)], col, row.pk[-1]
+                        )
                     num_excs += num_row_exc
-                    batch_table_rows.append(tuple(tbl_row))
+                    batch_table_rows.append(tuple(table_row))
 
                 table_rows.extend(batch_table_rows)
 
@@ -288,6 +295,7 @@ class StoreBase:
             conn.execute(update_stmt)
 
         finally:
+
             def remove_tmp_tbl() -> None:
                 self.sa_md.remove(tmp_tbl)
                 tmp_tbl.drop(bind=conn)

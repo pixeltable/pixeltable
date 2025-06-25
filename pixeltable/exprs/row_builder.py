@@ -436,7 +436,7 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int], pk: tuple[int, ...], abort_on_exc: bool = False, move_tmp_media_file: Optional[Callable] = None) -> tuple[list[Any], int]:
+    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int], pk: tuple[int, ...]) -> tuple[list[Any], int]:
         """Create a table row from the slots that have an output column assigned
 
         Return tuple[list of row values in `self.table_columns` order, # of exceptions]
@@ -449,10 +449,6 @@ class RowBuilder:
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
-                if abort_on_exc:
-                    raise excs.Error(
-                        f'Error while evaluating computed column {col.name!r}:\n{exc}'
-                    ) from exc
                 exc_col_ids.add(col.id)
                 table_row.append(None)
                 if col.records_errors:
@@ -464,8 +460,6 @@ class RowBuilder:
                     filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
                     data_row.flush_img(slot_idx, filepath)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
-                if move_tmp_media_file is not None and col.col_type.is_media_type():
-                    val = move_tmp_media_file(val, col, pk[-1])
                 table_row.append(val)
                 if col.records_errors:
                     table_row.extend((None, None))
