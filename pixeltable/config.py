@@ -39,7 +39,7 @@ class Config:
 
         self.__home = Path(self.lookup_env('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
-            raise RuntimeError(f'{self.__home} is not a directory')
+            raise excs.Error(f'Not a directory: {self.__home}')
         if not self.__home.exists():
             print(f'Creating a Pixeltable instance at: {self.__home}')
             self.__home.mkdir()
@@ -122,7 +122,7 @@ class Config:
                     raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
                 return value.lower() == 'true'  # type: ignore[return-value]
             return expected_type(value)  # type: ignore[call-arg]
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
 
     def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
@@ -151,9 +151,11 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'API key for Pixeltable cloud',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
+    'bedrock': {'api_key': 'AWS Bedrock API key'},
     'deepseek': {'api_key': 'Deepseek API key'},
     'fireworks': {'api_key': 'Fireworks API key'},
     'gemini': {'api_key': 'Gemini API key'},
+    'groq': {'api_key': 'Groq API key'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
     'mistral': {'api_key': 'Mistral API key'},
     'openai': {'api_key': 'OpenAI API key'},
