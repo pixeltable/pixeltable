@@ -249,47 +249,31 @@ class StoreBase:
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
         conn = Env.get().conn
         tmp_tbl.create(bind=conn)
+        tmp_col_names = [col.name for col in tmp_cols]
+
+        row_builder = exec_plan.row_builder
 
         try:
+            table_rows: list[tuple[Any]] = []
+
             # insert rows from exec_plan into temp table
-            # TODO: unify the table row construction logic with RowBuilder.create_table_row()
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                tbl_rows: list[dict[str, Any]] = []
+                batch_table_rows: list[tuple[Any]] = []
+
                 for result_row in row_batch:
-                    tbl_row: dict[str, Any] = {}
-                    for pk_col, pk_val in zip(self.pk_columns(), result_row.pk):
-                        tbl_row[pk_col.name] = pk_val
+                    tbl_row, num_row_exc = row_builder.create_table_row(result_row, set(), result_row.pk, abort_on_exc=(on_error == 'abort'), move_tmp_media_file=self._move_tmp_media_file)
+                    num_excs += num_row_exc
+                    batch_table_rows.append(tuple(tbl_row))
 
-                    if col.is_computed:
-                        if result_row.has_exc(value_expr_slot_idx):
-                            num_excs += 1
-                            value_exc = result_row.get_exc(value_expr_slot_idx)
-                            if on_error == 'abort':
-                                raise excs.Error(
-                                    f'Error while evaluating computed column `{col.name}`:\n{value_exc}'
-                                ) from value_exc
-                            # we store a NULL value and record the exception/exc type
-                            error_type = type(value_exc).__name__
-                            error_msg = str(value_exc)
-                            tbl_row[col.sa_col.name] = None
-                            tbl_row[col.sa_errortype_col.name] = error_type
-                            tbl_row[col.sa_errormsg_col.name] = error_msg
-                        else:
-                            if col.col_type.is_image_type() and result_row.file_urls[value_expr_slot_idx] is None:
-                                # we have yet to store this image
-                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
-                                result_row.flush_img(value_expr_slot_idx, filepath)
-                            val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
-                            if col.col_type.is_media_type():
-                                val = self._move_tmp_media_file(val, col, result_row.pk[-1])
-                            tbl_row[col.sa_col.name] = val
-                            if col.records_errors:
-                                tbl_row[col.sa_errortype_col.name] = None
-                                tbl_row[col.sa_errormsg_col.name] = None
+                table_rows.extend(batch_table_rows)
 
-                    tbl_rows.append(tbl_row)
-                conn.execute(sql.insert(tmp_tbl), tbl_rows)
+                if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                    self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
+                    table_rows.clear()
+
+            if len(table_rows) > 0:
+                self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
 
             # update store table with values from temp table
             update_stmt = sql.update(self.sa_tbl)
@@ -302,13 +286,14 @@ class StoreBase:
                 )
             log_explain(_logger, update_stmt, conn)
             conn.execute(update_stmt)
-        finally:
 
+        finally:
             def remove_tmp_tbl() -> None:
                 self.sa_md.remove(tmp_tbl)
                 tmp_tbl.drop(bind=conn)
 
             run_cleanup(remove_tmp_tbl, raise_error=True)
+
         return num_excs
 
     def insert_rows(
@@ -372,12 +357,12 @@ class StoreBase:
 
                 # if a batch is ready for insertion into the database, insert it
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
-                    self.sql_insert(store_col_names, table_rows)
+                    self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                     table_rows.clear()
 
             # insert any remaining rows
             if len(table_rows) > 0:
-                self.sql_insert(store_col_names, table_rows)
+                self.sql_insert(self.sa_tbl, store_col_names, table_rows)
 
             if progress_bar is not None:
                 progress_bar.close()
@@ -391,10 +376,11 @@ class StoreBase:
         finally:
             exec_plan.close()
 
-    def sql_insert(self, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
+    @classmethod
+    def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
         conn = Env.get().conn
-        conn.execute(sql.insert(self.sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+        conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
         #     differences in the data representation that SQLAlchemy/psycopg expect. The below code will do the
