@@ -38,6 +38,8 @@ for notebook in $(find "$@" -name '*.ipynb' | grep -v .ipynb_checkpoints); do
     fi
 done
 
+rm "$TEST_PATH/working-with-gemini.ipynb"  # Temporary
+
 # Get a list of all API keys referenced in the notebooks
 REF_API_KEYS=$(grep -hoE '[A-Z_]*_(API|ACCESS)_(KEY|TOKEN)' "$TEST_PATH"/*.ipynb | sort | uniq)
 echo

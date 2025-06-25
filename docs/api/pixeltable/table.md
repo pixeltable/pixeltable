@@ -12,11 +12,12 @@ To get a handle to an existing table/view/snapshot, call [`pxt.get_table`][pixel
 
 ## Overview
 
-| Column Operations                                  |                                        |
-|----------------------------------------------------|----------------------------------------|
-| [`add_column`][pixeltable.Table.add_column]        | Add a column to the table or view      |
-| [`drop_column`][pixeltable.Table.drop_column]      | Remove a column from the table or view |
-| [`rename_column`][pixeltable.Table.rename_column]  | Rename a column                        |
+| Column Operations                                         |                                        |
+|-----------------------------------------------------------|----------------------------------------|
+| [`add_column`][pixeltable.Table.add_column]               | Add a column to the table or view      |
+| [`drop_column`][pixeltable.Table.drop_column]             | Remove a column from the table or view |
+| [`rename_column`][pixeltable.Table.rename_column]         | Rename a column                        |
+| [`recompute_columns`][pixeltable.Table.recompute_columns] | Recompute one or more computed columns |
 
 | Data Operations                       |                              |
 |---------------------------------------|------------------------------|

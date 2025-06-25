@@ -14,6 +14,7 @@ from .exec_node import ExecNode
 
 if TYPE_CHECKING:
     import pixeltable.plan
+    from pixeltable.plan import SampleClause
 
 _logger = logging.getLogger('pixeltable')
 
@@ -64,8 +65,12 @@ def print_order_by_clause(clause: OrderByClause) -> str:
 
 class SqlNode(ExecNode):
     """
-    Materializes data from the store via a Select stmt.
+    Materializes data from the store via an SQL statement.
     This only provides the select list. The subclasses are responsible for the From clause and any additional clauses.
+    The pk columns are not included in the select list.
+    If set_pk is True, they are added to the end of the result set when creating the SQL statement
+    so they can always be referenced as cols[-num_pk_cols:] in the result set.
+    The pk_columns consist of the rowid columns of the target table followed by the version number.
     """
 
     tbl: Optional[catalog.TableVersionPath]
@@ -122,6 +127,7 @@ class SqlNode(ExecNode):
             # we also need to retrieve the pk columns
             assert tbl is not None
             self.num_pk_cols = len(tbl.tbl_version.get().store_tbl.pk_columns())
+            assert self.num_pk_cols > 1
 
         # additional state
         self.result_cursor = None
@@ -134,14 +140,25 @@ class SqlNode(ExecNode):
         self.where_clause_element = None
         self.order_by_clause = []
 
+        if self.tbl is not None:
+            tv = self.tbl.tbl_version._tbl_version
+            if tv is not None:
+                assert tv.is_validated
+
+    def _create_pk_cols(self) -> list[sql.Column]:
+        """Create a list of pk columns"""
+        # we need to retrieve the pk columns
+        if self.set_pk:
+            assert self.tbl is not None
+            assert self.tbl.tbl_version.get().is_validated
+            return self.tbl.tbl_version.get().store_tbl.pk_columns()
+        return []
+
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
-        sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
-        if self.set_pk:
-            assert self.tbl is not None
-            sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
+        sql_select_list = [self.sql_elements.get(e) for e in self.select_list] + self._create_pk_cols()
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
@@ -167,9 +184,10 @@ class SqlNode(ExecNode):
     def _ordering_tbl_ids(self) -> set[UUID]:
         return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
 
-    def to_cte(self) -> Optional[tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]]:
+    def to_cte(self, keep_pk: bool = False) -> Optional[tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]]:
         """
-        Returns a CTE that materializes the output of this node plus a mapping from select list expr to output column
+        Creates a CTE that materializes the output of this node plus a mapping from select list expr to output column.
+        keep_pk: if True, the PK columns are included in the CTE Select statement
 
         Returns:
             (CTE, dict from Expr to output column)
@@ -177,11 +195,13 @@ class SqlNode(ExecNode):
         if self.py_filter is not None:
             # the filter needs to run in Python
             return None
-        self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
         if self.cte is None:
+            if not keep_pk:
+                self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
             self.cte = self._create_stmt().cte()
-            assert len(self.cte.c) == len(self.select_list)
-        return self.cte, exprs.ExprDict(zip(self.select_list, self.cte.c))
+        pk_count = self.num_pk_cols if self.set_pk else 0
+        assert len(self.select_list) + pk_count == len(self.cte.c)
+        return self.cte, exprs.ExprDict(zip(self.select_list, self.cte.c))  # skip pk cols
 
     @classmethod
     def retarget_rowid_refs(cls, target: catalog.TableVersionPath, expr_seq: Iterable[exprs.Expr]) -> None:
@@ -220,26 +240,29 @@ class SqlNode(ExecNode):
                 joined_tbls.append(t)
 
         first = True
-        prev_tbl: Optional[catalog.TableVersionHandle] = None
+        prev_tv: Optional[catalog.TableVersion] = None
         for t in joined_tbls[::-1]:
+            tv = t.get()
+            # _logger.debug(f'create_from_clause: tbl_id={tv.id} {id(tv.store_tbl.sa_tbl)}')
             if first:
-                stmt = stmt.select_from(t.get().store_tbl.sa_tbl)
+                stmt = stmt.select_from(tv.store_tbl.sa_tbl)
                 first = False
             else:
-                # join tbl to prev_tbl on prev_tbl's rowid cols
-                prev_tbl_rowid_cols = prev_tbl.get().store_tbl.rowid_columns()
-                tbl_rowid_cols = t.get().store_tbl.rowid_columns()
+                # join tv to prev_tv on prev_tv's rowid cols
+                prev_tbl_rowid_cols = prev_tv.store_tbl.rowid_columns()
+                tbl_rowid_cols = tv.store_tbl.rowid_columns()
                 rowid_clauses = [
                     c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
                 ]
-                stmt = stmt.join(t.get().store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+                stmt = stmt.join(tv.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+
             if t.id in exact_version_only:
-                stmt = stmt.where(t.get().store_tbl.v_min_col == t.get().version)
+                stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
             else:
-                stmt = stmt.where(t.get().store_tbl.v_min_col <= t.get().version).where(
-                    t.get().store_tbl.v_max_col > t.get().version
-                )
-            prev_tbl = t
+                stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
+                stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
+            prev_tv = tv
+
         return stmt
 
     def set_where(self, where_clause: exprs.Expr) -> None:
@@ -284,7 +307,8 @@ class SqlNode(ExecNode):
                 stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
                 _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
             except Exception:
-                pass
+                # log something if we can't log the compiled stmt
+                _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
             self._log_explain(stmt)
 
             conn = Env.get().conn
@@ -500,4 +524,146 @@ class SqlJoinNode(SqlNode):
                 isouter=is_outer,
                 full=join_clause == plan.JoinType.FULL_OUTER,
             )
+        return stmt
+
+
+class SqlSampleNode(SqlNode):
+    """
+    Returns rows sampled from the input node.
+    """
+
+    input_cte: Optional[sql.CTE]
+    pk_count: int
+    stratify_exprs: Optional[list[exprs.Expr]]
+    sample_clause: 'SampleClause'
+
+    def __init__(
+        self,
+        row_builder: exprs.RowBuilder,
+        input: SqlNode,
+        select_list: Iterable[exprs.Expr],
+        sample_clause: 'SampleClause',
+        stratify_exprs: list[exprs.Expr],
+    ):
+        """
+        Args:
+            input: SqlNode to sample from
+            select_list: can contain calls to AggregateFunctions
+            sample_clause: specifies the sampling method
+            stratify_exprs: Analyzer processed list of expressions to stratify by.
+        """
+        assert isinstance(input, SqlNode)
+        self.input_cte, input_col_map = input.to_cte(keep_pk=True)
+        self.pk_count = input.num_pk_cols
+        assert self.pk_count > 1
+        sql_elements = exprs.SqlElementCache(input_col_map)
+        assert sql_elements.contains_all(stratify_exprs)
+        super().__init__(input.tbl, row_builder, select_list, sql_elements, set_pk=True)
+        self.stratify_exprs = stratify_exprs
+        self.sample_clause = sample_clause
+        assert isinstance(self.sample_clause.seed, int)
+
+    @classmethod
+    def key_sql_expr(cls, seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement:
+        """Construct expression which is the ordering key for rows to be sampled
+        General SQL form is:
+        - MD5(<seed::text> [ + '___' + <rowid_col_val>::text]+
+        """
+        sql_expr: sql.ColumnElement = sql.cast(seed, sql.Text)
+        for e in sql_cols:
+            # Quotes are required below to guarantee that the string is properly presented in SQL
+            sql_expr = sql_expr + sql.literal_column("'___'", sql.Text) + sql.cast(e, sql.Text)
+        sql_expr = sql.func.md5(sql_expr)
+        return sql_expr
+
+    def _create_key_sql(self, cte: sql.CTE) -> sql.ColumnElement:
+        """Create an expression for randomly ordering rows with a given seed"""
+        rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
+        assert len(rowid_cols) > 0
+        return self.key_sql_expr(sql.literal_column(str(self.sample_clause.seed)), rowid_cols)
+
+    def _create_stmt(self) -> sql.Select:
+        from pixeltable.plan import SampleClause
+
+        if self.sample_clause.fraction is not None:
+            if len(self.stratify_exprs) == 0:
+                # If non-stratified sampling, construct a where clause, order_by, and limit clauses
+                s_key = self._create_key_sql(self.input_cte)
+
+                # Construct a suitable where clause
+                fraction_sql = sql.cast(SampleClause.fraction_to_md5_hex(float(self.sample_clause.fraction)), sql.Text)
+                order_by = self._create_key_sql(self.input_cte)
+                return sql.select(*self.input_cte.c).where(s_key < fraction_sql).order_by(order_by)
+
+            return self._create_stmt_stratified_fraction(self.sample_clause.fraction)
+        else:
+            if len(self.stratify_exprs) == 0:
+                # No stratification, just return n samples from the input CTE
+                order_by = self._create_key_sql(self.input_cte)
+                return sql.select(*self.input_cte.c).order_by(order_by).limit(self.sample_clause.n)
+
+            return self._create_stmt_stratified_n(self.sample_clause.n, self.sample_clause.n_per_stratum)
+
+    def _create_stmt_stratified_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
+        """Create a Select stmt that returns n samples across all strata or n_per_stratum samples per stratum"""
+
+        sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]
+        order_by = self._create_key_sql(self.input_cte)
+
+        # Create a list of all columns plus the rank
+        # Get all columns from the input CTE dynamically
+        select_columns = [*self.input_cte.c]
+        select_columns.append(
+            sql.func.row_number().over(partition_by=sql_strata_exprs, order_by=order_by).label('rank')
+        )
+        row_rank_cte = sql.select(*select_columns).select_from(self.input_cte).cte('row_rank_cte')
+
+        final_columns = [*row_rank_cte.c[:-1]]  # exclude the rank column
+        if n_per_stratum is not None:
+            return sql.select(*final_columns).filter(row_rank_cte.c.rank <= n_per_stratum)
+        else:
+            secondary_order = self._create_key_sql(row_rank_cte)
+            return sql.select(*final_columns).order_by(row_rank_cte.c.rank, secondary_order).limit(n)
+
+    def _create_stmt_stratified_fraction(self, fraction_samples: float) -> sql.Select:
+        """Create a Select stmt that returns a fraction of the rows per strata"""
+
+        # Build the strata count CTE
+        # Produces a table of the form:
+        #   (*stratify_exprs, s_s_size)
+        # where s_s_size is the number of samples to take from each stratum
+        sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]
+        per_strata_count_cte = (
+            sql.select(
+                *sql_strata_exprs,
+                sql.func.ceil(fraction_samples * sql.func.count(1).cast(sql.Integer)).label('s_s_size'),
+            )
+            .select_from(self.input_cte)
+            .group_by(*sql_strata_exprs)
+            .cte('per_strata_count_cte')
+        )
+
+        # Build a CTE that ranks the rows within each stratum
+        # Include all columns from the input CTE dynamically
+        order_by = self._create_key_sql(self.input_cte)
+        select_columns = [*self.input_cte.c]
+        select_columns.append(
+            sql.func.row_number().over(partition_by=sql_strata_exprs, order_by=order_by).label('rank')
+        )
+        row_rank_cte = sql.select(*select_columns).select_from(self.input_cte).cte('row_rank_cte')
+
+        # Build the join criterion dynamically to accommodate any number of stratify_by expressions
+        join_c = sql.true()
+        for col in per_strata_count_cte.c[:-1]:
+            join_c &= row_rank_cte.c[col.name].isnot_distinct_from(col)
+
+        # Join with per_strata_count_cte to limit returns to the requested fraction of rows
+        final_columns = [*row_rank_cte.c[:-1]]  # exclude the rank column
+        stmt = (
+            sql.select(*final_columns)
+            .select_from(row_rank_cte)
+            .join(per_strata_count_cte, join_c)
+            .where(row_rank_cte.c.rank <= per_strata_count_cte.c.s_s_size)
+        )
+
         return stmt

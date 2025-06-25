@@ -55,23 +55,24 @@ class ColumnPropertyRef(Expr):
         return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG)
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
-        if not self._col_ref.col.is_stored:
+        if not self._col_ref.col_handle.get().is_stored:
             return None
+        col = self._col_ref.col_handle.get()
 
         # the errortype/-msg properties of a read-validated media column need to be extracted from the DataRow
         if (
-            self._col_ref.col.col_type.is_media_type()
-            and self._col_ref.col.media_validation == catalog.MediaValidation.ON_READ
+            col.col_type.is_media_type()
+            and col.media_validation == catalog.MediaValidation.ON_READ
             and self.is_error_prop()
         ):
             return None
 
         if self.prop == self.Property.ERRORTYPE:
-            assert self._col_ref.col.sa_errortype_col is not None
-            return self._col_ref.col.sa_errortype_col
+            assert col.sa_errortype_col is not None
+            return col.sa_errortype_col
         if self.prop == self.Property.ERRORMSG:
-            assert self._col_ref.col.sa_errormsg_col is not None
-            return self._col_ref.col.sa_errormsg_col
+            assert col.sa_errormsg_col is not None
+            return col.sa_errormsg_col
         if self.prop == self.Property.FILEURL:
             # the file url is stored as the column value
             return sql_elements.get(self._col_ref)

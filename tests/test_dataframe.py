@@ -19,6 +19,7 @@ from .utils import (
     get_audio_files,
     get_documents,
     get_video_files,
+    reload_catalog,
     skip_test_if_not_installed,
     strip_lines,
     validate_update_status,
@@ -302,7 +303,7 @@ class TestDataFrame:
         print(res[0]['get_lim'])
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
 
-        with pytest.raises(excs.Error, match='must be of type int'):
+        with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.limit(5.3).collect()  # type: ignore[arg-type]
 
         v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})
@@ -355,6 +356,9 @@ class TestDataFrame:
         t = test_tbl
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        res = t.head(10).to_pandas()
         # Where is applied
         res = t.where(t.c2 > 9).head(10).to_pandas()
         assert np.all(res.c2 == list(range(10, 20)))

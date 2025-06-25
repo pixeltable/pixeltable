@@ -8,7 +8,7 @@ the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anth
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Optional, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Optional, cast
 
 import httpx
 
@@ -73,16 +73,10 @@ async def messages(
     messages: list[dict[str, str]],
     *,
     model: str,
-    max_tokens: int = 1024,
-    metadata: Optional[dict[str, Any]] = None,
-    stop_sequences: Optional[list[str]] = None,
-    system: Optional[str] = None,
-    temperature: Optional[float] = None,
-    tool_choice: Optional[dict] = None,
-    tools: Optional[list[dict]] = None,
-    top_k: Optional[int] = None,
-    top_p: Optional[float] = None,
-    timeout: Optional[float] = None,
+    max_tokens: int,
+    model_kwargs: Optional[dict[str, Any]] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Create a Message.
@@ -101,25 +95,27 @@ async def messages(
     Args:
         messages: Input messages.
         model: The model that will complete your prompt.
-
-    For details on the other parameters, see: <https://docs.anthropic.com/en/api/messages>
+        model_kwargs: Additional keyword args for the Anthropic `messages` API.
+            For details on the available parameters, see: <https://docs.anthropic.com/en/api/messages>
+        tools: An optional list of Pixeltable tools to use for the request.
+        tool_choice: An optional tool choice configuration.
 
     Returns:
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `claude-3-haiku-20240307`
+        Add a computed column that applies the model `claude-3-5-sonnet-20241022`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=messages(msgs, model='claude-3-haiku-20240307'))
+        ... tbl.add_computed_column(response=messages(msgs, model='claude-3-5-sonnet-20241022'))
     """
-
-    # it doesn't look like count_tokens() actually exists in the current version of the library
+    if model_kwargs is None:
+        model_kwargs = {}
 
     if tools is not None:
         # Reformat `tools` into Anthropic format
-        tools = [
+        model_kwargs['tools'] = [
             {
                 'name': tool['name'],
                 'description': tool['description'],
@@ -132,17 +128,16 @@ async def messages(
             for tool in tools
         ]
 
-    tool_choice_: Optional[dict] = None
     if tool_choice is not None:
         if tool_choice['auto']:
-            tool_choice_ = {'type': 'auto'}
+            model_kwargs['tool_choice'] = {'type': 'auto'}
         elif tool_choice['required']:
-            tool_choice_ = {'type': 'any'}
+            model_kwargs['tool_choice'] = {'type': 'any'}
         else:
             assert tool_choice['tool'] is not None
-            tool_choice_ = {'type': 'tool', 'name': tool_choice['tool']}
+            model_kwargs['tool_choice'] = {'type': 'tool', 'name': tool_choice['tool']}
         if not tool_choice['parallel_tool_calls']:
-            tool_choice_['disable_parallel_tool_use'] = True
+            model_kwargs['tool_choice']['disable_parallel_tool_use'] = True
 
     # make sure the pool info exists prior to making the request
     resource_pool_id = f'rate-limits:anthropic:{model}'
@@ -152,20 +147,8 @@ async def messages(
     # TODO: timeouts should be set system-wide and be user-configurable
     from anthropic.types import MessageParam
 
-    # cast(Any, ...): avoid mypy errors
     result = await _anthropic_client().messages.with_raw_response.create(
-        messages=cast(Iterable[MessageParam], messages),
-        model=model,
-        max_tokens=max_tokens,
-        metadata=_opt(cast(Any, metadata)),
-        stop_sequences=_opt(stop_sequences),
-        system=_opt(system),
-        temperature=_opt(cast(Any, temperature)),
-        tools=_opt(cast(Any, tools)),
-        tool_choice=_opt(cast(Any, tool_choice_)),
-        top_k=_opt(top_k),
-        top_p=_opt(top_p),
-        timeout=_opt(timeout),
+        messages=cast(Iterable[MessageParam], messages), model=model, max_tokens=max_tokens, **model_kwargs
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')
@@ -222,15 +205,6 @@ def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
             pxt_tool_calls[tool_name] = []
         pxt_tool_calls[tool_name].append({'args': tool_call['input']})
     return pxt_tool_calls
-
-
-_T = TypeVar('_T')
-
-
-def _opt(arg: _T) -> Union[_T, 'anthropic.NotGiven']:
-    import anthropic
-
-    return arg if arg is not None else anthropic.NOT_GIVEN
 
 
 __all__ = local_public_names(__name__)

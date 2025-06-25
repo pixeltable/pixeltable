@@ -63,6 +63,7 @@ class RowBuilder:
 
     input_exprs: ExprSet
 
+    tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
     table_columns: list[ColumnSlotIdx]
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
@@ -93,7 +94,13 @@ class RowBuilder:
         target_slot_idxs: list[int]  # slot idxs of target exprs; might contain duplicates
         target_exprs: list[Expr]  # exprs corresponding to target_slot_idxs
 
-    def __init__(self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr]):
+    def __init__(
+        self,
+        output_exprs: Sequence[Expr],
+        columns: Sequence[catalog.Column],
+        input_exprs: Iterable[Expr],
+        tbl: Optional[catalog.TableVersion] = None,
+    ):
         """
         Args:
             output_exprs: list of Exprs to be evaluated
@@ -125,6 +132,7 @@ class RowBuilder:
         #   * further references to that column (eg, computed cols) need to resolve to the validating ColumnRef
         from .column_ref import ColumnRef
 
+        self.tbl = tbl
         self.table_columns: list[ColumnSlotIdx] = []
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
@@ -172,13 +180,11 @@ class RowBuilder:
 
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
             tbl = col_ref.col.tbl
-            return (
-                tbl.get().is_component_view and tbl.get().is_iterator_column(col_ref.col) and not col_ref.col.is_stored
-            )
+            return tbl.is_component_view and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
 
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
-        unstored_iter_args = {view.id: view.get().iterator_args.copy() for view in component_views}
+        unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
         self.unstored_iter_args = {
             id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
         }
@@ -231,6 +237,7 @@ class RowBuilder:
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
+        assert self.tbl is not None
         self.table_columns.append(ColumnSlotIdx(col, slot_idx))
 
     def output_slot_idxs(self) -> list[ColumnSlotIdx]:
@@ -429,33 +436,52 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[dict[str, Any], int]:
+    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int], pk: tuple[int, ...]) -> tuple[list[Any], int]:
         """Create a table row from the slots that have an output column assigned
 
-        Return tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
+        Return tuple[list of row values in `self.table_columns` order, # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
-        table_row: dict[str, Any] = {}
+        table_row: list[Any] = list(pk)
         for info in self.table_columns:
             col, slot_idx = info.col, info.slot_idx
             if data_row.has_exc(slot_idx):
-                # exceptions get stored in the errortype/-msg columns
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
                 exc_col_ids.add(col.id)
-                table_row[col.store_name()] = None
-                table_row[col.errortype_store_name()] = type(exc).__name__
-                table_row[col.errormsg_store_name()] = str(exc)
+                table_row.append(None)
+                if col.records_errors:
+                    # exceptions get stored in the errortype/-msg columns
+                    table_row.extend((type(exc).__name__, str(exc)))
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
-                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.get().version))
+                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
                     data_row.flush_img(slot_idx, filepath)
-                val = data_row.get_stored_val(slot_idx, col.sa_col.type)
-                table_row[col.store_name()] = val
-                # we unfortunately need to set these, even if there are no errors
-                table_row[col.errortype_store_name()] = None
-                table_row[col.errormsg_store_name()] = None
+                val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
+                table_row.append(val)
+                if col.records_errors:
+                    table_row.extend((None, None))
 
         return table_row, num_excs
+
+    def store_column_names(self) -> tuple[list[str], dict[int, catalog.Column]]:
+        """
+        Returns the list of store column names corresponding to the table_columns of this RowBuilder.
+        The second tuple element of the return value is a dictionary containing all media columns in the
+        table; it's the mapping {list_index: column}.
+        """
+        assert self.tbl is not None, self.table_columns
+        store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
+        media_cols: dict[int, catalog.Column] = {}
+
+        for col in self.table_columns:
+            if col.col.col_type.is_media_type():
+                media_cols[len(store_col_names)] = col.col
+            store_col_names.append(col.col.store_name())
+            if col.col.records_errors:
+                store_col_names.append(col.col.errortype_store_name())
+                store_col_names.append(col.col.errormsg_store_name())
+
+        return store_col_names, media_cols

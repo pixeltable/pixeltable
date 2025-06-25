@@ -262,7 +262,7 @@ def from_table(
     """
     from pixeltable import exprs
 
-    ancestors = [tbl, *tbl._base_tables]
+    ancestors = [tbl, *tbl._get_base_tables()]
     ancestors.reverse()  # We must traverse the ancestors in order from base to derived
 
     subst: dict[exprs.Expr, exprs.Expr] = {}
@@ -297,7 +297,7 @@ def from_table(
 
     if description is None:
         # Default description is the table comment
-        description = tbl._comment
+        description = tbl._get_comment()
         if len(description) == 0:
             description = f"UDF for table '{tbl._name}'"
 

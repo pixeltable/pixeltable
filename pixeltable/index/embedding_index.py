@@ -148,6 +148,11 @@ class EmbeddingIndex(IndexBase):
         conn = Env.get().conn
         idx.create(bind=conn)
 
+    def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
+        """Drop the index on the index value column"""
+        # TODO: implement
+        raise NotImplementedError()
+
     def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
         assert isinstance(item, (str, PIL.Image.Image))

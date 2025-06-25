@@ -10,6 +10,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, iterators as iters
 
 from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -41,7 +42,8 @@ class ColumnRef(Expr):
     insert them into the EvalCtxs as needed
     """
 
-    col: catalog.Column
+    col: catalog.Column  # TODO: merge with col_handle
+    col_handle: catalog.ColumnHandle
     reference_tbl: Optional[catalog.TableVersionPath]
     is_unstored_iter_col: bool
     iter_arg_ctx: Optional[RowBuilder.EvalCtx]
@@ -62,16 +64,16 @@ class ColumnRef(Expr):
         assert col.tbl is not None
         self.col = col
         self.reference_tbl = reference_tbl
-        self.is_unstored_iter_col = (
-            col.tbl.get().is_component_view and col.tbl.get().is_iterator_column(col) and not col.is_stored
-        )
+        self.col_handle = catalog.ColumnHandle(col.tbl.handle, col.id)
+
+        self.is_unstored_iter_col = col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
-        self.base_rowid_len = col.tbl.get().base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl.base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
         self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx = col.tbl.get().num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
 
         self.perform_validation = False
         if col.col_type.is_media_type():
@@ -165,6 +167,20 @@ class ColumnRef(Expr):
             idx_info = embedding_idx_info
         return idx_info
 
+    def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
+        cat = catalog.Catalog.get()
+        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
+            tbl_version = self.col_handle.tbl_version.get()
+            if tbl_version.id != self.reference_tbl.tbl_id:
+                raise excs.Error('Cannot recompute column of a base.')
+            if tbl_version.is_snapshot:
+                raise excs.Error('Cannot recompute column of a snapshot.')
+            col_name = self.col_handle.get().name
+            status = tbl_version.recompute_columns([col_name], errors_only=errors_only, cascade=cascade)
+            FileCache.get().emit_eviction_warnings()
+            return status
+
     def similarity(self, item: Any, *, idx: Optional[str] = None) -> Expr:
         from .similarity_expr import SimilarityExpr
 
@@ -175,7 +191,7 @@ class ColumnRef(Expr):
         assert len(idx_info) == 1
         col = copy.copy(next(iter(idx_info.values())).val_col)
         col.name = f'{self.col.name}_embedding_{idx if idx is not None else ""}'
-        col.create_sa_cols()
+        # col.create_sa_cols()
         return ColumnRef(col)
 
     def default_column_name(self) -> Optional[str]:
@@ -226,7 +242,7 @@ class ColumnRef(Expr):
     def _descriptors(self) -> DescriptionHelper:
         tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
         helper = DescriptionHelper()
-        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path!r})')
+        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         helper.append(tbl._col_descriptor([self.col.name]))
         idxs = tbl._index_descriptor([self.col.name])
         if len(idxs) > 0:
@@ -234,7 +250,10 @@ class ColumnRef(Expr):
         return helper
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        return None if self.perform_validation else self.col.sa_col
+        if self.perform_validation:
+            return None
+        self.col = self.col_handle.get()
+        return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.perform_validation:
@@ -275,7 +294,7 @@ class ColumnRef(Expr):
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.tbl.get().iterator_cls(**iterator_args)
+            self.iterator = self.col.tbl.iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)
@@ -283,16 +302,21 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
-        tbl_version = tbl.get().version if tbl.get().is_snapshot else None
+        version = tbl.version if tbl.is_snapshot else None
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {
             'tbl_id': str(tbl.id),
-            'tbl_version': tbl_version,
+            'tbl_version': version,
             'col_id': self.col.id,
             'reference_tbl': self.reference_tbl.as_dict() if self.reference_tbl is not None else None,
             'perform_validation': self.perform_validation,
         }
+
+    @classmethod
+    def get_column_id(cls, d: dict) -> catalog.QColumnId:
+        tbl_id, col_id = UUID(d['tbl_id']), d['col_id']
+        return catalog.QColumnId(tbl_id, col_id)
 
     @classmethod
     def get_column(cls, d: dict) -> catalog.Column:
