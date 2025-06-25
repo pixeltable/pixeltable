@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
 import numpy as np
@@ -436,7 +436,9 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(self, data_row: DataRow, cols_with_excs: Optional[set[int]], pk: tuple[int, ...]) -> tuple[list[Any], int]:
+    def create_table_row(
+        self, data_row: DataRow, cols_with_excs: Optional[set[int]], pk: tuple[int, ...]
+    ) -> tuple[list[Any], int]:
         """Create a table row from the slots that have an output column assigned
 
         Return tuple[list of row values in `self.table_columns` order, # of exceptions]

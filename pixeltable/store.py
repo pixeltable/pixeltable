@@ -7,7 +7,7 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Any, Iterable, Iterator, Literal, Optional, Union
+from typing import Any, Iterable, Iterator, Optional, Union
 
 import more_itertools
 import sqlalchemy as sql
@@ -243,7 +243,7 @@ class StoreBase:
             tmp_errortype_col = sql.Column(col.sa_errortype_col.name, col.sa_errortype_col.type)
             tmp_errormsg_col = sql.Column(col.sa_errormsg_col.name, col.sa_errormsg_col.type)
             tmp_cols.extend((tmp_errortype_col, tmp_errormsg_col))
-        tmp_col_names = tuple(col.name for col in tmp_cols)
+        tmp_col_names = [col.name for col in tmp_cols]
 
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
         conn = Env.get().conn
