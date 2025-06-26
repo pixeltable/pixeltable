@@ -35,8 +35,10 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def init(**config_overrides: Any) -> None:
+def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
     """Initializes the Pixeltable environment."""
+    if config_overrides is None:
+        config_overrides = {}
     Config.init(config_overrides)
     _ = Catalog.get()
 

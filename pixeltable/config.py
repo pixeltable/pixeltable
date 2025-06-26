@@ -32,19 +32,19 @@ class Config:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
 
         for var in config_overrides:
-            if var not in KNOWN_CONFIG_ENV_VARS:
+            if var not in KNOWN_CONFIG_OVERRIDES:
                 raise excs.Error(f'Unrecognized configuration variable: {var}')
 
         self.__config_overrides = config_overrides
 
-        self.__home = Path(self.lookup_env('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
+        self.__home = Path(self.lookup_env('pixeltable', 'home', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
             raise excs.Error(f'Not a directory: {self.__home}')
         if not self.__home.exists():
             print(f'Creating a Pixeltable instance at: {self.__home}')
             self.__home.mkdir()
 
-        self.__config_file = Path(self.lookup_env('PIXELTABLE_CONFIG', str(self.__home / 'config.toml')))
+        self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
 
         self.__config_dict: dict[str, Any]
         if os.path.isfile(self.__config_file):
@@ -97,24 +97,23 @@ class Config:
         file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
         return {'pixeltable': {'file_cache_size_g': round(file_cache_size_g, 1), 'hide_warnings': False}}
 
-    def in_env(self, env_var: str) -> bool:
-        return env_var in self.__config_overrides or env_var in os.environ
-
-    def lookup_env(self, env_var: str, default: Any = None) -> Any:
-        if env_var in self.__config_overrides:
-            return self.__config_overrides[env_var]
+    def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
+        override_var = f'{section}.{key}'
+        env_var = f'{section.upper()}_{key.upper()}'
+        if override_var in self.__config_overrides:
+            return self.__config_overrides[override_var]
         if env_var in os.environ:
             return os.environ[env_var]
         return default
 
     def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
-        env_var = f'{section.upper()}_{key.upper()}'
-        if self.in_env(env_var):
-            value = self.lookup_env(env_var)
-        elif section in self.__config_dict and key in self.__config_dict[section]:
+        value = self.lookup_env(section, key)  # Try to get from environment first
+        # Next try the config file
+        if value is None and section in self.__config_dict and key in self.__config_dict[section]:
             value = self.__config_dict[section][key]
-        else:
-            return None
+
+        if value is None:
+            return None  # Not specified
 
         try:
             if expected_type is bool and isinstance(value, str):
@@ -165,8 +164,8 @@ KNOWN_CONFIG_OPTIONS = {
 }
 
 
-KNOWN_CONFIG_ENV_VARS = {
-    f'{section.upper()}_{key.upper()}': info
+KNOWN_CONFIG_OVERRIDES = {
+    f'{section}.{key}': info
     for section, section_dict in KNOWN_CONFIG_OPTIONS.items()
     for key, info in section_dict.items()
 }
