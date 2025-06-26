@@ -11,6 +11,7 @@ from pandas.io.formats.style import Styler
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
@@ -34,8 +35,11 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def init() -> None:
+def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
     """Initializes the Pixeltable environment."""
+    if config_overrides is None:
+        config_overrides = {}
+    Config.init(config_overrides)
     _ = Catalog.get()
 
 
