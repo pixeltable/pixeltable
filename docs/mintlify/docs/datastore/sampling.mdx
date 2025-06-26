@@ -31,12 +31,12 @@ pop_data = pxt.create_table(
     if_exists='ignore',
 )
 
-country = random.choices(['USA', 'Canada', 'Mexico'], k=10)
-continent = random.choices(['North America', 'South America'], k=10)
-pop_2023 = random.choices(range(0, 1000000), k=10)
+country = random.choices(['USA', 'Canada', 'Mexico'], k=1000)
+continent = random.choices(['North America', 'South America'], k=1000)
+pop_2023 = random.choices(range(0, 1000000), k=1000)
 data = []
 
-for i in range(10):
+for i in range(1000):
     data.append({
         'country': country[i],
         'continent': continent[i],
@@ -45,8 +45,8 @@ for i in range(10):
 
 pop_data.insert(data)
 
-# Get a random sample of 10 countries
-sample_df = pop_data.sample(n=10, seed=42)
+# Get a random sample of 1,000 countries
+sample_df = pop_data.sample(n=1000, seed=42)
 sample_df.collect()
 ```
 
@@ -65,7 +65,7 @@ Pixeltable offers simple ways to draw random samples from your data.
     ```
   </Tab>
   <Tab title="Sample by Fraction">
-    Use `fraction` to get a percentage of the total rows. This is useful for scaling down a dataset proportionally. The value should be between 0.0 and 1.0.
+    Use `fraction` to get a percentage of the total rows. This is useful for scaling down a dataset proportionally. The value should be between 0.0 and 1.0. For sampling with `fraction`, each row is selected independently with probability p.
 
     ```python
     # Get a 1% random sample of the data
