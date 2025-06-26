@@ -6,6 +6,7 @@ import logging
 from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
 
 from pixeltable import exprs
+from pixeltable.env import Env
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
@@ -59,36 +60,36 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
-        running_loop: Optional[asyncio.AbstractEventLoop] = None
-        loop: asyncio.AbstractEventLoop
-        try:
-            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
-            # multiple run_until_complete()
-            running_loop = asyncio.get_running_loop()
-            import nest_asyncio  # type: ignore[import-untyped]
-
-            nest_asyncio.apply()
-            loop = running_loop
-            _logger.debug('Patched running loop')
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
-            loop.slow_callback_duration = 3600
-
-        if _logger.isEnabledFor(logging.DEBUG):
-            loop.set_debug(True)
+        # running_loop: Optional[asyncio.AbstractEventLoop] = None
+        # loop: asyncio.AbstractEventLoop
+        # try:
+        #     # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
+        #     # multiple run_until_complete()
+        #     running_loop = asyncio.get_running_loop()
+        #     import nest_asyncio  # type: ignore[import-untyped]
+        #
+        #     nest_asyncio.apply()
+        #     loop = running_loop
+        #     _logger.debug('Patched running loop')
+        # except RuntimeError:
+        #     loop = asyncio.new_event_loop()
+        #     asyncio.set_event_loop(loop)
+        #     # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
+        #     loop.slow_callback_duration = 3600
+        #
+        # if _logger.isEnabledFor(logging.DEBUG):
+        #     loop.set_debug(True)
 
         aiter = self.__aiter__()
         try:
             while True:
-                batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
+                batch: DataRowBatch = Env.get()._event_loop.run_until_complete(aiter.__anext__())
                 yield batch
         except StopAsyncIteration:
             pass
-        finally:
-            if loop != running_loop:
-                loop.close()
+        # finally:
+        #     if loop != running_loop:
+        #         loop.close()
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""

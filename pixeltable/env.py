@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import atexit
+import asyncio
 import datetime
 import glob
 import http.server
@@ -85,6 +87,8 @@ class Env:
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
     _dbms: Optional[Dbms]
+    _event_loop: asyncio.AbstractEventLoop
+    _close_event_loop_on_exit: bool
 
     @classmethod
     def get(cls) -> Env:
@@ -140,6 +144,33 @@ class Env:
         self._current_conn = None
         self._current_session = None
         self._dbms = None
+        self._init_event_loop()
+        atexit.register(self._exit)
+
+    def _init_event_loop(self) -> None:
+        try:
+            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
+            # multiple run_until_complete()
+            running_loop = asyncio.get_running_loop()
+            import nest_asyncio  # type: ignore[import-untyped]
+
+            nest_asyncio.apply()
+            self._event_loop = running_loop
+            self._close_event_loop_on_exit = False
+            _logger.debug('Patched running loop')
+        except RuntimeError:
+            self._event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._event_loop)
+            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
+            self._event_loop.slow_callback_duration = 3600
+            self._close_event_loop_on_exit = True
+
+        if _logger.isEnabledFor(logging.DEBUG):
+            self._event_loop.set_debug(True)
+
+    def _exit(self) -> None:
+        if self._close_event_loop_on_exit:
+            self._event_loop.close()
 
     @property
     def db_url(self) -> str:
