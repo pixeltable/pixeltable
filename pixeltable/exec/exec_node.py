@@ -69,8 +69,8 @@ class ExecNode(abc.ABC):
         except StopAsyncIteration:
             pass
         finally:
-            # TODO: we seem to have some unaccounted tasks in ExprEvalNode that don't get cancelled by the time we
-            # end up here; fix that
+            # TODO: we seem to have some tasks that aren't accounted for by ExprEvalNode and don't get cancelled by the
+            #  time we end up here; fix that
             pending_tasks = asyncio.all_tasks(loop)
             if len(pending_tasks) > 0:
                 _logger.debug(f'Cancelling {len(pending_tasks)} pending tasks: {pending_tasks}')
