@@ -68,17 +68,11 @@ class ExecNode(abc.ABC):
                 yield batch
         except StopAsyncIteration:
             pass
-        finally:
-            # TODO: we seem to have some tasks that aren't accounted for by ExprEvalNode and don't get cancelled by the
-            #  time we end up here; fix that
-            pending_tasks = asyncio.all_tasks(loop)
-            if len(pending_tasks) > 0:
-                _logger.debug(f'Cancelling {len(pending_tasks)} pending tasks: {pending_tasks}')
-                for task in pending_tasks:
-                    task.cancel()
-                # Give tasks a chance to clean up
-                if pending_tasks:
-                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+        # TODO:
+        #  - we seem to have some tasks that aren't accounted for by ExprEvalNode and don't get cancelled by the time
+        #    we end up here
+        # - however, blindly cancelling all pending tasks doesn't work when running in a jupyter environment, which
+        #   creates tasks on its own
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""

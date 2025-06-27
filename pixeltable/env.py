@@ -86,7 +86,7 @@ class Env:
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
     _dbms: Optional[Dbms]
-    _event_loop: asyncio.AbstractEventLoop  # event loop for ExecNode
+    _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
@@ -142,7 +142,7 @@ class Env:
         self._current_conn = None
         self._current_session = None
         self._dbms = None
-        self._init_event_loop()
+        self._event_loop = None
 
     def _init_event_loop(self) -> None:
         try:
@@ -153,6 +153,7 @@ class Env:
 
             nest_asyncio.apply()
             self._event_loop = running_loop
+            print('Patched running loop')
             _logger.debug('Patched running loop')
         except RuntimeError:
             self._event_loop = asyncio.new_event_loop()
@@ -165,6 +166,8 @@ class Env:
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:
+        if self._event_loop is None:
+            self._init_event_loop()
         return self._event_loop
 
     @property
