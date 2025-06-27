@@ -6,6 +6,7 @@ from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
 
 from pixeltable import exprs
 from pixeltable.env import Env
+
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
 
