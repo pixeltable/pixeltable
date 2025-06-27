@@ -60,36 +60,25 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
-        # running_loop: Optional[asyncio.AbstractEventLoop] = None
-        # loop: asyncio.AbstractEventLoop
-        # try:
-        #     # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
-        #     # multiple run_until_complete()
-        #     running_loop = asyncio.get_running_loop()
-        #     import nest_asyncio  # type: ignore[import-untyped]
-        #
-        #     nest_asyncio.apply()
-        #     loop = running_loop
-        #     _logger.debug('Patched running loop')
-        # except RuntimeError:
-        #     loop = asyncio.new_event_loop()
-        #     asyncio.set_event_loop(loop)
-        #     # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
-        #     loop.slow_callback_duration = 3600
-        #
-        # if _logger.isEnabledFor(logging.DEBUG):
-        #     loop.set_debug(True)
-
+        loop = Env.get().event_loop
         aiter = self.__aiter__()
         try:
             while True:
-                batch: DataRowBatch = Env.get()._event_loop.run_until_complete(aiter.__anext__())
+                batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
                 yield batch
         except StopAsyncIteration:
             pass
-        # finally:
-        #     if loop != running_loop:
-        #         loop.close()
+        finally:
+            # TODO: we seem to have some unaccounted tasks in ExprEvalNode that don't get cancelled by the time we
+            # end up here; fix that
+            pending_tasks = asyncio.all_tasks(loop)
+            if len(pending_tasks) > 0:
+                _logger.debug(f'Cancelling {len(pending_tasks)} pending tasks: {pending_tasks}')
+                for task in pending_tasks:
+                    task.cancel()
+                # Give tasks a chance to clean up
+                if pending_tasks:
+                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""
