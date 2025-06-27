@@ -229,7 +229,9 @@ class View(Table):
 
             try:
                 plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
-                _, status = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+                _, row_counts = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+                status = UpdateStatus(comment='view creation', row_count_stats=row_counts)
+
             except:
                 # we need to remove the orphaned TableVersion instance
                 del catalog.Catalog.get()._tbl_versions[tbl_version.id, tbl_version.effective_version]

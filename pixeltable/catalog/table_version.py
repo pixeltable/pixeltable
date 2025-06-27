@@ -924,10 +924,14 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
-        cols_with_excs, result = self.store_tbl.insert_rows(
+        cols_with_excs, row_counts = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
-        result += UpdateStatus(cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs])
+        result = UpdateStatus(
+            comment='',
+            cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
+            row_count_stats=row_counts,
+        )
         self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
         # update views
@@ -1113,17 +1117,17 @@ class TableVersion:
         if plan is not None:
             # we're creating a new version
             self.version += 1
-            cols_with_excs, status = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
-            result += status.insert_to_update()
+            cols_with_excs, row_counts = self.store_tbl.insert_rows(
+                plan, v_min=self.version, show_progress=show_progress
+            )
             result += UpdateStatus(
-                cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
+                row_count_stats=row_counts.insert_to_update(),
+                cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
             )
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
             self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
-        else:
-            result = UpdateStatus()
 
         if cascade:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
