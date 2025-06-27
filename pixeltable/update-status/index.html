@@ -610,6 +610,24 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.UpdateStatus.insert_to_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert_to_update
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.UpdateStatus.to_cascade" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_cascade
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1367,6 +1385,24 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.UpdateStatus.insert_to_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert_to_update
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.UpdateStatus.to_cascade" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;to_cascade
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1406,11 +1442,10 @@
 
 </h2>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">UpdateStatus</span><span class="p">(</span>
-    <span class="n">num_rows</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">num_computed_values</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">num_excs</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
     <span class="n">updated_cols</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(),</span>
     <span class="n">cols_with_excs</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(),</span>
+    <span class="n">row_count_stats</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.globals.RowCountStats">RowCountStats</span></span> <span class="o">=</span> <span class="n">RowCountStats</span><span class="p">(),</span>
+    <span class="n">cascade_row_count_stats</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.globals.RowCountStats">RowCountStats</span></span> <span class="o">=</span> <span class="n">RowCountStats</span><span class="p">(),</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -1454,6 +1489,46 @@
 </div>
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.UpdateStatus.insert_to_update" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">insert_to_update</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">insert_to_update</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="s1">&#39;UpdateStatus&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Convert the update status from an insert operation to an update operation.
+This is used when an insert operation is treated as an update.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.UpdateStatus.to_cascade" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">to_cascade</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">to_cascade</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="s1">&#39;UpdateStatus&#39;</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Convert the update status to a cascade update status.
+This is used when an operation cascades changes to other tables.</p>
+
+    </div>
+
+</div>
 
 
 

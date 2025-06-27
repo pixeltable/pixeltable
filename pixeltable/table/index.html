@@ -747,6 +747,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.history" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;history
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.insert" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert
@@ -777,6 +786,15 @@
   <a href="#pixeltable.Table.order_by" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;order_by
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.recompute_columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;recompute_columns
     </span>
   </a>
   
@@ -1833,6 +1851,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.history" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;history
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.insert" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert
@@ -1863,6 +1890,15 @@
   <a href="#pixeltable.Table.order_by" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;order_by
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.recompute_columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;recompute_columns
     </span>
   </a>
   
@@ -2035,6 +2071,10 @@ Views are created by calling <a class="autorefs autorefs-internal" href="../pixe
 <tr>
 <td><a class="autorefs autorefs-internal" href="#pixeltable.Table.rename_column"><code>rename_column</code></a></td>
 <td>Rename a column</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.Table.recompute_columns"><code>recompute_columns</code></a></td>
+<td>Recompute one or more computed columns</td>
 </tr>
 </tbody>
 </table>
@@ -3226,6 +3266,61 @@ indices or multiple indices.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.Table.history" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">history</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">history</span><span class="p">(</span><span class="n">n</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.dataframe.DataFrameResultSet">DataFrameResultSet</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Returns rows of information about the versions of this table, most recent first.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>a limit to the number of versions listed</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Report history:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">history</span><span class="p">()</span>
+</code></pre></div>
+    <p>Report only the most recent 5 changes to the table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">history</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</code></pre></div>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.dataframe.DataFrameResultSet">DataFrameResultSet</span></code>
+          –
+          <div class="doc-md-description">
+            <p>A list of information about each version, ordered from most recent to oldest version.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.Table.insert" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">insert</span>
 
@@ -3477,6 +3572,79 @@ all sub-views (including views of views, etc.)</p>
 
       <p>Order the rows of this table based on the expression.</p>
 <p>See <a class="autorefs autorefs-internal" href="../data-frame/#pixeltable.DataFrame.order_by"><code>DataFrame.order_by</code></a> for more details.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.recompute_columns" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">recompute_columns</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">recompute_columns</span><span class="p">(</span>
+    <span class="o">*</span><span class="n">columns</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">],</span>
+    <span class="n">errors_only</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Recompute the values in one or more computed columns of this table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>columns</code></b>
+              (<code><span title="typing.Union">Union</span>[str, <span title="pixeltable.exprs.ColumnRef">ColumnRef</span>]</code>, default:
+                  <code>()</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The names or references of the computed columns to recompute.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>errors_only</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If True, only run the recomputation for rows that have errors in the column (ie, the column's
+<code>errortype</code> property is non-None). Only allowed for recomputing a single column.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>cascade</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if True, also update all computed columns that transitively depend on the recomputed columns.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Recompute computed columns <code>c1</code> and <code>c2</code> for all rows in this table, and everything that transitively
+depends on them:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">recompute_columns</span><span class="p">(</span><span class="s1">&#39;c1&#39;</span><span class="p">,</span> <span class="s1">&#39;c2&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>Recompute computed column <code>c1</code> for all rows in this table, but don't recompute other columns that depend on
+it:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">recompute_columns</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">c1</span><span class="p">,</span> <span class="n">tbl</span><span class="o">.</span><span class="n">c2</span><span class="p">,</span> <span class="n">cascade</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+    <p>Recompute column <code>c1</code> and its dependents, but only for rows that have errors in it:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">recompute_columns</span><span class="p">(</span><span class="s1">&#39;c1&#39;</span><span class="p">,</span> <span class="n">errors_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
 
     </div>
 
@@ -3858,6 +4026,18 @@ is a destructive operation that will delete data outside Pixeltable, and cannot 
           –
           <div class="doc-md-description">
             <p>if True, also update all computed columns that transitively depend on the updated columns.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+          –
+          <div class="doc-md-description">
+            <p>An <a class="autorefs autorefs-internal" href="../update-status/#pixeltable.UpdateStatus"><code>UpdateStatus</code></a> object containing information about the update.</p>
           </div>
         </li>
     </ul>
