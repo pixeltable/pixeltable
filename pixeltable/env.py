@@ -23,6 +23,7 @@ from sys import stdout
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
@@ -149,11 +150,9 @@ class Env:
             # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
             # multiple run_until_complete()
             running_loop = asyncio.get_running_loop()
-            import nest_asyncio  # type: ignore[import-untyped]
 
             nest_asyncio.apply()
             self._event_loop = running_loop
-            print('Patched running loop')
             _logger.debug('Patched running loop')
         except RuntimeError:
             self._event_loop = asyncio.new_event_loop()
