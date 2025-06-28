@@ -150,8 +150,6 @@ class Env:
             # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
             # multiple run_until_complete()
             running_loop = asyncio.get_running_loop()
-
-            nest_asyncio.apply()
             self._event_loop = running_loop
             _logger.debug('Patched running loop')
         except RuntimeError:
@@ -160,6 +158,9 @@ class Env:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
+        # always allow nested event loops, we need that to run async udfs synchronously (eg, for SimilarityExpr);
+        # see run_coroutine_synchronously()
+        nest_asyncio.apply()
         if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
 
