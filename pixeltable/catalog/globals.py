@@ -79,8 +79,10 @@ class RowCountStats:
 @dataclass(frozen=True)
 class UpdateStatus:
     """
-    Information about updates that resulted from a table operation.
+    Information about changes to table data or table schema
     """
+
+    comment: str = ''  # Note about this operation
 
     updated_cols: list[str] = dataclasses.field(default_factory=list)
     cols_with_excs: list[str] = dataclasses.field(default_factory=list)
@@ -109,6 +111,7 @@ class UpdateStatus:
         This is used when an insert operation is treated as an update.
         """
         return UpdateStatus(
+            comment=self.comment,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=self.row_count_stats.insert_to_update(),
@@ -121,6 +124,7 @@ class UpdateStatus:
         This is used when an operation cascades changes to other tables.
         """
         return UpdateStatus(
+            comment=self.comment,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=RowCountStats(),
@@ -132,6 +136,7 @@ class UpdateStatus:
         Add the update status from two UpdateStatus objects together.
         """
         return UpdateStatus(
+            comment=self.comment,  # comments are not added together
             updated_cols=list(dict.fromkeys(self.updated_cols + other.updated_cols)),
             cols_with_excs=list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs)),
             row_count_stats=self.row_count_stats + other.row_count_stats,

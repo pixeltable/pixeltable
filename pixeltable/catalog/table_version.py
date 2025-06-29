@@ -782,6 +782,7 @@ class TableVersion:
             upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
         )  # add_columns
         return UpdateStatus(
+            comment='add columns',
             cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
@@ -1108,11 +1109,12 @@ class TableVersion:
         cascade: bool,
         show_progress: bool = True,
     ) -> UpdateStatus:
+        result = UpdateStatus(comment='update')
         if plan is not None:
             # we're creating a new version
             self.version += 1
             cols_with_excs, status = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
-            result = status.insert_to_update()
+            result += status.insert_to_update()
             result += UpdateStatus(
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             )
@@ -1187,7 +1189,7 @@ class TableVersion:
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
         )
         row_counts = RowCountStats(del_rows=del_rows)  # delete
-        result = UpdateStatus(row_count_stats=row_counts)
+        result = UpdateStatus(comment='delete', row_count_stats=row_counts)
         if del_rows > 0:
             # we're creating a new version
             self.version += 1

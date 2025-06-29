@@ -377,8 +377,7 @@ class StoreBase:
                 ins_rows=num_rows, num_excs=num_excs, computed_values=computed_values
             )  # insert (StoreBase)
 
-            return cols_with_excs, UpdateStatus(row_count_stats=row_counts)
-
+            return cols_with_excs, UpdateStatus('insert', row_count_stats=row_counts)
         finally:
             exec_plan.close()
 
