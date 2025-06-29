@@ -17,11 +17,12 @@ if TYPE_CHECKING:
 
 
 from .column import Column
-from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
+from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource

@@ -10,11 +10,12 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
-from .globals import MediaValidation, UpdateStatus
+from .globals import MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable import exprs

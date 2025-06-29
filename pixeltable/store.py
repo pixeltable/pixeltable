@@ -14,7 +14,7 @@ import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
 from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog import RowCountStats
+from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
