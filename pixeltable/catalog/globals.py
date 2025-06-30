@@ -5,10 +5,14 @@ import enum
 import itertools
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 import pixeltable.exceptions as excs
+
+if TYPE_CHECKING:
+    from IPython.lib.pretty import RepresentationPrinter
+
 
 _logger = logging.getLogger('pixeltable')
 
@@ -149,6 +153,25 @@ class UpdateStatus:
             f'with {self.num_excs} error{"" if self.num_excs == 1 else "s"}{cols_with_excs_str}.'
         )
         return msg
+
+    @classmethod
+    def __cnt_str(cls, cnt: int, item: str) -> str:
+        assert cnt > 0
+        return f'{cnt} {item}{"" if cnt == 1 else "s"}'
+
+    def _repr_pretty_(self, p: 'RepresentationPrinter', cycle: bool) -> None:
+        messages = []
+        if self.row_count_stats.ins_rows > 0:
+            messages.append(f'{self.__cnt_str(self.row_count_stats.ins_rows, "row")} inserted')
+        if self.row_count_stats.del_rows > 0:
+            messages.append(f'{self.__cnt_str(self.row_count_stats.del_rows, "row")} deleted')
+        if self.row_count_stats.upd_rows > 0:
+            messages.append(f'{self.__cnt_str(self.row_count_stats.upd_rows, "row")} updated')
+        if self.num_computed_values > 0:
+            messages.append(f'{self.__cnt_str(self.num_computed_values, "value")} computed')
+        if self.row_count_stats.num_excs > 0:
+            messages.append(self.__cnt_str(self.row_count_stats.num_excs, 'exception'))
+        p.text(', '.join(messages) + '.' if len(messages) > 0 else 'No rows affected.')
 
 
 class MediaValidation(enum.Enum):
