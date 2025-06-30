@@ -593,7 +593,7 @@ class Table(SchemaObject):
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                     with errors will have a `None` value for the column, with information about the error stored in the
-                    corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+                    corresponding `tbl.col_name.cellmd` field.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -640,9 +640,9 @@ class Table(SchemaObject):
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
                 for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
-                    if e.is_error_prop():
+                    if e.is_cellmd_prop():
                         raise excs.Error(
-                            'Use of a reference to an error property of another column is not allowed in a computed '
+                            'Use of a reference to this property of another column is not allowed in a computed '
                             f'column. The specified computation for this column contains this reference: `{e!r}`'
                         )
 
@@ -1280,7 +1280,7 @@ class Table(SchemaObject):
                 - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
                 - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
                     with errors will have a `None` value for that cell, with information about the error stored in the
-                    corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+                    corresponding `tbl.col_name.cellmd` field.
             print_stats: If `True`, print statistics about the cost of computed columns.
 
         Returns:
@@ -1431,7 +1431,7 @@ class Table(SchemaObject):
         Args:
             columns: The names or references of the computed columns to recompute.
             errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
-                `errortype` property is non-None). Only allowed for recomputing a single column.
+                `cellmd` property indicates that an error occurred). Only allowed for recomputing a single column.
             cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
 
         Examples:

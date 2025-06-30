@@ -26,6 +26,7 @@ class ColumnPropertyRef(Expr):
         ERRORMSG = 1
         FILEURL = 2
         LOCALPATH = 3
+        CELLMD = 4  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
 
     def __init__(self, col_ref: ColumnRef, prop: Property):
         super().__init__(ts.StringType(nullable=True))
@@ -51,8 +52,8 @@ class ColumnPropertyRef(Expr):
     def __repr__(self) -> str:
         return f'{self._col_ref}.{self.prop.name.lower()}'
 
-    def is_error_prop(self) -> bool:
-        return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG)
+    def is_cellmd_prop(self) -> bool:
+        return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG, self.Property.CELLMD)
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not self._col_ref.col_handle.get().is_stored:
@@ -63,16 +64,21 @@ class ColumnPropertyRef(Expr):
         if (
             col.col_type.is_media_type()
             and col.media_validation == catalog.MediaValidation.ON_READ
-            and self.is_error_prop()
+            and self.is_cellmd_prop()
         ):
             return None
 
         if self.prop == self.Property.ERRORTYPE:
-            assert col.sa_errortype_col is not None
-            return col.sa_errortype_col
+            return col.sa_cellmd_col.op('->>')('errortype')
+            return col.sa_cellmd_col['errortype']
+            # raise NotImplementedError  # TODO jgp Access errortype property of JSON field in datarow
         if self.prop == self.Property.ERRORMSG:
-            assert col.sa_errormsg_col is not None
-            return col.sa_errormsg_col
+            return col.sa_cellmd_col.op('->>')('errormsg')
+            return col.sa_cellmd_col['errormsg']
+            # raise NotImplementedError  # TODO jgp Access errormsg property of JSON field in datarow
+        if self.prop == self.Property.CELLMD:
+            assert col.sa_cellmd_col is not None
+            return col.sa_cellmd_col
         if self.prop == self.Property.FILEURL:
             # the file url is stored as the column value
             return sql_elements.get(self._col_ref)
@@ -87,14 +93,19 @@ class ColumnPropertyRef(Expr):
             assert data_row.has_val[self._col_ref.slot_idx]
             data_row[self.slot_idx] = data_row.file_paths[self._col_ref.slot_idx]
             return
-        elif self.is_error_prop():
+        elif self.is_cellmd_prop():
             exc = data_row.get_exc(self._col_ref.slot_idx)
             if exc is None:
                 data_row[self.slot_idx] = None
             elif self.prop == self.Property.ERRORTYPE:
                 data_row[self.slot_idx] = type(exc).__name__
-            else:
+            elif self.prop == self.Property.ERRORMSG:
                 data_row[self.slot_idx] = str(exc)
+            else:
+                # Create JSON from an exception for the CELLMD property.
+                data_row[self.slot_idx] = {'errortype': type(exc).__name__, 'errormsg': str(exc)}
+                # raise NotImplementedError  # TODO jgp Create a cellmd when to store exc info (Construct JSON)
+            return
         else:
             raise AssertionError()
 

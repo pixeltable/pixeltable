@@ -36,11 +36,10 @@ class Column:
     _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
-    _records_errors: Optional[bool]
+    _stores_cellmd: Optional[bool]
     sa_col: Optional[sql.schema.Column]
     sa_col_type: Optional[sql.sqltypes.TypeEngine]
-    sa_errormsg_col: Optional[sql.schema.Column]
-    sa_errortype_col: Optional[sql.schema.Column]
+    sa_cellmd_col: Optional[sql.schema.Column]  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
     # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
@@ -59,7 +58,7 @@ class Column:
         schema_version_add: Optional[int] = None,
         schema_version_drop: Optional[int] = None,
         sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
-        records_errors: Optional[bool] = None,
+        stores_cellmd: Optional[bool] = None,
         value_expr_dict: Optional[dict[str, Any]] = None,
         tbl: Optional[TableVersion] = None,
     ):
@@ -118,15 +117,14 @@ class Column:
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
-        self._records_errors = records_errors
+        self._stores_cellmd = stores_cellmd
 
         # column in the stored table for the values of this Column
         self.sa_col = None
         self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
-        self.sa_errormsg_col = None
-        self.sa_errortype_col = None
+        self.sa_cellmd_col = None
 
     def init_value_expr(self) -> None:
         from pixeltable import exprs
@@ -203,11 +201,11 @@ class Column:
         return self.stored
 
     @property
-    def records_errors(self) -> bool:
+    def stores_cellmd(self) -> bool:
         """True if this column also stores error information."""
         # default: record errors for computed and media columns
-        if self._records_errors is not None:
-            return self._records_errors
+        if self._stores_cellmd is not None:
+            return self._stores_cellmd
         return self.is_stored and (self.is_computed or self.col_type.is_media_type())
 
     @property
@@ -243,28 +241,29 @@ class Column:
         """
         assert self.is_stored
         # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-        self.sa_col = sql.Column(
-            self.store_name(),
-            self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
-            nullable=True,
-        )
-        if self.is_computed or self.col_type.is_media_type():
-            self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
-            self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)
+        self.sa_col = sql.Column(self.store_name(), self.get_sa_col_type(), nullable=True)
+        if self.stores_cellmd:
+            # JSON metadata for the cell, e.g. errortype, errormsg for media columns
+            self.sa_cellmd_col = sql.Column(self.cellmd_store_name(), self.sa_cellmd_type(), nullable=True)
 
     def get_sa_col_type(self) -> sql.sqltypes.TypeEngine:
         return self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type
+
+    @classmethod
+    def cellmd_type(cls) -> ts.ColumnType:
+        return ts.JsonType(nullable=True)
+
+    @classmethod
+    def sa_cellmd_type(cls) -> sql.sqltypes.TypeEngine:
+        return cls.cellmd_type().to_sa_type()
 
     def store_name(self) -> str:
         assert self.id is not None
         assert self.is_stored
         return f'col_{self.id}'
 
-    def errormsg_store_name(self) -> str:
-        return f'{self.store_name()}_errormsg'
-
-    def errortype_store_name(self) -> str:
-        return f'{self.store_name()}_errortype'
+    def cellmd_store_name(self) -> str:
+        return f'{self.store_name()}_cellmd'
 
     def __str__(self) -> str:
         return f'{self.name}: {self.col_type}'

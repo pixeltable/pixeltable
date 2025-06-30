@@ -209,7 +209,7 @@ class RowBuilder:
                 # this is input and therefore doesn't depend on other exprs
                 continue
             # error properties don't have exceptions themselves
-            if isinstance(expr, ColumnPropertyRef) and expr.is_error_prop():
+            if isinstance(expr, ColumnPropertyRef) and expr.is_cellmd_prop():
                 continue
             dependency_idxs = [d.slot_idx for d in expr.dependencies()]
             self.dependencies[expr.slot_idx, dependency_idxs] = True
@@ -454,9 +454,11 @@ class RowBuilder:
                 if cols_with_excs is not None:
                     cols_with_excs.add(col.id)
                 table_row.append(None)
-                if col.records_errors:
+                if col.stores_cellmd:
                     # exceptions get stored in the errortype/-msg columns
-                    table_row.extend((type(exc).__name__, str(exc)))
+                    val = {'errortype': type(exc).__name__, 'errormsg': str(exc)}
+                    table_row.append(val)
+                    # raise NotImplementedError  # TODO jgp Create a cellmd JSON to store exception info
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
@@ -464,8 +466,8 @@ class RowBuilder:
                     data_row.flush_img(slot_idx, filepath)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
-                if col.records_errors:
-                    table_row.extend((None, None))
+                if col.stores_cellmd:
+                    table_row.append(None)  # placeholder for cellmd column
 
         return table_row, num_excs
 
@@ -483,8 +485,7 @@ class RowBuilder:
             if col.col.col_type.is_media_type():
                 media_cols[len(store_col_names)] = col.col
             store_col_names.append(col.col.store_name())
-            if col.col.records_errors:
-                store_col_names.append(col.col.errortype_store_name())
-                store_col_names.append(col.col.errormsg_store_name())
+            if col.col.stores_cellmd:
+                store_col_names.append(col.col.cellmd_store_name())
 
         return store_col_names, media_cols
