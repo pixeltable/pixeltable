@@ -18,35 +18,16 @@ Pixeltable provides several methods for sampling, including random sampling of a
 
 ```python
 import pixeltable as pxt
-import random
 
-# Load a sample dataset
-pop_data = pxt.create_table(
-    'population_data',
-    {
-        'country': pxt.String,
-        'continent': pxt.String,
-        'pop_2023': pxt.Int,
-    },
-    if_exists='ignore',
+# Import the earthquake dataset
+eq_t = pxt.create_table(
+    'earthquakes',
+    source='https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/earthquakes.csv',
+    if_exists='ignore'
 )
 
-country = random.choices(['USA', 'Canada', 'Mexico'], k=1000)
-continent = random.choices(['North America', 'South America'], k=1000)
-pop_2023 = random.choices(range(0, 1000000), k=1000)
-data = []
-
-for i in range(1000):
-    data.append({
-        'country': country[i],
-        'continent': continent[i],
-        'pop_2023': pop_2023[i],
-    })
-
-pop_data.insert(data)
-
-# Get a random sample of 1,000 countries
-sample_df = pop_data.sample(n=1000, seed=42)
+# Get a random sample of 20 earthquakes
+sample_df = eq_t.sample(n=20, seed=42)
 sample_df.collect()
 ```
 
@@ -60,7 +41,7 @@ Pixeltable offers simple ways to draw random samples from your data.
 
     ```python
     # Get a random sample of 5 rows
-    random_sample = pop_data.sample(n=5, seed=123)
+    random_sample = eq_t.sample(n=5, seed=123)
     random_sample.collect()
     ```
   </Tab>
@@ -69,7 +50,7 @@ Pixeltable offers simple ways to draw random samples from your data.
 
     ```python
     # Get a 1% random sample of the data
-    fractional_sample = pop_data.sample(fraction=0.01, seed=123)
+    fractional_sample = eq_t.sample(fraction=0.01, seed=123)
     fractional_sample.collect()
     ```
   </Tab>
@@ -78,7 +59,7 @@ Pixeltable offers simple ways to draw random samples from your data.
 
     ```python
     # This will always return the same 3 rows
-    reproducible_sample = pop_data.sample(n=3, seed=42)
+    reproducible_sample = eq_t.sample(n=3, seed=42)
     reproducible_sample.collect()
     ```
   </Tab>
@@ -86,17 +67,30 @@ Pixeltable offers simple ways to draw random samples from your data.
 
 ## Stratified Sampling
 
-Stratified sampling is an advanced technique that ensures subgroups within your data are represented proportionally in the sample. You can stratify your data based on one or more columns.
+Stratified sampling is an advanced technique that ensures subgroups within your data are represented proportionally in the sample. To illustrate this, let's first add a `state` column to our earthquake data by extracting it from the `location` string.
+
+```python
+# Define a UDF to extract the state
+@pxt.udf
+def get_state(location: str) -> str:
+    return location.split(',')[-1].strip()
+
+# Add a 'state' column to the table
+eq_t.add_computed_column(state=get_state(eq_t.location))
+eq_t.head()
+```
+
+Now we can use the `state` column for stratified sampling.
 
 <AccordionGroup>
   <Accordion title="Sample `n_per_stratum`" icon="layer-group">
     This method samples a fixed number of rows from each subgroup (stratum). This is useful for ensuring that even small subgroups are represented in your sample.
 
     ```python
-    # Sample 2 countries from each continent
-    stratified_sample = pop_data.sample(
+    # Sample 2 earthquakes from each state
+    stratified_sample = eq_t.sample(
         n_per_stratum=2, 
-        stratify_by=[pop_data.continent], 
+        stratify_by=[eq_t.state], 
         seed=42
     )
     stratified_sample.collect()
@@ -106,10 +100,10 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     This method samples a total of `n` rows, with the number of rows from each stratum proportional to its size in the original dataset.
 
     ```python
-    # Sample a total of 20 countries, stratified by continent
-    proportional_sample = pop_data.sample(
+    # Sample a total of 20 earthquakes, stratified by state
+    proportional_sample = eq_t.sample(
         n=20, 
-        stratify_by=[pop_data.continent], 
+        stratify_by=[eq_t.state], 
         seed=42
     )
     proportional_sample.collect()
@@ -119,10 +113,10 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     This method samples a fraction of rows from each stratum.
 
     ```python
-    # Sample 10% of countries from each continent
-    fractional_stratified = pop_data.sample(
+    # Sample 10% of earthquakes from each state
+    fractional_stratified = eq_t.sample(
         fraction=0.1, 
-        stratify_by=[pop_data.continent], 
+        stratify_by=[eq_t.state], 
         seed=42
     )
     fractional_stratified.collect()
@@ -139,12 +133,12 @@ The `sample()` operation has specific rules about how it can be used in a query 
     You can apply a `where()` clause before `sample()` to filter the data before sampling. This is the most common way to chain operations with `sample()`.
 
     ```python
-    # Sample 5 countries from Asia
-    asian_countries_sample = pop_data.where(
-        pop_data.continent == 'Asia'
+    # Sample 5 earthquakes with a magnitude greater than 2.0
+    strong_earthquakes_sample = eq_t.where(
+        eq_t.magnitude > 2.0
     ).sample(n=5, seed=42)
     
-    asian_countries_sample.collect()
+    strong_earthquakes_sample.collect()
     ```
   </Card>
   <Card title="Creating Snapshots and Tables" icon="camera">
@@ -152,13 +146,13 @@ The `sample()` operation has specific rules about how it can be used in a query 
 
     ```python
     # Create a sample DataFrame
-    sample_df = pop_data.sample(fraction=0.1, seed=42)
+    sample_df = eq_t.sample(fraction=0.1, seed=42)
 
     # Create a persistent snapshot from the sample
-    pxt.create_snapshot('population_sample_snapshot', sample_df, if_exists='replace')
+    pxt.create_snapshot('earthquake_sample_snapshot', sample_df, if_exists='replace')
 
     # Create a new table from the sample
-    pxt.create_table('population_sample_table', source=sample_df, if_exists='replace')
+    pxt.create_table('earthquake_sample_table', source=sample_df, if_exists='replace')
     ```
   </Card>
   <Card title="Limitations" icon="ban">
@@ -167,7 +161,7 @@ The `sample()` operation has specific rules about how it can be used in a query 
     ```python
     # This will raise an error
     try:
-        pop_data.order_by(pop_data.pop_2023).sample(n=10)
+        eq_t.order_by(eq_t.magnitude).sample(n=10)
     except Exception as e:
         print(e)
     ```
