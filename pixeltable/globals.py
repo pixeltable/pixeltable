@@ -634,13 +634,22 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
 
 
 def ls(path: str = '') -> pd.DataFrame:
+    """
+    List the contents of a Pixeltable directory.
+
+    This function returns a Pandas DataFrame representing a human-readable listing of the specified directory,
+    including various attributes such as version and base table, as appropriate.
+
+    To get a programmatic list of tables and/or directories, use [list_tables()][pixeltable.list_tables] and/or
+    [list_dirs()][pixeltable.list_dirs] instead.
+    """
     from pixeltable.metadata import schema
 
     cat = Catalog.get()
     path_obj = catalog.Path(path, empty_is_valid=True)
     dir_entries = cat.get_dir_contents(path_obj)
     rows: list[list[str]] = []
-    with Env.get().begin_xact():
+    with Catalog.get().begin_xact():
         for name, entry in dir_entries.items():
             if name.startswith('_'):
                 continue
@@ -652,34 +661,18 @@ def ls(path: str = '') -> pd.DataFrame:
                 assert entry.table is not None
                 assert isinstance(entry.table, schema.Table)
                 tbl = cat.get_table_by_id(entry.table.id)
-                tvp = tbl._tbl_version_path
-                tv = tvp.tbl_version.get()
-                if tvp.is_snapshot():
-                    kind = 'snapshot'
-                    version = ''
-                    if tbl._id != tvp.tbl_id:
-                        # pure snapshot
-                        base_tbl = Catalog.get().get_table_by_id(tvp.tbl_id)
-                        base = f'{base_tbl._path()}:{tv.version}'
-                    else:
-                        assert tvp.base is not None
-                        base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id)
-                        base_tv = tvp.base.tbl_version.get()
-                        base = f'{base_tbl._path()}:{base_tv.version}'
-                elif tvp.is_view():
-                    kind = 'view'
-                    version = str(tv.version)
-                    assert tvp.base is not None
-                    base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id)
-                    base = base_tbl._path()
-                else:
-                    kind = 'table'
-                    version = str(tv.version)
-                    assert tvp.base is None
-                    base = ''
+                md = tbl.get_metadata()
+                base = md['base'] or ''
                 if base.startswith('_'):
                     base = '<anonymous base table>'
-                if tv.is_replica:
+                if md['is_snapshot']:
+                    kind = 'snapshot'
+                elif md['is_view']:
+                    kind = 'view'
+                else:
+                    kind = 'table'
+                version = '' if kind == 'snapshot' else md['version']
+                if md['is_replica']:
                     kind = f'{kind}-replica'
             rows.append([name, kind, version, base])
 
