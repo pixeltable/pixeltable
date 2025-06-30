@@ -56,7 +56,7 @@ class UpdateStatus:
     Information about changes to table data or table schema
     """
 
-    comment: str = ''  # Note about this operation
+    op_note: str = ''  # Note about the operation that produced this result
 
     updated_cols: list[str] = field(default_factory=list)
     cols_with_excs: list[str] = field(default_factory=list)
@@ -85,7 +85,7 @@ class UpdateStatus:
         This is used when an insert operation is treated as an update.
         """
         return UpdateStatus(
-            comment=self.comment,
+            op_note=self.op_note,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=self.row_count_stats.insert_to_update(),
@@ -98,7 +98,7 @@ class UpdateStatus:
         This is used when an operation cascades changes to other tables.
         """
         return UpdateStatus(
-            comment=self.comment,
+            op_note=self.op_note,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=RowCountStats(),
@@ -110,7 +110,7 @@ class UpdateStatus:
         Add the update status from two UpdateStatus objects together.
         """
         return UpdateStatus(
-            comment=self.comment,  # comments are not added together
+            op_note=self.op_note,  # comments are not added together
             updated_cols=list(dict.fromkeys(self.updated_cols + other.updated_cols)),
             cols_with_excs=list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs)),
             row_count_stats=self.row_count_stats + other.row_count_stats,
@@ -140,14 +140,16 @@ class UpdateStatus:
 
     def _repr_pretty_(self, p: 'RepresentationPrinter', cycle: bool) -> None:
         messages = []
-        if self.row_count_stats.ins_rows > 0:
-            messages.append(f'{self.__cnt_str(self.row_count_stats.ins_rows, "row")} inserted')
-        if self.row_count_stats.del_rows > 0:
-            messages.append(f'{self.__cnt_str(self.row_count_stats.del_rows, "row")} deleted')
-        if self.row_count_stats.upd_rows > 0:
-            messages.append(f'{self.__cnt_str(self.row_count_stats.upd_rows, "row")} updated')
-        if self.num_computed_values > 0:
-            messages.append(f'{self.__cnt_str(self.num_computed_values, "value")} computed')
-        if self.row_count_stats.num_excs > 0:
-            messages.append(self.__cnt_str(self.row_count_stats.num_excs, 'exception'))
+        # Combine row count stats and cascade row count stats
+        stats = self.row_count_stats + self.cascade_row_count_stats
+        if stats.ins_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.ins_rows, "row")} inserted')
+        if stats.del_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.del_rows, "row")} deleted')
+        if stats.upd_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.upd_rows, "row")} updated')
+        if stats.computed_values > 0:
+            messages.append(f'{self.__cnt_str(stats.computed_values, "value")} computed')
+        if stats.num_excs > 0:
+            messages.append(self.__cnt_str(stats.num_excs, 'exception'))
         p.text(', '.join(messages) + '.' if len(messages) > 0 else 'No rows affected.')

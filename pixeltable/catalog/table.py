@@ -508,15 +508,16 @@ class Table(SchemaObject):
             for cname in cols_to_ignore:
                 assert cname in col_schema
                 del col_schema[cname]
+            result = UpdateStatus(op_note='Add columns')
             if len(col_schema) == 0:
-                return UpdateStatus()
+                return result
             new_cols = self._create_columns(col_schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
             assert self._tbl_version is not None
-            status = self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
+            result += self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     def add_column(
         self,
@@ -652,16 +653,17 @@ class Table(SchemaObject):
             )
             # if the column to add already exists and user asked to ignore
             # exiting column, there's nothing to do.
+            result = UpdateStatus(op_note='Add computed column')
             if len(cols_to_ignore) != 0:
                 assert cols_to_ignore[0] == col_name
-                return UpdateStatus()
+                return result
 
             new_col = self._create_columns({col_name: col_schema})[0]
             self._verify_column(new_col)
             assert self._tbl_version is not None
-            status = self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
+            result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
@@ -1347,9 +1349,9 @@ class Table(SchemaObject):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot update a snapshot')
-            status = self._tbl_version.get().update(value_spec, where, cascade)
+            result = self._tbl_version.get().update(value_spec, where, cascade)
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     def batch_update(
         self,
@@ -1413,7 +1415,7 @@ class Table(SchemaObject):
                         raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
                 row_updates.append(col_vals)
 
-            status = self._tbl_version.get().batch_update(
+            result = self._tbl_version.get().batch_update(
                 row_updates,
                 rowids,
                 error_if_not_exists=if_not_exists == 'error',
@@ -1421,7 +1423,7 @@ class Table(SchemaObject):
                 cascade=cascade,
             )
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     def recompute_columns(
         self, *columns: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
@@ -1482,9 +1484,9 @@ class Table(SchemaObject):
                     raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
                 col_names.append(col_name)
 
-            status = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
+            result = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
@@ -1674,11 +1676,25 @@ class Table(SchemaObject):
         for vers_md in vers_list[0 : len(vers_list) - over_count]:
             version = vers_md.version_md.version
             schema_change = md_dict.get(version, '')
-            change_type = 'schema' if schema_change != '' else 'data'
+            update_status = vers_md.version_md.update_status
+            if update_status is None:
+                update_status = UpdateStatus()
+            change_type = update_status.op_note
+            if change_type == '' and schema_change != '':
+                change_type = 'schema'
+            if change_type == '':
+                change_type = 'data'
+            rcs = update_status.row_count_stats + update_status.cascade_row_count_stats
             report_line = [
                 version,
                 datetime.datetime.fromtimestamp(vers_md.version_md.created_at),
+                vers_md.version_md.user,
                 change_type,
+                rcs.ins_rows,
+                rcs.upd_rows,
+                rcs.del_rows,
+                rcs.num_excs,
+                rcs.computed_values,
                 schema_change,
             ]
             report_lines.append(report_line)
@@ -1686,7 +1702,13 @@ class Table(SchemaObject):
         report_schema = {
             'version': ts.IntType(),
             'created_at': ts.TimestampType(),
-            'change': ts.StringType(),
+            'user': ts.StringType(nullable=True),
+            'note': ts.StringType(),
+            'inserts': ts.IntType(nullable=True),
+            'updates': ts.IntType(nullable=True),
+            'deletes': ts.IntType(nullable=True),
+            'errors': ts.IntType(nullable=True),
+            'computed': ts.IntType(),
             'schema_change': ts.StringType(),
         }
         return pxt.dataframe.DataFrameResultSet(report_lines, report_schema)
