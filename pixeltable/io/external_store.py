@@ -10,7 +10,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
 from pixeltable.catalog import ColumnHandle, TableVersion
-from pixeltable.catalog.globals import RowCountStats, UpdateStatus
+from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
 
 _logger = logging.getLogger('pixeltable')
 

@@ -29,13 +29,13 @@ from .globals import (
     IfExistsParam,
     IfNotExistsParam,
     MediaValidation,
-    UpdateStatus,
     is_system_column_name,
     is_valid_identifier,
 )
 from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     import torch.utils.data
