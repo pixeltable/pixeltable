@@ -272,8 +272,6 @@ class View(Table):
         )
 
     def _get_metadata(self) -> dict[str, Any]:
-        from .catalog import Catalog
-
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()

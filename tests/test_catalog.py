@@ -89,7 +89,7 @@ class TestCatalog:
             '''
                  Name              Kind Version                    Base
              replica1  snapshot-replica          <anonymous base table>
-            snapshot1          snapshot                         view1:4
+            snapshot1          snapshot                         view1:2
             snapshot2          snapshot                test_dir.view2:0
                subdir               dir                                |
                   tbl             table       4                        |
