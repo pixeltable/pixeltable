@@ -109,8 +109,6 @@ class Table(SchemaObject):
 
     def _get_metadata(self) -> dict[str, Any]:
         md = super()._get_metadata()
-        base = self._get_base_table()
-        md['base'] = base._path() if base is not None else None
         md['schema'] = self._get_schema()
         md['is_replica'] = self._tbl_version_path.is_replica()
         md['version'] = self._get_version()

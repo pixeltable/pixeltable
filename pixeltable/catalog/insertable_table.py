@@ -107,6 +107,7 @@ class InsertableTable(Table):
 
     def _get_metadata(self) -> dict[str, Any]:
         md = super()._get_metadata()
+        md['base'] = None
         md['is_view'] = False
         md['is_snapshot'] = False
         return md

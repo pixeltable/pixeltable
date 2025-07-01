@@ -361,6 +361,8 @@ class TableRestorer:
             )
 
         tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
+        for md in tbl_md:
+            md.tbl_md.is_replica = True
 
         # Create the replica table
         # The logic here needs to be completely restructured in order to make it concurrency-safe.
