@@ -53,6 +53,12 @@ class TestHfDatasets:
             },
             # example of dataset dictionary with multiple splits
             {'dataset_name': 'rotten_tomatoes', 'dataset': datasets.load_dataset('rotten_tomatoes')},
+            # example of dataset with a sequence of dicts
+            # (commented out for now, to keep the test overhead low, and because the test itself could use attention)
+            # {
+            #     'dataset_name': 'hotpot_qa',
+            #     'dataset': datasets.load_dataset('hotpot_qa', 'fullwiki', split='train[:1000]', trust_remote_code=True),
+            # },
         ]
 
         # test a column name for splits other than the default of 'split'
