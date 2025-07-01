@@ -277,17 +277,9 @@ class View(Table):
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
-        # TODO: We'll be able to clean the logic for md['base'] up a bit once we have Table objects that are handles to
-        #     specific versions. Right now, Table objects only represent an effective version of None, so there's no
-        #     single source of path/version information.
-        if self._id != self._tbl_version_path.tbl_id:
-            # Pure snapshot
-            base_tbl = Catalog.get().get_table_by_id(self._tbl_version_path.tbl_id)
-            md['base'] = f'{base_tbl._path()}:{base_tbl._tbl_version.get().version}'
-        else:
-            base_tbl = Catalog.get().get_table_by_id(self._tbl_version_path.base.tbl_id)
-            effective_version = self._tbl_version_path.base.tbl_version.effective_version
-            md['base'] = base_tbl._path() if effective_version is None else f'{base_tbl._path()}:{effective_version}'
+        base_tbl = self._get_base_table()
+        base_version = self._effective_base_versions[0]
+        md['base'] = base_tbl._path() if base_version is None else f'{base_tbl._path()}:{base_version}'
         return md
 
     def insert(
