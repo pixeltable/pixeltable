@@ -138,7 +138,7 @@ class TestPackager:
                     assert np.array_equal(pxt_val, parquet_val)
             elif col_type.is_json_type():
                 # JSON columns were exported as strings; check that they parse properly
-                assert pxt_values == [json.loads(val) for val in parquet_values]
+                assert pxt_values == [json.loads(val) if val is not None else None for val in parquet_values]
             elif col_type.is_media_type():
                 assert media_dir is not None
                 self.__check_media(pxt_values, parquet_values, media_dir)
