@@ -57,7 +57,12 @@ class TestHfDatasets:
             # (commented out for now, to keep the test overhead low, and because the test itself could use attention)
             # {
             #     'dataset_name': 'hotpot_qa',
-            #     'dataset': datasets.load_dataset('hotpot_qa', 'fullwiki', split='train[:1000]', trust_remote_code=True),
+            #     'dataset': datasets.load_dataset(
+            #         'hotpot_qa',
+            #         'fullwiki',
+            #         split='train[:1000]',
+            #         trust_remote_code=True
+            #     ),
             # },
         ]
 
