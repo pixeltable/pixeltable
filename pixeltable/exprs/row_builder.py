@@ -444,6 +444,8 @@ class RowBuilder:
         Return tuple[list of row values in `self.table_columns` order, # of exceptions]
             This excludes system columns.
         """
+        from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+
         num_excs = 0
         table_row: list[Any] = list(pk)
         for info in self.table_columns:
@@ -455,10 +457,8 @@ class RowBuilder:
                     cols_with_excs.add(col.id)
                 table_row.append(None)
                 if col.stores_cellmd:
-                    # exceptions get stored in the errortype/-msg columns
-                    val = {'errortype': type(exc).__name__, 'errormsg': str(exc)}
-                    table_row.append(val)
-                    # raise NotImplementedError  # TODO jgp Create a cellmd JSON to store exception info
+                    # exceptions get stored in the errortype/-msg properties of the cellmd column
+                    table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image

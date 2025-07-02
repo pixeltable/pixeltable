@@ -21,9 +21,8 @@ def __table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, up
 
     # Get the list of column names that need to be migrated
     col_names = find_error_columns(conn=conn, store_name=store_name)
-    print(col_names)
     if len(col_names) == 0:
-        _logger.info(f'No error columns found in table {tbl_id.hex}, skipping migration.')
+        _logger.info(f'No error columns found in table {store_name}. Skipping migration.')
         return
 
     # Check if the table exists, outside of the metadata we were given
@@ -38,7 +37,7 @@ def __table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, up
     """)
     table_exists = conn.execute(check_table_sql).scalar()
     if not table_exists:
-        _logger.warning(f'Table {store_name} does not exist, skipping migration.')
+        _logger.warning(f'Table {store_name} does not exist. Skipping migration.')
         return
 
     return migrate_error_to_cellmd_columns(conn, store_name, col_names)
@@ -95,10 +94,10 @@ def migrate_error_to_cellmd_columns(
             _logger.info(f'Backup created: {backup_table}')
 
         # Step 1: Add new columns
-        add_column_str = ', '.join([f'ADD COLUMN {col}_cellmd JSONB DEFAULT NULL' for col in col_names])
-        add_column_sql = sql.text(f"""ALTER TABLE {store_name} {add_column_str}""")
+        add_column_str = ', '.join(f'ADD COLUMN {col}_cellmd JSONB DEFAULT NULL' for col in col_names)
+        add_column_sql = sql.text(f'ALTER TABLE {store_name} {add_column_str}')
         conn.execute(add_column_sql)
-        _logger.info(f'Added columns: {", ".join([f"{col}_cellmd" for col in col_names])}')
+        _logger.info(f'Added columns: {", ".join(f"{col}_cellmd" for col in col_names)}')
 
         # Step 2: Populate new columns
         set_column_str = ', '.join(
@@ -108,7 +107,7 @@ def migrate_error_to_cellmd_columns(
                 for col in col_names
             ]
         )
-        populate_sql = sql.text(f"""UPDATE {store_name} SET {set_column_str}""")
+        populate_sql = sql.text(f'UPDATE {store_name} SET {set_column_str}')
         result = conn.execute(populate_sql)
         _logger.info(f'Updated {result.rowcount} rows')
 
@@ -116,9 +115,9 @@ def migrate_error_to_cellmd_columns(
         drop_columns_str = ', '.join(
             [f'DROP COLUMN IF EXISTS {col}_errormsg, DROP COLUMN IF EXISTS {col}_errortype' for col in col_names]
         )
-        drop_columns_sql = sql.text(f"""ALTER TABLE {store_name} {drop_columns_str}""")
+        drop_columns_sql = sql.text(f'ALTER TABLE {store_name} {drop_columns_str}')
         conn.execute(drop_columns_sql)
-        _logger.info(f'Dropped columns: {", ".join([f"{col}_errormsg, {col}_errortype" for col in col_names])}')
+        _logger.info(f'Dropped columns: {", ".join(f"{col}_errormsg, {col}_errortype" for col in col_names)}')
         _logger.info(f'Migration completed successfully for table: {store_name}')
 
     except sql.exc.SQLAlchemyError as e:

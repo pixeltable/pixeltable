@@ -70,12 +70,8 @@ class ColumnPropertyRef(Expr):
 
         if self.prop == self.Property.ERRORTYPE:
             return col.sa_cellmd_col.op('->>')('errortype')
-            return col.sa_cellmd_col['errortype']
-            # raise NotImplementedError  # TODO jgp Access errortype property of JSON field in datarow
         if self.prop == self.Property.ERRORMSG:
             return col.sa_cellmd_col.op('->>')('errormsg')
-            return col.sa_cellmd_col['errormsg']
-            # raise NotImplementedError  # TODO jgp Access errormsg property of JSON field in datarow
         if self.prop == self.Property.CELLMD:
             assert col.sa_cellmd_col is not None
             return col.sa_cellmd_col
@@ -83,6 +79,11 @@ class ColumnPropertyRef(Expr):
             # the file url is stored as the column value
             return sql_elements.get(self._col_ref)
         return None
+
+    @classmethod
+    def create_cellmd_exc(cls, exc: Exception) -> dict[str, str]:
+        """Create a cellmd value from an exception."""
+        return {'errortype': type(exc).__name__, 'errormsg': str(exc)}
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.prop == self.Property.FILEURL:
@@ -102,9 +103,7 @@ class ColumnPropertyRef(Expr):
             elif self.prop == self.Property.ERRORMSG:
                 data_row[self.slot_idx] = str(exc)
             else:
-                # Create JSON from an exception for the CELLMD property.
-                data_row[self.slot_idx] = {'errortype': type(exc).__name__, 'errormsg': str(exc)}
-                # raise NotImplementedError  # TODO jgp Create a cellmd when to store exc info (Construct JSON)
+                data_row[self.slot_idx] = self.create_cellmd_exc(exc)
             return
         else:
             raise AssertionError()
