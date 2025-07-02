@@ -1,7 +1,5 @@
 # ruff: noqa: F401
 
-from pixeltable.catalog.update_status import RowCountStats, SyncStatus, UpdateStatus
-
 from .datarows import import_json, import_rows
 from .external_store import ExternalStore
 from .globals import create_label_studio_project, export_images_as_fo_dataset

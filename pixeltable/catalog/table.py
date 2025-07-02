@@ -1588,7 +1588,7 @@ class Table(SchemaObject):
 
     def sync(
         self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True
-    ) -> 'pxt.io.SyncStatus':
+    ) -> UpdateStatus:
         """
         Synchronizes this table with its linked external stores.
 
@@ -1601,7 +1601,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         if self._tbl_version_path.is_snapshot():
-            return pxt.io.SyncStatus()
+            return UpdateStatus()
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
         # have their updates propagated down the tree
         base_tv = self._tbl_version_path.get_tbl_versions()[-1]
@@ -1617,7 +1617,7 @@ class Table(SchemaObject):
                 if store not in all_stores:
                     raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
-            sync_status = pxt.io.SyncStatus()
+            sync_status = UpdateStatus(op_note='sync')
             for store in stores:
                 store_obj = self._tbl_version.get().external_stores[store]
                 store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)

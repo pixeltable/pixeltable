@@ -9,7 +9,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
 from pixeltable.catalog import ColumnHandle, TableVersion
-from pixeltable.catalog.update_status import RowCountStats, SyncStatus, UpdateStatus
+from pixeltable.catalog.update_status import UpdateStatus
 
 _logger = logging.getLogger('pixeltable')
 
@@ -45,7 +45,7 @@ class ExternalStore(abc.ABC):
         """
 
     @abc.abstractmethod
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> UpdateStatus:
         """
         Called by `Table.sync()` to implement store-specific synchronization logic.
         """
@@ -296,7 +296,7 @@ class MockProject(Project):
     def get_import_columns(self) -> dict[str, ts.ColumnType]:
         return self.import_cols
 
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> UpdateStatus:
         raise NotImplementedError()
 
     def delete(self) -> None:
