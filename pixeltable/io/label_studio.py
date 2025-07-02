@@ -14,10 +14,10 @@ from requests.exceptions import HTTPError
 import pixeltable.type_system as ts
 from pixeltable import Column, Table, env, exceptions as excs
 from pixeltable.catalog import ColumnHandle
-from pixeltable.catalog.update_status import RowCountStats
+from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
-from pixeltable.io.external_store import Project, SyncStatus
+from pixeltable.io.external_store import Project
 from pixeltable.utils import coco
 
 # label_studio_sdk>=1 and label_studio_sdk<1 are not compatible, so we need to try
@@ -111,14 +111,14 @@ class LabelStudioProject(Project):
         """
         return {ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}
 
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> UpdateStatus:
         _logger.info(
             f'Syncing Label Studio project "{self.project_title}" with table `{t._name}`'
             f' (export: {export_data}, import: {import_data}).'
         )
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
-        sync_status = SyncStatus()
+        sync_status = UpdateStatus()
         if export_data:
             export_sync_status = self.__update_tasks(t, tasks)
             sync_status += export_sync_status
@@ -148,7 +148,7 @@ class LabelStudioProject(Project):
                 f'Label Studio project {self.project_title!r}.'
             )
 
-    def __update_tasks(self, t: Table, existing_tasks: dict[tuple, dict]) -> SyncStatus:
+    def __update_tasks(self, t: Table, existing_tasks: dict[tuple, dict]) -> UpdateStatus:
         """
         Updates all tasks in this Label Studio project based on the Pixeltable data:
         - Creates new tasks for rows that don't map to any existing task;
@@ -161,7 +161,7 @@ class LabelStudioProject(Project):
         t_data_cols = [t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys]
 
         if len(t_data_cols) == 0:
-            return SyncStatus()
+            return UpdateStatus()
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
@@ -192,7 +192,7 @@ class LabelStudioProject(Project):
         media_col: ColumnHandle,
         t_rl_cols: list[ColumnHandle],
         rl_info: list['_RectangleLabel'],
-    ) -> SyncStatus:
+    ) -> UpdateStatus:
         is_stored = media_col.get().is_stored
         # If it's a stored column, we can use `localpath`
         localpath_col_opt = [t[media_col.get().name].localpath] if is_stored else []
@@ -238,7 +238,7 @@ class LabelStudioProject(Project):
 
         env.Env.get().console_logger.info(f'Created {tasks_created} new task(s) in {self}.')
 
-        sync_status = SyncStatus(ext_row_count_stats=RowCountStats(ins_rows=tasks_created))
+        sync_status = UpdateStatus(ext_row_count_stats=RowCountStats(ins_rows=tasks_created))
 
         deletion_sync_status = self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
         sync_status += deletion_sync_status
@@ -251,7 +251,7 @@ class LabelStudioProject(Project):
         t_data_cols: list[ColumnHandle],
         t_rl_cols: list[ColumnHandle],
         rl_info: list['_RectangleLabel'],
-    ) -> SyncStatus:
+    ) -> UpdateStatus:
         ext_data_cols = [self.col_mapping[col] for col in t_data_cols]
         expr_refs: dict[str, Expr] = {}  # kwargs for the select statement
         for col in t_data_cols:
@@ -342,7 +342,7 @@ class LabelStudioProject(Project):
             f'Created {tasks_created} new task(s) and updated {tasks_updated} existing task(s) in {self}.'
         )
 
-        sync_status = SyncStatus(ext_row_count_stats=RowCountStats(ins_rows=tasks_created, upd_rows=tasks_updated))
+        sync_status = UpdateStatus(ext_row_count_stats=RowCountStats(ins_rows=tasks_created, upd_rows=tasks_updated))
 
         deletion_sync_status = self.__delete_stale_tasks(existing_tasks, row_ids_in_pxt, tasks_created)
         sync_status += deletion_sync_status
@@ -367,7 +367,7 @@ class LabelStudioProject(Project):
 
     def __delete_stale_tasks(
         self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int
-    ) -> SyncStatus:
+    ) -> UpdateStatus:
         deleted_rowids = set(existing_tasks.keys()) - row_ids_in_pxt
         # Sanity check the math
         assert len(deleted_rowids) == len(existing_tasks) + tasks_created - len(row_ids_in_pxt)
@@ -383,11 +383,11 @@ class LabelStudioProject(Project):
         for rowid in deleted_rowids:
             del existing_tasks[rowid]
 
-        return SyncStatus(ext_row_count_stats=RowCountStats(del_rows=len(deleted_rowids)))
+        return UpdateStatus(ext_row_count_stats=RowCountStats(del_rows=len(deleted_rowids)))
 
-    def __update_table_from_tasks(self, t: Table, tasks: dict[tuple, dict]) -> SyncStatus:
+    def __update_table_from_tasks(self, t: Table, tasks: dict[tuple, dict]) -> UpdateStatus:
         if ANNOTATIONS_COLUMN not in self.col_mapping.values():
-            return SyncStatus()
+            return UpdateStatus()
 
         annotations = {
             # Replace [] by None to indicate no annotations. We do want to sync rows with no annotations,
@@ -422,9 +422,9 @@ class LabelStudioProject(Project):
                 ancestor = ancestor._get_base_table()
             update_status = ancestor.batch_update(updates)
             env.Env.get().console_logger.info(f'Updated annotation(s) from {len(updates)} task(s) in {self}.')
-            return SyncStatus.from_update_status(update_status)
+            return update_status
         else:
-            return SyncStatus()
+            return UpdateStatus()
 
     def as_dict(self) -> dict[str, Any]:
         return {
