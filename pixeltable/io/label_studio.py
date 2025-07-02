@@ -14,7 +14,7 @@ from requests.exceptions import HTTPError
 import pixeltable.type_system as ts
 from pixeltable import Column, Table, env, exceptions as excs
 from pixeltable.catalog import ColumnHandle
-from pixeltable.catalog.globals import RowCountStats
+from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus

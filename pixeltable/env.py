@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import glob
 import http.server
@@ -22,6 +23,7 @@ from sys import stdout
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
@@ -85,6 +87,7 @@ class Env:
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
     _dbms: Optional[Dbms]
+    _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
@@ -140,6 +143,32 @@ class Env:
         self._current_conn = None
         self._current_session = None
         self._dbms = None
+        self._event_loop = None
+
+    def _init_event_loop(self) -> None:
+        try:
+            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
+            # multiple run_until_complete()
+            running_loop = asyncio.get_running_loop()
+            self._event_loop = running_loop
+            _logger.debug('Patched running loop')
+        except RuntimeError:
+            self._event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._event_loop)
+            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
+            self._event_loop.slow_callback_duration = 3600
+
+        # always allow nested event loops, we need that to run async udfs synchronously (eg, for SimilarityExpr);
+        # see run_coroutine_synchronously()
+        nest_asyncio.apply()
+        if _logger.isEnabledFor(logging.DEBUG):
+            self._event_loop.set_debug(True)
+
+    @property
+    def event_loop(self) -> asyncio.AbstractEventLoop:
+        if self._event_loop is None:
+            self._init_event_loop()
+        return self._event_loop
 
     @property
     def db_url(self) -> str:

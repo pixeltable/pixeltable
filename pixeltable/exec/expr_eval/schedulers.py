@@ -4,9 +4,10 @@ import asyncio
 import datetime
 import inspect
 import logging
+import re
 import sys
 import time
-from typing import Awaitable, Collection, Optional
+from typing import Any, Awaitable, Collection, Optional
 
 from pixeltable import env, func
 from pixeltable.config import Config
@@ -250,8 +251,20 @@ class RequestRateScheduler(Scheduler):
     total_retried: int
 
     TIME_FORMAT = '%H:%M.%S %f'
-    MAX_RETRIES = 10
+    MAX_RETRIES = 3
     DEFAULT_RATE_LIMIT = 600  # requests per minute
+    RATE_LIMIT_INDICATORS = ('rate limit', 'too many requests', '429', 'quota exceeded', 'throttled', 'rate exceeded')
+    RETRY_AFTER_PATTERNS = (
+        r'retry after (\d+(?:\.\d+)?)\s*seconds?',
+        r'try again in (\d+(?:\.\d+)?)\s*seconds?',
+        r'wait (\d+(?:\.\d+)?)\s*seconds?',
+        r'retry-after:\s*(\d+(?:\.\d+)?)',
+    )
+
+    # Exponential backoff defaults
+    BASE_RETRY_DELAY = 1.0  # in seconds
+    MAX_RETRY_DELAY = 60.0  # in seconds
+    RETRY_BACKOFF_MULTIPLIER = 2.0
 
     def __init__(self, resource_pool: str, dispatcher: Dispatcher):
         super().__init__(resource_pool, dispatcher)
@@ -337,11 +350,12 @@ class RequestRateScheduler(Scheduler):
             self.dispatcher.dispatch(request.rows, exec_ctx)
 
         except Exception as exc:
-            # TODO: which exception can be retried?
-            _logger.debug(f'exception for {self.resource_pool}: {exc}')
-            status = getattr(exc, 'status', None)
-            _logger.debug(f'type={type(exc)} has_status={hasattr(exc, "status")} status={status}')
-            if num_retries < self.MAX_RETRIES:
+            _logger.debug(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
+            is_rate_limit_error, retry_after = self._is_rate_limit_error(exc)
+            if is_rate_limit_error and num_retries < self.MAX_RETRIES:
+                retry_delay = self._compute_retry_delay(num_retries, retry_after)
+                _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
+                await asyncio.sleep(retry_delay)
                 self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
                 return
 
@@ -357,6 +371,119 @@ class RequestRateScheduler(Scheduler):
             )
             if is_task:
                 self.num_in_flight -= 1
+
+    def _is_rate_limit_error(self, exc: Exception) -> tuple[bool, Optional[float]]:
+        """Returns True if the exception indicates a rate limit error, and the retry delay in seconds."""
+        from http import HTTPStatus
+
+        # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
+        # We look for attributes that contain status codes, instead of checking the type of the exception,
+        # in order to handle a wider variety of exception classes.
+        is_rate_limit_error = False
+        retry_delay: Optional[float] = None
+
+        # requests.HTTPError/httpx.HTTPStatusError
+        if (
+            hasattr(exc, 'response')
+            and hasattr(exc.response, 'status_code')
+            and exc.response.status_code == HTTPStatus.TOO_MANY_REQUESTS.value
+        ):
+            is_rate_limit_error = True
+            retry_delay = self._extract_retry_delay_from_headers(exc.response.headers)
+        elif (
+            # urllib.error.HTTPError
+            (hasattr(exc, 'code') and exc.code == HTTPStatus.TOO_MANY_REQUESTS.value)
+            # aiohttp.ClientResponseError
+            or (hasattr(exc, 'status') and exc.status == HTTPStatus.TOO_MANY_REQUESTS.value)
+        ) and hasattr(exc, 'headers'):
+            is_rate_limit_error = True
+            retry_delay = self._extract_retry_delay_from_headers(exc.headers)
+
+        if is_rate_limit_error:
+            return True, retry_delay
+
+        # Check common rate limit keywords in exception message
+        error_msg = str(exc).lower()
+        if any(indicator in error_msg for indicator in self.RATE_LIMIT_INDICATORS):
+            retry_delay = self._extract_retry_delay_from_message(error_msg)
+            return True, retry_delay
+
+        return False, None
+
+    def _extract_retry_delay_from_headers(self, headers: Optional[Any]) -> Optional[float]:
+        """Extract retry delay from HTTP headers."""
+        if headers is None:
+            return None
+
+        # convert headers to dict-like object for consistent access
+        header_dict: dict
+        if hasattr(headers, 'get'):
+            header_dict = headers
+        else:
+            # headers are a list of tuples or other format
+            try:
+                header_dict = dict(headers)
+            except (TypeError, ValueError):
+                return None
+        # normalize dict keys: lowercase and remove dashes
+        header_dict = {k.lower().replace('-', ''): v for k, v in header_dict.items()}
+
+        # check Retry-After header
+        retry_after = header_dict.get('retryafter')
+        if retry_after is not None:
+            try:
+                return float(retry_after)
+            except (ValueError, TypeError):
+                pass
+
+        # check X-RateLimit-Reset (Unix timestamp)
+        reset_time = header_dict.get('xratelimitreset')
+        if reset_time is not None:
+            try:
+                reset_timestamp = float(reset_time)
+                delay = max(0, reset_timestamp - time.time())
+                return delay
+            except (ValueError, TypeError):
+                pass
+
+        # check X-RateLimit-Reset-After (seconds from now)
+        reset_after = header_dict.get('xratelimitresetafter')
+        if reset_after is not None:
+            try:
+                return float(reset_after)
+            except (ValueError, TypeError):
+                pass
+
+        return None
+
+    def _extract_retry_delay_from_message(self, msg: str) -> Optional[float]:
+        msg_lower = msg.lower()
+        for pattern in self.RETRY_AFTER_PATTERNS:
+            match = re.search(pattern, msg_lower)
+            if match is not None:
+                try:
+                    return float(match.group(1))
+                except (ValueError, TypeError):
+                    continue
+        return None
+
+    def _compute_retry_delay(self, num_retries: int, retry_after: Optional[float] = None) -> float:
+        """
+        Calculate exponential backoff delay for rate limit errors.
+
+        Args:
+            retry_count: Number of retries attempted (0-based)
+            retry_after: Suggested delay from Retry-After header
+
+        Returns:
+            Delay in seconds
+        """
+        if retry_after is not None and retry_after > 0:
+            # Use server-suggested delay, but cap it at max_delay
+            return max(min(retry_after, self.MAX_RETRY_DELAY), self.BASE_RETRY_DELAY)
+        else:
+            delay = self.BASE_RETRY_DELAY * (self.RETRY_BACKOFF_MULTIPLIER**num_retries)
+            return max(min(delay, self.MAX_RETRY_DELAY), self.BASE_RETRY_DELAY)
 
 
 # all concrete Scheduler subclasses that implement matches()

@@ -15,7 +15,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import Catalog, is_valid_identifier
-from pixeltable.catalog.globals import UpdateStatus
+from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner, SampleClause
 from pixeltable.type_system import ColumnType

@@ -17,11 +17,12 @@ if TYPE_CHECKING:
 
 
 from .column import Column
-from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
+from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
@@ -229,7 +230,9 @@ class View(Table):
 
             try:
                 plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
-                _, status = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+                _, row_counts = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+                status = UpdateStatus(comment='view creation', row_count_stats=row_counts)
+
             except:
                 # we need to remove the orphaned TableVersion instance
                 del catalog.Catalog.get()._tbl_versions[tbl_version.id, tbl_version.effective_version]
@@ -275,6 +278,9 @@ class View(Table):
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
+        base_tbl = self._get_base_table()
+        base_version = self._effective_base_versions[0]
+        md['base'] = base_tbl._path() if base_version is None else f'{base_tbl._path()}:{base_version}'
         return md
 
     def insert(

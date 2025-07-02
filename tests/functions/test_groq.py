@@ -36,7 +36,7 @@ class TestGroq:
         assert 'tennessine' in results['output'][0]['choices'][0]['message']['content'].lower()
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
+    @pytest.mark.flaky(reruns=20, reruns_delay=8, condition=DO_RERUN)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('groq')
         skip_test_if_no_client('groq')

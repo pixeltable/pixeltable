@@ -14,7 +14,7 @@ import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
 from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog import RowCountStats, UpdateStatus
+from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
@@ -309,7 +309,7 @@ class StoreBase:
         show_progress: bool = True,
         rowids: Optional[Iterator[int]] = None,
         abort_on_exc: bool = False,
-    ) -> tuple[set[int], UpdateStatus]:
+    ) -> tuple[set[int], RowCountStats]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
@@ -373,12 +373,9 @@ class StoreBase:
             if progress_bar is not None:
                 progress_bar.close()
             computed_values = exec_plan.ctx.num_computed_exprs * num_rows
-            row_counts = RowCountStats(
-                ins_rows=num_rows, num_excs=num_excs, computed_values=computed_values
-            )  # insert (StoreBase)
+            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=computed_values)
 
-            return cols_with_excs, UpdateStatus(row_count_stats=row_counts)
-
+            return cols_with_excs, row_counts
         finally:
             exec_plan.close()
 

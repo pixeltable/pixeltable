@@ -11,6 +11,7 @@ from pandas.io.formats.style import Styler
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
@@ -34,8 +35,11 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def init() -> None:
+def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
     """Initializes the Pixeltable environment."""
+    if config_overrides is None:
+        config_overrides = {}
+    Config.init(config_overrides)
     _ = Catalog.get()
 
 
@@ -631,6 +635,62 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     path_obj = catalog.Path(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+
+
+def ls(path: str = '') -> pd.DataFrame:
+    """
+    List the contents of a Pixeltable directory.
+
+    This function returns a Pandas DataFrame representing a human-readable listing of the specified directory,
+    including various attributes such as version and base table, as appropriate.
+
+    To get a programmatic list of tables and/or directories, use [list_tables()][pixeltable.list_tables] and/or
+    [list_dirs()][pixeltable.list_dirs] instead.
+    """
+    from pixeltable.metadata import schema
+
+    cat = Catalog.get()
+    path_obj = catalog.Path(path, empty_is_valid=True)
+    dir_entries = cat.get_dir_contents(path_obj)
+    rows: list[list[str]] = []
+    with Catalog.get().begin_xact():
+        for name, entry in dir_entries.items():
+            if name.startswith('_'):
+                continue
+            if entry.dir is not None:
+                kind = 'dir'
+                version = ''
+                base = ''
+            else:
+                assert entry.table is not None
+                assert isinstance(entry.table, schema.Table)
+                tbl = cat.get_table_by_id(entry.table.id)
+                md = tbl.get_metadata()
+                base = md['base'] or ''
+                if base.startswith('_'):
+                    base = '<anonymous base table>'
+                if md['is_snapshot']:
+                    kind = 'snapshot'
+                elif md['is_view']:
+                    kind = 'view'
+                else:
+                    kind = 'table'
+                version = '' if kind == 'snapshot' else md['version']
+                if md['is_replica']:
+                    kind = f'{kind}-replica'
+            rows.append([name, kind, version, base])
+
+    rows = sorted(rows, key=lambda x: x[0])
+    df = pd.DataFrame(
+        {
+            'Name': [row[0] for row in rows],
+            'Kind': [row[1] for row in rows],
+            'Version': [row[2] for row in rows],
+            'Base': [row[3] for row in rows],
+        },
+        index=([''] * len(rows)),
+    )
+    return df
 
 
 def _extract_paths(

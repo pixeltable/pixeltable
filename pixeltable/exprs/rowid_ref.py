@@ -105,10 +105,6 @@ class RowidRef(Expr):
         assert self.rowid_component_idx <= len(rowid_cols), (
             f'{self.rowid_component_idx} not consistent with {rowid_cols}'
         )
-        # _logger.debug(
-        #     f'RowidRef.sql_expr: tbl={tbl.id}{tbl.effective_version} sa_tbl={id(tbl.store_tbl.sa_tbl):x} '
-        #     f'tv={id(tbl):x}'
-        # )
         return rowid_cols[self.rowid_component_idx]
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

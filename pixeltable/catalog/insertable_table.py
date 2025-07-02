@@ -10,11 +10,12 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
-from .globals import MediaValidation, UpdateStatus
+from .globals import MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -106,6 +107,7 @@ class InsertableTable(Table):
 
     def _get_metadata(self) -> dict[str, Any]:
         md = super()._get_metadata()
+        md['base'] = None
         md['is_view'] = False
         md['is_snapshot'] = False
         return md
@@ -171,14 +173,14 @@ class InsertableTable(Table):
         from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import DFTableDataConduit
 
-        status = pxt.UpdateStatus()
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if isinstance(data_source, DFTableDataConduit):
-                status = self._tbl_version.get().insert(
+                status = pxt.UpdateStatus(comment='insert DataFrame')
+                status += self._tbl_version.get().insert(
                     rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
                 )
             else:
-                status = UpdateStatus()
+                status = pxt.UpdateStatus(comment='insert data_source')
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
                         rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
