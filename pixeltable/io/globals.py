@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import Table, exprs
+from pixeltable.catalog.update_status import RowCountStats, SyncStatus, UpdateStatus
 from pixeltable.env import Env
-from pixeltable.io.external_store import SyncStatus
 
 if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]

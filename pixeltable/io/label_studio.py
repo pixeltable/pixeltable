@@ -14,10 +14,10 @@ from requests.exceptions import HTTPError
 import pixeltable.type_system as ts
 from pixeltable import Column, Table, env, exceptions as excs
 from pixeltable.catalog import ColumnHandle
-from pixeltable.catalog.update_status import RowCountStats
+from pixeltable.catalog.update_status import RowCountStats, SyncStatus, UpdateStatus
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
-from pixeltable.io.external_store import Project, SyncStatus
+from pixeltable.io.external_store import Project
 from pixeltable.utils import coco
 
 # label_studio_sdk>=1 and label_studio_sdk<1 are not compatible, so we need to try

@@ -17,10 +17,9 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog.update_status import UpdateStatus
+from pixeltable.catalog.update_status import SyncStatus, UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.io import SyncStatus
 from pixeltable.utils import sha256sum
 
 TESTS_DIR = Path(os.path.dirname(__file__))
