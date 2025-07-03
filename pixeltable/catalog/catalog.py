@@ -28,6 +28,7 @@ from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .tbl_ops import TableOp
 from .view import View
 
 if TYPE_CHECKING:
@@ -706,7 +707,66 @@ class Catalog:
         self._tbls[tbl._id] = tbl
         return tbl
 
-    @_retry_loop(for_write=True)
+    # @_retry_loop(for_write=True)
+    # def create_view_(
+    #     self,
+    #     path: Path,
+    #     base: TableVersionPath,
+    #     select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
+    #     where: Optional[exprs.Expr],
+    #     sample_clause: Optional['SampleClause'],
+    #     additional_columns: Optional[dict[str, Any]],
+    #     is_snapshot: bool,
+    #     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]],
+    #     num_retained_versions: int,
+    #     comment: str,
+    #     media_validation: MediaValidation,
+    #     if_exists: IfExistsParam,
+    # ) -> Table:
+    #     from pixeltable.utils.filecache import FileCache
+    #
+    #     if not is_snapshot and not base.is_snapshot():
+    #         # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding the view
+    #         self._acquire_tbl_xlock(tbl_id=base.tbl_id)
+    #         base_tv = self.get_tbl_version(base.tbl_id, None)
+    #         base_tv.tbl_md.view_sn += 1
+    #         result = Env.get().conn.execute(
+    #             sql.update(schema.Table)
+    #             .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
+    #             .where(schema.Table.id == base.tbl_id)
+    #         )
+    #         assert result.rowcount == 1, result.rowcount
+    #
+    #     existing = self._handle_path_collision(path, View, is_snapshot, if_exists)
+    #     if existing is not None:
+    #         assert isinstance(existing, View)
+    #         return existing
+    #
+    #     dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+    #     assert dir is not None
+    #     if iterator is None:
+    #         iterator_class, iterator_args = None, None
+    #     else:
+    #         iterator_class, iterator_args = iterator
+    #     view = View._create(
+    #         dir._id,
+    #         path.name,
+    #         base=base,
+    #         select_list=select_list,
+    #         additional_columns=additional_columns,
+    #         predicate=where,
+    #         sample_clause=sample_clause,
+    #         is_snapshot=is_snapshot,
+    #         iterator_cls=iterator_class,
+    #         iterator_args=iterator_args,
+    #         num_retained_versions=num_retained_versions,
+    #         comment=comment,
+    #         media_validation=media_validation,
+    #     )
+    #     FileCache.get().emit_eviction_warnings()
+    #     self._tbls[view._id] = view
+    #     return view
+
     def create_view(
         self,
         path: Path,
@@ -722,49 +782,94 @@ class Catalog:
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
-        from pixeltable.utils.filecache import FileCache
+        def create_fn() -> UUID:
+            if not is_snapshot and not base.is_snapshot():
+                # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
+                # the view
+                self._acquire_tbl_xlock(tbl_id=base.tbl_id)
+                base_tv = self.get_tbl_version(base.tbl_id, None)
+                base_tv.tbl_md.view_sn += 1
+                result = Env.get().conn.execute(
+                    sql.update(schema.Table)
+                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
+                    .where(schema.Table.id == base.tbl_id)
+                )
+                assert result.rowcount == 1, result.rowcount
 
-        if not is_snapshot and not base.is_snapshot():
-            # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding the view
-            self._acquire_tbl_xlock(tbl_id=base.tbl_id)
-            base_tv = self.get_tbl_version(base.tbl_id, None)
-            base_tv.tbl_md.view_sn += 1
-            result = Env.get().conn.execute(
-                sql.update(schema.Table)
-                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
-                .where(schema.Table.id == base.tbl_id)
+            existing = self._handle_path_collision(path, View, is_snapshot, if_exists)
+            if existing is not None:
+                assert isinstance(existing, View)
+                return existing._id
+
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+            if iterator is None:
+                iterator_class, iterator_args = None, None
+            else:
+                iterator_class, iterator_args = iterator
+            md, ops = View._create(
+                dir._id,
+                path.name,
+                base=base,
+                select_list=select_list,
+                additional_columns=additional_columns,
+                predicate=where,
+                sample_clause=sample_clause,
+                is_snapshot=is_snapshot,
+                iterator_cls=iterator_class,
+                iterator_args=iterator_args,
+                num_retained_versions=num_retained_versions,
+                comment=comment,
+                media_validation=media_validation,
             )
-            assert result.rowcount == 1, result.rowcount
+            tbl_id = UUID(md.tbl_md.tbl_id)
+            self.store_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            return tbl_id
 
-        existing = self._handle_path_collision(path, View, is_snapshot, if_exists)
-        if existing is not None:
-            assert isinstance(existing, View)
-            return existing
+        view_id = _retry_loop(for_write=True)(create_fn)()
+        base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version)
+        tv = self.get_tbl_version(view_id, None)
+        if tv.is_mutable and base_tv.is_mutable:
+            base_tv.mutable_views.add(tv.handle)
+        while True:
+            if not self._finalize_next_pending_op(tv.path):
+                break
+        with self.begin_xact(for_write=False):
+            return self.get_table_by_id(view_id)
 
-        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-        assert dir is not None
-        if iterator is None:
-            iterator_class, iterator_args = None, None
-        else:
-            iterator_class, iterator_args = iterator
-        view = View._create(
-            dir._id,
-            path.name,
-            base=base,
-            select_list=select_list,
-            additional_columns=additional_columns,
-            predicate=where,
-            sample_clause=sample_clause,
-            is_snapshot=is_snapshot,
-            iterator_cls=iterator_class,
-            iterator_args=iterator_args,
-            num_retained_versions=num_retained_versions,
-            comment=comment,
-            media_validation=media_validation,
-        )
-        FileCache.get().emit_eviction_warnings()
-        self._tbls[view._id] = view
-        return view
+    def _finalize_next_pending_op(self, tbl: TableVersionPath) -> bool:
+        """
+        Finalizes the next pending op for the given table. Returns True if there was a pending op, False otherwise.
+        """
+        op: TableOp
+        delete_next_op_q: sql.Delete
+        with self.begin_xact(tbl=tbl, for_write=True, convert_db_excs=False):
+            conn = Env.get().conn
+            q = (
+                sql.select(schema.PendingTableOp)
+                .where(schema.PendingTableOp.tbl_id == tbl.tbl_id)
+                .order_by(schema.PendingTableOp.seq_num)
+                .limit(1)
+            )
+            row = conn.execute(q).one_or_none()
+            if row is None:
+                return False
+            op = schema.md_from_dict(TableOp, row.op)
+            delete_next_op_q = sql.delete(schema.PendingTableOp).where(
+                schema.PendingTableOp.tbl_id == tbl.tbl_id, schema.PendingTableOp.seq_num == row.seq_num
+            )
+            if op.needs_xact:
+                tv = self.get_tbl_version(tbl.tbl_id, None)
+                tv.exec_op(op)
+                conn.execute(delete_next_op_q)
+                return True
+
+        # this op runs outside of a transaction
+        tv = self.get_tbl_version(tbl.tbl_id, None)
+        tv.exec_op(op)
+        with self.begin_xact(tbl=tbl, for_write=True, convert_db_excs=False):
+            Env.get().conn.execute(delete_next_op_q)
+        return True
 
     @_retry_loop(for_write=True)
     def create_replica(
@@ -1342,6 +1447,7 @@ class Catalog:
         tbl_md: Optional[schema.TableMd],
         version_md: Optional[schema.TableVersionMd],
         schema_version_md: Optional[schema.TableSchemaVersionMd],
+        pending_ops: Optional[list[TableOp]] = None,
     ) -> None:
         """
         Stores metadata to the DB.
@@ -1396,6 +1502,15 @@ class Catalog:
                 tbl_id=tbl_id, schema_version=schema_version_md.schema_version, md=dataclasses.asdict(schema_version_md)
             )
             session.add(schema_version_record)
+
+        # make sure we don't have any pending ops
+        assert session.query(schema.PendingTableOp).filter(schema.PendingTableOp.tbl_id == tbl_id).count() == 0
+
+        if pending_ops is not None:
+            for op in pending_ops:
+                op_record = schema.PendingTableOp(tbl_id=tbl_id, seq_num=op.seq_num, op=dataclasses.asdict(op))
+                session.add(op_record)
+
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
     def delete_tbl_md(self, tbl_id: UUID) -> None:

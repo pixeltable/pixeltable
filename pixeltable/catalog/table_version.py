@@ -23,9 +23,10 @@ from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
+from .tbl_ops import TableOp
+
 if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
-
 
 from ..func.globals import resolve_symbol
 from .column import Column
@@ -38,6 +39,13 @@ if TYPE_CHECKING:
     from .table_version_handle import TableVersionHandle
 
 _logger = logging.getLogger('pixeltable')
+
+
+@dataclasses.dataclass(frozen=True)
+class TableVersionMd:
+    tbl_md: schema.TableMd
+    version_md: schema.TableVersionMd
+    schema_version_md: schema.TableSchemaVersionMd
 
 
 class TableVersion:
@@ -191,6 +199,75 @@ class TableVersion:
         return TableVersionHandle(self.id, self.effective_version, self)
 
     @classmethod
+    def create_md(
+        cls,
+        dir_id: UUID,
+        name: str,
+        cols: list[Column],
+        num_retained_versions: int,
+        comment: str,
+        media_validation: MediaValidation,
+        view_md: Optional[schema.ViewMd] = None,
+    ) -> TableVersionMd:
+        user = Env.get().user
+
+        # assign ids
+        cols_by_name: dict[str, Column] = {}
+        for pos, col in enumerate(cols):
+            col.id = pos
+            col.schema_version_add = 0
+            cols_by_name[col.name] = col
+            if col.is_computed:
+                col.check_value_expr()
+
+        timestamp = time.time()
+        column_md = cls._create_column_md(cols)
+        tbl_id = uuid.uuid4()
+        tbl_id_str = str(tbl_id)
+        tbl_md = schema.TableMd(
+            tbl_id=tbl_id_str,
+            name=name,
+            user=user,
+            is_replica=False,
+            current_version=0,
+            current_schema_version=0,
+            next_col_id=len(cols),
+            next_idx_id=0,
+            next_row_id=0,
+            view_sn=0,
+            column_md=column_md,
+            index_md={},
+            external_stores=[],
+            view_md=view_md,
+            additional_md={},
+        )
+
+        table_version_md = schema.TableVersionMd(
+            tbl_id=tbl_id_str, created_at=timestamp, version=0, schema_version=0, additional_md={}
+        )
+
+        schema_col_md: dict[int, schema.SchemaColumn] = {}
+        for pos, col in enumerate(cols):
+            md = schema.SchemaColumn(
+                pos=pos,
+                name=col.name,
+                media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+            )
+            schema_col_md[col.id] = md
+
+        schema_version_md = schema.TableSchemaVersionMd(
+            tbl_id=tbl_id_str,
+            schema_version=0,
+            preceding_schema_version=None,
+            columns=schema_col_md,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=media_validation.name.lower(),
+            additional_md={},
+        )
+        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
+
+    @classmethod
     def create(
         cls,
         dir_id: UUID,
@@ -315,6 +392,17 @@ class TableVersion:
             schema_version_md=schema_version_md,
         )
         return tbl_id, tbl_version
+
+    def exec_op(self, op: TableOp) -> None:
+        if op.create_store_table_op is not None:
+            with Env.get().begin_xact():
+                self.store_tbl.create()
+        elif op.load_view_op is not None:
+            from pixeltable.plan import Planner
+
+            plan, _ = Planner.create_view_load_plan(self.path)
+            _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:

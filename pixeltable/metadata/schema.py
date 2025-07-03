@@ -275,39 +275,20 @@ class TableSchemaVersion(Base):
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
 
 
-@dataclasses.dataclass
-class CreateStoreTableOp:
-    dummy: int
-
-
-@dataclasses.dataclass
-class LoadViewOp:
-    dummy: int
-
-
-@dataclasses.dataclass
-class PendingTableOp:
-    tbl_id: str  # uuid.UUID
-    seq_num: int
-    run_in_xact: bool  # if True, op must be run as part of a transaction
-
-    create_store_table_op: Optional[CreateStoreTableOp]
-    load_view_op: Optional[LoadViewOp]
-
-
-class PendingTableOps(Base):
+class PendingTableOp(Base):
     """
-    Table operations that need to be completed before the table can be used.
+    Table operation that needs to be completed before the table can be used.
 
     Operations need to be completed in order of increasing seq_num.
     """
+
     __tablename__ = 'pendingtableops'
 
     tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     seq_num: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)
-    op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
+    op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
 
 
 @dataclasses.dataclass
