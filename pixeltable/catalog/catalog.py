@@ -782,8 +782,8 @@ class Catalog:
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
-        def create_fn() -> UUID:
-            if not is_snapshot and not base.is_snapshot():
+        def create_fn() -> tuple[UUID, bool]:
+            if not is_snapshot and base.is_mutable():
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 self._acquire_tbl_xlock(tbl_id=base.tbl_id)
@@ -799,7 +799,7 @@ class Catalog:
             existing = self._handle_path_collision(path, View, is_snapshot, if_exists)
             if existing is not None:
                 assert isinstance(existing, View)
-                return existing._id
+                return existing._id, False
 
             dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
             assert dir is not None
@@ -824,16 +824,18 @@ class Catalog:
             )
             tbl_id = UUID(md.tbl_md.tbl_id)
             self.store_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-            return tbl_id
+            return tbl_id, len(ops) > 0
 
-        view_id = _retry_loop(for_write=True)(create_fn)()
-        base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version)
-        tv = self.get_tbl_version(view_id, None)
-        if tv.is_mutable and base_tv.is_mutable:
-            base_tv.mutable_views.add(tv.handle)
-        while True:
-            if not self._finalize_next_pending_op(tv.path):
-                break
+        view_id, has_pending_ops = _retry_loop(for_write=True)(create_fn)()
+        view_handle = TableVersionHandle(view_id, effective_version=0 if is_snapshot else None)
+        if not is_snapshot and base.is_mutable():
+            base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version)
+            base_tv.mutable_views.add(view_handle)
+        if has_pending_ops:
+            view_path = TableVersionPath(view_handle, base=base)
+            while True:
+                if not self._finalize_next_pending_op(view_path):
+                    break
         with self.begin_xact(for_write=False):
             return self.get_table_by_id(view_id)
 
@@ -843,11 +845,12 @@ class Catalog:
         """
         op: TableOp
         delete_next_op_q: sql.Delete
+        target = tbl.tbl_version
         with self.begin_xact(tbl=tbl, for_write=True, convert_db_excs=False):
             conn = Env.get().conn
             q = (
                 sql.select(schema.PendingTableOp)
-                .where(schema.PendingTableOp.tbl_id == tbl.tbl_id)
+                .where(schema.PendingTableOp.tbl_id == target.id)
                 .order_by(schema.PendingTableOp.seq_num)
                 .limit(1)
             )
@@ -856,16 +859,16 @@ class Catalog:
                 return False
             op = schema.md_from_dict(TableOp, row.op)
             delete_next_op_q = sql.delete(schema.PendingTableOp).where(
-                schema.PendingTableOp.tbl_id == tbl.tbl_id, schema.PendingTableOp.seq_num == row.seq_num
+                schema.PendingTableOp.tbl_id == target.id, schema.PendingTableOp.seq_num == row.seq_num
             )
             if op.needs_xact:
-                tv = self.get_tbl_version(tbl.tbl_id, None)
+                tv = self.get_tbl_version(target.id, target.effective_version)
                 tv.exec_op(op)
                 conn.execute(delete_next_op_q)
                 return True
 
         # this op runs outside of a transaction
-        tv = self.get_tbl_version(tbl.tbl_id, None)
+        tv = self.get_tbl_version(target.id, target.effective_version)
         tv.exec_op(op)
         with self.begin_xact(tbl=tbl, for_write=True, convert_db_excs=False):
             Env.get().conn.execute(delete_next_op_q)

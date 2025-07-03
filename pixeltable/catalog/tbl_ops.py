@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclasses.dataclass
@@ -9,7 +9,7 @@ class CreateStoreTableOp:
 
 @dataclasses.dataclass
 class LoadViewOp:
-    pass
+    view_path: dict[str, Any]
 
 
 @dataclasses.dataclass

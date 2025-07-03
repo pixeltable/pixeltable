@@ -400,7 +400,10 @@ class TableVersion:
         elif op.load_view_op is not None:
             from pixeltable.plan import Planner
 
-            plan, _ = Planner.create_view_load_plan(self.path)
+            from .table_version_path import TableVersionPath
+
+            view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
+            plan, _ = Planner.create_view_load_plan(view_path)
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
