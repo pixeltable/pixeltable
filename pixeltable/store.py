@@ -93,9 +93,8 @@ class StoreBase:
             # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
             all_cols.append(col.sa_col)
-            if col.records_errors:
-                all_cols.append(col.sa_errormsg_col)
-                all_cols.append(col.sa_errortype_col)
+            if col.stores_cellmd:
+                all_cols.append(col.sa_cellmd_col)
 
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first
@@ -189,11 +188,10 @@ class StoreBase:
         col_type_str = col.get_sa_col_type().compile(dialect=conn.dialect)
         s_txt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL'
         added_storage_cols = [col.store_name()]
-        if col.records_errors:
-            # we also need to create the errormsg and errortype storage cols
-            s_txt += f' , ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL'
-            s_txt += f' , ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL'
-            added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
+        if col.stores_cellmd:
+            cellmd_type_str = col.sa_cellmd_type().compile(dialect=conn.dialect)
+            s_txt += f' , ADD COLUMN {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
+            added_storage_cols.append(col.cellmd_store_name())
 
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
@@ -204,9 +202,8 @@ class StoreBase:
     def drop_column(self, col: catalog.Column) -> None:
         """Execute Alter Table Drop Column statement"""
         s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
-        if col.records_errors:
-            s_txt += f' , DROP COLUMN {col.errormsg_store_name()}'
-            s_txt += f' , DROP COLUMN {col.errortype_store_name()}'
+        if col.stores_cellmd:
+            s_txt += f' , DROP COLUMN {col.cellmd_store_name()}'
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
@@ -239,10 +236,9 @@ class StoreBase:
         tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
         tmp_cols = [*tmp_pk_cols, tmp_val_col]
         # add error columns if the store column records errors
-        if col.records_errors:
-            tmp_errortype_col = sql.Column(col.sa_errortype_col.name, col.sa_errortype_col.type)
-            tmp_errormsg_col = sql.Column(col.sa_errormsg_col.name, col.sa_errormsg_col.type)
-            tmp_cols.extend((tmp_errortype_col, tmp_errormsg_col))
+        if col.stores_cellmd:
+            tmp_cellmd_col = sql.Column(col.sa_cellmd_col.name, col.sa_cellmd_col.type)
+            tmp_cols.append(tmp_cellmd_col)
         tmp_col_names = [col.name for col in tmp_cols]
 
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
@@ -285,10 +281,8 @@ class StoreBase:
             for pk_col, tmp_pk_col in zip(self.pk_columns(), tmp_pk_cols):
                 update_stmt = update_stmt.where(pk_col == tmp_pk_col)
             update_stmt = update_stmt.values({col.sa_col: tmp_val_col})
-            if col.records_errors:
-                update_stmt = update_stmt.values(
-                    {col.sa_errortype_col: tmp_errortype_col, col.sa_errormsg_col: tmp_errormsg_col}
-                )
+            if col.stores_cellmd:
+                update_stmt = update_stmt.values({col.sa_cellmd_col: tmp_cellmd_col})
             log_explain(_logger, update_stmt, conn)
             conn.execute(update_stmt)
 

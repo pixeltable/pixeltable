@@ -593,7 +593,7 @@ class Table(SchemaObject):
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                     with errors will have a `None` value for the column, with information about the error stored in the
-                    corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+                    corresponding `tbl.col_name.errormsg` tbl.col_name.errortype` fields.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -640,10 +640,10 @@ class Table(SchemaObject):
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
                 for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
-                    if e.is_error_prop():
+                    if e.is_cellmd_prop():
                         raise excs.Error(
-                            'Use of a reference to an error property of another column is not allowed in a computed '
-                            f'column. The specified computation for this column contains this reference: `{e!r}`'
+                            f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
+                            f'is not allowed in a computed column.'
                         )
 
             # handle existing columns based on if_exists parameter
@@ -1431,7 +1431,7 @@ class Table(SchemaObject):
         Args:
             columns: The names or references of the computed columns to recompute.
             errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
-                `errortype` property is non-None). Only allowed for recomputing a single column.
+                `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
             cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
 
         Examples:

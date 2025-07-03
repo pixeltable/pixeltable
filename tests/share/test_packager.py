@@ -79,7 +79,7 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, t)
 
-        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=16)
+        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=13)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = Path(Env.get().create_tmp_path())
@@ -120,11 +120,14 @@ class TestPackager:
             else:
                 select_exprs[col.store_name()] = t[col_name]
             actual_col_types.append(col.col_type)
-            if col.records_errors:
-                select_exprs[col.errortype_store_name()] = t[col_name].errortype
-                actual_col_types.append(ts.StringType())
-                select_exprs[col.errormsg_store_name()] = t[col_name].errormsg
-                actual_col_types.append(ts.StringType())
+            if col.stores_cellmd:
+                from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+
+                # This is not available in the user-facing API, but we use it for testing.
+                select_exprs[col.cellmd_store_name()] = exprs.ColumnPropertyRef(
+                    t[col_name], ColumnPropertyRef.Property.CELLMD
+                )
+                actual_col_types.append(col.cellmd_type())
 
         scope_tbl = scope_tbl or t
         pxt_data = scope_tbl.select(**select_exprs).collect()
@@ -138,7 +141,7 @@ class TestPackager:
                     assert np.array_equal(pxt_val, parquet_val)
             elif col_type.is_json_type():
                 # JSON columns were exported as strings; check that they parse properly
-                assert pxt_values == [json.loads(val) for val in parquet_values]
+                assert pxt_values == [json.loads(val) if val is not None else None for val in parquet_values]
             elif col_type.is_media_type():
                 assert media_dir is not None
                 self.__check_media(pxt_values, parquet_values, media_dir)

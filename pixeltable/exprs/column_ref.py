@@ -115,11 +115,15 @@ class ColumnRef(Expr):
         from .column_property_ref import ColumnPropertyRef
 
         # resolve column properties
+        if name == ColumnPropertyRef.Property.CELLMD.name.lower():
+            # This is not user accessible, but used internally to store cell metadata
+            return super().__getattr__(name)
+
         if (
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            property_is_present = self.col.is_stored and (self.col.is_computed or self.col_type.is_media_type())
+            property_is_present = self.col.stores_cellmd
             if not property_is_present:
                 raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
