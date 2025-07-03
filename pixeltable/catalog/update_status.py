@@ -56,8 +56,6 @@ class UpdateStatus:
     Information about changes to table data or table schema
     """
 
-    op_note: str = ''  # Note about the operation that produced this result
-
     updated_cols: list[str] = field(default_factory=list)
     cols_with_excs: list[str] = field(default_factory=list)
 
@@ -85,7 +83,6 @@ class UpdateStatus:
         This is used when an insert operation is treated as an update.
         """
         return UpdateStatus(
-            op_note=self.op_note,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=self.row_count_stats.insert_to_update(),
@@ -98,7 +95,6 @@ class UpdateStatus:
         This is used when an operation cascades changes to other tables.
         """
         return UpdateStatus(
-            op_note=self.op_note,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=RowCountStats(),
@@ -110,7 +106,6 @@ class UpdateStatus:
         Add the update status from two UpdateStatus objects together.
         """
         return UpdateStatus(
-            op_note=self.op_note,  # comments are not added together
             updated_cols=list(dict.fromkeys(self.updated_cols + other.updated_cols)),
             cols_with_excs=list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs)),
             row_count_stats=self.row_count_stats + other.row_count_stats,

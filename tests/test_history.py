@@ -8,7 +8,6 @@ class TestHistory:
     def pr_us(self, us: pxt.UpdateStatus, op: str = '') -> None:
         """Print contents of UpdateStatus"""
         print(f'=========================== pr_us =========================== op: {op}')
-        print(f'op_note: {us.op_note}')
         print(f'num_rows: {us.num_rows}')
         print(f'num_computed_values: {us.num_computed_values}')
         print(f'num_excs: {us.num_excs}')

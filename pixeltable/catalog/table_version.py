@@ -789,7 +789,6 @@ class TableVersion:
             upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
         )  # add_columns
         return UpdateStatus(
-            op_note='add columns',
             cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
@@ -907,10 +906,9 @@ class TableVersion:
         assert (rows is None) != (df is None)  # Exactly one must be specified
         if rows is not None:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
-            op_note = 'insert rows'
+
         else:
             plan = Planner.create_df_insert_plan(self, df, ignore_errors=not fail_on_exception)
-            op_note = 'insert DataFrame'
 
         # this is a base table; we generate rowids during the insert
         def rowids() -> Iterator[int]:
@@ -920,7 +918,7 @@ class TableVersion:
                 yield rowid
 
         result = self._insert(
-            plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception, op_note=op_note
+            plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
         )
         return result
 
@@ -932,7 +930,6 @@ class TableVersion:
         rowids: Optional[Iterator[int]] = None,
         print_stats: bool = False,
         abort_on_exc: bool = False,
-        op_note: str = '',
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
@@ -941,7 +938,6 @@ class TableVersion:
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
         result = UpdateStatus(
-            op_note=op_note,
             cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
             row_count_stats=row_counts,
         )
@@ -951,7 +947,7 @@ class TableVersion:
             from pixeltable.plan import Planner
 
             plan2, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
-            status = view.get()._insert(plan2, timestamp, print_stats=print_stats, op_note=op_note)
+            status = view.get()._insert(plan2, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
         # Use the net status after all propagations
@@ -1127,7 +1123,7 @@ class TableVersion:
         cascade: bool,
         show_progress: bool = True,
     ) -> UpdateStatus:
-        result = UpdateStatus(op_note='update')
+        result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.version += 1
@@ -1207,7 +1203,7 @@ class TableVersion:
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
         )
         row_counts = RowCountStats(del_rows=del_rows)  # delete
-        result = UpdateStatus(op_note='delete', row_count_stats=row_counts)
+        result = UpdateStatus(row_count_stats=row_counts)
         if del_rows > 0:
             # we're creating a new version
             self.version += 1

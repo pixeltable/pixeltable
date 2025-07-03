@@ -508,7 +508,7 @@ class Table(SchemaObject):
             for cname in cols_to_ignore:
                 assert cname in col_schema
                 del col_schema[cname]
-            result = UpdateStatus(op_note='Add columns')
+            result = UpdateStatus()
             if len(col_schema) == 0:
                 return result
             new_cols = self._create_columns(col_schema)
@@ -653,7 +653,7 @@ class Table(SchemaObject):
             )
             # if the column to add already exists and user asked to ignore
             # exiting column, there's nothing to do.
-            result = UpdateStatus(op_note='Add computed column')
+            result = UpdateStatus()
             if len(cols_to_ignore) != 0:
                 assert cols_to_ignore[0] == col_name
                 return result
@@ -1679,9 +1679,7 @@ class Table(SchemaObject):
             update_status = vers_md.version_md.update_status
             if update_status is None:
                 update_status = UpdateStatus()
-            change_type = update_status.op_note
-            if change_type == '' and schema_change != '':
-                change_type = 'schema'
+            change_type = 'schema' if schema_change != '' else ''
             if change_type == '':
                 change_type = 'data'
             rcs = update_status.row_count_stats + update_status.cascade_row_count_stats

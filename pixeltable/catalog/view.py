@@ -231,7 +231,7 @@ class View(Table):
             try:
                 plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
                 _, row_counts = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
-                status = UpdateStatus(op_note='view creation', row_count_stats=row_counts)
+                status = UpdateStatus(row_count_stats=row_counts)
                 tbl_version._write_md_update_status(0, update_status=status)
 
             except:
