@@ -121,7 +121,12 @@ class TestPackager:
                 select_exprs[col.store_name()] = t[col_name]
             actual_col_types.append(col.col_type)
             if col.stores_cellmd:
-                select_exprs[col.cellmd_store_name()] = t[col_name].cellmd
+                from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+
+                # This is not available in the user-facing API, but we use it for testing.
+                select_exprs[col.cellmd_store_name()] = exprs.ColumnPropertyRef(
+                    t[col_name], ColumnPropertyRef.Property.CELLMD
+                )
                 actual_col_types.append(col.cellmd_type())
 
         scope_tbl = scope_tbl or t
