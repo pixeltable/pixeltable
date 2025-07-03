@@ -3,14 +3,13 @@ from __future__ import annotations
 import abc
 import itertools
 import logging
-from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
 from pixeltable.catalog import ColumnHandle, TableVersion
-from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
+from pixeltable.catalog.update_status import UpdateStatus
 
 _logger = logging.getLogger('pixeltable')
 
@@ -46,7 +45,7 @@ class ExternalStore(abc.ABC):
         """
 
     @abc.abstractmethod
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> UpdateStatus:
         """
         Called by `Table.sync()` to implement store-specific synchronization logic.
         """
@@ -263,57 +262,6 @@ class Project(ExternalStore, abc.ABC):
         return resolved_col_mapping
 
 
-@dataclass(frozen=True)
-class SyncStatus:
-    # stats for the rows affected by the operation in the external store
-    ext_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
-
-    # stats for the rows affected by the operation
-    row_count_stats: RowCountStats = field(default_factory=RowCountStats)
-
-    @property
-    def num_excs(self) -> int:
-        """
-        Returns the total number of Pixeltable exceptions that occurred during the operation.
-        """
-        return self.row_count_stats.num_excs
-
-    @property
-    def pxt_rows_updated(self) -> int:
-        """
-        Returns the number of Pixeltable rows that were updated as a result of the operation.
-        """
-        return self.row_count_stats.upd_rows
-
-    @property
-    def external_rows_updated(self) -> int:
-        return self.ext_row_count_stats.upd_rows
-
-    @property
-    def external_rows_created(self) -> int:
-        return self.ext_row_count_stats.ins_rows
-
-    @property
-    def external_rows_deleted(self) -> int:
-        return self.ext_row_count_stats.del_rows
-
-    def __add__(self, other: 'SyncStatus') -> 'SyncStatus':
-        """
-        Add the sync status from two SyncStatus objects together.
-        """
-        return SyncStatus(
-            ext_row_count_stats=self.ext_row_count_stats + other.ext_row_count_stats,
-            row_count_stats=self.row_count_stats + other.row_count_stats,
-        )
-
-    @classmethod
-    def from_update_status(cls, us: UpdateStatus) -> 'SyncStatus':
-        """
-        Copy information from an UpdateStatus to a SyncStatus.
-        """
-        return SyncStatus(row_count_stats=us.row_count_stats + us.cascade_row_count_stats)
-
-
 class MockProject(Project):
     """A project that cannot be synced, used mainly for testing."""
 
@@ -348,7 +296,7 @@ class MockProject(Project):
     def get_import_columns(self) -> dict[str, ts.ColumnType]:
         return self.import_cols
 
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> UpdateStatus:
         raise NotImplementedError()
 
     def delete(self) -> None:
