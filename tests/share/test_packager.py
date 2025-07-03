@@ -209,7 +209,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle, 'new_replica')
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
-        """package() / unpackage() round trip"""
+        """package() / restore() round trip for a single snapshot"""
         # Add some additional columns to test various additional datatypes
         t = test_tbl
         t.add_column(dt=pxt.Date)
@@ -221,6 +221,25 @@ class TestPackager:
 
         snapshot = pxt.create_snapshot('snapshot', t)
         self.__do_round_trip(snapshot)
+
+    def test_non_snapshot_round_trip(self, reset_db: None) -> None:
+        """package() / restore() round trip for multiple versions of a table that is not a snapshot"""
+        t = pxt.create_table('tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(200))
+
+        bundle1 = self.__package_table(t)
+
+        t.add_column(str_col=pxt.String)
+        t.insert({'int_col': i} for i in range(200, 400))
+        t.where(t.int_col % 2 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+
+        bundle2 = self.__package_table(t)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica')
+        self.__restore_and_check_table(bundle2, 'replica')
 
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
         snapshot = pxt.create_snapshot('snapshot', img_tbl)
@@ -365,12 +384,12 @@ class TestPackager:
         clean_db()
         reload_catalog()
 
-        for n in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+        for n in (7, 3, 0, 9, 4, 10, 1, 5, 8):
             # Snapshots 2 and 6 are intentionally never restored.
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
 
         # Check all the tables again to verify that everything is consistent.
-        for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+        for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
 
     def test_multi_view_round_trip_6(self, reset_db: None) -> None:
@@ -395,31 +414,47 @@ class TestPackager:
         clean_db()
         reload_catalog()
 
-        for n in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+        for n in (7, 3, 0, 9, 4, 10, 1, 5, 8):
             # Snapshots 2 and 6 are intentionally never restored.
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
 
         # Check all the tables again to verify that everything is consistent.
-        for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+        for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
 
-    def test_non_snapshot_round_trip(self, reset_db: None) -> None:
+    def test_multi_view_non_snapshot_round_trip(self, reset_db: None) -> None:
         """
-        Test packaging and restoring a non-snapshot table.
+        A similar test, this one involving multiple versions of a table that is not a snapshot,
+        intermixed with various snapshots.
         """
-        t = pxt.create_table('tbl', {'int_col': pxt.Int})
-        t.insert({'int_col': i} for i in range(200))
+        bundles: list[TestPackager.BundleInfo] = []
 
-        bundle1 = self.__package_table(t)
+        t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
+        t.insert({'row_number': i} for i in range(1024))
+        bundles.append(self.__package_table(pxt.create_snapshot('snap', t)))
 
-        t.add_column(str_col=pxt.String)
-        t.insert({'int_col': i} for i in range(200, 400))
-        t.where(t.int_col % 2 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
-
-        bundle2 = self.__package_table(t)
+        for n in range(1, 11):
+            t.insert({'row_number': i} for i in range(1024 + 64 * n, 1024 + 64 * (n + 1)))
+            t.add_computed_column(**{f'new_col_{n}': t.value * n})
+            t.where(t.row_number.bitwise_and(2**n) != 0).update({'value': n})
+            t.where(t.row_number < 32 * n).delete()
+            if n >= 6:
+                t.drop_column(f'new_col_{n - 5}')
+            if n % 2 == 0:
+                # Even-numbered iterations create a snapshot
+                bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{n}', t)))
+            else:
+                # Odd-numbered iterations just package the table directly
+                bundles.append(self.__package_table(t))
 
         clean_db()
         reload_catalog()
 
-        self.__restore_and_check_table(bundle1, 'replica')
-        self.__restore_and_check_table(bundle2, 'replica')
+        # Restore the odd-numbered bundles (directly packaged table versions). This needs to be done in order
+        # currently, because we don't have a way to get a handle to an older version of a table.
+        # TODO: Randomize the order once we have such a feature.
+        for n in (1, 3, 7, 9):
+            self.__restore_and_check_table(bundles[n], 'replica')
+
+        for n in (4, 0, 8, 10, 6):
+            self.__restore_and_check_table(bundles[n], f'replica_{n}')
