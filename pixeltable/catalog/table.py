@@ -1431,7 +1431,7 @@ class Table(SchemaObject):
         Args:
             columns: The names or references of the computed columns to recompute.
             errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
-                `cellmd` property indicates that an error occurred). Only allowed for recomputing a single column.
+                `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
             cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
 
         Examples:
