@@ -2,6 +2,7 @@ import glob
 import os
 import re
 import shutil
+import urllib
 import uuid
 from collections import defaultdict
 from pathlib import Path
@@ -33,6 +34,41 @@ class MediaStore:
         parent = Env.get().media_dir / tbl_id.hex / id_hex[:2] / id_hex[:4]
         parent.mkdir(parents=True, exist_ok=True)
         return parent / f'{tbl_id.hex}_{col_id}_{version}_{id_hex}{ext or ""}'
+
+    @classmethod
+    def move_tmp_media_file(cls, file_url: Optional[str], tbl_id: UUID, col_id: int, v_min: int) -> Optional[str]:
+        """Move a tmp media file with given url into the MediaStore, and return new url
+        If it is not a tmp file in the tmp_dir, return the original url.
+
+        Args:
+            file_url: URL of the tmp media file to move
+            tbl_id: Table ID to associate with the media file
+            col_id: Column ID to associate with the media file
+            v_min: Version number to associate with the media file
+
+        Returns:
+            URL of the media final location of the file
+        """
+        if file_url is None:
+            return None
+        assert isinstance(file_url, str), type(file_url)
+        pxt_tmp_dir = str(Env.get().tmp_dir)
+        parsed = urllib.parse.urlparse(file_url)
+        # We should never be passed a local file path here. The "len > 1" ensures that Windows
+        # file paths aren't mistaken for URLs with a single-character scheme.
+        assert len(parsed.scheme) > 1, file_url
+        if parsed.scheme != 'file':
+            # remote url
+            return file_url
+        file_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        if not file_path.startswith(pxt_tmp_dir):
+            # not a tmp file
+            return file_url
+        _, ext = os.path.splitext(file_path)
+        new_path = str(MediaStore.prepare_media_path(tbl_id, col_id, v_min, ext=ext))
+        os.rename(file_path, new_path)
+        new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(new_path))
+        return new_file_url
 
     @classmethod
     def delete(cls, tbl_id: UUID, version: Optional[int] = None) -> None:

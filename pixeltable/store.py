@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
-import os
 import sys
-import urllib.parse
-import urllib.request
 import warnings
 from typing import Any, Iterable, Iterator, Optional, Union
 
@@ -126,27 +123,7 @@ class StoreBase:
         """Return the name of the data store table"""
 
     def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
-        """Move tmp media file with given url to Env.media_dir and return new url, or given url if not a tmp_dir file"""
-        if file_url is None:
-            return None
-        assert isinstance(file_url, str), type(file_url)
-        pxt_tmp_dir = str(Env.get().tmp_dir)
-        parsed = urllib.parse.urlparse(file_url)
-        # We should never be passed a local file path here. The "len > 1" ensures that Windows
-        # file paths aren't mistaken for URLs with a single-character scheme.
-        assert len(parsed.scheme) > 1, file_url
-        if parsed.scheme != 'file':
-            # remote url
-            return file_url
-        file_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-        if not file_path.startswith(pxt_tmp_dir):
-            # not a tmp file
-            return file_url
-        _, ext = os.path.splitext(file_path)
-        new_path = str(MediaStore.prepare_media_path(self.tbl_version.id, col.id, v_min, ext=ext))
-        os.rename(file_path, new_path)
-        new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(new_path))
-        return new_file_url
+        return MediaStore.move_tmp_media_file(file_url, self.tbl_version.id, col.id, v_min)
 
     def _move_tmp_media_files(
         self, table_row: list[Any], media_cols_by_sql_idx: dict[int, catalog.Column], v_min: int
