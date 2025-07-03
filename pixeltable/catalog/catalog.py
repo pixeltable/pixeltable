@@ -781,13 +781,12 @@ class Catalog:
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
         # First handle path collisions (if_exists='ignore' or 'replace' or etc).
-        existing = self._handle_path_collision(path, Table, False, if_exists)
-        if existing is not None:
-            if existing._id != tbl_id:
-                raise excs.Error(
-                    f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
-                    'but a different table already exists at that location.'
-                )
+        existing = self._handle_path_collision(path, Table, False, if_exists)  # type: ignore[type-abstract]
+        if existing is not None and existing._id != tbl_id:
+            raise excs.Error(
+                f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
+                'but a different table already exists at that location.'
+            )
 
         # Ensure that the system directory exists.
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)

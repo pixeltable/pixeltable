@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterator
+from typing import Iterator
 
 from pixeltable import exceptions as excs
 
@@ -77,7 +77,7 @@ class Path:
     def __str__(self) -> str:
         return '.'.join(self.components)
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         return isinstance(other, Path) and str(self) == str(other)
 
     def __hash__(self) -> int:
