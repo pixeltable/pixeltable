@@ -363,7 +363,6 @@ class TestTable:
                 on_read_tbl.media.localpath,
                 on_read_tbl.media.errortype,
                 on_read_tbl.media.errormsg,
-                on_read_tbl.media.cellmd,
                 on_read_tbl.is_bad_media,
             ).order_by(on_read_tbl.id)
         )
@@ -377,7 +376,6 @@ class TestTable:
                 on_write_tbl.media.localpath,
                 on_write_tbl.media.errortype,
                 on_write_tbl.media.errormsg,
-                on_write_tbl.media.cellmd,
                 on_write_tbl.is_bad_media,
             ).order_by(on_write_tbl.id)
         )
