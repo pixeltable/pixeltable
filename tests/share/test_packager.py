@@ -177,8 +177,6 @@ class TestPackager:
         """
         Runs the query `tbl.head(n=5000)`, packages the table into a bundle, and returns a BundleInfo.
         """
-        assert tbl.get_metadata()['is_snapshot']
-
         schema = tbl._get_schema()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
@@ -199,8 +197,8 @@ class TestPackager:
 
     def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
-        assert t._get_schema() == bundle_info.schema
-        assert t._tbl_version_path.path_len() == bundle_info.depth
+        assert bundle_info.schema == t._get_schema()
+        assert bundle_info.depth == t._tbl_version_path.path_len()
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
 
@@ -404,3 +402,24 @@ class TestPackager:
         # Check all the tables again to verify that everything is consistent.
         for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
             self.__check_table(bundles[n], f'replica_{n}')
+
+    def test_non_snapshot_round_trip(self, reset_db: None) -> None:
+        """
+        Test packaging and restoring a non-snapshot table.
+        """
+        t = pxt.create_table('tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(200))
+
+        bundle1 = self.__package_table(t)
+
+        t.add_column(str_col=pxt.String)
+        t.insert({'int_col': i} for i in range(200, 400))
+        t.where(t.int_col % 2 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+
+        bundle2 = self.__package_table(t)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica')
+        self.__restore_and_check_table(bundle2, 'replica')

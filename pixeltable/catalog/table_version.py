@@ -327,6 +327,10 @@ class TableVersion:
             tbl_id, md.tbl_md, md.version_md.version, md.schema_version_md, [], base_path=base_path, base=base
         )
         cat = pxt.catalog.Catalog.get()
+        # We're creating a new TableVersion replica, so we should never have seen this particular
+        # TableVersion instance before.
+        assert tbl_version.effective_version is not None
+        assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
