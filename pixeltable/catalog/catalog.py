@@ -1319,7 +1319,12 @@ class Catalog:
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-        pure_snapshot = view_md.is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
+        pure_snapshot = (
+            view_md.is_snapshot
+            and view_md.predicate is None
+            and view_md.sample_clause is None
+            and len(schema_version_md.columns) == 0
+        )
         if pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
@@ -1584,7 +1589,12 @@ class Catalog:
             )
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
-            pure_snapshot = view_md.is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
+            pure_snapshot = (
+                view_md.is_snapshot
+                and view_md.predicate is None
+                and view_md.sample_clause is None
+                and len(schema_version_md.columns) == 0
+            )
             assert not pure_snapshot  # a pure snapshot doesn't have a physical table backing it, no point in loading it
 
             base: TableVersionHandle
