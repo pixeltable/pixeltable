@@ -278,6 +278,9 @@ class View(Table):
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
+        base_tbl = self._get_base_table()
+        base_version = self._effective_base_versions[0]
+        md['base'] = base_tbl._path() if base_version is None else f'{base_tbl._path()}:{base_version}'
         return md
 
     def insert(

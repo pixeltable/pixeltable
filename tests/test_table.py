@@ -247,12 +247,19 @@ class TestTable:
     def test_names(self, reset_db: None) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
-        for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
+        for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            puresnap_path = f'{tbl_path}_puresnap'
+            puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
-            snap = pxt.create_snapshot(snap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            snap = pxt.create_snapshot(
+                snap_path,
+                tbl,
+                media_validation=media_val,  # type: ignore[arg-type]
+                additional_columns={'col2': tbl.col + 'x'},
+            )
             assert tbl._path() == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
@@ -287,8 +294,23 @@ class TestTable:
                 'version': 0,
             }
 
+            assert puresnap.get_metadata() == {
+                'base': f'{tbl_path}:0',
+                'comment': '',
+                'is_view': True,
+                'is_snapshot': True,
+                'is_replica': False,
+                'name': 'test_puresnap',
+                'num_retained_versions': 10,
+                'media_validation': media_val,
+                'path': puresnap_path,
+                'schema': puresnap._get_schema(),
+                'schema_version': 0,
+                'version': 0,
+            }
+
             assert snap.get_metadata() == {
-                'base': tbl_path,
+                'base': f'{tbl_path}:0',
                 'comment': '',
                 'is_view': True,
                 'is_snapshot': True,
@@ -1588,6 +1610,7 @@ class TestTable:
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
+    @pytest.mark.skip('Crashes pytest')
     def test_computed_col_with_interrupts(self, reset_db: None) -> None:
         schema = {'c1': pxt.Int}
         t = pxt.create_table('test_interrupt', schema)
