@@ -230,7 +230,6 @@ analysis_table.add_computed_column(
         messages=analysis_table.messages,
         max_tokens=1500,
         model_kwargs={
-            'max_tokens': 1500,
             'temperature': 0.1,
             'top_p': 0.3,
             'top_k': 10,
