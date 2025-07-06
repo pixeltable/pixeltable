@@ -371,7 +371,7 @@ class TableRestorer:
         #   an actual table)
         # - this could be done one replica at a time (instead of the entire hierarchy)
         cat = catalog.Catalog.get()
-        cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
+        cat.create_replica(catalog.Path(self.tbl_path), tbl_md, if_exists=catalog.IfExistsParam.IGNORE)
         # don't call get_table() until after the calls to create_replica() and __import_table() below;
         # the TV instances created by get_table() would be replaced by create_replica(), which creates duplicate
         # TV instances for the same replica version, which then leads to failures when constructing queries
@@ -390,7 +390,7 @@ class TableRestorer:
             ancestor_md = tbl_md  # Not a pure snapshot; include replica_tbl
 
         # Instantiate data from the Parquet tables.
-        with Env.get().begin_xact():
+        with cat.begin_xact(for_write=True):
             for md in ancestor_md[::-1]:  # Base table first
                 # Create a TableVersion instance (and a store table) for this ancestor.
                 tv = catalog.TableVersion.create_replica(md)
