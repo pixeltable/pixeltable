@@ -345,7 +345,8 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_4(self, all_datatypes_tbl: pxt.Table) -> None:
+    @pytest.mark.parametrize('different_tv', [False, True])
+    def test_multi_view_round_trip_4(self, different_tv: bool, all_datatypes_tbl: pxt.Table) -> None:
         """
         Snapshots that involve all the different column types.
         """
@@ -353,8 +354,9 @@ class TestPackager:
         snap1 = pxt.create_snapshot('snap1', t.where(t.row_id % 2 != 0))
         bundle1 = self.__package_table(snap1)
 
-        more_data = create_table_data(t, num_rows=22)
-        t.insert(more_data[11:])
+        if different_tv:
+            more_data = create_table_data(t, num_rows=22)
+            t.insert(more_data[11:])
 
         snap2 = pxt.create_snapshot('snap2', t.where(t.row_id % 3 != 0))
         bundle2 = self.__package_table(snap2)
