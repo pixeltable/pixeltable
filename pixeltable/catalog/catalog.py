@@ -919,6 +919,8 @@ class Catalog:
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
+        # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
+        # by another process.
         obj._tbl_version_path.clear_cached_md()
         return obj
 
