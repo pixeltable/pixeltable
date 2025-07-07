@@ -452,10 +452,10 @@ class TableVersion:
             # fix up the sa column type of the index value and undo columns
             val_col = self.cols_by_id[md.index_val_col_id]
             val_col.sa_col_type = idx.index_sa_type()
-            val_col._records_errors = False
+            val_col._stores_cellmd = False
             undo_col = self.cols_by_id[md.index_val_undo_col_id]
             undo_col.sa_col_type = idx.index_sa_type()
-            undo_col._records_errors = False
+            undo_col._stores_cellmd = False
             idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
             self.idxs_by_name[md.name] = idx_info
 
@@ -551,7 +551,7 @@ class TableVersion:
             stored=True,
             schema_version_add=self.schema_version,
             schema_version_drop=None,
-            records_errors=idx.records_value_errors(),
+            stores_cellmd=idx.records_value_errors(),
         )
         val_col.tbl = self
         val_col.col_type = val_col.col_type.copy(nullable=True)
@@ -565,7 +565,7 @@ class TableVersion:
             stored=True,
             schema_version_add=self.schema_version,
             schema_version_drop=None,
-            records_errors=False,
+            stores_cellmd=False,
         )
         undo_col.tbl = self
         undo_col.col_type = undo_col.col_type.copy(nullable=True)
