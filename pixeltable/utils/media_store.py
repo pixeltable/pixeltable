@@ -64,11 +64,14 @@ class MediaStore:
         if not file_path.startswith(pxt_tmp_dir):
             # not a tmp file
             return file_url
-        _, ext = os.path.splitext(file_path)
-        new_path = str(MediaStore.prepare_media_path(tbl_id, col_id, v_min, ext=ext))
-        os.rename(file_path, new_path)
-        new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(new_path))
+        new_file_url = cls.relocate_local_media_file(Path(file_path), tbl_id, col_id, v_min)
         return new_file_url
+
+    @classmethod
+    def relocate_local_media_file(cls, src_path: Path, tbl_id: UUID, col_id: int, tbl_version: int) -> str:
+        dest_path = MediaStore.prepare_media_path(tbl_id, col_id, tbl_version, ext=src_path.suffix)
+        src_path.rename(dest_path)
+        return urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
 
     @classmethod
     def delete(cls, tbl_id: UUID, version: Optional[int] = None) -> None:
