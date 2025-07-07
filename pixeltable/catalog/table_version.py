@@ -402,6 +402,8 @@ class TableVersion:
 
             from .table_version_path import TableVersionPath
 
+            # clear out any remaining media files from an aborted previous attempt
+            MediaStore.delete(self.id)
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)

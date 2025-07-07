@@ -277,10 +277,7 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
     def get_base_table(self) -> Optional['Table']:
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(for_write=False):
-            return self._get_base_table()
+        return self._get_base_table()
 
     @abc.abstractmethod
     def _get_base_table(self) -> Optional['Table']:
@@ -319,9 +316,9 @@ class Table(SchemaObject):
         """
         Constructs a list of descriptors for this table that can be pretty-printed.
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.catalog import retry_loop
 
-        with Catalog.get().begin_xact(for_write=False):
+        def op() -> DescriptionHelper:
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
             helper.append(self._col_descriptor())
@@ -334,6 +331,8 @@ class Table(SchemaObject):
             if self._get_comment():
                 helper.append(f'COMMENT: {self._get_comment()}')
             return helper
+
+        return retry_loop(for_write=False, finalize_pending_ops=True)(op)()
 
     def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return pd.DataFrame(
@@ -803,11 +802,13 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.catalog import Catalog, retry_loop
 
         cat = Catalog.get()
+
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        # with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        def op() -> None:
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot drop column from a snapshot.')
             col: Column = None
@@ -833,7 +834,7 @@ class Table(SchemaObject):
             dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
                 raise excs.Error(
-                    f'Cannot drop column `{col.name}` because the following columns depend on it:\n'
+                    f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
@@ -858,6 +859,8 @@ class Table(SchemaObject):
                 )
 
             self._tbl_version.get().drop_column(col)
+
+        retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)(op)()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.

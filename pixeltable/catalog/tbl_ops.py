@@ -1,3 +1,9 @@
+# This file contains all dataclasses related to schema.PendingTableOp:
+# - TableOp: the container for each log entry
+# - <>Op: the actual operation, which is performed by TableVersion.exec_op(); each <>Op class contains
+#   enough information for exec_op() to perform the operation without having to reference data outside of
+#   TableVersion
+
 import dataclasses
 from typing import Any, Optional
 
@@ -9,7 +15,22 @@ class CreateStoreTableOp:
 
 @dataclasses.dataclass
 class LoadViewOp:
-    view_path: dict[str, Any]
+    view_path: dict[str, Any]  # needed to create the view load plan
+
+
+@dataclasses.dataclass
+class DeleteTableMdOp:
+    pass
+
+
+@dataclasses.dataclass
+class DeleteTableMediaFilesOp:
+    pass
+
+
+@dataclasses.dataclass
+class DropStoreTableOp:
+    pass
 
 
 @dataclasses.dataclass

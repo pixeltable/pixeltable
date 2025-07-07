@@ -398,8 +398,7 @@ class TableRestorer:
                 _logger.info(f'Importing table {tv.name!r}.')
                 self.__import_table(self.tmp_dir, tv, md)
 
-        with cat.begin_xact(for_write=False):
-            return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
+        return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
         """
