@@ -371,7 +371,7 @@ class TableRestorer:
         #   an actual table)
         # - this could be done one replica at a time (instead of the entire hierarchy)
         cat = catalog.Catalog.get()
-        cat.create_replica(catalog.Path(self.tbl_path), tbl_md, if_exists=catalog.IfExistsParam.IGNORE)
+        cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
         # don't call get_table() until after the calls to create_replica() and __import_table() below;
         # the TV instances created by get_table() would be replaced by create_replica(), which creates duplicate
         # TV instances for the same replica version, which then leads to failures when constructing queries
@@ -393,7 +393,7 @@ class TableRestorer:
         with cat.begin_xact(for_write=True):
             for md in ancestor_md[::-1]:  # Base table first
                 # Create a TableVersion instance (and a store table) for this ancestor.
-                tv = catalog.TableVersion.create_replica(md)
+                tv = cat.get_tbl_version(UUID(md.tbl_md.tbl_id), md.version_md.version)
                 # Now import data from Parquet.
                 _logger.info(f'Importing table {tv.name!r}.')
                 self.__import_table(self.tmp_dir, tv, md)
@@ -405,7 +405,7 @@ class TableRestorer:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
-        tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
+        tbl_id = UUID(tbl_md.tbl_md.tbl_id)
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
         replica_version = tv.version
