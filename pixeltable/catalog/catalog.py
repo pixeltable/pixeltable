@@ -766,9 +766,7 @@ class Catalog:
         self._tbls[view._id] = view
         return view
 
-    def create_replica(
-        self, path: Path, md: list[schema.FullTableMd]
-    ) -> None:
+    def create_replica(self, path: Path, md: list[schema.FullTableMd]) -> None:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
@@ -781,7 +779,7 @@ class Catalog:
         existing = self._handle_path_collision(path, Table, False, if_exists=IfExistsParam.IGNORE)  # type: ignore[type-abstract]
         if existing is not None and existing._id != tbl_id:
             raise excs.Error(
-                f"An attempt was made to create a replica table at {path!r}, "
+                f'An attempt was made to create a replica table at {path!r}, '
                 'but a different table already exists at that location.'
             )
 

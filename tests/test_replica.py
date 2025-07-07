@@ -1,6 +1,5 @@
 import pixeltable as pxt
 from pixeltable.catalog import Catalog
-from pixeltable.catalog.globals import IfExistsParam
 from pixeltable.catalog.path import Path
 from tests.utils import reload_catalog
 
@@ -12,10 +11,11 @@ class TestReplica:
         """
         pure_snapshot = pxt.create_snapshot('pure_snapshot', test_tbl)
         snapshot_view = pxt.create_snapshot('snapshot_view', test_tbl, additional_columns={'extra': pxt.Int})
+        cat = Catalog.get()
 
-        with Catalog.get().begin_xact(for_write=False):
-            md1 = Catalog.get().load_replica_md(pure_snapshot)
-            md2 = Catalog.get().load_replica_md(snapshot_view)
+        with cat.begin_xact(for_write=False):
+            md1 = cat.load_replica_md(pure_snapshot)
+            md2 = cat.load_replica_md(snapshot_view)
 
         assert len(md1) == 2
         assert len(md2) == 2
@@ -26,8 +26,9 @@ class TestReplica:
         pxt.drop_table(test_tbl, force=True)
         reload_catalog()
 
-        Catalog.get().create_replica(Path('replica_1'), md1, if_exists=IfExistsParam.ERROR)
-        Catalog.get().create_replica(Path('replica_2'), md2, if_exists=IfExistsParam.ERROR)
+        with cat.begin_xact(for_write=True):
+            cat.create_replica(Path('replica_1'), md1)
+            cat.create_replica(Path('replica_2'), md2)
         reload_catalog()
 
         t1 = pxt.get_table('replica_1')
@@ -49,6 +50,8 @@ class TestReplica:
         v2 > v3 > s31
         s11 > v4 > v5 > s51 > v6 > s61
         """
+        cat = Catalog.get()
+
         t = pxt.create_table('base_tbl', {'c1': pxt.Int})  # Base table
         t.insert({'c1': i} for i in range(10))
         assert t._tbl_version.get().version == 1
@@ -81,29 +84,32 @@ class TestReplica:
         v6 = pxt.create_view('v6', s51, additional_columns={'c6': pxt.Json})
         s61 = pxt.create_snapshot('s61', v6)
 
-        with Catalog.get().begin_xact(for_write=False):
-            s11_md = Catalog.get().load_replica_md(s11)
-            s12_md = Catalog.get().load_replica_md(s12)
-            s31_md = Catalog.get().load_replica_md(s31)
-            s51_md = Catalog.get().load_replica_md(s51)
-            s61_md = Catalog.get().load_replica_md(s61)
+        with cat.begin_xact(for_write=False):
+            s11_md = cat.load_replica_md(s11)
+            s12_md = cat.load_replica_md(s12)
+            s31_md = cat.load_replica_md(s31)
+            s51_md = cat.load_replica_md(s51)
+            s61_md = cat.load_replica_md(s61)
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()
 
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')
-        _r11 = Catalog.get().create_replica(Path('replica_s11'), s11_md, if_exists=IfExistsParam.ERROR)
-        _r12 = Catalog.get().create_replica(Path('replica_s12'), s12_md, if_exists=IfExistsParam.ERROR)
-        _r31 = Catalog.get().create_replica(Path('replica_s31'), s31_md, if_exists=IfExistsParam.ERROR)
+        with cat.begin_xact(for_write=True):
+            cat.create_replica(Path('replica_s11'), s11_md)
+            cat.create_replica(Path('replica_s12'), s12_md)
+            cat.create_replica(Path('replica_s31'), s31_md)
 
         # Intentionally create r61 first, before r51; this way we address both cases for snapshot-over-snapshot:
         # Base snapshot inserted first (r61 after r31); base snapshot inserted last (r51 after r61).
-        Catalog.get().create_replica(Path('replica_s61'), s61_md, if_exists=IfExistsParam.ERROR)
+        with cat.begin_xact(for_write=True):
+            cat.create_replica(Path('replica_s61'), s61_md)
         r61 = pxt.get_table('replica_s61')
-        Catalog.get().create_replica(Path('replica_s51'), s51_md, if_exists=IfExistsParam.ERROR)
+        with cat.begin_xact(for_write=True):
+            cat.create_replica(Path('replica_s51'), s51_md)
         r51 = pxt.get_table('replica_s51')
 
-        with Catalog.get().begin_xact(for_write=False):
+        with cat.begin_xact(for_write=False):
             assert len(r51._get_base_tables()) == 4
             assert len(r61._get_base_tables()) == 6
