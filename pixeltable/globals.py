@@ -72,7 +72,7 @@ def create_table(
             - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
             - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
                 with errors will have a `None` value for that cell, with information about the error stored in the
-                corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` columns.
+                corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
         num_retained_versions: Number of versions of the table to retain.

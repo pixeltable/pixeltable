@@ -102,8 +102,10 @@ class ColumnPropertyRef(Expr):
                 data_row[self.slot_idx] = type(exc).__name__
             elif self.prop == self.Property.ERRORMSG:
                 data_row[self.slot_idx] = str(exc)
-            else:
+            elif self.prop == self.Property.CELLMD:
                 data_row[self.slot_idx] = self.create_cellmd_exc(exc)
+            else:
+                raise AssertionError(f'Unknown property {self.prop}')
             return
         else:
             raise AssertionError()
