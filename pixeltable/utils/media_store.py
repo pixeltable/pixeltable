@@ -74,6 +74,16 @@ class MediaStore:
         return urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
 
     @classmethod
+    def save_media_file(cls, file_data: bytes, tbl_id: UUID, col_id: int, tbl_version: int) -> Path:
+        """Save a media binary data to a file in the MediaStore."""
+        assert isinstance(file_data, bytes)
+        media_path = cls.prepare_media_path(tbl_id, col_id, tbl_version)
+        with open(media_path, 'wb') as f:
+            f.write(file_data)
+            f.flush()
+        return media_path
+
+    @classmethod
     def delete(cls, tbl_id: UUID, version: Optional[int] = None) -> None:
         """Delete all files belonging to tbl_id. If version is not None, delete
         only those files belonging to the specified version."""
