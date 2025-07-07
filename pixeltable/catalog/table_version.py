@@ -318,6 +318,7 @@ class TableVersion:
 
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
+        assert Env.get().in_xact
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md

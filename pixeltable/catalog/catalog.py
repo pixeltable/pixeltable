@@ -766,7 +766,6 @@ class Catalog:
         self._tbls[view._id] = view
         return view
 
-    @_retry_loop(for_write=True)
     def create_replica(
         self, path: Path, md: list[schema.FullTableMd]
     ) -> None:
@@ -774,10 +773,9 @@ class Catalog:
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
         list position 0 and the (root) base table at list position -1.
-
-        TODO: create_replica() also needs to create the store tables and populate them in order to make
-        replica creation atomic.
         """
+        assert Env.get().in_xact
+
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
         existing = self._handle_path_collision(path, Table, False, if_exists=IfExistsParam.IGNORE)  # type: ignore[type-abstract]
