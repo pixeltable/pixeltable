@@ -84,6 +84,10 @@ class RowBuilder:
     # (a subexpr can be shared across multiple output exprs)
     output_expr_ids: list[set[int]]
 
+    img_slot_idxs: Optional[list[int]]  # Indices of image slots
+    media_slot_idxs: Optional[list[int]]  # Indices of non-image media slots
+    array_slot_idxs: Optional[list[int]]  # Indices of array slots
+
     @dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
@@ -233,6 +237,30 @@ class RowBuilder:
         self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in self.output_exprs:
             self._record_output_expr_id(e, e.slot_idx)
+
+        self.img_slot_idxs = None
+        self.media_slot_idxs = None
+        self.array_slot_idxs = None
+
+    def get_img_slot_idxs(self) -> list[int]:
+        """Return indices of image slots"""
+        if self.img_slot_idxs is None:
+            self.img_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_image_type()]
+        return self.img_slot_idxs
+
+    def get_media_slot_idxs(self) -> list[int]:
+        """Return indices of non-image media slots"""
+        if self.media_slot_idxs is None:
+            self.media_slot_idxs = [
+                e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
+            ]
+        return self.media_slot_idxs
+
+    def get_array_slot_idxs(self) -> list[int]:
+        """Return indices of array slots"""
+        if self.array_slot_idxs is None:
+            self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
+        return self.array_slot_idxs
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
