@@ -96,7 +96,7 @@ class Env:
         return cls._instance
 
     @classmethod
-    def clear(cls) -> Env:
+    def clear(cls) -> None:
         cls._instance = None
 
     @classmethod
