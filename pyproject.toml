@@ -95,7 +95,7 @@ pytest-xdist = { extras = ["psutil"], version = ">=3.8" }
 pytest-rerunfailures = ">=15.1"
 coverage = ">=7.9"
 # type checking
-mypy = "^1.13.0"
+mypy = ">=1.16"
 boto3-stubs = "==1.36.23"
 pandas-stubs = ">=2.0"
 pyarrow-stubs = "^10.0.1.7"
