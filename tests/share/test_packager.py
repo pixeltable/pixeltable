@@ -464,3 +464,52 @@ class TestPackager:
 
         for n in (4, 0, 8, 10, 6):
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
+
+    def test_replica_ops(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
+        v = pxt.create_view('test_view', t)
+        v.add_computed_column(iccol=(v.icol + 1))
+
+        t_bundle = self.__package_table(t)
+        v_bundle = self.__package_table(v)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(v_bundle, 'view_replica')
+        # Check that test_tbl was instantiated as a system table
+        assert pxt.list_tables() == ['view_replica']
+        system_path = pxt.catalog.Path('_system', allow_system_paths=True)
+        system_contents = pxt.catalog.Catalog.get().get_dir_contents(system_path)
+        assert len(system_contents) == 1 and next(iter(system_contents.keys())).startswith('replica_')
+
+        self.__restore_and_check_table(t_bundle, 'tbl_replica')
+        # Check that test_tbl has been renamed to a user table
+        assert pxt.list_tables() == ['view_replica', 'tbl_replica']
+        assert len(pxt.catalog.Catalog.get().get_dir_contents(system_path)) == 0
+
+        t = pxt.get_table('tbl_replica')
+        v = pxt.get_table('view_replica')
+
+        for s, name in ((t, 'tbl_replica'), (v, 'view_replica')):
+            with pytest.raises(pxt.Error, match='cannot insert into view'):
+                s.insert({'icol': 10, 'scol': 'string 10'})
+            with pytest.raises(pxt.Error, match=f'Cannot add columns to a replica table: {name}'):
+                s.add_column(new_col=pxt.Bool)
+            with pytest.raises(pxt.Error, match=f'Cannot add columns to a replica table: {name}'):
+                s.add_columns({'new_col': pxt.Bool})
+            with pytest.raises(pxt.Error, match=f'Cannot add columns to a replica table: {name}'):
+                s.add_computed_column(new_col=(t.icol + 1))
+            with pytest.raises(pxt.Error, match=f'Cannot drop columns from a replica table: {name}'):
+                s.drop_column('scol')
+            with pytest.raises(pxt.Error, match=f'Cannot add an index to a replica table: {name}'):
+                s.add_embedding_index('icol', embedding=clip_embed)
+            with pytest.raises(pxt.Error, match=f'Cannot drop an index from a replica table: {name}'):
+                s.drop_embedding_index(column='icol')
+            with pytest.raises(pxt.Error, match=f'Cannot update a replica table: {name}'):
+                s.update({'icol': 11})
+            with pytest.raises(pxt.Error, match=f'Cannot recompute columns on a replica table: {name}'):
+                s.recompute_columns('icol')
+            with pytest.raises(pxt.Error, match=f'Cannot revert a replica table: {name}'):
+                s.revert()

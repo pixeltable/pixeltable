@@ -664,6 +664,7 @@ class TableVersion:
     ) -> UpdateStatus:
         """Adds columns to the table."""
         assert not self.is_snapshot
+        assert not self.is_replica
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)

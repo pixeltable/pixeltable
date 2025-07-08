@@ -1208,7 +1208,7 @@ class Catalog:
 
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         view_md = tbl_md.view_md
-        if view_md is None:
+        if view_md is None and not tbl_md.is_replica:
             # this is a base table
             if (tbl_id, None) not in self._tbl_versions:
                 _ = self._load_tbl_version(tbl_id, None)
@@ -1219,14 +1219,14 @@ class Catalog:
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-        pure_snapshot = view_md.is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
-        if pure_snapshot:
+        if tbl_md.is_pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
         else:
-            effective_version = 0 if view_md.is_snapshot else None  # snapshots only have version 0
+            effective_version = 0 if view_md is not None and view_md.is_snapshot else None  # snapshots only have version 0
             tbl_version_path.append((tbl_id, effective_version))
-        tbl_version_path.extend((UUID(tbl_id), version) for tbl_id, version in view_md.base_versions)
+        if view_md is not None:
+            tbl_version_path.extend((UUID(tbl_id), version) for tbl_id, version in view_md.base_versions)
 
         # load TableVersions, starting at the root
         base_path: Optional[TableVersionPath] = None
@@ -1236,7 +1236,7 @@ class Catalog:
                 _ = self._load_tbl_version(id, effective_version)
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
-        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=pure_snapshot)
+        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id] = view
         return view
 

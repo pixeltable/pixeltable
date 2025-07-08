@@ -301,6 +301,8 @@ class View(Table):
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')
 
     def _get_base_table(self) -> Optional['Table']:
+        if self._tbl_version_path.base is None:
+            return None  # this can happen for a replica of a base table
         # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
         # for the snapshot itself)
         base_id = self._tbl_version_path.tbl_id if self._snapshot_only else self._tbl_version_path.base.tbl_id
