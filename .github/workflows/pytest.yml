@@ -28,7 +28,7 @@ env:
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
   # We also disable Metal (GPU) support on MacOS, which doesn't seem to work properly in CI.
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF -DGGML_METAL_EMBED_LIBRARY=OFF'
-  # This is required to build onnxsim on Ubuntu / Python 3.12 configurations.
+  # This is required to build onnxsim on Ubuntu / Python 3.12+ configurations.
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -49,15 +49,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Test with Python 3.10 and 3.12 (minimum and maximum supported versions) on every platform.
-        # In most cases, test only the basic (free) platforms: ubuntu-22.04, macos-13, windows-2022.
+        # Test with Python 3.10 and 3.13 (minimum and maximum supported versions) on every platform.
+        # In most cases, test only the basic (free) platforms: ubuntu-22.04, macos-15, windows-2022.
         # On a scheduled run, also test ubuntu-x64-t4 (which costs money). ubuntu-arm64 is disabled
         # for now; it just has too many problems.
         # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
         os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
                 && fromJSON('["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]')
                 || fromJSON('["ubuntu-22.04", "macos-15", "windows-2022"]') }}
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.13"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
         # Add some additional matrix configurations that are run only on linux, to test
@@ -68,14 +68,14 @@ jobs:
             python-version: "3.11"
             test-category: "py"
             poetry-options: "--with dev"
+          # Python 3.12
+          - os: ubuntu-22.04
+            python-version: "3.12"
+            test-category: "py"
+            poetry-options: "--with dev"
           # Minimal installation of pixeltable (without --with dev)
           - os: ubuntu-22.04
             python-version: "3.10"
-            test-category: "py"
-            poetry-options: ""
-          # Python 3.13 (minimal installation, without --with dev)
-          - os: ubuntu-22.04
-            python-version: "3.13"
             test-category: "py"
             poetry-options: ""
           # Notebook tests
