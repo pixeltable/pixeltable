@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
@@ -1631,6 +1631,19 @@ class Table(SchemaObject):
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._get_schema().keys())
 
+    _REPORT_SCHEMA: ClassVar[dict[str, ts.ColumnType]] = {
+        'version': ts.IntType(),
+        'created_at': ts.TimestampType(),
+        'user': ts.StringType(nullable=True),
+        'note': ts.StringType(),
+        'inserts': ts.IntType(nullable=True),
+        'updates': ts.IntType(nullable=True),
+        'deletes': ts.IntType(nullable=True),
+        'errors': ts.IntType(nullable=True),
+        'computed': ts.IntType(),
+        'schema_change': ts.StringType(),
+    }
+
     def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
         """Returns rows of information about the versions of this table, most recent first.
 
@@ -1697,16 +1710,4 @@ class Table(SchemaObject):
             ]
             report_lines.append(report_line)
 
-        report_schema = {
-            'version': ts.IntType(),
-            'created_at': ts.TimestampType(),
-            'user': ts.StringType(nullable=True),
-            'note': ts.StringType(),
-            'inserts': ts.IntType(nullable=True),
-            'updates': ts.IntType(nullable=True),
-            'deletes': ts.IntType(nullable=True),
-            'errors': ts.IntType(nullable=True),
-            'computed': ts.IntType(),
-            'schema_change': ts.StringType(),
-        }
-        return pxt.dataframe.DataFrameResultSet(report_lines, report_schema)
+        return pxt.dataframe.DataFrameResultSet(report_lines, self._REPORT_SCHEMA)
