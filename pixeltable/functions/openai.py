@@ -13,7 +13,6 @@ import logging
 import math
 import pathlib
 import re
-import uuid
 from typing import TYPE_CHECKING, Any, Callable, Optional, Type
 
 import httpx
@@ -207,7 +206,7 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[d
 
     content = await _openai_client().audio.speech.create(input=input, model=model, voice=voice, **model_kwargs)
     ext = model_kwargs.get('response_format', 'mp3')
-    output_filename = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}.{ext}')
+    output_filename = str(env.Env.get().create_tmp_path(f'.{ext}'))
     content.write_to_file(output_filename)
     return output_filename
 

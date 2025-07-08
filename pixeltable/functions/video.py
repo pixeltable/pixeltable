@@ -11,9 +11,6 @@ t.select(pxtf.video.extract_audio(t.video_col)).collect()
 ```
 """
 
-import tempfile
-import uuid
-from pathlib import Path
 from typing import Any, Optional
 
 import av
@@ -68,8 +65,7 @@ class make_video(pxt.Aggregator):
         if frame is None:
             return
         if self.container is None:
-            (_, output_filename) = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
-            self.out_file = Path(output_filename)
+            self.out_file = env.Env.get().create_tmp_path('.mp4')
             self.container = av.open(str(self.out_file), mode='w')
             self.stream = self.container.add_stream('h264', rate=self.fps)
             self.stream.pix_fmt = 'yuv420p'
@@ -108,7 +104,7 @@ def extract_audio(
             return None
         audio_stream = container.streams.audio[stream_idx]
         # create this in our tmp directory, so it'll get cleaned up if it's being generated as part of a query
-        output_filename = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}.{ext}')
+        output_filename = str(env.Env.get().create_tmp_path(f'.{ext}'))
 
         with av.open(output_filename, 'w', format=format) as output_container:
             output_stream = output_container.add_stream(codec or default_codec)
