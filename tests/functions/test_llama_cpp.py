@@ -3,6 +3,7 @@ import platform
 import pytest
 
 import pixeltable as pxt
+from tests.conftest import DO_RERUN
 
 from ..utils import IN_CI, skip_test_if_not_installed, validate_update_status
 
@@ -11,6 +12,7 @@ from ..utils import IN_CI, skip_test_if_not_installed, validate_update_status
 @pytest.mark.skipif(
     IN_CI and platform.system() != 'Linux', reason='llama_cpp is unreliable in Windows/Mac CI environments.'
 )
+@pytest.mark.flaky(reruns=3, reruns_delay=15, condition=DO_RERUN)  # Since it involes a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('llama_cpp')

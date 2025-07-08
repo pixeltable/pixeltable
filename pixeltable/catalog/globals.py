@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import dataclasses
 import enum
 import itertools
 import logging
+from dataclasses import dataclass
 from typing import Optional
 from uuid import UUID
-
-from typing_extensions import Self
 
 import pixeltable.exceptions as excs
 
@@ -22,53 +20,12 @@ _ROWID_COLUMN_NAME = '_rowid'
 _PREDEF_SYMBOLS: Optional[set[str]] = None
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclass(frozen=True)
 class QColumnId:
     """Qualified column id"""
 
     tbl_id: UUID
     col_id: int
-
-    # def __hash__(self) -> int:
-    #     return hash((self.tbl_id, self.col_id))
-
-
-@dataclasses.dataclass
-class UpdateStatus:
-    """
-    Information about updates that resulted from a table operation.
-    """
-
-    num_rows: int = 0
-    # TODO: disambiguate what this means: # of slots computed or # of columns computed?
-    num_computed_values: int = 0
-    num_excs: int = 0
-    updated_cols: list[str] = dataclasses.field(default_factory=list)
-    cols_with_excs: list[str] = dataclasses.field(default_factory=list)
-
-    def __iadd__(self, other: 'UpdateStatus') -> Self:
-        self.num_rows += other.num_rows
-        self.num_computed_values += other.num_computed_values
-        self.num_excs += other.num_excs
-        self.updated_cols = list(dict.fromkeys(self.updated_cols + other.updated_cols))
-        self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
-        return self
-
-    @property
-    def insert_msg(self) -> str:
-        """Return a message describing the results of an insert operation."""
-        if self.num_excs == 0:
-            cols_with_excs_str = ''
-        else:
-            cols_with_excs_str = (
-                f' across {len(self.cols_with_excs)} column{"" if len(self.cols_with_excs) == 1 else "s"}'
-            )
-            cols_with_excs_str += f' ({", ".join(self.cols_with_excs)})'
-        msg = (
-            f'Inserted {self.num_rows} row{"" if self.num_rows == 1 else "s"} '
-            f'with {self.num_excs} error{"" if self.num_excs == 1 else "s"}{cols_with_excs_str}.'
-        )
-        return msg
 
 
 class MediaValidation(enum.Enum):

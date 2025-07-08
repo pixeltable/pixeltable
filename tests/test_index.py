@@ -379,11 +379,14 @@ class TestIndex:
         img_t.insert(new_rows)
         print(img_t.head())
 
-        with pytest.raises(pxt.Error, match='reference to an error property of another column is not allowed'):
+        with pytest.raises(pxt.Error, match='property of another column is not allowed'):
             img_t.add_computed_column(emsg=img_t.img.errormsg)
 
-        with pytest.raises(pxt.Error, match='reference to an error property of another column is not allowed'):
+        with pytest.raises(pxt.Error, match='property of another column is not allowed'):
             img_t.add_computed_column(etype=img_t.img.errortype)
+
+        with pytest.raises(AttributeError, match='Unknown method '):
+            img_t.add_computed_column(etype=img_t.img.cellmd)
 
         # Update the first row with a new image
         repl_row = rows[6]

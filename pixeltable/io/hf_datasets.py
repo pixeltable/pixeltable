@@ -50,10 +50,18 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> Optional[ts.Column
     elif isinstance(feature_type, datasets.Sequence):
         # example: cohere wiki. Sequence(feature=Value(dtype='float32', id=None), length=-1, id=None)
         dtype = _to_pixeltable_type(feature_type.feature, nullable)
-        length = feature_type.length if feature_type.length != -1 else None
-        return ts.ArrayType(shape=(length,), dtype=dtype)
+        if dtype is None:
+            return None
+        if dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type():
+            length = feature_type.length if feature_type.length != -1 else None
+            return ts.ArrayType(shape=(length,), dtype=dtype, nullable=nullable)
+        else:
+            # Sequence of dicts must be cast as Json
+            return ts.JsonType(nullable=nullable)
     elif isinstance(feature_type, datasets.Image):
         return ts.ImageType(nullable=nullable)
+    elif isinstance(feature_type, dict):
+        return ts.JsonType(nullable=nullable)
     else:
         return None
 

@@ -8,6 +8,8 @@ from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
+from ..catalog.update_status import UpdateStatus
+
 # Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being
 # a type, it's also a `DeclarativeMeta`. The following pattern enables us to expose both `Base` and `Base.metadata`
 # outside of the module in a typesafe way.
@@ -213,13 +215,15 @@ class Table(Base):
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TableVersionMd:
     tbl_id: str  # uuid.UUID
     created_at: float  # time.time()
     version: int
     schema_version: int
-    additional_md: dict[str, Any]
+    user: Optional[str] = None  # User that created this version
+    update_status: Optional[UpdateStatus] = None  # UpdateStatus of the change that created this version
+    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 class TableVersion(Base):

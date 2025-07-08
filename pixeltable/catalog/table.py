@@ -6,9 +6,10 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+import datetime
 from uuid import UUID
 
 import pandas as pd
@@ -17,6 +18,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
+from pixeltable.metadata.utils import MetadataUtils
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -27,13 +29,13 @@ from .globals import (
     IfExistsParam,
     IfNotExistsParam,
     MediaValidation,
-    UpdateStatus,
     is_system_column_name,
     is_valid_identifier,
 )
 from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -107,8 +109,6 @@ class Table(SchemaObject):
 
     def _get_metadata(self) -> dict[str, Any]:
         md = super()._get_metadata()
-        base = self._get_base_table()
-        md['base'] = base._path() if base is not None else None
         md['schema'] = self._get_schema()
         md['is_replica'] = self._tbl_version_path.is_replica()
         md['version'] = self._get_version()
@@ -508,15 +508,16 @@ class Table(SchemaObject):
             for cname in cols_to_ignore:
                 assert cname in col_schema
                 del col_schema[cname]
+            result = UpdateStatus()
             if len(col_schema) == 0:
-                return UpdateStatus()
+                return result
             new_cols = self._create_columns(col_schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
             assert self._tbl_version is not None
-            status = self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
+            result += self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     def add_column(
         self,
@@ -593,7 +594,7 @@ class Table(SchemaObject):
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                     with errors will have a `None` value for the column, with information about the error stored in the
-                    corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+                    corresponding `tbl.col_name.errormsg` tbl.col_name.errortype` fields.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -640,10 +641,10 @@ class Table(SchemaObject):
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
                 for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
-                    if e.is_error_prop():
+                    if e.is_cellmd_prop():
                         raise excs.Error(
-                            'Use of a reference to an error property of another column is not allowed in a computed '
-                            f'column. The specified computation for this column contains this reference: `{e!r}`'
+                            f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
+                            f'is not allowed in a computed column.'
                         )
 
             # handle existing columns based on if_exists parameter
@@ -652,16 +653,17 @@ class Table(SchemaObject):
             )
             # if the column to add already exists and user asked to ignore
             # exiting column, there's nothing to do.
+            result = UpdateStatus()
             if len(cols_to_ignore) != 0:
                 assert cols_to_ignore[0] == col_name
-                return UpdateStatus()
+                return result
 
             new_col = self._create_columns({col_name: col_schema})[0]
             self._verify_column(new_col)
             assert self._tbl_version is not None
-            status = self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
+            result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
@@ -840,11 +842,12 @@ class Table(SchemaObject):
             _ = self._get_views(recursive=True, include_snapshots=False)
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
+            col_handle = col.handle
             dependent_stores = [
                 (view, store)
                 for view in (self, *self._get_views(recursive=True, include_snapshots=False))
                 for store in view._tbl_version.get().external_stores.values()
-                if col in store.get_local_columns()
+                if col_handle in store.get_local_columns()
             ]
             if len(dependent_stores) > 0:
                 dependent_store_names = [
@@ -1321,6 +1324,9 @@ class Table(SchemaObject):
             where: a predicate to filter rows to update.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
 
+        Returns:
+            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
+
         Examples:
             Set column `int_col` to 1 for all rows:
 
@@ -1343,9 +1349,9 @@ class Table(SchemaObject):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot update a snapshot')
-            status = self._tbl_version.get().update(value_spec, where, cascade)
+            result = self._tbl_version.get().update(value_spec, where, cascade)
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
 
     def batch_update(
         self,
@@ -1409,7 +1415,7 @@ class Table(SchemaObject):
                         raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
                 row_updates.append(col_vals)
 
-            status = self._tbl_version.get().batch_update(
+            result = self._tbl_version.get().batch_update(
                 row_updates,
                 rowids,
                 error_if_not_exists=if_not_exists == 'error',
@@ -1417,7 +1423,70 @@ class Table(SchemaObject):
                 cascade=cascade,
             )
             FileCache.get().emit_eviction_warnings()
-            return status
+            return result
+
+    def recompute_columns(
+        self, *columns: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
+    ) -> UpdateStatus:
+        """Recompute the values in one or more computed columns of this table.
+
+        Args:
+            columns: The names or references of the computed columns to recompute.
+            errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
+                `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
+            cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
+
+        Examples:
+            Recompute computed columns `c1` and `c2` for all rows in this table, and everything that transitively
+            depends on them:
+
+            >>> tbl.recompute_columns('c1', 'c2')
+
+            Recompute computed column `c1` for all rows in this table, but don't recompute other columns that depend on
+            it:
+
+            >>> tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
+
+            Recompute column `c1` and its dependents, but only for rows that have errors in it:
+
+            >>> tbl.recompute_columns('c1', errors_only=True)
+        """
+        from pixeltable.catalog import Catalog
+
+        cat = Catalog.get()
+        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot recompute columns of a snapshot.')
+            if len(columns) == 0:
+                raise excs.Error('At least one column must be specified to recompute')
+            if errors_only and len(columns) > 1:
+                raise excs.Error('Cannot use errors_only=True with multiple columns')
+
+            col_names: list[str] = []
+            for column in columns:
+                col_name: str
+                col: Column
+                if isinstance(column, str):
+                    col = self._tbl_version_path.get_column(column, include_bases=True)
+                    if col is None:
+                        raise excs.Error(f'Unknown column: {column!r}')
+                    col_name = column
+                else:
+                    assert isinstance(column, ColumnRef)
+                    col = column.col
+                    if not self._tbl_version_path.has_column(col, include_bases=True):
+                        raise excs.Error(f'Unknown column: {col.name!r}')
+                    col_name = col.name
+                if not col.is_computed:
+                    raise excs.Error(f'Column {col_name!r} is not a computed column')
+                if col.tbl.id != self._tbl_version_path.tbl_id:
+                    raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
+                col_names.append(col_name)
+
+            result = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
+            FileCache.get().emit_eviction_warnings()
+            return result
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
@@ -1519,7 +1588,7 @@ class Table(SchemaObject):
 
     def sync(
         self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True
-    ) -> 'pxt.io.SyncStatus':
+    ) -> UpdateStatus:
         """
         Synchronizes this table with its linked external stores.
 
@@ -1532,7 +1601,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         if self._tbl_version_path.is_snapshot():
-            return pxt.io.SyncStatus.empty()
+            return UpdateStatus()
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
         # have their updates propagated down the tree
         base_tv = self._tbl_version_path.get_tbl_versions()[-1]
@@ -1548,11 +1617,11 @@ class Table(SchemaObject):
                 if store not in all_stores:
                     raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
-            sync_status = pxt.io.SyncStatus.empty()
+            sync_status = UpdateStatus()
             for store in stores:
                 store_obj = self._tbl_version.get().external_stores[store]
                 store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
-                sync_status = sync_status.combine(store_sync_status)
+                sync_status += store_sync_status
 
         return sync_status
 
@@ -1561,3 +1630,84 @@ class Table(SchemaObject):
 
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._get_schema().keys())
+
+    _REPORT_SCHEMA: ClassVar[dict[str, ts.ColumnType]] = {
+        'version': ts.IntType(),
+        'created_at': ts.TimestampType(),
+        'user': ts.StringType(nullable=True),
+        'note': ts.StringType(),
+        'inserts': ts.IntType(nullable=True),
+        'updates': ts.IntType(nullable=True),
+        'deletes': ts.IntType(nullable=True),
+        'errors': ts.IntType(nullable=True),
+        'computed': ts.IntType(),
+        'schema_change': ts.StringType(),
+    }
+
+    def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
+        """Returns rows of information about the versions of this table, most recent first.
+
+        Args:
+            n: a limit to the number of versions listed
+
+        Examples:
+            Report history:
+
+            >>> tbl.history()
+
+            Report only the most recent 5 changes to the table:
+
+            >>> tbl.history(n=5)
+
+        Returns:
+            A list of information about each version, ordered from most recent to oldest version.
+        """
+        from pixeltable.catalog import Catalog
+
+        if n is None:
+            n = 1000_000_000
+        if not isinstance(n, int) or n < 1:
+            raise excs.Error(f'Invalid value for n: {n}')
+
+        # Retrieve the table history components from the catalog
+        tbl_id = self._id
+        # Collect an extra version, if available, to allow for computation of the first version's schema change
+        vers_list = Catalog.get().collect_tbl_history(tbl_id, n + 1)
+
+        # Construct the metadata change description dictionary
+        md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
+        md_dict = MetadataUtils._create_md_change_dict(md_list)
+
+        # Construct report lines
+        if len(vers_list) > n:
+            assert len(vers_list) == n + 1
+            over_count = 1
+        else:
+            over_count = 0
+
+        report_lines: list[list[Any]] = []
+        for vers_md in vers_list[0 : len(vers_list) - over_count]:
+            version = vers_md.version_md.version
+            schema_change = md_dict.get(version, '')
+            update_status = vers_md.version_md.update_status
+            if update_status is None:
+                update_status = UpdateStatus()
+            change_type = 'schema' if schema_change != '' else ''
+            if change_type == '':
+                change_type = 'data'
+            rcs = update_status.row_count_stats + update_status.cascade_row_count_stats
+            report_line = [
+                version,
+                datetime.datetime.fromtimestamp(vers_md.version_md.created_at),
+                vers_md.version_md.user,
+                change_type,
+                rcs.ins_rows,
+                rcs.upd_rows,
+                rcs.del_rows,
+                rcs.num_excs,
+                rcs.computed_values,
+                schema_change,
+            ]
+            report_lines.append(report_line)
+
+        return pxt.dataframe.DataFrameResultSet(report_lines, self._REPORT_SCHEMA)

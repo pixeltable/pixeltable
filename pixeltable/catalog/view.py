@@ -17,11 +17,12 @@ if TYPE_CHECKING:
 
 
 from .column import Column
-from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
+from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
@@ -229,7 +230,10 @@ class View(Table):
 
             try:
                 plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
-                num_rows, num_excs, _ = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+                _, row_counts = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+                status = UpdateStatus(row_count_stats=row_counts)
+                tbl_version._write_md_update_status(0, update_status=status)
+
             except:
                 # we need to remove the orphaned TableVersion instance
                 del catalog.Catalog.get()._tbl_versions[tbl_version.id, tbl_version.effective_version]
@@ -238,7 +242,9 @@ class View(Table):
                     # also remove tbl_version from the base
                     base_tbl_version.mutable_views.remove(TableVersionHandle.create(tbl_version))
                 raise
-            Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
+            Env.get().console_logger.info(
+                f'Created view `{name}` with {status.num_rows} rows, {status.num_excs} exceptions.'
+            )
 
         session.commit()
         return view
@@ -273,6 +279,9 @@ class View(Table):
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
+        base_tbl = self._get_base_table()
+        base_version = self._effective_base_versions[0]
+        md['base'] = base_tbl._path() if base_version is None else f'{base_tbl._path()}:{base_version}'
         return md
 
     def insert(

@@ -163,6 +163,8 @@ jobs:
         run: rm -rf /home/runner/.cache/pypoetry
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
+        env:
+          PXTTEST_CI_OS: ${{ matrix.os }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.10. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.

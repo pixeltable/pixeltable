@@ -149,13 +149,12 @@ datasets = ">=3.2.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = ">=20240930"
 # Don't include whisperx on Intel Mac instances
-whisperx = { version = ">=3.3.1", python = "<3.13", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
-label-studio-sdk = "^0.0.32"
+whisperx = { version = ">=3.3.4", python = "<3.13", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
+label-studio-sdk = ">=1.0.18"
 ollama = ">=0.5.1"
 llama-cpp-python = { version = ">=0.3.9", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
 mcp = ">=1.9.4"
 pixeltable-yolox = "==0.4.2"
-scipy = ">=1.15.3"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
@@ -212,6 +211,8 @@ filterwarnings = [
     "ignore:No uuidRepresentation is specified! Falling back to 'pythonLegacy' which is the default for pymongo 3.x:DeprecationWarning",
     # This one is raised by huggingface-hub:
     "ignore:`resume_download` is deprecated and will be removed:FutureWarning",
+    # LabelStudio:
+    "ignore:invalid escape sequence:DeprecationWarning",
 ]
 
 [tool.ruff]

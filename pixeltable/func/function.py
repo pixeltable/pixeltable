@@ -504,12 +504,12 @@ class Function(ABC):
 
 class InvalidFunction(Function):
     fn_dict: dict[str, Any]
-    errormsg: str
+    error_msg: str
 
-    def __init__(self, self_path: str, fn_dict: dict[str, Any], errormsg: str):
+    def __init__(self, self_path: str, fn_dict: dict[str, Any], error_msg: str):
         super().__init__([], self_path)
         self.fn_dict = fn_dict
-        self.errormsg = errormsg
+        self.error_msg = error_msg
 
     def _as_dict(self) -> dict:
         """

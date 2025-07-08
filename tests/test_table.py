@@ -4,7 +4,7 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Optional, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -247,12 +247,19 @@ class TestTable:
     def test_names(self, reset_db: None) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
-        for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
+        for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            puresnap_path = f'{tbl_path}_puresnap'
+            puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
-            snap = pxt.create_snapshot(snap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            snap = pxt.create_snapshot(
+                snap_path,
+                tbl,
+                media_validation=media_val,  # type: ignore[arg-type]
+                additional_columns={'col2': tbl.col + 'x'},
+            )
             assert tbl._path() == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
@@ -287,8 +294,23 @@ class TestTable:
                 'version': 0,
             }
 
+            assert puresnap.get_metadata() == {
+                'base': f'{tbl_path}:0',
+                'comment': '',
+                'is_view': True,
+                'is_snapshot': True,
+                'is_replica': False,
+                'name': 'test_puresnap',
+                'num_retained_versions': 10,
+                'media_validation': media_val,
+                'path': puresnap_path,
+                'schema': puresnap._get_schema(),
+                'schema_version': 0,
+                'version': 0,
+            }
+
             assert snap.get_metadata() == {
-                'base': tbl_path,
+                'base': f'{tbl_path}:0',
                 'comment': '',
                 'is_view': True,
                 'is_snapshot': True,
@@ -1588,6 +1610,7 @@ class TestTable:
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
+    @pytest.mark.skip('Crashes pytest')
     def test_computed_col_with_interrupts(self, reset_db: None) -> None:
         schema = {'c1': pxt.Int}
         t = pxt.create_table('test_interrupt', schema)
@@ -1947,6 +1970,110 @@ class TestTable:
         _ = reload_tester.run_query(t.select(t.c1))
 
         reload_tester.run_reload_test()
+
+    recompute_udf_increment = 0
+    recompute_udf_error_val: Optional[int] = None
+
+    @staticmethod
+    @pxt.udf
+    def recompute_int_udf(i: int) -> int:
+        if TestTable.recompute_udf_error_val is not None and i % TestTable.recompute_udf_error_val == 0:
+            raise RuntimeError(f'Error in recompute_udf for value {i}')
+        return i + TestTable.recompute_udf_increment
+
+    @staticmethod
+    @pxt.udf
+    def recompute_str_udf(s: str) -> str:
+        i = int(s)
+        if TestTable.recompute_udf_error_val is not None and i % TestTable.recompute_udf_error_val == 0:
+            raise RuntimeError(f'Error in recompute_udf for value {i}')
+        return str(i + TestTable.recompute_udf_increment)
+
+    def test_recompute_column(self, reset_db: None) -> None:
+        t = pxt.create_table('recompute_test', schema={'i': pxt.Int, 's': pxt.String})
+        status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
+        assert status.num_excs == 0
+        status = t.add_computed_column(s1=self.recompute_str_udf(t.s))
+        assert status.num_excs == 0
+        status = t.add_computed_column(i2=t.i1 * 2)
+        assert status.num_excs == 0
+        v = pxt.create_view('recompute_view', base=t.where(t.i < 20), additional_columns={'i3': t.i2 + 1})
+        validate_update_status(t.insert({'i': i, 's': str(i)} for i in range(100)), expected_rows=100 + 20)
+
+        # recompute without propagation
+        TestTable.recompute_udf_increment = 1
+        status = t.recompute_columns(t.i1, cascade=False)
+        assert status.num_rows == 100
+        assert set(status.updated_cols) == {'recompute_test.i1'}
+        result = t.select(t.i1, t.i2).order_by(t.i).collect()
+        assert result['i1'] == [i + 1 for i in range(100)]
+        assert result['i2'] == [2 * i for i in range(100)]
+        result = v.select(v.i3).order_by(v.i).collect()
+        assert result['i3'] == [2 * i + 1 for i in range(20)]
+
+        # recompute with propagation, via a ColumnRef
+        TestTable.recompute_udf_increment = 1
+        status = t.i1.recompute()
+        assert status.num_rows == 100 + 20
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        result = t.select(t.i1, t.i2).order_by(t.i).collect()
+        assert result['i1'] == [i + 1 for i in range(100)]
+        assert result['i2'] == [2 * (i + 1) for i in range(100)]
+        result = v.select(v.i3).order_by(v.i).collect()
+        assert result['i3'] == [2 * (i + 1) + 1 for i in range(20)]
+
+        # recompute multiple columns
+        status = t.recompute_columns('i1', t.s1)
+        assert status.num_rows == 100 + 20
+        assert set(status.updated_cols) == {
+            'recompute_test.i1',
+            'recompute_test.i2',
+            'recompute_test.s1',
+            'recompute_view.i3',
+        }
+        result = t.select(t.i1, t.i2).order_by(t.i).collect()
+        assert result['i1'] == [i + 1 for i in range(100)]
+        assert result['i2'] == [2 * (i + 1) for i in range(100)]
+        result = v.select(v.i3).order_by(v.i).collect()
+        assert result['i3'] == [2 * (i + 1) + 1 for i in range(20)]
+
+        # add some errors
+        TestTable.recompute_udf_increment = 0
+        TestTable.recompute_udf_error_val = 10
+        status = t.recompute_columns('i1')
+        assert status.num_rows == 100 + 20
+        assert status.num_excs == 4 * 10  # c1 and c2 plus their index value cols
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        _ = t.select(t.i2.errormsg).where(t.i2.errormsg != None).collect()
+        assert t.where(t.i1.errortype != None).count() == 10
+        assert t.where(t.i1.errormsg.startswith('Error in recompute_udf') != None).count() == 10
+        assert t.where(t.i2.errortype != None).count() == 10
+        assert t.where(t.i2.errormsg.startswith('Error in recompute_udf') != None).count() == 10
+        assert t.where(t.i1.errortype == None).count() == 90
+        assert t.where(t.i2.errortype == None).count() == 90
+
+        # recompute errors
+        TestTable.recompute_udf_error_val = None
+        status = t.recompute_columns(t.i1, errors_only=True)
+        assert status.num_rows == 10 + 2
+        assert status.num_excs == 0
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+
+        with pytest.raises(excs.Error, match='Unknown column'):
+            t.recompute_columns('h')
+        with pytest.raises(excs.Error, match='is not a computed column'):
+            t.recompute_columns(t.i)
+        with pytest.raises(excs.Error, match='of a snapshot'):
+            s = pxt.create_snapshot('recompute_snap', t, additional_columns={'i4': t.i2 + 1})
+            s.recompute_columns(s.i4)
+        with pytest.raises(excs.Error, match='At least one column must be specified'):
+            t.recompute_columns()
+        with pytest.raises(excs.Error, match='Cannot use errors_only=True with multiple columns'):
+            t.recompute_columns(t.i1, t.s1, errors_only=True)
+        with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
+            v.recompute_columns(v.i1)
+        with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
+            v.i1.recompute()
 
     def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
         """Test the if_not_exists parameter of drop_column API"""

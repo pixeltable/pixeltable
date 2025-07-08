@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
+
+from pixeltable import exceptions as excs
 
 from .table_version import TableVersion
 
 if TYPE_CHECKING:
-    pass
+    from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
 
@@ -67,3 +70,25 @@ class TableVersionHandle:
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
         return cls(UUID(d['id']), d['effective_version'])
+
+
+@dataclass(frozen=True)
+class ColumnHandle:
+    tbl_version: TableVersionHandle
+    col_id: int
+
+    def get(self) -> 'Column':
+        if self.col_id not in self.tbl_version.get().cols_by_id:
+            schema_version_drop = self.tbl_version.get()._tbl_md.column_md[self.col_id].schema_version_drop
+            raise excs.Error(
+                f'Column has been dropped (no record for column ID {self.col_id} in table '
+                f'{self.tbl_version.get().versioned_name!r}; it was dropped in table version {schema_version_drop})'
+            )
+        return self.tbl_version.get().cols_by_id[self.col_id]
+
+    def as_dict(self) -> dict:
+        return {'tbl_version': self.tbl_version.as_dict(), 'col_id': self.col_id}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> ColumnHandle:
+        return cls(tbl_version=TableVersionHandle.from_dict(d['tbl_version']), col_id=d['col_id'])

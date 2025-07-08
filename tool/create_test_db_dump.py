@@ -183,7 +183,7 @@ class Dumper:
         v._link_external_store(project)
         # Sanity check that the stored proxy column did get created
         assert len(project.stored_proxies) == 1
-        assert t.base_table_image_rot.col in project.stored_proxies
+        assert t.base_table_image_rot.col.handle in project.stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:

@@ -308,7 +308,11 @@ class Catalog:
                     # we still got a serialization error, despite getting x-locks at the beginning
                     msg = f'{tbl.tbl_name()} ({tbl.tbl_id})' if tbl is not None else ''
                     _logger.debug(f'Exception: serialization failure: {msg} ({e})')
-                    raise excs.Error('Serialization failure. Please re-run the operation.') from None
+                    raise excs.Error(
+                        'That Pixeltable operation could not be completed because it conflicted with another '
+                        'operation that was run on a different process.\n'
+                        'Please re-run the operation.'
+                    ) from None
                 else:
                     raise
 
@@ -777,15 +781,12 @@ class Catalog:
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
         # First handle path collisions (if_exists='ignore' or 'replace' or etc).
-        existing = self._handle_path_collision(path, View, False, if_exists)
-        if existing is not None:
-            if existing._id != tbl_id:
-                raise excs.Error(
-                    f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
-                    'but a different table already exists at that location.'
-                )
-            assert isinstance(existing, View)
-            return
+        existing = self._handle_path_collision(path, Table, False, if_exists)  # type: ignore[type-abstract]
+        if existing is not None and existing._id != tbl_id:
+            raise excs.Error(
+                f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
+                'but a different table already exists at that location.'
+            )
 
         # Ensure that the system directory exists.
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
@@ -794,22 +795,24 @@ class Catalog:
         existing = Catalog.get().get_table_by_id(tbl_id)
         if existing is not None:
             existing_path = Path(existing._path(), allow_system_paths=True)
-            # It does exist. If it's a non-system table, that's an error: it's already been replicated.
-            if not existing_path.is_system_path:
-                raise excs.Error(
-                    f'That table has already been replicated as {existing._path()!r}. \n'
-                    f'Drop the existing replica if you wish to re-create it.'
-                )
-            # If it's a system table, then this means it was created at some point as the ancestor of some other
-            # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named) location.
-            self._move(existing_path, path)
+            if existing_path != path:
+                # It does exist, under a different path from the specified one.
+                if not existing_path.is_system_path:
+                    raise excs.Error(
+                        f'That table has already been replicated as {existing_path!r}.\n'
+                        f'Drop the existing replica if you wish to re-create it.'
+                    )
+                # If it's a system table, then this means it was created at some point as the ancestor of some other
+                # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named)
+                # location.
+                self._move(existing_path, path)
 
-        # Now store the metadata for this replica. In the case where the table already exists (and was just moved
-        # into a named location), this will be a no-op, but it still serves to validate that the newly received
-        # metadata is identical to what's in the catalog.
+        # Now store the metadata for this replica; it could be a new version (in which case a new record
+        # will be created) or a known version (in which case the newly received metadata will be validated as
+        # identical).
         self.__store_replica_md(path, md[0])
 
-        # Now store the metadata for all of this table's proper ancestors. If one or more proper ancestors
+        # Now store the metadata for this replica and all of its ancestors. If one or more proper ancestors
         # do not yet exist in the store, they will be created as anonymous system tables.
         for ancestor_md in md[1:]:
             ancestor_id = UUID(ancestor_md.tbl_md.tbl_id)
@@ -824,8 +827,7 @@ class Catalog:
                 # that was directly replicated by the user at some point). In either case, use the existing path.
                 replica_path = Path(replica._path(), allow_system_paths=True)
 
-            # Store the metadata; it could be a new version (in which case a new record will be created) or a
-            # known version (in which case the newly received metadata will be validated as identical).
+            # Store the metadata; as before, it could be a new version or a known version.
             self.__store_replica_md(replica_path, ancestor_md)
 
         # don't create TableVersion instances at this point, they would be superseded by calls to TV.create_replica()
@@ -911,12 +913,15 @@ class Catalog:
                     'This is likely due to data corruption in the replicated table.'
                 )
 
-        self.store_tbl_md(UUID(tbl_id), new_tbl_md, new_version_md, new_schema_version_md)
+        self.store_tbl_md(UUID(tbl_id), None, new_tbl_md, new_version_md, new_schema_version_md)
 
     @_retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
+        # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
+        # by another process.
+        obj._tbl_version_path.clear_cached_md()
         return obj
 
     @_retry_loop(for_write=True)
@@ -1228,6 +1233,43 @@ class Catalog:
         self._tbls[tbl_id] = view
         return view
 
+    @_retry_loop(for_write=False)
+    def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
+        """
+        Returns the history of up to n versions of the table with the given UUID.
+
+        Args:
+            tbl_id: the UUID of the table to collect history for.
+            n: Optional limit on the maximum number of versions returned.
+
+        Returns:
+            A sequence of rows, ordered by version number
+            Each row contains a TableVersion and a TableSchemaVersion object.
+        """
+        q = (
+            sql.select(schema.TableVersion, schema.TableSchemaVersion)
+            .select_from(schema.TableVersion)
+            .join(
+                schema.TableSchemaVersion,
+                sql.cast(schema.TableVersion.md['schema_version'], sql.Integer)
+                == schema.TableSchemaVersion.schema_version,
+            )
+            .where(schema.TableVersion.tbl_id == tbl_id)
+            .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+            .order_by(schema.TableVersion.version.desc())
+        )
+        if n is not None:
+            q = q.limit(n)
+        src_rows = Env.get().session.execute(q).fetchall()
+        return [
+            schema.FullTableMd(
+                None,
+                schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
+                schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
+            )
+            for row in src_rows
+        ]
+
     def load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> schema.FullTableMd:
         """
         Loads metadata from the store for a given table UUID and version.
@@ -1297,19 +1339,27 @@ class Catalog:
     def store_tbl_md(
         self,
         tbl_id: UUID,
+        dir_id: Optional[UUID],
         tbl_md: Optional[schema.TableMd],
         version_md: Optional[schema.TableVersionMd],
         schema_version_md: Optional[schema.TableSchemaVersionMd],
     ) -> None:
         """
-        Stores metadata to the DB. If specified, `tbl_md` will be updated in place (only one such record can exist
-        per UUID); `version_md` and `schema_version_md` will be inserted as new records.
+        Stores metadata to the DB.
+
+        Args:
+            tbl_id: UUID of the table to store metadata for.
+            dir_id: If specified, the tbl_md will be added to the given directory; if None, the table must already exist
+            tbl_md: If specified, `tbl_md` will be inserted, or updated (only one such record can exist per UUID)
+            version_md: inserted as a new record if present
+            schema_version_md: will be inserted as a new record if present
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
-        conn = Env.get().conn
         assert self._in_write_xact
+        session = Env.get().session
 
+        # Construct and insert or update table record if requested.
         if tbl_md is not None:
             assert tbl_md.tbl_id == str(tbl_id)
             if version_md is not None:
@@ -1317,32 +1367,55 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
-            result = conn.execute(
-                sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(tbl_md)})
-                .where(schema.Table.id == tbl_id)
-            )
-            assert result.rowcount == 1, result.rowcount
+            if dir_id is not None:
+                # We are inserting a record while creating a new table.
+                tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md))
+                session.add(tbl_record)
+            else:
+                # Update the existing table record.
+                result = session.execute(
+                    sql.update(schema.Table.__table__)
+                    .values({schema.Table.md: dataclasses.asdict(tbl_md)})
+                    .where(schema.Table.id == tbl_id)
+                )
+                assert result.rowcount == 1, result.rowcount
 
+        # Construct and insert new table version record if requested.
         if version_md is not None:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
                 assert version_md.schema_version == schema_version_md.schema_version
-            conn.execute(
-                sql.insert(schema.TableVersion.__table__).values(
-                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
-                )
+            tbl_version_record = schema.TableVersion(
+                tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
             )
+            session.add(tbl_version_record)
 
+        # Construct and insert a new schema version record if requested.
         if schema_version_md is not None:
             assert schema_version_md.tbl_id == str(tbl_id)
-            conn.execute(
-                sql.insert(schema.TableSchemaVersion.__table__).values(
-                    tbl_id=tbl_id,
-                    schema_version=schema_version_md.schema_version,
-                    md=dataclasses.asdict(schema_version_md),
-                )
+            schema_version_record = schema.TableSchemaVersion(
+                tbl_id=tbl_id, schema_version=schema_version_md.schema_version, md=dataclasses.asdict(schema_version_md)
             )
+            session.add(schema_version_record)
+        session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
+
+    def update_tbl_version_md(self, version_md: Optional[schema.TableVersionMd]) -> None:
+        """
+        Update the TableVersion.md field in the DB. Typically used to update the cascade row count status.
+
+        Args:
+            version_md: TableVersionMd
+        """
+        assert self._in_write_xact
+        session = Env.get().session
+
+        session.execute(
+            sql.update(schema.TableVersion.__table__)
+            .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
+            .where(schema.TableVersion.tbl_id == version_md.tbl_id, schema.TableVersion.version == version_md.version)
+        )
+
+        session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
