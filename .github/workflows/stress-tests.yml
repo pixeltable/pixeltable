@@ -50,7 +50,7 @@ jobs:
         # Retry 3 times to be resilient against transient connectivity issues.
         run: ./scripts/retry.sh 3 60 poetry install
       - name: Run the stress tests
-        run: python tool/worker_harness.py 8 900 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops.log
+        run: python tool/worker_harness.py 12 3600 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops.log
       - name: Check for errors
         run: |
           echo "Checking for errors."

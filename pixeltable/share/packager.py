@@ -361,6 +361,8 @@ class TableRestorer:
             )
 
         tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
+        for md in tbl_md:
+            md.tbl_md.is_replica = True
 
         # Create the replica table
         # The logic here needs to be completely restructured in order to make it concurrency-safe.
@@ -369,7 +371,7 @@ class TableRestorer:
         #   an actual table)
         # - this could be done one replica at a time (instead of the entire hierarchy)
         cat = catalog.Catalog.get()
-        cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
+        cat.create_replica(catalog.Path(self.tbl_path), tbl_md, if_exists=catalog.IfExistsParam.IGNORE)
         # don't call get_table() until after the calls to create_replica() and __import_table() below;
         # the TV instances created by get_table() would be replaced by create_replica(), which creates duplicate
         # TV instances for the same replica version, which then leads to failures when constructing queries
@@ -388,7 +390,7 @@ class TableRestorer:
             ancestor_md = tbl_md  # Not a pure snapshot; include replica_tbl
 
         # Instantiate data from the Parquet tables.
-        with Env.get().begin_xact():
+        with cat.begin_xact(for_write=True):
             for md in ancestor_md[::-1]:  # Base table first
                 # Create a TableVersion instance (and a store table) for this ancestor.
                 tv = catalog.TableVersion.create_replica(md)
@@ -626,9 +628,8 @@ class TableRestorer:
                 # First time seeing this pxtmedia:// URL. Relocate the file to the media store and record the mapping
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
-                dest_path = MediaStore.prepare_media_path(tv.id, media_col_id, tv.version, ext=src_path.suffix)
-                src_path.rename(dest_path)
-                self.media_files[url] = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
+                # Move the file to the media store and update the URL.
+                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, tv.id, media_col_id, tv.version)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url

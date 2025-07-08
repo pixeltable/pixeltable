@@ -781,15 +781,12 @@ class Catalog:
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
         # First handle path collisions (if_exists='ignore' or 'replace' or etc).
-        existing = self._handle_path_collision(path, View, False, if_exists)
-        if existing is not None:
-            if existing._id != tbl_id:
-                raise excs.Error(
-                    f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
-                    'but a different table already exists at that location.'
-                )
-            assert isinstance(existing, View)
-            return
+        existing = self._handle_path_collision(path, Table, False, if_exists)  # type: ignore[type-abstract]
+        if existing is not None and existing._id != tbl_id:
+            raise excs.Error(
+                f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
+                'but a different table already exists at that location.'
+            )
 
         # Ensure that the system directory exists.
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
@@ -798,22 +795,24 @@ class Catalog:
         existing = Catalog.get().get_table_by_id(tbl_id)
         if existing is not None:
             existing_path = Path(existing._path(), allow_system_paths=True)
-            # It does exist. If it's a non-system table, that's an error: it's already been replicated.
-            if not existing_path.is_system_path:
-                raise excs.Error(
-                    f'That table has already been replicated as {existing._path()!r}. \n'
-                    f'Drop the existing replica if you wish to re-create it.'
-                )
-            # If it's a system table, then this means it was created at some point as the ancestor of some other
-            # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named) location.
-            self._move(existing_path, path)
+            if existing_path != path:
+                # It does exist, under a different path from the specified one.
+                if not existing_path.is_system_path:
+                    raise excs.Error(
+                        f'That table has already been replicated as {existing_path!r}.\n'
+                        f'Drop the existing replica if you wish to re-create it.'
+                    )
+                # If it's a system table, then this means it was created at some point as the ancestor of some other
+                # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named)
+                # location.
+                self._move(existing_path, path)
 
-        # Now store the metadata for this replica. In the case where the table already exists (and was just moved
-        # into a named location), this will be a no-op, but it still serves to validate that the newly received
-        # metadata is identical to what's in the catalog.
+        # Now store the metadata for this replica; it could be a new version (in which case a new record
+        # will be created) or a known version (in which case the newly received metadata will be validated as
+        # identical).
         self.__store_replica_md(path, md[0])
 
-        # Now store the metadata for all of this table's proper ancestors. If one or more proper ancestors
+        # Now store the metadata for this replica and all of its ancestors. If one or more proper ancestors
         # do not yet exist in the store, they will be created as anonymous system tables.
         for ancestor_md in md[1:]:
             ancestor_id = UUID(ancestor_md.tbl_md.tbl_id)
@@ -828,8 +827,7 @@ class Catalog:
                 # that was directly replicated by the user at some point). In either case, use the existing path.
                 replica_path = Path(replica._path(), allow_system_paths=True)
 
-            # Store the metadata; it could be a new version (in which case a new record will be created) or a
-            # known version (in which case the newly received metadata will be validated as identical).
+            # Store the metadata; as before, it could be a new version or a known version.
             self.__store_replica_md(replica_path, ancestor_md)
 
         # don't create TableVersion instances at this point, they would be superseded by calls to TV.create_replica()
@@ -921,6 +919,9 @@ class Catalog:
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
+        # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
+        # by another process.
+        obj._tbl_version_path.clear_cached_md()
         return obj
 
     @_retry_loop(for_write=True)
@@ -1396,6 +1397,24 @@ class Catalog:
                 tbl_id=tbl_id, schema_version=schema_version_md.schema_version, md=dataclasses.asdict(schema_version_md)
             )
             session.add(schema_version_record)
+        session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
+
+    def update_tbl_version_md(self, version_md: Optional[schema.TableVersionMd]) -> None:
+        """
+        Update the TableVersion.md field in the DB. Typically used to update the cascade row count status.
+
+        Args:
+            version_md: TableVersionMd
+        """
+        assert self._in_write_xact
+        session = Env.get().session
+
+        session.execute(
+            sql.update(schema.TableVersion.__table__)
+            .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
+            .where(schema.TableVersion.tbl_id == version_md.tbl_id, schema.TableVersion.version == version_md.version)
+        )
+
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
     def delete_tbl_md(self, tbl_id: UUID) -> None:

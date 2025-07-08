@@ -17,10 +17,9 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog.globals import UpdateStatus
+from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.io import SyncStatus
 from pixeltable.utils import sha256sum
 
 TESTS_DIR = Path(os.path.dirname(__file__))
@@ -485,7 +484,7 @@ def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = 
 
 
 def validate_sync_status(
-    status: SyncStatus,
+    status: UpdateStatus,
     expected_external_rows_created: Optional[int] = None,
     expected_external_rows_updated: Optional[int] = None,
     expected_external_rows_deleted: Optional[int] = None,

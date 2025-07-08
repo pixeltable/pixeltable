@@ -25,19 +25,26 @@ class Config:
 
     __home: Path
     __config_file: Path
+    __config_overrides: dict[str, Any]
     __config_dict: dict[str, Any]
 
-    def __init__(self) -> None:
+    def __init__(self, config_overrides: dict[str, Any]) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
 
-        self.__home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
+        for var in config_overrides:
+            if var not in KNOWN_CONFIG_OVERRIDES:
+                raise excs.Error(f'Unrecognized configuration variable: {var}')
+
+        self.__config_overrides = config_overrides
+
+        self.__home = Path(self.lookup_env('pixeltable', 'home', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
-            raise RuntimeError(f'{self.__home} is not a directory')
+            raise excs.Error(f'Not a directory: {self.__home}')
         if not self.__home.exists():
             print(f'Creating a Pixeltable instance at: {self.__home}')
             self.__home.mkdir()
 
-        self.__config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self.__home / 'config.toml')))
+        self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
 
         self.__config_dict: dict[str, Any]
         if os.path.isfile(self.__config_file):
@@ -46,6 +53,12 @@ class Config:
                     self.__config_dict = toml.load(stream)
                 except Exception as exc:
                     raise excs.Error(f'Could not read config file: {self.__config_file}') from exc
+            for section, section_dict in self.__config_dict.items():
+                if section not in KNOWN_CONFIG_OPTIONS:
+                    raise excs.Error(f'Unrecognized section {section!r} in config file: {self.__config_file}')
+                for key in section_dict:
+                    if key not in KNOWN_CONFIG_OPTIONS[section]:
+                        raise excs.Error(f"Unrecognized option '{section}.{key}' in config file: {self.__config_file}")
         else:
             self.__config_dict = self.__create_default_config(self.__config_file)
             with open(self.__config_file, 'w', encoding='utf-8') as stream:
@@ -65,9 +78,17 @@ class Config:
 
     @classmethod
     def get(cls) -> Config:
-        if cls.__instance is None:
-            cls.__instance = cls()
+        cls.init({})
         return cls.__instance
+
+    @classmethod
+    def init(cls, config_overrides: dict[str, Any]) -> None:
+        if cls.__instance is None:
+            cls.__instance = cls(config_overrides)
+        elif len(config_overrides) > 0:
+            raise excs.Error(
+                'Pixeltable has already been initialized; cannot specify new config values in the same session'
+            )
 
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
@@ -76,14 +97,23 @@ class Config:
         file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
         return {'pixeltable': {'file_cache_size_g': round(file_cache_size_g, 1), 'hide_warnings': False}}
 
-    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
+    def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
+        override_var = f'{section}.{key}'
         env_var = f'{section.upper()}_{key.upper()}'
+        if override_var in self.__config_overrides:
+            return self.__config_overrides[override_var]
         if env_var in os.environ:
-            value = os.environ[env_var]
-        elif section in self.__config_dict and key in self.__config_dict[section]:
+            return os.environ[env_var]
+        return default
+
+    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
+        value = self.lookup_env(section, key)  # Try to get from environment first
+        # Next try the config file
+        if value is None and section in self.__config_dict and key in self.__config_dict[section]:
             value = self.__config_dict[section][key]
-        else:
-            return None
+
+        if value is None:
+            return None  # Not specified
 
         try:
             if expected_type is bool and isinstance(value, str):
@@ -91,7 +121,7 @@ class Config:
                     raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
                 return value.lower() == 'true'  # type: ignore[return-value]
             return expected_type(value)  # type: ignore[call-arg]
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
 
     def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
@@ -105,3 +135,37 @@ class Config:
 
     def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
         return self.get_value(key, bool, section)
+
+
+KNOWN_CONFIG_OPTIONS = {
+    'pixeltable': {
+        'home': 'Path to the Pixeltable home directory',
+        'config': 'Path to the Pixeltable config file',
+        'pgdata': 'Path to the Pixeltable postgres data directory',
+        'db': 'Postgres database name',
+        'file_cache_size_g': 'Size of the file cache in GB',
+        'time_zone': 'Default time zone for timestamps',
+        'hide_warnings': 'Hide warnings from the console',
+        'verbosity': 'Verbosity level for console output',
+        'api_key': 'API key for Pixeltable cloud',
+    },
+    'anthropic': {'api_key': 'Anthropic API key'},
+    'bedrock': {'api_key': 'AWS Bedrock API key'},
+    'deepseek': {'api_key': 'Deepseek API key'},
+    'fireworks': {'api_key': 'Fireworks API key'},
+    'gemini': {'api_key': 'Gemini API key'},
+    'groq': {'api_key': 'Groq API key'},
+    'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
+    'mistral': {'api_key': 'Mistral API key'},
+    'openai': {'api_key': 'OpenAI API key'},
+    'replicate': {'api_token': 'Replicate API token'},
+    'together': {'api_key': 'Together API key'},
+    'pypi': {'api_key': 'PyPI API key (for internal use only)'},
+}
+
+
+KNOWN_CONFIG_OVERRIDES = {
+    f'{section}.{key}': info
+    for section, section_dict in KNOWN_CONFIG_OPTIONS.items()
+    for key, info in section_dict.items()
+}
