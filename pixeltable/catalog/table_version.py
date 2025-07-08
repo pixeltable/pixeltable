@@ -237,9 +237,15 @@ class TableVersion:
             additional_md={},
         )
 
-        # create schema.TableVersion
+        # create schema.TableVersion of the initial version
         table_version_md = schema.TableVersionMd(
-            tbl_id=tbl_id_str, created_at=timestamp, version=0, schema_version=0, additional_md={}
+            tbl_id=tbl_id_str,
+            created_at=timestamp,
+            version=0,
+            schema_version=0,
+            user=user,
+            update_status=None,
+            additional_md={},
         )
 
         # create schema.TableSchemaVersion
@@ -471,7 +477,13 @@ class TableVersion:
         else:
             self.store_tbl = StoreTable(self)
 
-    def _write_md(self, new_version: bool, new_version_ts: float, new_schema_version: bool) -> None:
+    def _write_md(
+        self,
+        new_version: bool,
+        new_version_ts: float,
+        new_schema_version: bool,
+        update_status: Optional[UpdateStatus] = None,
+    ) -> None:
         """Writes table metadata to the database.
 
         Args:
@@ -482,21 +494,22 @@ class TableVersion:
         """
         from pixeltable.catalog import Catalog
 
-        version_md: Optional[schema.TableVersionMd] = (
-            schema.TableVersionMd(
-                tbl_id=str(self.id),
-                created_at=new_version_ts,
-                version=self.version,
-                schema_version=self.schema_version,
-                additional_md={},
-            )
-            if new_version
-            else None
-        )
+        version_md = self._create_version_md(new_version_ts, update_status=update_status) if new_version else None
 
         Catalog.get().store_tbl_md(
             self.id, None, self._tbl_md, version_md, self._schema_version_md if new_schema_version else None
         )
+
+    def _write_md_update_status(self, new_version_ts: float, update_status: UpdateStatus) -> None:
+        """Writes a new update_status in the table version metadata in the database.
+
+        Args:
+            timestamp: timestamp of the change
+            update_status: UpdateStatus to be updated in the database
+        """
+        from pixeltable.catalog import Catalog
+
+        Catalog.get().update_tbl_version_md(self._create_version_md(new_version_ts, update_status))
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""
@@ -677,7 +690,7 @@ class TableVersion:
         # Create indices and their md records
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True, update_status=status)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
         msg = (
@@ -780,7 +793,6 @@ class TableVersion:
             upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
         )  # add_columns
         return UpdateStatus(
-            comment='add columns',
             cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
@@ -898,6 +910,7 @@ class TableVersion:
         assert (rows is None) != (df is None)  # Exactly one must be specified
         if rows is not None:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
+
         else:
             plan = Planner.create_df_insert_plan(self, df, ignore_errors=not fail_on_exception)
 
@@ -908,7 +921,10 @@ class TableVersion:
                 self.next_row_id += 1
                 yield rowid
 
-        return self._insert(plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)
+        result = self._insert(
+            plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
+        )
+        return result
 
     def _insert(
         self,
@@ -926,22 +942,22 @@ class TableVersion:
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
         result = UpdateStatus(
-            comment='',
             cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
             row_count_stats=row_counts,
         )
-        self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
         # update views
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
-            status = view.get()._insert(plan, timestamp, print_stats=print_stats)
+            plan2, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+            status = view.get()._insert(plan2, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
+        # Use the net status after all propagations
+        self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False, update_status=result)
         if print_stats:
-            plan.ctx.profile.print(num_rows=result.num_rows)  # This is the net rows after all propagations
+            exec_plan.ctx.profile.print(num_rows=result.num_rows)
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
@@ -1111,9 +1127,9 @@ class TableVersion:
         cascade: bool,
         show_progress: bool = True,
     ) -> UpdateStatus:
-        result = UpdateStatus(comment='update')
-        if plan is not None:
-            # we're creating a new version
+        result = UpdateStatus()
+        create_new_table_version = plan is not None
+        if create_new_table_version:
             self.version += 1
             cols_with_excs, row_counts = self.store_tbl.insert_rows(
                 plan, v_min=self.version, show_progress=show_progress
@@ -1125,7 +1141,6 @@ class TableVersion:
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
-            self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
         if cascade:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
@@ -1141,7 +1156,8 @@ class TableVersion:
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
                 result += status.to_cascade()
-
+        if create_new_table_version:
+            self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False, update_status=result)
         return result
 
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
@@ -1191,16 +1207,17 @@ class TableVersion:
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
         )
         row_counts = RowCountStats(del_rows=del_rows)  # delete
-        result = UpdateStatus(comment='delete', row_count_stats=row_counts)
+        result = UpdateStatus(row_count_stats=row_counts)
         if del_rows > 0:
             # we're creating a new version
             self.version += 1
-            self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
         for view in self.mutable_views:
             status = view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
+        if del_rows > 0:
+            self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False, update_status=result)
         return result
 
     def revert(self) -> None:
@@ -1542,12 +1559,14 @@ class TableVersion:
             {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()} for store in stores
         ]
 
-    def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
+    def _create_version_md(self, timestamp: float, update_status: Optional[UpdateStatus]) -> schema.TableVersionMd:
         return schema.TableVersionMd(
             tbl_id=str(self.id),
             created_at=timestamp,
             version=self.version,
             schema_version=self.schema_version,
+            user=Env.get().user,
+            update_status=update_status,
             additional_md={},
         )
 

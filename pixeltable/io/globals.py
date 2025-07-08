@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import Table, exprs
+from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
-from pixeltable.io.external_store import SyncStatus
 
 if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
@@ -22,7 +22,7 @@ def create_label_studio_project(
     sync_immediately: bool = True,
     s3_configuration: Optional[dict[str, Any]] = None,
     **kwargs: Any,
-) -> SyncStatus:
+) -> UpdateStatus:
     """
     Create a new Label Studio project and link it to the specified [`Table`][pixeltable.Table].
 
@@ -96,7 +96,7 @@ def create_label_studio_project(
             [Label Studio start_project docs](https://labelstud.io/sdk/project.html#label_studio_sdk.project.Project.start_project).
 
     Returns:
-        A `SyncStatus` representing the status of any synchronization operations that occurred.
+        An `UpdateStatus` representing the status of any synchronization operations that occurred.
 
     Examples:
         Create a Label Studio project whose tasks correspond to videos stored in the `video_col`
@@ -136,7 +136,7 @@ def create_label_studio_project(
     if sync_immediately:
         return t.sync()
     else:
-        return SyncStatus()
+        return UpdateStatus()
 
 
 def export_images_as_fo_dataset(
