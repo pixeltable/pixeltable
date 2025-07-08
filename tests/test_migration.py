@@ -79,7 +79,9 @@ class TestMigration:
             with orm.Session(env.engine) as session:
                 convert_table_md(env.engine, substitution_fn=self.__substitute_md)
 
-            env._upgrade_metadata()
+            # make sure we run the env db setup
+            Env.clear()
+            env = Env.get()
 
             with orm.Session(env.engine) as session:
                 md = session.query(SystemInfo).one().md

@@ -96,6 +96,10 @@ class Env:
         return cls._instance
 
     @classmethod
+    def clear(cls) -> Env:
+        cls._instance = None
+
+    @classmethod
     def _init_env(cls, reinit_db: bool = False) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
