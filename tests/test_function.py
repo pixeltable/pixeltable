@@ -329,7 +329,7 @@ class TestFunction:
         # to a circular initialization failure.
         # It is currently broken, because it depends on the order in which tables are being dropped, which in turn
         # depends on the order in which table ids are being returned by the query that identifies which tables to drop.
-        # If 'tb' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
+        # If 'tbl' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
         # the required TableVersion, which requires deserializing the value expr for the 'result' column, which
         # references 'view', which no longer exists).
         # TODO: find a general solution

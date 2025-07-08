@@ -89,13 +89,16 @@ def retry_loop(
             num_retries = 0
             while True:
                 cat._in_retry_loop = True
-                cat._check_pending_ops = finalize_pending_ops
                 try:
                     # in order for retry to work, we need to make sure that there aren't any prior db updates
                     # that are part of an ongoing transaction
                     assert not Env.get().in_xact
                     with Catalog.get().begin_xact(
-                        tbl=tbl, for_write=for_write, convert_db_excs=False, lock_mutable_tree=lock_mutable_tree
+                        tbl=tbl,
+                        for_write=for_write,
+                        convert_db_excs=False,
+                        lock_mutable_tree=lock_mutable_tree,
+                        finalize_pending_ops=finalize_pending_ops,
                     ):
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
@@ -120,7 +123,6 @@ def retry_loop(
                     raise
                 finally:
                     cat._in_retry_loop = False
-                    cat._check_pending_ops = False
 
         return loop
 
@@ -164,7 +166,6 @@ class Catalog:
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _in_retry_loop: bool
-    _check_pending_ops: bool  # if True, check for pending ops when loading TableVersion/Table instances
 
     # cached column dependencies
     # - key: table id, value: mapping from column id to its dependencies
@@ -198,7 +199,6 @@ class Catalog:
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._in_retry_loop = False
-        self._check_pending_ops = False
         self._column_dependencies = {}
         self._column_dependents = None
         self._init_store()
@@ -264,7 +264,7 @@ class Catalog:
         If tbl != None, follows this locking protocol:
         - validates/reloads the TableVersion instances of tbl's ancestors (in the hope that this reduces potential
           SerializationErrors later on)
-        - if for_write == True, x-locks Table record (by updating Table.lock_dummy; see _acquire_tbl_xlock())
+        - if for_write == True, x-locks Table record (by updating Table.lock_dummy; see _acquire_tbl_lock())
         - if for_write == False, validates TableVersion instance
         - if lock_mutable_tree == True, also x-locks all mutable views of the table
         - this needs to be done in a retry loop, because Postgres can decide to abort the transaction
@@ -293,54 +293,56 @@ class Catalog:
         # )
         # _logger.debug(f'begin_xact(): {tv_msg}')
         num_retries = 0
+        pending_ops_tbl_id: Optional[UUID] = None
         while True:
+            if pending_ops_tbl_id is not None:
+                _logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
+                print(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
+                self._finalize_pending_ops(pending_ops_tbl_id)
+                pending_ops_tbl_id = None
+
             try:
                 self._in_write_xact = False
                 self._x_locked_tbl_ids = set()
                 self._column_dependents = None
-                self._check_pending_ops = finalize_pending_ops
 
                 with Env.get().begin_xact() as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
-                            got_lock: bool
-                            target: UUID
+                            target: TableVersionHandle
                             if tbl is not None:
-                                got_lock = self._acquire_path_locks(
+                                self._acquire_path_locks(
                                     tbl=tbl,
                                     for_write=for_write,
                                     lock_mutable_tree=lock_mutable_tree,
                                     check_pending_ops=finalize_pending_ops,
                                 )
-                                target = tbl.tbl_id
-                            elif for_write:
-                                got_lock = self._acquire_tbl_xlock(
+                                target = tbl.tbl_version
+                            else:
+                                target = self._acquire_tbl_lock(
                                     tbl_id=tbl_id,
+                                    for_write=for_write,
                                     lock_mutable_tree=lock_mutable_tree,
+                                    raise_if_not_exists=True,
                                     check_pending_ops=finalize_pending_ops,
                                 )
-                                target = tbl_id
-                            if not got_lock:
-                                # this is a snapshot
-                                yield conn
-                                return
 
                             if for_write:
-                                if lock_mutable_tree:
-                                    self._x_locked_tbl_ids = self._get_mutable_tree(target)
+                                if lock_mutable_tree and not target.is_snapshot:
+                                    self._x_locked_tbl_ids = self._get_mutable_tree(target.id)
                                     self._compute_column_dependents(self._x_locked_tbl_ids)
                                 else:
-                                    self._x_locked_tbl_ids = {target}
+                                    self._x_locked_tbl_ids = {target.id}
                                 if _logger.isEnabledFor(logging.DEBUG):
                                     # validate only when we don't see errors
                                     self.validate()
 
                         except PendingTableOpsError as e:
-                            if not finalize_pending_ops:
-                                raise
-                            _logger.debug(f'begin_xact(): finalizing pending ops for {e.tbl_id}')
-                            print(f'begin_xact(): finalizing pending ops for {e.tbl_id}')
-                            self._finalize_pending_ops(e.tbl_id)
+                            if finalize_pending_ops:
+                                # we remember which table id to finalize
+                                pending_ops_tbl_id = e.tbl_id
+                            # raise to abort the transaction
+                            raise
 
                         except sql.exc.DBAPIError as e:
                             if isinstance(
@@ -356,6 +358,14 @@ class Catalog:
                     self._in_write_xact = for_write
                     yield conn
                     return
+
+            except PendingTableOpsError:
+                if pending_ops_tbl_id is not None:
+                    # the next iteration of the loop will deal with pending ops for this table id
+                    continue
+                else:
+                    # we got this exception after getting the initial table locks and therefore need to abort
+                    raise
 
             except sql.exc.DBAPIError as e:
                 # we got some db error during the actual operation (not just while trying to get locks on the metadata
@@ -391,7 +401,6 @@ class Catalog:
                 self._in_write_xact = False
                 self._x_locked_tbl_ids = set()
                 self._column_dependents = None
-                self._check_pending_ops = False
 
                 # invalidate cached current TableVersion instances
                 for tv in self._tbl_versions.values():
@@ -410,7 +419,7 @@ class Catalog:
         for_write: bool = False,
         lock_mutable_tree: bool = False,
         check_pending_ops: Optional[bool] = None,
-    ) -> bool:
+    ) -> None:
         """
         Path locking protocol:
         - refresh cached TableVersions of ancestors (we need those even during inserts, for computed columns that
@@ -418,38 +427,41 @@ class Catalog:
         - refresh cached TableVersion of tbl or get X-lock, depending on for_write
         - if lock_mutable_tree, also X-lock all mutable views of tbl
 
-        Returns False if trying to lock a pure snapshot with for_write == True
         Raises Error if tbl doesn't exist.
         """
-        start_idx = 1 if for_write else 0
-        for handle in tbl.get_tbl_versions()[start_idx::-1]:
+        path_handles = tbl.get_tbl_versions()
+        read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
+        for handle in read_handles:
             _ = self.get_tbl_version(handle.id, handle.effective_version)
         if not for_write:
-            return True  # nothing left to lock
-        return self._acquire_tbl_xlock(
+            return  # nothing left to lock
+        self._acquire_tbl_lock(
             tbl_id=tbl.tbl_id,
+            for_write=True,
             lock_mutable_tree=lock_mutable_tree,
             raise_if_not_exists=True,
             check_pending_ops=check_pending_ops,
         )
 
-    def _acquire_tbl_xlock(
+    def _acquire_tbl_lock(
         self,
         *,
+        for_write: bool,
         tbl_id: Optional[UUID] = None,
         dir_id: Optional[UUID] = None,
         tbl_name: Optional[str] = None,
         lock_mutable_tree: bool = False,
-        raise_if_not_exists: bool = False,
+        raise_if_not_exists: bool = True,
         check_pending_ops: Optional[bool] = None,
-    ) -> bool:
-        """Force acquisition of an X-lock on a Table record via a blind update
+    ) -> Optional[TableVersionHandle]:
+        """
+        For writes: force acquisition of an X-lock on a Table record via a blind update.
 
         Either tbl_id or dir_id/tbl_name need to be specified.
         Returns True if the table was locked, False if it was a snapshot or not found.
         If lock_mutable_tree, recursively locks all mutable views of the table.
 
-        Returns False if the table is a snapshot or not found and !raise_if_not_exists.
+        Returns a handle to what was locked.
         """
         assert (tbl_id is not None) ^ (dir_id is not None and tbl_name is not None)
         where_clause: sql.ColumnElement
@@ -462,29 +474,38 @@ class Catalog:
                 where_clause = sql.and_(where_clause, schema.Table.md['user'].astext == Env.get().user)
 
         conn = Env.get().conn
-        row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
+        q = sql.select(schema.Table).where(where_clause)
+        if for_write:
+            q = q.with_for_update(nowait=True)
+        row = conn.execute(q).one_or_none()
         if row is None:
             if raise_if_not_exists:
                 raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
-            return False  # nothing to lock
-        if row.md['view_md'] is not None and row.md['view_md']['is_snapshot']:
-            return False  # nothing to lock
-        conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
+            return None  # nothing to lock
+        if for_write:
+            conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
 
-        if check_pending_ops or self._check_pending_ops:
+        if check_pending_ops:
             # check for pending ops after getting table lock
-            q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
-            has_pending_ops = conn.execute(q).scalar() > 0
+            pending_ops_q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
+            has_pending_ops = conn.execute(pending_ops_q).scalar() > 0
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-        if not lock_mutable_tree:
-            return True
-        # also lock mutable views
-        tv = self.get_tbl_version(tbl_id, None)
-        for view in tv.mutable_views:
-            self._acquire_tbl_xlock(tbl_id=view.id, lock_mutable_tree=True, raise_if_not_exists=raise_if_not_exists)
-        return True
+        is_snapshot = row.md['view_md'] is not None and row.md['view_md']['is_snapshot']
+        effective_version = row.md['current_version'] if is_snapshot else None
+        if not is_snapshot and lock_mutable_tree:
+            # also lock mutable views
+            tv = self.get_tbl_version(tbl_id, effective_version)
+            for view in tv.mutable_views:
+                self._acquire_tbl_lock(
+                    for_write=for_write,
+                    tbl_id=view.id,
+                    lock_mutable_tree=lock_mutable_tree,
+                    raise_if_not_exists=raise_if_not_exists,
+                    check_pending_ops=check_pending_ops,
+                )
+        return TableVersionHandle(tbl_id, effective_version)
 
     def _get_mutable_tree(self, tbl_id: UUID) -> set[UUID]:
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
@@ -693,7 +714,7 @@ class Catalog:
 
         # check for table
         if lock_entry:
-            self._acquire_tbl_xlock(dir_id=dir_id, tbl_name=name)
+            self._acquire_tbl_lock(for_write=True, dir_id=dir_id, raise_if_not_exists=False, tbl_name=name)
         q = sql.select(schema.Table.id).where(
             schema.Table.dir_id == dir_id,
             schema.Table.md['name'].astext == name,
@@ -751,7 +772,6 @@ class Catalog:
             )
         return obj
 
-    #@retry_loop(for_write=False, finalize_pending_ops=True)
     def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
         if tbl_id in self._tbls:
@@ -817,7 +837,7 @@ class Catalog:
             if not is_snapshot and base.is_mutable():
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
-                self._acquire_tbl_xlock(tbl_id=base.tbl_id)
+                self._acquire_tbl_lock(tbl_id=base.tbl_id, for_write=True)
                 base_tv = self.get_tbl_version(base.tbl_id, None)
                 base_tv.tbl_md.view_sn += 1
                 result = Env.get().conn.execute(
@@ -857,7 +877,6 @@ class Catalog:
             self.store_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
             return tbl_id
 
-        # finalize_pending_ops: we might encounter those when trying to access the base table
         view_id = retry_loop(for_write=True, finalize_pending_ops=True)(create_fn)()
         view_handle = TableVersionHandle(view_id, effective_version=0 if is_snapshot else None)
         # TODO: instead of fixing up TableVersion instances in-place, which can introduce bugs, they should be
@@ -865,54 +884,10 @@ class Catalog:
         if not is_snapshot and base.is_mutable():
             base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version)
             base_tv.mutable_views.add(view_handle)
-        # if has_pending_ops:
-        #     view_path = TableVersionPath(view_handle, base=base)
-        #     while True:
-        #         try:
-        #             if not self._finalize_next_pending_op(view_path):
-        #                 break
-        #         except Exception as e:
-        #             print(f'create_view(): caught {e}')
-        #             _logger.debug(f'create_view(): caught {e}')
-        #             raise
 
-        with self.begin_xact(tbl_id=view_id):
+        # finalize pending ops
+        with self.begin_xact(tbl_id=view_id, for_write=True, finalize_pending_ops=True):
             return self.get_table_by_id(view_id)
-
-    def _finalize_next_pending_op(self, tbl: TableVersionPath) -> bool:
-        """
-        Finalizes the next pending op for the given table. Returns True if there was a pending op, False otherwise.
-        """
-        op: TableOp
-        delete_next_op_q: sql.Delete
-        target = tbl.tbl_version
-        with self.begin_xact(tbl=tbl, for_write=True, convert_db_excs=False):
-            conn = Env.get().conn
-            q = (
-                sql.select(schema.PendingTableOp)
-                .where(schema.PendingTableOp.tbl_id == target.id)
-                .order_by(schema.PendingTableOp.seq_num)
-                .limit(1)
-            )
-            row = conn.execute(q).one_or_none()
-            if row is None:
-                return False
-            op = schema.md_from_dict(TableOp, row.op)
-            delete_next_op_q = sql.delete(schema.PendingTableOp).where(
-                schema.PendingTableOp.tbl_id == target.id, schema.PendingTableOp.seq_num == row.seq_num
-            )
-            if op.needs_xact:
-                tv = self.get_tbl_version(target.id, target.effective_version)
-                tv.exec_op(op)
-                conn.execute(delete_next_op_q)
-                return True
-
-        # this op runs outside of a transaction
-        tv = self.get_tbl_version(target.id, target.effective_version)
-        tv.exec_op(op)
-        with self.begin_xact(tbl=tbl, for_write=True, convert_db_excs=False):
-            Env.get().conn.execute(delete_next_op_q)
-        return True
 
     @retry_loop(for_write=True, finalize_pending_ops=True)
     def create_replica(
@@ -1104,14 +1079,13 @@ class Catalog:
                         tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
                         tv.exec_op(op)
                         conn.execute(delete_next_op_q)
-                        return
+                        continue
 
                 # this op runs outside of a transaction
                 tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
                 tv.exec_op(op)
                 with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
                     Env.get().conn.execute(delete_next_op_q)
-                return
             except Exception as e:
                 _logger.debug(f'finalize_pending_ops(): caught {e}')
                 print(f'finalize_pending_ops(): caught {e}')
@@ -1135,7 +1109,7 @@ class Catalog:
             # this is a mutable view of a mutable base;
             # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
             base_id = tbl._tbl_version_path.base.tbl_id
-            self._acquire_tbl_xlock(tbl_id=base_id, lock_mutable_tree=False)
+            self._acquire_tbl_lock(tbl_id=base_id, for_write=True, lock_mutable_tree=False)
 
         self._drop_tbl(tbl, force=force, is_replace=False)
 
@@ -1150,7 +1124,7 @@ class Catalog:
           in the same directory with the same name (which could lead to duplicate names if we get aborted)
         """
         self._acquire_dir_xlock(dir_id=tbl._dir_id)
-        self._acquire_tbl_xlock(tbl_id=tbl._id, lock_mutable_tree=False)
+        self._acquire_tbl_lock(tbl_id=tbl._id, for_write=True, lock_mutable_tree=False)
 
         view_ids = self.get_view_ids(tbl._id, for_update=True)
         if len(view_ids) > 0:
@@ -1655,7 +1629,7 @@ class Catalog:
         return md
 
     def _load_tbl_version(
-        self, tbl_id: UUID, effective_version: Optional[int], check_pending_ops: Optional[bool] = None
+        self, tbl_id: UUID, effective_version: Optional[int], check_pending_ops: bool = True
     ) -> Optional[TableVersion]:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
         tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
@@ -1663,8 +1637,7 @@ class Catalog:
 
         conn = Env.get().conn
 
-        print(f'{check_pending_ops} {self._check_pending_ops}')
-        if check_pending_ops or (check_pending_ops is None and self._check_pending_ops):
+        if check_pending_ops:
             pending_ops_q = (
                 sql.select(sql.func.count())
                 .select_from(schema.Table)

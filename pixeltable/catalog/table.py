@@ -147,10 +147,12 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.catalog import retry_loop
 
-        with Catalog.get().begin_xact(for_write=False):
+        def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
+
+        return retry_loop(for_write=False)(op)()
 
     def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
@@ -316,9 +318,9 @@ class Table(SchemaObject):
         """
         Constructs a list of descriptors for this table that can be pretty-printed.
         """
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import Catalog
 
-        def op() -> DescriptionHelper:
+        with Catalog.get().begin_xact(for_write=False):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
             helper.append(self._col_descriptor())
@@ -331,8 +333,6 @@ class Table(SchemaObject):
             if self._get_comment():
                 helper.append(f'COMMENT: {self._get_comment()}')
             return helper
-
-        return retry_loop(for_write=False, finalize_pending_ops=True)(op)()
 
     def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return pd.DataFrame(
@@ -802,13 +802,12 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
-        from pixeltable.catalog import Catalog, retry_loop
+        from pixeltable.catalog import Catalog
 
         cat = Catalog.get()
 
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        # with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-        def op() -> None:
+        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot drop column from a snapshot.')
             col: Column = None
@@ -859,8 +858,6 @@ class Table(SchemaObject):
                 )
 
             self._tbl_version.get().drop_column(col)
-
-        retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)(op)()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.

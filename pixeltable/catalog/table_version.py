@@ -43,6 +43,12 @@ _logger = logging.getLogger('pixeltable')
 
 @dataclasses.dataclass(frozen=True)
 class TableVersionMd:
+    """
+    Complete set of md records for a specific TableVersion instance.
+
+    TODO: subsume schema.FullTableMd
+    """
+
     tbl_md: schema.TableMd
     version_md: schema.TableVersionMd
     schema_version_md: schema.TableSchemaVersionMd

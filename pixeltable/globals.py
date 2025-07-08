@@ -647,39 +647,43 @@ def ls(path: str = '') -> pd.DataFrame:
     To get a programmatic list of tables and/or directories, use [list_tables()][pixeltable.list_tables] and/or
     [list_dirs()][pixeltable.list_dirs] instead.
     """
+    from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
 
     cat = Catalog.get()
     path_obj = catalog.Path(path, empty_is_valid=True)
     dir_entries = cat.get_dir_contents(path_obj)
-    rows: list[list[str]] = []
-    for name, entry in dir_entries.items():
-        if name.startswith('_'):
-            continue
-        if entry.dir is not None:
-            kind = 'dir'
-            version = ''
-            base = ''
-        else:
-            assert entry.table is not None
-            assert isinstance(entry.table, schema.Table)
-            md: dict[str, Any]
-            with cat.begin_xact(tbl_id=entry.table.id, for_write=False):
+
+    def op() -> list[list[str]]:
+        rows: list[list[str]] = []
+        for name, entry in dir_entries.items():
+            if name.startswith('_'):
+                continue
+            if entry.dir is not None:
+                kind = 'dir'
+                version = ''
+                base = ''
+            else:
+                assert entry.table is not None
+                assert isinstance(entry.table, schema.Table)
                 tbl = cat.get_table_by_id(entry.table.id)
                 md = tbl.get_metadata()
-            base = md['base'] or ''
-            if base.startswith('_'):
-                base = '<anonymous base table>'
-            if md['is_snapshot']:
-                kind = 'snapshot'
-            elif md['is_view']:
-                kind = 'view'
-            else:
-                kind = 'table'
-            version = '' if kind == 'snapshot' else md['version']
-            if md['is_replica']:
-                kind = f'{kind}-replica'
-        rows.append([name, kind, version, base])
+                base = md['base'] or ''
+                if base.startswith('_'):
+                    base = '<anonymous base table>'
+                if md['is_snapshot']:
+                    kind = 'snapshot'
+                elif md['is_view']:
+                    kind = 'view'
+                else:
+                    kind = 'table'
+                version = '' if kind == 'snapshot' else md['version']
+                if md['is_replica']:
+                    kind = f'{kind}-replica'
+            rows.append([name, kind, version, base])
+        return rows
+
+    rows = retry_loop(for_write=False)(op)()
 
     rows = sorted(rows, key=lambda x: x[0])
     df = pd.DataFrame(
