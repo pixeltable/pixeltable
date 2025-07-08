@@ -56,8 +56,6 @@ class UpdateStatus:
     Information about changes to table data or table schema
     """
 
-    comment: str = ''  # Note about this operation
-
     updated_cols: list[str] = field(default_factory=list)
     cols_with_excs: list[str] = field(default_factory=list)
 
@@ -66,6 +64,9 @@ class UpdateStatus:
 
     # stats for changes cascaded to other tables
     cascade_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
+
+    # stats for the rows affected by the operation in an external store
+    ext_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
 
     @property
     def num_rows(self) -> int:
@@ -85,11 +86,11 @@ class UpdateStatus:
         This is used when an insert operation is treated as an update.
         """
         return UpdateStatus(
-            comment=self.comment,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=self.row_count_stats.insert_to_update(),
             cascade_row_count_stats=self.cascade_row_count_stats.insert_to_update(),
+            ext_row_count_stats=self.ext_row_count_stats,
         )
 
     def to_cascade(self) -> 'UpdateStatus':
@@ -98,11 +99,11 @@ class UpdateStatus:
         This is used when an operation cascades changes to other tables.
         """
         return UpdateStatus(
-            comment=self.comment,
             updated_cols=self.updated_cols,
             cols_with_excs=self.cols_with_excs,
             row_count_stats=RowCountStats(),
             cascade_row_count_stats=self.cascade_row_count_stats + self.row_count_stats,
+            ext_row_count_stats=self.ext_row_count_stats,
         )
 
     def __add__(self, other: 'UpdateStatus') -> UpdateStatus:
@@ -110,11 +111,11 @@ class UpdateStatus:
         Add the update status from two UpdateStatus objects together.
         """
         return UpdateStatus(
-            comment=self.comment,  # comments are not added together
             updated_cols=list(dict.fromkeys(self.updated_cols + other.updated_cols)),
             cols_with_excs=list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs)),
             row_count_stats=self.row_count_stats + other.row_count_stats,
             cascade_row_count_stats=self.cascade_row_count_stats + other.cascade_row_count_stats,
+            ext_row_count_stats=self.ext_row_count_stats + other.ext_row_count_stats,
         )
 
     @property
@@ -140,14 +141,39 @@ class UpdateStatus:
 
     def _repr_pretty_(self, p: 'RepresentationPrinter', cycle: bool) -> None:
         messages = []
-        if self.row_count_stats.ins_rows > 0:
-            messages.append(f'{self.__cnt_str(self.row_count_stats.ins_rows, "row")} inserted')
-        if self.row_count_stats.del_rows > 0:
-            messages.append(f'{self.__cnt_str(self.row_count_stats.del_rows, "row")} deleted')
-        if self.row_count_stats.upd_rows > 0:
-            messages.append(f'{self.__cnt_str(self.row_count_stats.upd_rows, "row")} updated')
-        if self.num_computed_values > 0:
-            messages.append(f'{self.__cnt_str(self.num_computed_values, "value")} computed')
-        if self.row_count_stats.num_excs > 0:
-            messages.append(self.__cnt_str(self.row_count_stats.num_excs, 'exception'))
+        # Combine row count stats and cascade row count stats
+        stats = self.row_count_stats + self.cascade_row_count_stats
+        if stats.ins_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.ins_rows, "row")} inserted')
+        if stats.del_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.del_rows, "row")} deleted')
+        if stats.upd_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.upd_rows, "row")} updated')
+        if stats.computed_values > 0:
+            messages.append(f'{self.__cnt_str(stats.computed_values, "value")} computed')
+        if stats.num_excs > 0:
+            messages.append(self.__cnt_str(stats.num_excs, 'exception'))
         p.text(', '.join(messages) + '.' if len(messages) > 0 else 'No rows affected.')
+
+    @property
+    def pxt_rows_updated(self) -> int:
+        """
+        Returns the number of Pixeltable rows that were updated as a result of the operation.
+        """
+        return (self.row_count_stats + self.cascade_row_count_stats).upd_rows
+
+    @property
+    def external_rows_updated(self) -> int:
+        return self.ext_row_count_stats.upd_rows
+
+    @property
+    def external_rows_created(self) -> int:
+        return self.ext_row_count_stats.ins_rows
+
+    @property
+    def external_rows_deleted(self) -> int:
+        return self.ext_row_count_stats.del_rows
+
+    @property
+    def ext_num_rows(self) -> int:
+        return self.ext_row_count_stats.num_rows

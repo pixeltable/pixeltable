@@ -629,9 +629,8 @@ class TableRestorer:
                 # First time seeing this pxtmedia:// URL. Relocate the file to the media store and record the mapping
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
-                dest_path = MediaStore.prepare_media_path(tv.id, media_col_id, tv.version, ext=src_path.suffix)
-                src_path.rename(dest_path)
-                self.media_files[url] = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
+                # Move the file to the media store and update the URL.
+                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, tv.id, media_col_id, tv.version)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
