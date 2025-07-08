@@ -751,15 +751,15 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key='c2')
-        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+        assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c1', 'c2'])
-        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+        assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c2'])
-        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+        assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=0)  # type: ignore[arg-type]
@@ -2156,10 +2156,10 @@ class TestTable:
         # drop_column is not allowed on a snapshot
         s1 = pxt.create_snapshot('s1', t, additional_columns={'s1': t.c3 + 1})
         assert 'c1' not in s1.columns()
-        with pytest.raises(excs.Error, match='Cannot drop column from a snapshot'):
+        with pytest.raises(excs.Error, match="snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('c1')
         assert 's1' in s1.columns()
-        with pytest.raises(excs.Error, match='Cannot drop column from a snapshot'):
+        with pytest.raises(excs.Error, match="snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('s1')
         assert 's1' in s1.columns()
 
@@ -2297,7 +2297,7 @@ class TestTable:
         # test case: view with additional columns
         r = repr(v2)
         assert strip_lines(r) == strip_lines(
-            """View 'test_subview' (of 'test_view', 'test_tbl')
+            """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
             Column Name                          Type           Computed With
@@ -2326,7 +2326,7 @@ class TestTable:
         s1 = pxt.create_snapshot('test_snap1', v2)
         r = repr(s1)
         assert strip_lines(r) == strip_lines(
-            """Snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
+            """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
             Column Name                          Type           Computed With
@@ -2351,7 +2351,7 @@ class TestTable:
         s2 = pxt.create_snapshot('test_snap2', test_tbl)
         r = repr(s2)
         assert strip_lines(r) == strip_lines(
-            """Snapshot 'test_snap2' (of 'test_tbl:2')
+            """snapshot 'test_snap2' (of 'test_tbl:2')
 
             Column Name                          Type           Computed With
                      c1              Required[String]
@@ -2369,7 +2369,7 @@ class TestTable:
         s3 = pxt.create_snapshot('test_snap3', test_tbl, additional_columns={'computed1': test_tbl.c2 + test_tbl.c3})
         r = repr(s3)
         assert strip_lines(r) == strip_lines(
-            """View 'test_snap3' (of 'test_tbl:2')
+            """snapshot 'test_snap3' (of 'test_tbl:2')
 
             Column Name                          Type           Computed With
               computed1               Required[Float]                 c2 + c3

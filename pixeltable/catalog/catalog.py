@@ -540,6 +540,7 @@ class Catalog:
         - if both add and drop (= two directories are involved), lock the directories in a pre-determined order
           (in this case, by name) in order to prevent deadlocks between concurrent directory modifications
         """
+        assert drop_expected in (None, Table, Dir), drop_expected
         assert (add_dir_path is None) == (add_name is None)
         assert (drop_dir_path is None) == (drop_name is None)
         dir_paths: set[Path] = set()
@@ -553,7 +554,7 @@ class Catalog:
         for p in sorted(dir_paths):
             dir = self._get_dir(p, lock_dir=True)
             if dir is None:
-                raise excs.Error(f'Directory {str(p)!r} does not exist.')
+                raise excs.Error(f'Directory {p!r} does not exist.')
             if p == add_dir_path:
                 add_dir = dir
             if p == drop_dir_path:
@@ -564,18 +565,19 @@ class Catalog:
             add_obj = self._get_dir_entry(add_dir.id, add_name, lock_entry=True)
             if add_obj is not None and raise_if_exists:
                 add_path = add_dir_path.append(add_name)
-                raise excs.Error(f'Path {str(add_path)!r} already exists.')
+                raise excs.Error(f'Path {add_path!r} already exists.')
 
         drop_obj: Optional[SchemaObject] = None
         if drop_dir is not None:
             drop_path = drop_dir_path.append(drop_name)
             drop_obj = self._get_dir_entry(drop_dir.id, drop_name, lock_entry=True)
             if drop_obj is None and raise_if_not_exists:
-                raise excs.Error(f'Path {str(drop_path)!r} does not exist.')
+                raise excs.Error(f'Path {drop_path!r} does not exist.')
             if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
+                expected_name = 'table' if drop_expected is Table else 'directory'
                 raise excs.Error(
-                    f'{str(drop_path)!r} needs to be a {drop_expected._display_name()} '
-                    f'but is a {type(drop_obj)._display_name()}'
+                    f'{drop_path!r} needs to be a {expected_name} '
+                    f'but is a {drop_obj._display_name()}'
                 )
 
         add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
@@ -633,11 +635,13 @@ class Catalog:
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
         """
+        assert expected in (None, Table, Dir), expected
+
         if path.is_root:
             # the root dir
             if expected is not None and expected is not Dir:
                 raise excs.Error(
-                    f'{str(path)!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}'
+                    f'{path!r} needs to be a table but is a dir'
                 )
             dir = self._get_dir(path, lock_dir=lock_obj)
             if dir is None:
@@ -647,16 +651,17 @@ class Catalog:
         parent_path = path.parent
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
         if parent_dir is None:
-            raise excs.Error(f'Directory {str(parent_path)!r} does not exist.')
+            raise excs.Error(f'Directory {parent_path!r} does not exist.')
         obj = self._get_dir_entry(parent_dir.id, path.name, lock_entry=lock_obj)
 
         if obj is None and raise_if_not_exists:
-            raise excs.Error(f'Path {str(path)!r} does not exist.')
+            raise excs.Error(f'Path {path!r} does not exist.')
         elif obj is not None and raise_if_exists:
-            raise excs.Error(f'Path {str(path)!r} is an existing {type(obj)._display_name()}.')
+            raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}.')
         elif obj is not None and expected is not None and not isinstance(obj, expected):
+            expected_name = 'table' if expected is Table else 'directory'
             raise excs.Error(
-                f'{str(path)!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}.'
+                f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.'
             )
         return obj
 
@@ -941,7 +946,7 @@ class Catalog:
             lock_obj=False,
         )
         if tbl is None:
-            _logger.info(f'Skipped table {str(path)!r} (does not exist).')
+            _logger.info(f'Skipped table {path!r} (does not exist).')
             return
         assert isinstance(tbl, Table)
 
@@ -1026,7 +1031,7 @@ class Catalog:
         # parent = self._get_schema_object(path.parent)
         # assert parent is not None
         # dir = Dir._create(parent._id, path.name)
-        # Env.get().console_logger.info(f'Created directory {str(path)!r}.')
+        # Env.get().console_logger.info(f'Created directory {path!r}.')
         # return dir
 
         if parents:
@@ -1045,7 +1050,7 @@ class Catalog:
             return existing
         assert parent is not None
         dir = Dir._create(parent._id, path.name)
-        Env.get().console_logger.info(f'Created directory {str(path)!r}.')
+        Env.get().console_logger.info(f'Created directory {path!r}.')
         return dir
 
     @_retry_loop(for_write=True)
@@ -1057,7 +1062,7 @@ class Catalog:
             raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
         )
         if schema_obj is None:
-            _logger.info(f'Directory {str(path)!r} does not exist; skipped drop_dir().')
+            _logger.info(f'Directory {path!r} does not exist; skipped drop_dir().')
             return
         self._drop_dir(schema_obj._id, path, force=force)
 
@@ -1070,7 +1075,7 @@ class Catalog:
             q = sql.select(sql.func.count()).select_from(schema.Table).where(schema.Table.dir_id == dir_id)
             num_tbls = conn.execute(q).scalar()
             if num_subdirs + num_tbls > 0:
-                raise excs.Error(f'Directory {str(dir_path)!r} is not empty.')
+                raise excs.Error(f'Directory {dir_path!r} is not empty.')
 
         # drop existing subdirs
         self._acquire_dir_xlock(dir_id=dir_id)
@@ -1088,7 +1093,7 @@ class Catalog:
 
         # self.drop_dir(dir_id)
         conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
-        _logger.info(f'Removed directory {str(dir_path)!r}.')
+        _logger.info(f'Removed directory {dir_path!r}.')
 
     def get_view_ids(self, tbl_id: UUID, for_update: bool = False) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
@@ -1557,13 +1562,20 @@ class Catalog:
         obj, _, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name)
 
         if if_exists == IfExistsParam.ERROR and obj is not None:
-            raise excs.Error(f'Path {str(path)!r} is an existing {type(obj)._display_name()}')
+            raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}')
         else:
             is_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
             if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
-                obj_type_str = 'snapshot' if expected_snapshot else expected_obj_type._display_name()
+                if expected_obj_type is Dir:
+                    obj_type_str = 'directory'
+                elif expected_obj_type is InsertableTable:
+                    obj_type_str = 'table'
+                elif expected_obj_type is View:
+                    obj_type_str = 'snapshot' if expected_snapshot else 'view'
+                else:
+                    raise AssertionError()
                 raise excs.Error(
-                    f'Path {str(path)!r} already exists but is not a {obj_type_str}. '
+                    f'Path {path!r} already exists but is not a {obj_type_str}. '
                     f'Cannot {if_exists.name.lower()} it.'
                 )
 
@@ -1577,7 +1589,7 @@ class Catalog:
             dir_contents = self._get_dir_contents(obj._id)
             if len(dir_contents) > 0 and if_exists == IfExistsParam.REPLACE:
                 raise excs.Error(
-                    f'Directory {str(path)!r} already exists and is not empty. '
+                    f'Directory {path!r} already exists and is not empty. '
                     'Use `if_exists="replace_force"` to replace it.'
                 )
             self._drop_dir(obj._id, path, force=True)

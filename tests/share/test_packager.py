@@ -492,24 +492,27 @@ class TestPackager:
         t = pxt.get_table('tbl_replica')
         v = pxt.get_table('view_replica')
 
-        for s, name in ((t, 'tbl_replica'), (v, 'view_replica')):
-            with pytest.raises(pxt.Error, match='cannot insert into view'):
+        for s, name, kind in ((t, 'tbl_replica', 'replica-table'), (v, 'view_replica', 'replica-view')):
+            display_str = f'{kind} {name!r}'
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a {kind}.'):
                 s.insert({'icol': 10, 'scol': 'string 10'})
-            with pytest.raises(pxt.Error, match=f'Cannot add columns to a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a {kind}.'):
+                s.delete()
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
                 s.add_column(new_col=pxt.Bool)
-            with pytest.raises(pxt.Error, match=f'Cannot add columns to a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
                 s.add_columns({'new_col': pxt.Bool})
-            with pytest.raises(pxt.Error, match=f'Cannot add columns to a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
                 s.add_computed_column(new_col=(t.icol + 1))
-            with pytest.raises(pxt.Error, match=f'Cannot drop columns from a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a {kind}.'):
                 s.drop_column('scol')
-            with pytest.raises(pxt.Error, match=f'Cannot add an index to a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a {kind}.'):
                 s.add_embedding_index('icol', embedding=clip_embed)
-            with pytest.raises(pxt.Error, match=f'Cannot drop an index from a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a {kind}.'):
                 s.drop_embedding_index(column='icol')
-            with pytest.raises(pxt.Error, match=f'Cannot update a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a {kind}.'):
                 s.update({'icol': 11})
-            with pytest.raises(pxt.Error, match=f'Cannot recompute columns on a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a {kind}.'):
                 s.recompute_columns('icol')
-            with pytest.raises(pxt.Error, match=f'Cannot revert a replica table: {name}'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a {kind}.'):
                 s.revert()

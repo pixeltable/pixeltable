@@ -45,9 +45,18 @@ class View(Table):
         if not snapshot_only:
             self._tbl_version = tbl_version_path.tbl_version
 
-    @classmethod
-    def _display_name(cls) -> str:
-        return 'view'
+    def _display_name(self) -> str:
+        name: str
+        if self._tbl_version_path.is_snapshot():
+            name = 'snapshot'
+        elif self._tbl_version_path.is_view():
+            name = 'view'
+        else:
+            assert self._tbl_version_path.is_replica()
+            name = 'table'
+        if self._tbl_version_path.is_replica():
+            name = f'replica-{name}'
+        return name
 
     @classmethod
     def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:
@@ -167,7 +176,7 @@ class View(Table):
             for col in columns:
                 if col.name in iterator_col_names:
                     raise excs.Error(
-                        f'Duplicate name: column {col.name} is already present in the iterator output schema'
+                        f'Duplicate name: column {col.name!r} is already present in the iterator output schema'
                     )
             columns = iterator_cols + columns
 
@@ -213,7 +222,7 @@ class View(Table):
         if tbl_version is None:
             # this is purely a snapshot: we use the base's tbl version path
             view = cls(id, dir_id, name, base_version_path, snapshot_only=True)
-            _logger.info(f'created snapshot {name}')
+            _logger.info(f'Created snapshot {name!r}.')
         else:
             view = cls(
                 id,
@@ -224,7 +233,7 @@ class View(Table):
                 ),
                 snapshot_only=False,
             )
-            _logger.info(f'Created view `{name}`, id={tbl_version.id}')
+            _logger.info(f'Created view {name!r}, id={tbl_version.id}')
 
             from pixeltable.plan import Planner
 
@@ -243,7 +252,7 @@ class View(Table):
                     base_tbl_version.mutable_views.remove(TableVersionHandle.create(tbl_version))
                 raise
             Env.get().console_logger.info(
-                f'Created view `{name}` with {status.num_rows} rows, {status.num_excs} exceptions.'
+                f'Created view {name!r} with {status.num_rows} rows, {status.num_excs} exceptions.'
             )
 
         session.commit()
@@ -280,8 +289,11 @@ class View(Table):
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         base_tbl = self._get_base_table()
-        base_version = self._effective_base_versions[0]
-        md['base'] = base_tbl._path() if base_version is None else f'{base_tbl._path()}:{base_version}'
+        if base_tbl is None:
+            md['base'] = None
+        else:
+            base_version = self._effective_base_versions[0]
+            md['base'] = base_tbl._path() if base_version is None else f'{base_tbl._path()}:{base_version}'
         return md
 
     def insert(
@@ -295,13 +307,13 @@ class View(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')
+        raise excs.Error(f'{self._display_str()}: Cannot insert into a {self._display_name()}.')
 
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
-        raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')
+        raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
 
     def _get_base_table(self) -> Optional['Table']:
-        if self._tbl_version_path.base is None:
+        if self._tbl_version_path.base is None and not self._snapshot_only:
             return None  # this can happen for a replica of a base table
         # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
         # for the snapshot itself)
@@ -317,8 +329,7 @@ class View(Table):
             return effective_versions[1:]
 
     def _table_descriptor(self) -> str:
-        display_name = 'Snapshot' if self._snapshot_only else 'View'
-        result = [f'{display_name} {self._path()!r}']
+        result = [self._display_str()]
         bases_descrs: list[str] = []
         for base, effective_version in zip(self._get_base_tables(), self._effective_base_versions):
             if effective_version is None:

@@ -1443,7 +1443,7 @@ class Table(SchemaObject):
         cat = Catalog.get()
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            self.__check_mutable('recompute columns on')
+            self.__check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.Error('At least one column must be specified to recompute')
             if errors_only and len(columns) > 1:
@@ -1698,6 +1698,6 @@ class Table(SchemaObject):
 
     def __check_mutable(self, op_descr: str) -> None:
         if self._tbl_version_path.is_snapshot():
-            raise excs.Error(f'Cannot {op_descr} a snapshot: {self._path()}')
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
         if self._tbl_version_path.is_replica():
-            raise excs.Error(f'Cannot {op_descr} a replica table: {self._path()}')
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')
