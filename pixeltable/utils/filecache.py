@@ -214,7 +214,7 @@ class FileCache:
         new_path = entry.path
         os.rename(str(path), str(new_path))
         new_path.touch(exist_ok=True)
-        _logger.debug(f'added entry for cell {url} to file cache')
+        _logger.debug(f'FileCache: cached url {url} with file name {new_path}')
         return new_path
 
     def ensure_capacity(self, size: int) -> None:
