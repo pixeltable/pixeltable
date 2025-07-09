@@ -364,49 +364,29 @@ class TableRestorer:
         for md in tbl_md:
             md.tbl_md.is_replica = True
 
-        # Create the replica table
-        # The logic here needs to be completely restructured in order to make it concurrency-safe.
-        # - Catalog.create_replica() needs to write the metadata and also create the physical store tables
-        #   and populate them, otherwise concurrent readers will see an inconsistent state (table metadata w/o
-        #   an actual table)
-        # - this could be done one replica at a time (instead of the entire hierarchy)
         cat = catalog.Catalog.get()
-        cat.create_replica(catalog.Path(self.tbl_path), tbl_md, if_exists=catalog.IfExistsParam.IGNORE)
-        # don't call get_table() until after the calls to create_replica() and __import_table() below;
-        # the TV instances created by get_table() would be replaced by create_replica(), which creates duplicate
-        # TV instances for the same replica version, which then leads to failures when constructing queries
 
-        # Now we need to instantiate and load data for replica_tbl and its ancestors, except that we skip
-        # replica_tbl itself if it's a pure snapshot.
-        target_md = tbl_md[0]
-        is_pure_snapshot = (
-            target_md.tbl_md.view_md is not None
-            and target_md.tbl_md.view_md.predicate is None
-            and len(target_md.schema_version_md.columns) == 0
-        )
-        if is_pure_snapshot:
-            ancestor_md = tbl_md[1:]  # Pure snapshot; skip replica_tbl
-        else:
-            ancestor_md = tbl_md  # Not a pure snapshot; include replica_tbl
-
-        # Instantiate data from the Parquet tables.
         with cat.begin_xact(for_write=True):
-            for md in ancestor_md[::-1]:  # Base table first
-                # Create a TableVersion instance (and a store table) for this ancestor.
-                tv = catalog.TableVersion.create_replica(md)
-                # Now import data from Parquet.
-                _logger.info(f'Importing table {tv.name!r}.')
-                self.__import_table(self.tmp_dir, tv, md)
+            # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
+            # versions that have not been seen before.
+            cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
 
-        tbl_id = UUID(tbl_md[0].tbl_md.tbl_id)
-        with cat.begin_xact(tbl_id=tbl_id, for_write=False):
-            return cat.get_table_by_id(tbl_id)
+            # Now we need to load data for replica_tbl and its ancestors, except that we skip
+            # replica_tbl itself if it's a pure snapshot.
+            for md in tbl_md[::-1]:  # Base table first
+                if not md.is_pure_snapshot:
+                    tv = cat.get_tbl_version(UUID(md.tbl_md.tbl_id), md.version_md.version)
+                    # Import data from Parquet.
+                    _logger.info(f'Importing table {tv.name!r}.')
+                    self.__import_table(self.tmp_dir, tv, md)
+
+            return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
-        tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
+        tbl_id = UUID(tbl_md.tbl_md.tbl_id)
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
         replica_version = tv.version
