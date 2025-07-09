@@ -345,16 +345,17 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    @pytest.mark.parametrize('different_tv', [False, True])
-    def test_multi_view_round_trip_4(self, different_tv: bool, all_datatypes_tbl: pxt.Table) -> None:
+    @pytest.mark.parametrize('different_versions', [False, True])
+    def test_multi_view_round_trip_4(self, different_versions: bool, all_datatypes_tbl: pxt.Table) -> None:
         """
-        Snapshots that involve all the different column types.
+        Snapshots that involve all the different column types. Two snapshots of the same base table will be created;
+        they will snapshot either the same or different versions of the table, depending on `different_versions`.
         """
         t = all_datatypes_tbl
         snap1 = pxt.create_snapshot('snap1', t.where(t.row_id % 2 != 0))
         bundle1 = self.__package_table(snap1)
 
-        if different_tv:
+        if different_versions:
             more_data = create_table_data(t, num_rows=22)
             t.insert(more_data[11:])
 

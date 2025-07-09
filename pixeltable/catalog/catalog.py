@@ -824,8 +824,9 @@ class Catalog:
             # If it's a new version, this will result in a new TableVersion record being created.
             self.__store_replica_md(replica_path, ancestor_md)
 
-            # Now we must clear cached metadata for the ancestor table, so that if descendants have computed columns
-            # that reference the new version of the ancestor, then they will be properly resolved.
+            # Now we must clear cached metadata for the ancestor table, to force the next table operation to pick up
+            # the new TableVersion instance. This is necessary because computed columns of descendant tables might
+            # reference columns of the ancestor table that only exist in the new version.
             replica = Catalog.get().get_table_by_id(ancestor_id)
             assert replica is not None  # If it didn't exist before, it must have been created by now.
             replica._tbl_version_path.clear_cached_md()
