@@ -139,7 +139,13 @@ class PendingTableOpsError(Exception):
 class Catalog:
     """The functional interface to getting access to catalog objects
 
-    All interface functions must be called in the context of a transaction, started with Catalog.begin_xact().
+    All interface functions must be called in the context of a transaction, started with Catalog.begin_xact() or
+    via retry_loop().
+
+    When calling functions that involve Table or TableVersion instances, the catalog needs to get a chance to finalize
+    pending ops against those tables. To that end,
+    - use begin_xact(tbl) or begin_xact(tbl_id) if only accessing a single table
+    - use retry_loop() when accessing multiple tables (eg, pxt.ls())
 
     Caching and invalidation of metadata:
     - Catalog caches TableVersion instances in order to avoid excessive metadata loading
@@ -1058,6 +1064,7 @@ class Catalog:
         """
         Finalizes the next pending op for the given table. Returns True if there was a pending op, False otherwise.
         """
+        num_retries = 0
         while True:
             try:
                 tbl_version: int
@@ -1094,10 +1101,23 @@ class Catalog:
                 tv.exec_op(op)
                 with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
                     Env.get().conn.execute(delete_next_op_q)
+            except sql.exc.DBAPIError as e:
+                # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
+                # logic of begin_xact()?
+                if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
+                    num_retries += 1
+                    print(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
+                    _logger.debug(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
+                    time.sleep(random.uniform(0.1, 0.5))
+                    continue
+                else:
+                    raise
             except Exception as e:
                 _logger.debug(f'finalize_pending_ops(): caught {e}')
                 print(f'finalize_pending_ops(): caught {e}')
                 raise
+
+            num_retries = 0
 
     @retry_loop(for_write=True, finalize_pending_ops=True)
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:

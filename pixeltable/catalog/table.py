@@ -147,12 +147,10 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import Catalog
 
-        def op() -> list[str]:
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return [t._path() for t in self._get_views(recursive=recursive)]
-
-        return retry_loop(for_write=False)(op)()
 
     def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
@@ -180,7 +178,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
@@ -190,7 +188,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().where(pred)
 
     def join(
@@ -203,7 +201,7 @@ class Table(SchemaObject):
         """Join this table with another table."""
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
@@ -213,7 +211,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
@@ -223,7 +221,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().group_by(*items)
 
     def distinct(self) -> 'pxt.DataFrame':
@@ -320,7 +318,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
             helper.append(self._col_descriptor())

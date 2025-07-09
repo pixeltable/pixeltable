@@ -407,8 +407,10 @@ class TableVersion:
 
     def exec_op(self, op: TableOp) -> None:
         if op.create_store_table_op is not None:
+            # don't use Catalog.begin_xact() here, to avoid accidental recursive calls to exec_op()
             with Env.get().begin_xact():
                 self.store_tbl.create()
+
         elif op.load_view_op is not None:
             from pixeltable.plan import Planner
 
