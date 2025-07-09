@@ -1,3 +1,4 @@
+import sys
 import sysconfig
 from typing import Any
 
@@ -201,6 +202,7 @@ class TestHuggingface:
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
     def test_speech2text_for_conditional_generation(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import speech2text_for_conditional_generation

@@ -33,7 +33,7 @@ jobs:
         # We DO include 'expensive' tests in the nightly workflow, but they will only run twice per test (in the
         # min version + max version tests with the configuration that references them).
         os: [ubuntu-22.04]
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.13"]
         package-configs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
@@ -112,7 +112,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04]
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.13"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
