@@ -5649,13 +5649,13 @@ voice-helpers = ["numpy (>=2.0.2)", "sounddevice (>=0.5.1)"]
 
 [[package]]
 name = "openai-whisper"
-version = "20240930"
+version = "20250625"
 description = "Robust Speech Recognition via Large-Scale Weak Supervision"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
 files = [
-    {file = "openai-whisper-20240930.tar.gz", hash = "sha256:b7178e9c1615576807a300024f4daa6353f7e1a815dac5e38c33f1ef055dd2d2"},
+    {file = "openai_whisper-20250625.tar.gz", hash = "sha256:37a91a3921809d9f44748ffc73c0a55c9f366c85a3ef5c2ae0cc09540432eb96"},
 ]
 
 [package.dependencies]
@@ -5665,7 +5665,7 @@ numpy = "*"
 tiktoken = "*"
 torch = "*"
 tqdm = "*"
-triton = {version = ">=2.0.0", markers = "platform_machine == \"x86_64\" and sys_platform == \"linux\" or sys_platform == \"linux2\""}
+triton = {version = ">=2", markers = "platform_machine == \"x86_64\" and sys_platform == \"linux\" or sys_platform == \"linux2\""}
 
 [package.extras]
 dev = ["black", "flake8", "isort", "pytest", "scipy"]
@@ -10678,4 +10678,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "8d9689f2137ea8e5cd2ddb49284fcafed5199463102afaf5cc0fe648383bda9c"
+content-hash = "410ffd6e6ff6c4cab3ed218c61dac66d1aa2fe13699d2b13c52ee6755286c296"
