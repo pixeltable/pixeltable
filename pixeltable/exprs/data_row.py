@@ -13,7 +13,8 @@ import PIL
 import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import env
+from pixeltable import catalog, env
+from pixeltable.utils.media_store import MediaStore
 
 
 class DataRow:
@@ -256,23 +257,16 @@ class DataRow:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def flush_img(self, index: int, filepath: Optional[str] = None) -> None:
-        """Discard the in-memory value and save it to a local file, if filepath is not None"""
+    def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
+        """Save or discard the in-memory value (required to be a PIL.Image.Image)"""
         if self.vals[index] is None:
             return
         assert self.excs[index] is None
         if self.file_paths[index] is None:
-            if filepath is not None:
-                image = self.vals[index]
-                assert isinstance(image, PIL.Image.Image)
-                # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-                # In that case, use WebP instead.
-                format = 'webp' if image.has_transparency_data else 'jpeg'
-                if not filepath.endswith(f'.{format}'):
-                    filepath += f'.{format}'
+            if col is not None:
+                filepath, url = MediaStore.save_image_file(self.vals[index], col.tbl.id, col.id, col.tbl.version)
                 self.file_paths[index] = filepath
-                self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
-                image.save(filepath, format=format)
+                self.file_urls[index] = url
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False
