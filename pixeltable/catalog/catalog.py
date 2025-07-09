@@ -766,32 +766,27 @@ class Catalog:
         self._tbls[view._id] = view
         return view
 
-    @_retry_loop(for_write=True)
-    def create_replica(
-        self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam = IfExistsParam.ERROR
-    ) -> None:
+    def create_replica(self, path: Path, md: list[schema.FullTableMd]) -> None:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
         list position 0 and the (root) base table at list position -1.
-
-        TODO: create_replica() also needs to create the store tables and populate them in order to make
-        replica creation atomic.
         """
+        assert Env.get().in_xact
+
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
-        # First handle path collisions (if_exists='ignore' or 'replace' or etc).
-        existing = self._handle_path_collision(path, Table, False, if_exists)  # type: ignore[type-abstract]
+        existing = self._handle_path_collision(path, Table, False, if_exists=IfExistsParam.IGNORE)  # type: ignore[type-abstract]
         if existing is not None and existing._id != tbl_id:
             raise excs.Error(
-                f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
+                f'An attempt was made to create a replica table at {path!r}, '
                 'but a different table already exists at that location.'
             )
 
         # Ensure that the system directory exists.
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
-        # Now check to see if this table already exists in the catalog.
+        # Now check to see if this table UUID already exists in the catalog.
         existing = Catalog.get().get_table_by_id(tbl_id)
         if existing is not None:
             existing_path = Path(existing._path(), allow_system_paths=True)
@@ -807,14 +802,11 @@ class Catalog:
                 # location.
                 self._move(existing_path, path)
 
-        # Now store the metadata for this replica; it could be a new version (in which case a new record
-        # will be created) or a known version (in which case the newly received metadata will be validated as
-        # identical).
-        self.__store_replica_md(path, md[0])
-
-        # Now store the metadata for this replica and all of its ancestors. If one or more proper ancestors
+        # Now store the metadata for this replica's proper ancestors. If one or more proper ancestors
         # do not yet exist in the store, they will be created as anonymous system tables.
-        for ancestor_md in md[1:]:
+        # We instantiate the ancestors starting with the base table and ending with the immediate parent of the
+        # table being replicated.
+        for ancestor_md in md[:0:-1]:
             ancestor_id = UUID(ancestor_md.tbl_md.tbl_id)
             replica = Catalog.get().get_table_by_id(ancestor_id)
             replica_path: Path
@@ -827,11 +819,22 @@ class Catalog:
                 # that was directly replicated by the user at some point). In either case, use the existing path.
                 replica_path = Path(replica._path(), allow_system_paths=True)
 
-            # Store the metadata; as before, it could be a new version or a known version.
+            # Store the metadata; it could be a new version (in which case a new record will be created), or a known
+            # version (in which case the newly received metadata will be validated as identical).
+            # If it's a new version, this will result in a new TableVersion record being created.
             self.__store_replica_md(replica_path, ancestor_md)
 
-        # don't create TableVersion instances at this point, they would be superseded by calls to TV.create_replica()
-        # in TableRestorer.restore()
+            # Now we must clear cached metadata for the ancestor table, to force the next table operation to pick up
+            # the new TableVersion instance. This is necessary because computed columns of descendant tables might
+            # reference columns of the ancestor table that only exist in the new version.
+            replica = Catalog.get().get_table_by_id(ancestor_id)
+            assert replica is not None  # If it didn't exist before, it must have been created by now.
+            replica._tbl_version_path.clear_cached_md()
+
+        # Finally, store the metadata for the table being replicated; as before, it could be a new version or a known
+        # version. If it's a new version, then a TableVersion record will be created, unless the table being replicated
+        # is a pure snapshot.
+        self.__store_replica_md(path, md[0])
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
@@ -914,6 +917,10 @@ class Catalog:
                 )
 
         self.store_tbl_md(UUID(tbl_id), None, new_tbl_md, new_version_md, new_schema_version_md)
+
+        if new_version_md is not None and not md.is_pure_snapshot:
+            # It's a new version of a table that has a physical store, so we need to create a TableVersion instance.
+            TableVersion.create_replica(md)
 
     @_retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
