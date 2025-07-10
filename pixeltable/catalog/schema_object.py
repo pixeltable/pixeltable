@@ -51,7 +51,7 @@ class SchemaObject:
         return {'name': self._name, 'path': self._path()}
 
     @abstractmethod
-    def _display_name(cls) -> str:
+    def _display_name(self) -> str:
         """
         Return name displayed in error messages.
         """

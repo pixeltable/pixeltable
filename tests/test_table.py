@@ -2156,10 +2156,10 @@ class TestTable:
         # drop_column is not allowed on a snapshot
         s1 = pxt.create_snapshot('s1', t, additional_columns={'s1': t.c3 + 1})
         assert 'c1' not in s1.columns()
-        with pytest.raises(excs.Error, match="snapshot 's1': Cannot drop columns from a snapshot."):
+        with pytest.raises(excs.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('c1')
         assert 's1' in s1.columns()
-        with pytest.raises(excs.Error, match="snapshot 's1': Cannot drop columns from a snapshot."):
+        with pytest.raises(excs.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('s1')
         assert 's1' in s1.columns()
 

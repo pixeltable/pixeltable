@@ -219,7 +219,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a snapshot.'):
             snap.revert()
 
-        with pytest.raises(pxt.Error, match=f"snapshot 'img_snap': Cannot add an index to a snapshot."):
+        with pytest.raises(pxt.Error, match=r"snapshot 'img_snap': Cannot add an index to a snapshot."):
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
             snap.add_embedding_index('img', image_embed=clip_embed)

@@ -195,7 +195,12 @@ class TableMd:
 
     @property
     def is_pure_snapshot(self) -> bool:
-        return self.view_md is not None and self.view_md.is_snapshot and self.view_md.predicate is None and len(self.column_md) == 0
+        return (
+            self.view_md is not None
+            and self.view_md.is_snapshot
+            and self.view_md.predicate is None
+            and len(self.column_md) == 0
+        )
 
 
 class Table(Base):

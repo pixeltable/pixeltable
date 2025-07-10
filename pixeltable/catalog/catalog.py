@@ -575,10 +575,7 @@ class Catalog:
                 raise excs.Error(f'Path {drop_path!r} does not exist.')
             if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
                 expected_name = 'table' if drop_expected is Table else 'directory'
-                raise excs.Error(
-                    f'{drop_path!r} needs to be a {expected_name} '
-                    f'but is a {drop_obj._display_name()}'
-                )
+                raise excs.Error(f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}')
 
         add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
@@ -640,9 +637,7 @@ class Catalog:
         if path.is_root:
             # the root dir
             if expected is not None and expected is not Dir:
-                raise excs.Error(
-                    f'{path!r} needs to be a table but is a dir'
-                )
+                raise excs.Error(f'{path!r} needs to be a table but is a dir')
             dir = self._get_dir(path, lock_dir=lock_obj)
             if dir is None:
                 raise excs.Error(f'Unknown user: {Env.get().user}')
@@ -660,9 +655,7 @@ class Catalog:
             raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}.')
         elif obj is not None and expected is not None and not isinstance(obj, expected):
             expected_name = 'table' if expected is Table else 'directory'
-            raise excs.Error(
-                f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.'
-            )
+            raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.')
         return obj
 
     def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
@@ -1209,7 +1202,7 @@ class Catalog:
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
-        tbl_record, schema_version_record = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
+        tbl_record, _ = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
 
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         view_md = tbl_md.view_md
@@ -1223,12 +1216,13 @@ class Catalog:
 
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
-        schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
         if tbl_md.is_pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
         else:
-            effective_version = 0 if view_md is not None and view_md.is_snapshot else None  # snapshots only have version 0
+            effective_version = (
+                0 if view_md is not None and view_md.is_snapshot else None
+            )  # snapshots only have version 0
             tbl_version_path.append((tbl_id, effective_version))
         if view_md is not None:
             tbl_version_path.extend((UUID(tbl_id), version) for tbl_id, version in view_md.base_versions)
@@ -1575,8 +1569,7 @@ class Catalog:
                 else:
                     raise AssertionError()
                 raise excs.Error(
-                    f'Path {path!r} already exists but is not a {obj_type_str}. '
-                    f'Cannot {if_exists.name.lower()} it.'
+                    f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
                 )
 
         if obj is None:

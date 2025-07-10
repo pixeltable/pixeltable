@@ -46,11 +46,11 @@ class TestView:
     def test_errors(self, reset_db: None) -> None:
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
-        with pytest.raises(excs.Error, match="view 'test_view': Cannot insert into a view."):
+        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert([{'bad_col': 1}])
-        with pytest.raises(excs.Error, match="view 'test_view': Cannot insert into a view."):
+        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert(bad_col=1)
-        with pytest.raises(excs.Error, match="view 'test_view': Cannot delete from a view."):
+        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot delete from a view."):
             _ = v.delete()
 
         with pytest.raises(excs.Error) as exc_info:
