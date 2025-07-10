@@ -2,7 +2,8 @@ import glob
 import os
 import re
 import shutil
-import urllib
+import urllib.parse
+import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
