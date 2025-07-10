@@ -1,5 +1,4 @@
 import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 import numpy as np
