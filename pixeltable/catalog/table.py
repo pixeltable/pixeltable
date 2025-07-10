@@ -147,10 +147,13 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.catalog import retry_loop
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
+        # we need retry_loop() here, because we end up loading Tables for the views
+        def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
+
+        return retry_loop(tbl=self._tbl_version_path, for_write=False)(op)()
 
     def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()

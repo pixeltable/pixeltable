@@ -312,7 +312,7 @@ class Catalog:
                 self._x_locked_tbl_ids = set()
                 self._column_dependents = None
 
-                with Env.get().begin_xact() as conn:
+                with Env.get().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
                             target: TableVersionHandle
