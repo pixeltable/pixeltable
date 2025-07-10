@@ -1,4 +1,5 @@
 import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -192,7 +193,7 @@ class TestPandas:
 
         # Test overriding string type to images
         t4 = import_csv(
-            'images', 'tests/data/datasets/images.csv', schema_overrides={'image': ts.ImageType(nullable=True)}
+            'images', 'tests/data/datasets/images.csv', schema_overrides={'image': Optional[pxt.Image]}
         )
         assert t4.count() == 4
         assert t4._get_schema() == {'name': ts.StringType(nullable=True), 'image': ts.ImageType(nullable=True)}

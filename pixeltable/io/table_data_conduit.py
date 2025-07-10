@@ -47,7 +47,7 @@ class TableDataConduitFormat(str, enum.Enum):
 
 @dataclass
 class TableDataConduit:
-    source: TableDataSource
+    source: 'TableDataSource'
     source_format: Optional[str] = None
     source_column_map: Optional[dict[str, str]] = None
     if_row_exists: Literal['update', 'ignore', 'error'] = 'error'
