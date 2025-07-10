@@ -51,9 +51,9 @@ class TableDataConduit:
     source_format: Optional[str] = None
     source_column_map: Optional[dict[str, str]] = None
     if_row_exists: Literal['update', 'ignore', 'error'] = 'error'
-    pxt_schema: Optional[dict[str, Any]] = None
-    src_schema_overrides: Optional[dict[str, Any]] = None
-    src_schema: Optional[dict[str, Any]] = None
+    pxt_schema: Optional[dict[str, ts.ColumnType]] = None
+    src_schema_overrides: Optional[dict[str, ts.ColumnType]] = None
+    src_schema: Optional[dict[str, ts.ColumnType]] = None
     pxt_pk: Optional[list[str]] = None
     src_pk: Optional[list[str]] = None
     valid_rows: Optional[RowData] = None
@@ -87,7 +87,7 @@ class TableDataConduit:
         for name, coltype in self.pxt_schema.items():
             self.pxt_schema[name] = ts.ColumnType.normalize_type(coltype)
 
-    def infer_schema(self) -> dict[str, Any]:
+    def infer_schema(self) -> dict[str, ts.ColumnType]:
         raise NotImplementedError
 
     def valid_row_batch(self) -> Iterator[RowData]:
@@ -137,7 +137,7 @@ class DFTableDataConduit(TableDataConduit):
         t.pxt_df = tds.source
         return t
 
-    def infer_schema(self) -> dict[str, Any]:
+    def infer_schema(self) -> dict[str, ts.ColumnType]:
         self.pxt_schema = self.pxt_df.schema
         self.pxt_pk = self.src_pk
         return self.pxt_schema
@@ -168,7 +168,7 @@ class RowDataTableDataConduit(TableDataConduit):
         t.batch_count = 0
         return t
 
-    def infer_schema(self) -> dict[str, Any]:
+    def infer_schema(self) -> dict[str, ts.ColumnType]:
         from .datarows import _infer_schema_from_rows
 
         if self.source_column_map is None:
@@ -239,7 +239,7 @@ class PandasTableDataConduit(TableDataConduit):
         t.batch_count = 0
         return t
 
-    def infer_schema_part1(self) -> tuple[dict[str, Any], list[str]]:
+    def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
         """Return inferred schema, inferred primary key, and source column map"""
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
@@ -252,7 +252,7 @@ class PandasTableDataConduit(TableDataConduit):
         else:
             raise NotImplementedError()
 
-    def infer_schema(self) -> dict[str, Any]:
+    def infer_schema(self) -> dict[str, ts.ColumnType]:
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
         self.normalize_pxt_schema_types()
         _df_check_primary_key_values(self.pd_df, self.src_pk)
@@ -328,7 +328,6 @@ class HFTableDataConduit(TableDataConduit):
     hf_ds: Optional[Union[datasets.Dataset, datasets.DatasetDict]] = None
     column_name_for_split: Optional[str] = None
     categorical_features: dict[str, dict[int, str]]
-    hf_schema: dict[str, Any] = None
     dataset_dict: dict[str, datasets.Dataset] = None
     hf_schema_source: dict[str, Any] = None
 
@@ -356,7 +355,7 @@ class HFTableDataConduit(TableDataConduit):
         except ImportError:
             return False
 
-    def infer_schema_part1(self) -> tuple[dict[str, Any], list[str]]:
+    def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
         from pixeltable.io.hf_datasets import _get_hf_schema, huggingface_schema_to_pxt_schema
 
         if self.source_column_map is None:
@@ -469,7 +468,7 @@ class ParquetTableDataConduit(TableDataConduit):
         t.pq_ds = parquet.ParquetDataset(str(input_path))
         return t
 
-    def infer_schema_part1(self) -> tuple[dict[str, Any], list[str]]:
+    def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
         from pixeltable.utils.arrow import ar_infer_schema
 
         if self.source_column_map is None:
@@ -483,7 +482,7 @@ class ParquetTableDataConduit(TableDataConduit):
         else:
             raise NotImplementedError()
 
-    def infer_schema(self) -> dict[str, Any]:
+    def infer_schema(self) -> dict[str, ts.ColumnType]:
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
         self.normalize_pxt_schema_types()
         self.prepare_insert()

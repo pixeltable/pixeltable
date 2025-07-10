@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Un
 import pandas as pd
 from pandas.io.formats.style import Styler
 
-from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
+from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -157,7 +157,16 @@ def create_table(
         tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
         tds.check_source_format()
         data_source = tds.specialize()
-        data_source.src_schema_overrides = schema_overrides
+        src_schema_overrides: dict[str, ts.ColumnType] = {}
+        if schema_overrides is None:
+            src_schema_overrides = {}
+        else:
+            for col_name, py_type in schema_overrides.items():
+                col_type = ts.ColumnType.normalize_type(py_type, nullable_default=True, allow_builtin_types=False)
+                if col_type is None:
+                    raise excs.Error(f'Invalid type for column {col_name!r} in `schema_overrides`: {py_type}')
+                src_schema_overrides[col_name] = col_type
+        data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
         schema = data_source.pxt_schema
