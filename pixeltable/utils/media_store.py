@@ -80,7 +80,8 @@ class MediaStore:
         media_path = cls.prepare_media_path(tbl_id, col_id, tbl_version)
         with open(media_path, 'wb') as f:
             f.write(file_data)
-            f.flush()
+            f.flush()  # Ensures Python buffers are written to OS
+            os.fsync(f.fileno())  # Forces OS to write to physical storage
         return media_path
 
     @classmethod

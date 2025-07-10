@@ -91,6 +91,7 @@ class DataRowBatch:
         for row in self.rows[idx_range]:
             for info in stored_img_info:
                 col = info.col
+                assert col.tbl.id == self.tbl.id
                 filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
                 row.flush_img(info.slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
