@@ -20,7 +20,7 @@ def _infer_schema_from_rows(
                 # in which the column names are encountered in the input data, even if `schema_overrides`
                 # is specified.
                 if col_name not in schema:
-                    schema[col_name] = schema_overrides[col_name]
+                    schema[col_name] = ts.ColumnType.from_python_type(schema_overrides[col_name], nullable_default=True)
             elif value is not None:
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.
                 # The column type will always be nullable by default.

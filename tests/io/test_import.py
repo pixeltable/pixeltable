@@ -25,7 +25,7 @@ class TestImport:
             'children': ts.IntType(nullable=True),
         }
 
-        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': Optional[pxt.Float]})
+        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': pxt.Float})
         assert t2.count() == 4
         assert t2._get_schema() == {
             'name': ts.StringType(nullable=True),
@@ -73,7 +73,7 @@ class TestImport:
         t1.insert(data)
         assert t1.count() == 8
 
-        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': Optional[pxt.Float]})
+        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': pxt.Float})
         assert t2.count() == 4
         t2.insert(data)
         assert t2.count() == 8

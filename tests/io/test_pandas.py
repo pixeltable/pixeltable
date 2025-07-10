@@ -192,9 +192,7 @@ class TestPandas:
         from pixeltable.io.pandas import import_csv
 
         # Test overriding string type to images
-        t4 = import_csv(
-            'images', 'tests/data/datasets/images.csv', schema_overrides={'image': Optional[pxt.Image]}
-        )
+        t4 = import_csv('images', 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.Image})
         assert t4.count() == 4
         assert t4._get_schema() == {'name': ts.StringType(nullable=True), 'image': ts.ImageType(nullable=True)}
         result_set = t4.order_by(t4.name).select(t4.image.width).collect()
@@ -245,9 +243,7 @@ class TestPandas:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv(
-                'online_foods',
-                'tests/data/datasets/onlinefoods.csv',
-                schema_overrides={'Non-Column': ts.StringType(nullable=True)},
+                'online_foods', 'tests/data/datasets/onlinefoods.csv', schema_overrides={'Non-Column': pxt.String}
             )
         assert 'Some column(s) specified in `schema_overrides` are not present' in str(exc_info.value)
 
