@@ -611,6 +611,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.UpdateStatus.pxt_rows_updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;pxt_rows_updated
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.UpdateStatus.insert_to_update" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert_to_update
@@ -1386,6 +1395,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.UpdateStatus.pxt_rows_updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;pxt_rows_updated
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.UpdateStatus.insert_to_update" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;insert_to_update
@@ -1444,15 +1462,16 @@
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">UpdateStatus</span><span class="p">(</span>
     <span class="n">updated_cols</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(),</span>
     <span class="n">cols_with_excs</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(),</span>
-    <span class="n">row_count_stats</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.globals.RowCountStats">RowCountStats</span></span> <span class="o">=</span> <span class="n">RowCountStats</span><span class="p">(),</span>
-    <span class="n">cascade_row_count_stats</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.globals.RowCountStats">RowCountStats</span></span> <span class="o">=</span> <span class="n">RowCountStats</span><span class="p">(),</span>
+    <span class="n">row_count_stats</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.update_status.RowCountStats">RowCountStats</span></span> <span class="o">=</span> <span class="n">RowCountStats</span><span class="p">(),</span>
+    <span class="n">cascade_row_count_stats</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.update_status.RowCountStats">RowCountStats</span></span> <span class="o">=</span> <span class="n">RowCountStats</span><span class="p">(),</span>
+    <span class="n">ext_row_count_stats</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.update_status.RowCountStats">RowCountStats</span></span> <span class="o">=</span> <span class="n">RowCountStats</span><span class="p">(),</span>
 <span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
 
 
-      <p>Information about updates that resulted from a table operation.</p>
+      <p>Information about changes to table data or table schema</p>
 
 
 
@@ -1484,6 +1503,29 @@
     <div class="doc doc-contents ">
 
       <p>Return a message describing the results of an insert operation.</p>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pixeltable.UpdateStatus.pxt_rows_updated" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">pxt_rows_updated</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">pxt_rows_updated</span><span class="p">:</span> <span class="n">int</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Returns the number of Pixeltable rows that were updated as a result of the operation.</p>
     </div>
 
 </div>

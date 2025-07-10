@@ -2183,7 +2183,7 @@ FileCache.emit_eviction_warnings() at the end of the operation.</p>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2225,7 +2225,7 @@ FileCache.emit_eviction_warnings() at the end of the operation.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
           –
           <div class="doc-md-description">
             <p>Information about the execution status of the operation.</p>
@@ -2270,7 +2270,7 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_columns</span><span class="p">(</span>
     <span class="n">schema</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">]],</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2316,7 +2316,7 @@ To apply different behaviors to different columns, please use
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
           –
           <div class="doc-md-description">
             <p>Information about the execution status of the operation.</p>
@@ -2367,7 +2367,7 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
     <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2420,7 +2420,7 @@ row.</p>
 <li><code>'abort'</code>: an exception will be raised and the column will not be added.</li>
 <li><code>'ignore'</code>: execution will continue and the column will be added. Any rows
     with errors will have a <code>None</code> value for the column, with information about the error stored in the
-    corresponding <code>tbl.col_name.errortype</code> and <code>tbl.col_name.errormsg</code> fields.</li>
+    corresponding <code>tbl.col_name.errormsg</code> tbl.col_name.errortype` fields.</li>
 </ul>
           </div>
         </li>
@@ -2446,7 +2446,7 @@ row.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
           –
           <div class="doc-md-description">
             <p>Information about the execution status of the operation.</p>
@@ -2682,7 +2682,7 @@ and with a specific name:</p>
     <span class="n">rows</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
     <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;insert&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2810,7 +2810,7 @@ the row with new <code>id</code> 3 (assuming this key does not exist):</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">delete</span><span class="p">(</span><span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s1">&#39;exprs.Expr&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">delete</span><span class="p">(</span><span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s1">&#39;exprs.Expr&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3339,7 +3339,7 @@ indices or multiple indices.</p>
     <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
     <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3441,7 +3441,7 @@ invalid media file (such as a corrupt image) for one of the inserted rows.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
           –
           <div class="doc-md-description">
             <p>An <a class="autorefs autorefs-internal" href="../update-status/#pixeltable.UpdateStatus"><code>UpdateStatus</code></a> object containing information about the update.</p>
@@ -3589,7 +3589,7 @@ all sub-views (including views of views, etc.)</p>
     <span class="o">*</span><span class="n">columns</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">],</span>
     <span class="n">errors_only</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3617,7 +3617,7 @@ all sub-views (including views of views, etc.)</p>
           –
           <div class="doc-md-description">
             <p>If True, only run the recomputation for rows that have errors in the column (ie, the column's
-<code>errortype</code> property is non-None). Only allowed for recomputing a single column.</p>
+<code>errortype</code> property indicates that an error occurred). Only allowed for recomputing a single column.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3808,7 +3808,7 @@ it:</p>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">export_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">import_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;pxt.io.SyncStatus&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3990,7 +3990,7 @@ is a destructive operation that will delete data outside Pixeltable, and cannot 
     <span class="n">value_spec</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span>
     <span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s2">&quot;exprs.Expr&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -4034,7 +4034,7 @@ is a destructive operation that will delete data outside Pixeltable, and cannot 
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
           –
           <div class="doc-md-description">
             <p>An <a class="autorefs autorefs-internal" href="../update-status/#pixeltable.UpdateStatus"><code>UpdateStatus</code></a> object containing information about the update.</p>

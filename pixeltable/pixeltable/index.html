@@ -455,6 +455,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.ls" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;ls
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.list_tables" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;list_tables
@@ -1554,6 +1563,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.ls" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;ls
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.list_tables" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;list_tables
@@ -1683,6 +1701,10 @@ below.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.ls"><code>pxt.ls</code></a></td>
+<td>Output a human-readable list of the contents of a Pixeltable directory</td>
+</tr>
 <tr>
 <td><a class="autorefs autorefs-internal" href="#pixeltable.configure_logging"><code>pxt.configure_logging</code></a></td>
 <td>Configure logging</td>
@@ -2664,12 +2686,35 @@ Must be one of the following:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init</span><span class="p">(</span><span class="n">config_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
       <p>Initializes the Pixeltable environment.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.ls" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">ls</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ls</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>List the contents of a Pixeltable directory.</p>
+<p>This function returns a Pandas DataFrame representing a human-readable listing of the specified directory,
+including various attributes such as version and base table, as appropriate.</p>
+<p>To get a programmatic list of tables and/or directories, use <a class="autorefs autorefs-internal" href="#pixeltable.list_tables">list_tables()</a> and/or
+<a class="autorefs autorefs-internal" href="#pixeltable.list_dirs">list_dirs()</a> instead.</p>
 
     </div>
 
