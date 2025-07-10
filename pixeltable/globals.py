@@ -44,7 +44,7 @@ def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
 
 
 def create_table(
-    path_str: str,
+    path: str,
     schema: Optional[dict[str, Any]] = None,
     *,
     source: Optional[TableDataSource] = None,
@@ -58,14 +58,24 @@ def create_table(
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: Optional[dict[str, Any]] = None,  # Additional arguments to data source provider
 ) -> catalog.Table:
-    """Create a new base table.
+    """Create a new base table. Exactly one of `schema` or `source` must be provided.
+
+    If a `schema` is provided, then an empty table will be created with the specified schema.
+
+    If a `source` is provided, then Pixeltable will attempt to infer a data source format and table schema from the
+    contents of the specified data, and the data will be imported from the specified source into the new table. The
+    source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
     Args:
-        path_str: Path to the table.
-        schema: A dictionary that maps column names to column types
-        source: A data source from which a table schema can be inferred and data imported
-        source_format: A hint to the format of the source data
-        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+        path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir.my_subdir.my_table'`.
+        schema: Schema for the new table, mapping column names to Pixeltable types.
+        source: A data source (file, URL, DataFrame, or list of rows) to import from.
+        source_format: Must be used in conjunction with a `source`.
+            If specified, then the given format will be used to read the source data. (Otherwise,
+            Pixeltable will attempt to infer the format from the source data.)
+        schema_overrides: Must be used in conjunction with a `source`.
+            If specified, then columns in `schema_overrides` will be given the specified types.
+            (Pixeltable will attempt to infer the types of any columns not specified.)
         on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
             invalid media file (such as a corrupt image) for one of the inserted rows.
 
@@ -81,14 +91,15 @@ def create_table(
 
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
-        if_exists: Directive regarding how to handle if the path already exists.
-            Must be one of the following:
+        if_exists: Determines the behavior if a table already exists at the specified path location.
 
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing table handle
-            - `'replace'`: if the existing table has no views, drop and replace it with a new one
-            - `'replace_force'`: drop the existing table and all its views, and create a new one
-        extra_args: Additional arguments to pass to the source data provider
+            - `'replace'`: if the existing table has no views or snapshots, drop and replace it with a new one;
+                raise an error if the existing table has views or snapshots
+            - `'replace_force'`: drop the existing table and all its views and snapshots, and create a new one
+        extra_args: Must be used in conjunction with a `source`. If specified, then additional arguments will be
+            passed along to the source data provider.
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
@@ -114,7 +125,7 @@ def create_table(
         >>> tbl1 = pxt.get_table('orig_table')
         ... tbl2 = pxt.create_table('new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2))
 
-        Create a table if does not already exist, otherwise get the existing table:
+        Create a table if it does not already exist, otherwise get the existing table:
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String}, if_exists='ignore')
 
@@ -130,12 +141,12 @@ def create_table(
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
-        raise excs.Error('Must provide either a `schema` or a `source`')
+        raise excs.Error('Either a `schema` or a `source` must be provided (but not both)')
 
     if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
         raise excs.Error('`schema` must be a non-empty dictionary')
 
-    path_obj = catalog.Path(path_str)
+    path_obj = catalog.Path(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: Optional[list[str]] = normalize_primary_key_parameter(primary_key)
