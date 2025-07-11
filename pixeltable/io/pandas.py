@@ -132,6 +132,7 @@ def df_infer_schema(
     pd_schema: dict[str, ts.ColumnType] = {}
     for pd_name, pd_dtype in zip(df.columns, df.dtypes):
         if pd_name in schema_overrides:
+            assert isinstance(schema_overrides[pd_name], ts.ColumnType)
             pxt_type = schema_overrides[pd_name]
         else:
             pxt_type = __pd_coltype_to_pxt_type(pd_dtype, df[pd_name], pd_name not in primary_key)
