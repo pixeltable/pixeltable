@@ -516,3 +516,9 @@ class TestPackager:
                 s.recompute_columns('icol')
             with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a {kind}.'):
                 s.revert()
+
+            # TODO: Align these DataFrame error messages with Table error messages
+            with pytest.raises(pxt.Error, match=r'Cannot use `update` on a replica.'):
+                s.where(s.icol < 5).update({'icol': 100})
+            with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
+                s.where(s.icol < 5).delete()

@@ -1196,23 +1196,27 @@ class DataFrame:
             op_name: The name of the operation for which the test is being performed.
             allow_select: If True, allow a select() specification in the Dataframe.
         """
-        if self.group_by_clause is not None or self.grouping_tbl is not None:
-            raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
-        if self.order_by_clause is not None:
-            raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
-        if self.select_list is not None and not allow_select:
-            raise excs.Error(f'Cannot use `{op_name}` after `select`')
-        if self.limit_val is not None:
-            raise excs.Error(f'Cannot use `{op_name}` after `limit`')
-        if self._has_joins():
-            raise excs.Error(f'Cannot use `{op_name}` after `join`')
-        assert len(self._from_clause.tbls) == 1
+        self._validate_mutable_op_sequence(op_name, allow_select)
 
         # TODO: Reconcile these with Table.__check_mutable()
+        assert len(self._from_clause.tbls) == 1
         if self._first_tbl.is_snapshot():
             raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
         if self._first_tbl.is_replica():
-            raise excs.Error(f'Cannot use `{op_name}` on a {self._display_name()}.')
+            raise excs.Error(f'Cannot use `{op_name}` on a replica.')
+
+    def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
+        """Tests whether the sequence of operations on this DataFrame is valid for a mutation operation."""
+        if self.group_by_clause is not None or self.grouping_tbl is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `group_by`.')
+        if self.order_by_clause is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `order_by`.')
+        if self.select_list is not None and not allow_select:
+            raise excs.Error(f'Cannot use `{op_name}` after `select`.')
+        if self.limit_val is not None:
+            raise excs.Error(f'Cannot use `{op_name}` after `limit`.')
+        if self._has_joins():
+            raise excs.Error(f'Cannot use `{op_name}` after `join`.')
 
     def as_dict(self) -> dict[str, Any]:
         """

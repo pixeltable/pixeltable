@@ -255,9 +255,7 @@ def create_view(
         tbl_version_path = base._tbl_version_path
         sample_clause = None
     elif isinstance(base, DataFrame):
-        base._validate_mutable('create_view', allow_select=True)
-        if len(base._from_clause.tbls) > 1:
-            raise excs.Error('Cannot create a view of a join')
+        base._validate_mutable_op_sequence('create_view', allow_select=True)
         tbl_version_path = base._from_clause.tbls[0]
         where = base.where_clause
         sample_clause = base.sample_clause
@@ -540,7 +538,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return _list_tables(dir_path, recursive=recursive, allow_system_paths=False)
 
 
-def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[catalog.Table]:
+def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
     path_obj = catalog.Path(dir_path, empty_is_valid=True, allow_system_paths=allow_system_paths)
     contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]

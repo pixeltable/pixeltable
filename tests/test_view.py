@@ -53,11 +53,10 @@ class TestView:
         with pytest.raises(excs.Error, match=r"view 'test_view': Cannot delete from a view."):
             _ = v.delete()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'Cannot use `create_view` after `join`.'):
             u = pxt.create_table('joined_tbl', {'c1': pxt.String})
             join_df = t.join(u, on=t.c1 == u.c1)
             _ = pxt.create_view('join_view', join_df)
-        assert 'cannot create a view of a join' in str(exc_info.value).lower()
 
     def test_basic(self, reset_db: None) -> None:
         t = self.create_tbl()
