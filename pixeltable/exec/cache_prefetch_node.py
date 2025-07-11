@@ -9,12 +9,13 @@ import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator, Optional
+from typing import AsyncIterator, Iterator, Optional
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.s3 import S3ClientContainer
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -34,8 +35,7 @@ class CachePrefetchNode(ExecNode):
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
-    boto_client: Optional[Any]
-    boto_client_lock: threading.Lock
+    boto_client_source: S3ClientContainer
 
     # execution state
     num_returned_rows: int
@@ -65,8 +65,7 @@ class CachePrefetchNode(ExecNode):
         self.file_col_info = file_col_info
 
         # clients for specific services are constructed as needed, because it's time-consuming
-        self.boto_client = None
-        self.boto_client_lock = threading.Lock()
+        self.boto_client_source = S3ClientContainer(self.NUM_EXECUTOR_THREADS + 4)
 
         self.num_returned_rows = 0
         self.ready_rows = deque()
@@ -182,7 +181,7 @@ class CachePrefetchNode(ExecNode):
         # the time it takes to get the next batch together
         cache_misses: list[str] = []
 
-        url_pos: dict[str, int] = {}  # url -> row_idx; used for logging
+        url_pos: dict[str, Optional[int]] = {}  # url -> row_idx; used for logging
         for row in input_batch:
             # identify missing local files in input batch, or fill in their paths if they're already cached
             num_missing = 0
@@ -237,18 +236,8 @@ class CachePrefetchNode(ExecNode):
         try:
             _logger.debug(f'Downloading {url} to {tmp_path}')
             if parsed.scheme == 's3':
-                from pixeltable.utils.s3 import get_client
-
-                with self.boto_client_lock:
-                    if self.boto_client is None:
-                        config = {
-                            'max_pool_connections': self.NUM_EXECUTOR_THREADS + 4,  # +4: leave some headroom
-                            'connect_timeout': 5,
-                            'read_timeout': 30,
-                            'retries': {'max_attempts': 3, 'mode': 'adaptive'},
-                        }
-                        self.boto_client = get_client(**config)
-                self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
+                boto_client = self.boto_client_source.get_client(for_write=False)
+                boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
             elif parsed.scheme in ('http', 'https'):
                 with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
                     data = resp.read()

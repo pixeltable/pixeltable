@@ -83,7 +83,7 @@ def push_replica(
 
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
-    from pixeltable.utils.s3 import get_client
+    from pixeltable.utils.s3 import S3ClientContainer
 
     bucket = parsed_location.netloc
     remote_dir = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_location.path)))
@@ -92,7 +92,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
     Env.get().console_logger.info(f'Uploading snapshot to: {bucket}:{remote_path}')
 
     boto_config = {'max_pool_connections': 5, 'connect_timeout': 15, 'retries': {'max_attempts': 3, 'mode': 'adaptive'}}
-    s3_client = get_client(**boto_config)
+    s3_client = S3ClientContainer.get_client_raw(**boto_config)
 
     upload_args = {'ChecksumAlgorithm': 'SHA256'}
 
@@ -140,7 +140,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
 
 
 def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_filename: str) -> Path:
-    from pixeltable.utils.s3 import get_client
+    from pixeltable.utils.s3 import S3ClientContainer
 
     bucket = parsed_location.netloc
     remote_dir = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_location.path)))
@@ -149,7 +149,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     Env.get().console_logger.info(f'Downloading snapshot from: {bucket}:{remote_path}')
 
     boto_config = {'max_pool_connections': 5, 'connect_timeout': 15, 'retries': {'max_attempts': 3, 'mode': 'adaptive'}}
-    s3_client = get_client(**boto_config)
+    s3_client = S3ClientContainer.get_client_raw(**boto_config)
 
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']
