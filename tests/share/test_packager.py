@@ -481,8 +481,8 @@ class TestPackager:
         # Check that test_tbl was instantiated as a system table
         assert pxt.list_tables() == ['view_replica']
         system_path = pxt.catalog.Path('_system', allow_system_paths=True)
-        system_contents = pxt.catalog.Catalog.get().get_dir_contents(system_path)
-        assert len(system_contents) == 1 and next(iter(system_contents.keys())).startswith('replica_')
+        system_contents = pxt.globals._list_tables('_system', allow_system_paths=True)
+        assert len(system_contents) == 1 and system_contents[0].startswith('_system.replica_')
 
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
         # Check that test_tbl has been renamed to a user table
@@ -492,7 +492,7 @@ class TestPackager:
         t = pxt.get_table('tbl_replica')
         v = pxt.get_table('view_replica')
 
-        for s, name, kind in ((t, 'tbl_replica', 'replica-table'), (v, 'view_replica', 'replica-view')):
+        for s, name, kind in ((t, 'tbl_replica', 'table-replica'), (v, 'view_replica', 'view-replica')):
             display_str = f'{kind} {name!r}'
             with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a {kind}.'):
                 s.insert({'icol': 10, 'scol': 'string 10'})

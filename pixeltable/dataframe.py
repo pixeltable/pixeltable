@@ -1185,7 +1185,7 @@ class DataFrame:
         """
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
-            raise excs.Error('Cannot delete from view')
+            raise excs.Error('Cannot use `delete` on a view.')
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
@@ -1204,6 +1204,15 @@ class DataFrame:
             raise excs.Error(f'Cannot use `{op_name}` after `select`')
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')
+        if self._has_joins():
+            raise excs.Error(f'Cannot use `{op_name}` after `join`')
+        assert len(self._from_clause.tbls) == 1
+
+        # TODO: Reconcile these with Table.__check_mutable()
+        if self._first_tbl.is_snapshot():
+            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
+        if self._first_tbl.is_replica():
+            raise excs.Error(f'Cannot use `{op_name}` on a {self._display_name()}.')
 
     def as_dict(self) -> dict[str, Any]:
         """

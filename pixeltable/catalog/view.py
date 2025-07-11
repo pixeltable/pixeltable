@@ -55,7 +55,7 @@ class View(Table):
             assert self._tbl_version_path.is_replica()
             name = 'table'
         if self._tbl_version_path.is_replica():
-            name = f'replica-{name}'
+            name = f'{name}-replica'
         return name
 
     @classmethod

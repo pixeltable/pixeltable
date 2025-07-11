@@ -1544,7 +1544,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        if self._tbl_version_path.is_snapshot() or self._tbl_version_path.is_replica():
+        if not self._tbl_version_path.is_mutable():
             return
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             all_stores = self.external_stores()
@@ -1584,7 +1584,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        if self._tbl_version_path.is_snapshot() or self._tbl_version_path.is_replica():
+        if not self._tbl_version_path.is_mutable():
             return UpdateStatus()
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
         # have their updates propagated down the tree

@@ -537,9 +537,12 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
         >>> pxt.list_tables('dir1')
     """
-    path_obj = catalog.Path(dir_path, empty_is_valid=True)  # validate format
-    cat = Catalog.get()
-    contents = cat.get_dir_contents(path_obj, recursive=recursive)
+    return _list_tables(dir_path, recursive=recursive, allow_system_paths=False)
+
+
+def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[catalog.Table]:
+    path_obj = catalog.Path(dir_path, empty_is_valid=True, allow_system_paths=allow_system_paths)
+    contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
