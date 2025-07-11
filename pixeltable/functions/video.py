@@ -1,14 +1,5 @@
 """
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
-
-Example:
-```python
-import pixeltable as pxt
-import pixeltable.functions as pxtf
-
-t = pxt.get_table(...)
-t.select(pxtf.video.extract_audio(t.video_col)).collect()
-```
 """
 
 import tempfile
@@ -92,12 +83,22 @@ def extract_audio(
     video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
 ) -> pxt.Audio:
     """
-    Extract an audio stream from a video file, save it as a media file and return its path.
+    Extract an audio stream from a video.
 
     Args:
         stream_idx: Index of the audio stream to extract.
         format: The target audio format. (`'wav'`, `'mp3'`, `'flac'`).
         codec: The codec to use for the audio stream. If not provided, a default codec will be used.
+
+    Returns:
+        The extracted audio.
+
+    Examples:
+        Add a computed column to a table `tbl` that extracts audio from an existing column `video_col`:
+
+        >>> tbl.add_computed_column(
+        ...     extracted_audio=tbl.video_col.extract_audio(format='flac')
+        ... )
     """
     if format not in _format_defaults:
         raise ValueError(f'extract_audio(): unsupported audio format: {format}')
@@ -124,6 +125,52 @@ def extract_audio(
 def get_metadata(video: pxt.Video) -> dict:
     """
     Gets various metadata associated with a video file and returns it as a dictionary.
+
+    Args:
+        video: The video to get metadata for.
+
+    Returns:
+        A `dict` such as the following:
+
+            ```json
+            {
+                'bit_exact': False,
+                'bit_rate': 967260,
+                'size': 2234371,
+                'metadata': {
+                    'encoder': 'Lavf60.16.100',
+                    'major_brand': 'isom',
+                    'minor_version': '512',
+                    'compatible_brands': 'isomiso2avc1mp41',
+                },
+                'streams': [
+                    {
+                        'type': 'video',
+                        'width': 640,
+                        'height': 360,
+                        'frames': 462,
+                        'time_base': 1.0 / 12800,
+                        'duration': 236544,
+                        'duration_seconds': 236544.0 / 12800,
+                        'average_rate': 25.0,
+                        'base_rate': 25.0,
+                        'guessed_rate': 25.0,
+                        'metadata': {
+                            'language': 'und',
+                            'handler_name': 'L-SMASH Video Handler',
+                            'vendor_id': '[0][0][0][0]',
+                            'encoder': 'Lavc60.31.102 libx264',
+                        },
+                        'codec_context': {'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'},
+                    }
+                ],
+            }
+            ```
+
+    Examples:
+        Extract metadata for files in the `video_col` column of the table `tbl`:
+
+        >>> tbl.select(tbl.video_col.get_metadata()).collect()
     """
     return _get_metadata(video)
 
