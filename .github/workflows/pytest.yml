@@ -88,6 +88,11 @@ jobs:
             python-version: "3.10"
             test-category: "lint"
             poetry-options: "--with dev"
+          # Random table ops
+          - os: ubuntu-22.04
+            python-version: "3.10"
+            test-category: "random-tbl-ops"
+            poetry-options: ""
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -178,6 +183,9 @@ jobs:
         run: |
           ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
+      - name: Run random table ops
+        if: ${{ matrix.test-category == 'random-tbl-ops' }}
+        run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool
