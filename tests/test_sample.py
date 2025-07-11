@@ -6,7 +6,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs
 
 from .utils import SAMPLE_IMAGE_URL, ReloadTester
@@ -16,9 +15,9 @@ class TestSample:
     @classmethod
     def create_sample_data(cls, row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
         schema = {
-            'id': ts.IntType(nullable=False),
-            'cat1': ts.IntType(nullable=with_null),
-            'cat2': ts.IntType(nullable=with_null),
+            'id': pxt.Required[pxt.Int],
+            'cat1': pxt.Int if with_null else pxt.Required[pxt.Int],
+            'cat2': pxt.Int if with_null else pxt.Required[pxt.Int],
         }
         rows = []
         rowid = 0

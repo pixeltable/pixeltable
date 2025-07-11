@@ -24,7 +24,7 @@ class TestImport:
             'children': ts.IntType(nullable=True),
         }
 
-        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': ts.FloatType(nullable=True)})
+        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': pxt.Float})
         assert t2.count() == 4
         assert t2._get_schema() == {
             'name': ts.StringType(nullable=True),
@@ -40,7 +40,7 @@ class TestImport:
         assert 'The following columns have no non-null values: only_none' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.io.import_rows('example4', [{'col': 1}], schema_overrides={'not_col': ts.StringType()})
+            pxt.io.import_rows('example4', [{'col': 1}], schema_overrides={'not_col': pxt.String})
         assert 'Some column(s) specified in `schema_overrides` are not present in the source: not_col' in str(
             exc_info.value
         )
@@ -72,7 +72,7 @@ class TestImport:
         t1.insert(data)
         assert t1.count() == 8
 
-        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': ts.FloatType(nullable=True)})
+        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': pxt.Float})
         assert t2.count() == 4
         t2.insert(data)
         assert t2.count() == 8
