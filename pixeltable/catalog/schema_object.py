@@ -50,13 +50,15 @@ class SchemaObject:
     def _get_metadata(self) -> dict[str, Any]:
         return {'name': self._name, 'path': self._path()}
 
-    @classmethod
     @abstractmethod
-    def _display_name(cls) -> str:
+    def _display_name(self) -> str:
         """
         Return name displayed in error messages.
         """
         pass
+
+    def _display_str(self) -> str:
+        return f'{self._display_name()} {self._path()!r}'
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         """Subclasses need to override this to make the change persistent"""

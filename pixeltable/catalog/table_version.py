@@ -638,7 +638,7 @@ class TableVersion:
         return status
 
     def drop_index(self, idx_id: int) -> None:
-        assert not self.is_snapshot
+        assert self.is_mutable
         assert idx_id in self._tbl_md.index_md
 
         # we're creating a new schema version
@@ -663,7 +663,7 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Adds columns to the table."""
-        assert not self.is_snapshot
+        assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
@@ -801,7 +801,7 @@ class TableVersion:
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
 
-        assert not self.is_snapshot
+        assert self.is_mutable
 
         # we're creating a new schema version
         self.version += 1
@@ -830,7 +830,7 @@ class TableVersion:
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
         """Mark columns as dropped"""
-        assert not self.is_snapshot
+        assert self.is_mutable
 
         for col in cols:
             col.schema_version_drop = self.schema_version
@@ -853,7 +853,7 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
-        assert not self.is_snapshot
+        assert self.is_mutable
         if old_name not in self.cols_by_name:
             raise excs.Error(f'Unknown column: {old_name}')
         if not is_valid_identifier(new_name):
@@ -972,8 +972,7 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
-        if self.is_snapshot:
-            raise excs.Error('Cannot update a snapshot')
+        assert self.is_mutable
 
         from pixeltable.plan import Planner
 
@@ -1087,7 +1086,7 @@ class TableVersion:
         return update_targets
 
     def recompute_columns(self, col_names: list[str], errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
-        assert not self.is_snapshot
+        assert self.is_mutable
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
@@ -1223,7 +1222,7 @@ class TableVersion:
 
     def revert(self) -> None:
         """Reverts the table to the previous version."""
-        assert not self.is_snapshot
+        assert self.is_mutable
         if self.version == 0:
             raise excs.Error('Cannot revert version 0')
         self._revert()
@@ -1482,7 +1481,7 @@ class TableVersion:
     @property
     def is_insertable(self) -> bool:
         """Returns True if this corresponds to an InsertableTable"""
-        return not self.is_snapshot and not self.is_view
+        return self.is_mutable and not self.is_view
 
     def is_iterator_column(self, col: Column) -> bool:
         """Returns True if col is produced by an iterator"""
