@@ -7,41 +7,56 @@ import pixeltable as pxt
 
 def run_workers(num_workers: int, duration: float, script: str) -> None:
     processes: list[subprocess.Popen] = []
-
     for i in range(num_workers):
         p = subprocess.Popen(['python', script, str(i)])
         processes.append(p)
 
-    time.sleep(duration)
+    start_time = time.time()
 
-    success = True
+    while time.time() - start_time < duration:
+        # Check if any process has terminated
+        for i, p in enumerate(processes):
+            returncode = p.poll()
+            if returncode is not None:
+                if returncode != 0:
+                    print(f'Worker {i} exited abnormally (exit code {returncode}). Terminating all workers.')
+                    # Kill all remaining processes
+                    for proc in processes:
+                        if proc.poll() is None:  # Still running
+                            proc.kill()
+                    time.sleep(2.0)
+                    sys.exit(1)
+                else:
+                    # Process completed successfully, but we still want to stop everything
+                    print(f'Worker {i} completed successfully. Terminating all workers.')
+                    for proc in processes:
+                        if proc.poll() is None:  # Still running
+                            proc.kill()
+                    time.sleep(2.0)
+                    return
 
-    for i, p in enumerate(processes):
-        if p.returncode is not None and p.returncode != 0:
-            success = False
-            print(f'Worker {i} exited abnormally (exit code {p.returncode}).')
+        time.sleep(0.1)  # Small delay to avoid busy waiting
 
+    # Duration elapsed, kill all processes
     for p in processes:
-        p.kill()
-
+        if p.poll() is None:  # Still running
+            p.kill()
     time.sleep(2.0)
-
-    if not success:
-        sys.exit(1)
 
 
 def main() -> None:
     if len(sys.argv) != 4:
         print(f'Usage: python {sys.argv[0]} <num-workers> <duration-secs> <script.py>')
         sys.exit(1)
+
     try:
         num_workers = int(sys.argv[1])
         duration = float(sys.argv[2])
     except ValueError:
         print(f'Usage: python {sys.argv[0]} <num-workers> <duration-secs> <script.py>')
         sys.exit(1)
-    script = sys.argv[3]
 
+    script = sys.argv[3]
     pxt.init()
     run_workers(num_workers, duration, script)
 

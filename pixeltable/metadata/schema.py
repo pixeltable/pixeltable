@@ -279,6 +279,22 @@ class TableSchemaVersion(Base):
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
 
 
+class PendingTableOp(Base):
+    """
+    Table operation that needs to be completed before the table can be used.
+
+    Operations need to be completed in order of increasing seq_num.
+    """
+
+    __tablename__ = 'pendingtableops'
+
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
+        UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
+    )
+    seq_num: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)
+    op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
+
+
 @dataclasses.dataclass
 class FunctionMd:
     name: str

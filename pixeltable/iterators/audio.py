@@ -54,12 +54,9 @@ class AudioSplitter(ComponentIterator):
     def __init__(
         self, audio: str, chunk_duration_sec: float, *, overlap_sec: float = 0.0, min_chunk_duration_sec: float = 0.0
     ):
-        if chunk_duration_sec <= 0.0:
-            raise excs.Error('chunk_duration_sec must be a positive number')
-        if chunk_duration_sec < min_chunk_duration_sec:
-            raise excs.Error('chunk_duration_sec must be at least min_chunk_duration_sec')
-        if overlap_sec >= chunk_duration_sec:
-            raise excs.Error('overlap_sec must be less than chunk_duration_sec')
+        assert chunk_duration_sec > 0.0
+        assert chunk_duration_sec >= min_chunk_duration_sec
+        assert overlap_sec < chunk_duration_sec
         audio_path = Path(audio)
         assert audio_path.exists() and audio_path.is_file()
         self.audio_path = audio_path
@@ -127,6 +124,19 @@ class AudioSplitter(ComponentIterator):
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        param_names = ['chunk_duration_sec', 'min_chunk_duration_sec', 'overlap_sec']
+        params = dict(zip(param_names, args))
+        params.update(kwargs)
+
+        chunk_duration_sec = params['chunk_duration_sec']
+        min_chunk_duration_sec = params.get('min_chunk_duration_sec', 0.0)
+        overlap_sec = params.get('overlap_sec', 0.0)
+        if chunk_duration_sec <= 0.0:
+            raise excs.Error('chunk_duration_sec must be a positive number')
+        if chunk_duration_sec < min_chunk_duration_sec:
+            raise excs.Error('chunk_duration_sec must be at least min_chunk_duration_sec')
+        if overlap_sec >= chunk_duration_sec:
+            raise excs.Error('overlap_sec must be less than chunk_duration_sec')
         return {
             'start_time_sec': ts.FloatType(),
             'end_time_sec': ts.FloatType(),
