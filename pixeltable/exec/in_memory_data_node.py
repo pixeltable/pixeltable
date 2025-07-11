@@ -63,13 +63,12 @@ class InMemoryDataNode(ExecNode):
             for col_name, val in input_row.items():
                 col_info = user_cols_by_name.get(col_name)
                 assert col_info is not None
-
-                if col_info.col.col_type.is_image_type() and isinstance(val, bytes):
-                    # this is a literal image, ie, a sequence of bytes; we save this as a media file and store the path
-                    path = str(MediaStore.prepare_media_path(self.tbl.id, col_info.col.id, self.tbl.get().version))
-                    with open(path, 'wb') as fp:
-                        fp.write(val)
-                    self.output_rows[row_idx][col_info.slot_idx] = path
+                col = col_info.col
+                if col.col_type.is_image_type() and isinstance(val, bytes):
+                    # this is a literal media file, ie, a sequence of bytes; save it as a binary file and store the path
+                    assert col.tbl.id == self.tbl.id
+                    path = MediaStore.save_media_file(val, col.tbl.id, col.id, col.tbl.version)
+                    self.output_rows[row_idx][col_info.slot_idx] = str(path)
                 else:
                     self.output_rows[row_idx][col_info.slot_idx] = val
 

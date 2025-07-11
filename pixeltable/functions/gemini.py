@@ -7,7 +7,6 @@ the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini)
 
 import asyncio
 import io
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -215,9 +214,10 @@ async def generate_videos(
     video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]
     assert video_bytes is not None
 
-    _, output_filename = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
-    Path(output_filename).write_bytes(video_bytes)
-    return output_filename
+    # Create a temporary file to store the video bytes
+    output_path = env.Env.get().create_tmp_path('.mp4')
+    Path(output_path).write_bytes(video_bytes)
+    return str(output_path)
 
 
 @generate_videos.resource_pool
