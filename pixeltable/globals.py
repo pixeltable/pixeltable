@@ -158,9 +158,7 @@ def create_table(
         tds.check_source_format()
         data_source = tds.specialize()
         src_schema_overrides: dict[str, ts.ColumnType] = {}
-        if schema_overrides is None:
-            src_schema_overrides = {}
-        else:
+        if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
                 col_type = ts.ColumnType.normalize_type(py_type, nullable_default=True, allow_builtin_types=False)
                 if col_type is None:
