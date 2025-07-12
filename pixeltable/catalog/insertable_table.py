@@ -54,8 +54,8 @@ class InsertableTable(Table):
         super().__init__(tbl_version.id, dir_id, tbl_version.get().name, tbl_version_path)
         self._tbl_version = tbl_version
 
-    @classmethod
-    def _display_name(cls) -> str:
+    def _display_name(self) -> str:
+        assert not self._tbl_version_path.is_replica()
         return 'table'
 
     @classmethod
@@ -75,10 +75,10 @@ class InsertableTable(Table):
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
             if pk_col not in column_names:
-                raise excs.Error(f'Primary key column {pk_col} not found in table schema')
+                raise excs.Error(f'Primary key column {pk_col!r} not found in table schema.')
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
-                raise excs.Error(f'Primary key column {pk_col} cannot be nullable')
+                raise excs.Error(f'Primary key column {pk_col!r} cannot be nullable.')
             col.is_pk = True
 
         _, tbl_version = TableVersion.create(
@@ -101,8 +101,8 @@ class InsertableTable(Table):
             tbl_version.insert(None, df, fail_on_exception=True)
         session.commit()
 
-        _logger.info(f'Created table `{name}`, id={tbl_version.id}')
-        Env.get().console_logger.info(f'Created table `{name}`.')
+        _logger.info(f'Created table {name!r}, id={tbl_version.id}')
+        Env.get().console_logger.info(f'Created table {name!r}.')
         return tbl
 
     def _get_metadata(self) -> dict[str, Any]:
@@ -204,9 +204,9 @@ class InsertableTable(Table):
 
             for col_name, val in row.items():
                 if col_name not in valid_col_names:
-                    raise excs.Error(f'Unknown column name {col_name} in row {row}')
+                    raise excs.Error(f'Unknown column name {col_name!r} in row {row}')
                 if col_name in computed_col_names:
-                    raise excs.Error(f'Value for computed column {col_name} in row {row}')
+                    raise excs.Error(f'Value for computed column {col_name!r} in row {row}')
 
                 # validate data
                 col = self._tbl_version_path.get_column(col_name)
@@ -246,4 +246,4 @@ class InsertableTable(Table):
         return []
 
     def _table_descriptor(self) -> str:
-        return f'Table {self._path()!r}'
+        return self._display_str()

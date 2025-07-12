@@ -195,44 +195,34 @@ class TestSnapshot:
     def test_errors(self, reset_db: None, clip_embed: func.Function) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_snapshot('snap', tbl)
+        display_str = "snapshot 'snap'"
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a snapshot.'):
             _ = snap.insert([{'c3': 1.0}])
-        assert 'cannot insert into view' in str(excinfo.value).lower()
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a snapshot.'):
             _ = snap.insert(c3=1.0)
-        assert 'cannot insert into view' in str(excinfo.value).lower()
 
         # adding column is not supported for snapshots
-        with pytest.raises(pxt.Error, match='Cannot add column to a snapshot'):
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a snapshot.'):
             snap.add_column(non_existing_col1=pxt.String)
-        with pytest.raises(pxt.Error, match='Cannot add column to a snapshot'):
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a snapshot.'):
             snap.add_computed_column(on_existing_col1=tbl.c2 + tbl.c3)
-        with pytest.raises(pxt.Error, match='Cannot add column to a snapshot'):
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a snapshot.'):
             snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
-
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a snapshot.'):
             _ = snap.delete()
-        assert 'cannot delete from view' in str(excinfo.value).lower()
-
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a snapshot.'):
             _ = snap.update({'c3': snap.c3 + 1.0})
-        assert 'cannot update a snapshot' in str(excinfo.value).lower()
-
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a snapshot.'):
             _ = snap.batch_update([{'c3': 1.0, 'c2': 1}])
-        assert 'cannot update a snapshot' in str(excinfo.value).lower()
-
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a snapshot.'):
             snap.revert()
-        assert 'cannot revert a snapshot' in str(excinfo.value).lower()
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=r"snapshot 'img_snap': Cannot add an index to a snapshot."):
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
             snap.add_embedding_index('img', image_embed=clip_embed)
-        assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'a': pxt.Int})

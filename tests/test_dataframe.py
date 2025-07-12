@@ -535,18 +535,18 @@ class TestDataFrame:
         # delete from view
         with pytest.raises(excs.Error) as exc_info:
             v2.where(t.c2 < 10).delete()
-        assert 'Cannot delete from view' in str(exc_info.value)
+        assert 'Cannot use `delete` on a view.' in str(exc_info.value)
 
         # update snapshot
         snap = pxt.create_snapshot('test_snapshot', t)
         with pytest.raises(excs.Error) as exc_info:
             snap.where(t.c2 < 10).update({'c3': 0.0})
-        assert 'Cannot update a snapshot' in str(exc_info.value)
+        assert 'Cannot use `update` on a snapshot.' in str(exc_info.value)
 
         # delete from snapshot
         with pytest.raises(excs.Error) as exc_info:
             snap.where(t.c2 < 10).delete()
-        assert 'Cannot delete from view' in str(exc_info.value)
+        assert 'Cannot use `delete` on a snapshot.' in str(exc_info.value)
 
     def __check_constant_query(self, df: pxt.DataFrame, v: Any) -> None:
         r = df.limit(5).collect()
