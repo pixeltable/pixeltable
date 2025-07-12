@@ -580,7 +580,7 @@ class Catalog:
         add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
 
-    def _get_dir_entry(self, dir_id: UUID, name: str, lock_entry: bool = False) -> Optional[SchemaObject]:
+    def _get_dir_entry(self, dir_id: UUID, name: str, version: Optional[int] = None, lock_entry: bool = False) -> Optional[SchemaObject]:
         user = Env.get().user
         conn = Env.get().conn
 
@@ -609,15 +609,19 @@ class Catalog:
         )
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
-            if tbl_id not in self._tbls:
-                _ = self._load_tbl(tbl_id)
-            return self._tbls[tbl_id]
+            if version is not None:
+                return self._load_tbl_with_specified_version(tbl_id, version)
+            else:
+                if tbl_id not in self._tbls:
+                    _ = self._load_tbl(tbl_id)
+                return self._tbls[tbl_id]
 
         return None
 
     def _get_schema_object(
         self,
         path: Path,
+        version: Optional[int] = None,
         expected: Optional[type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
@@ -647,7 +651,7 @@ class Catalog:
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
         if parent_dir is None:
             raise excs.Error(f'Directory {parent_path!r} does not exist.')
-        obj = self._get_dir_entry(parent_dir.id, path.name, lock_entry=lock_obj)
+        obj = self._get_dir_entry(parent_dir.id, path.name, version, lock_entry=lock_obj)
 
         if obj is None and raise_if_not_exists:
             raise excs.Error(f'Path {path!r} does not exist.')
@@ -921,8 +925,8 @@ class Catalog:
             TableVersion.create_replica(md)
 
     @_retry_loop(for_write=False)
-    def get_table(self, path: Path) -> Table:
-        obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
+    def get_table(self, path: Path, version: Optional[int]) -> Table:
+        obj = Catalog.get()._get_schema_object(path, version=version, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
         # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
         # by another process.
@@ -1238,6 +1242,43 @@ class Catalog:
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id] = view
         return view
+
+    def _load_tbl_with_specified_version(self, tbl_id: UUID, effective_version: int) -> Optional[Table]:
+        from .view import View
+
+        conn = Env.get().conn
+        q = (
+            sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
+            .join(schema.TableVersion)
+            .join(schema.TableSchemaVersion)
+            .where(schema.Table.id == schema.TableVersion.tbl_id)
+            .where(schema.Table.id == schema.TableSchemaVersion.tbl_id)
+            .where(schema.TableVersion.version == effective_version)
+            # TableVersion.md['schema_version'] == TableSchemaVersion.schema_version
+            .where(
+                sql.text(
+                    f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
+                    f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
+                )
+            )
+            .where(schema.Table.id == tbl_id)
+        )
+        row = conn.execute(q).one_or_none()
+        if row is None:
+            return None
+        tbl_record, version_record, schema_version_record = _unpack_row(row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion])
+
+        tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+        view_md = tbl_md.view_md
+        if view_md is None:
+            # this is a base table
+            if (tbl_id, effective_version) not in self._tbl_versions:
+                _ = self._load_tbl_version(tbl_id, effective_version)
+            tvp = TableVersionPath(TableVersionHandle(tbl_id, effective_version))
+            tbl = View(tbl_record.dir_id, TableVersionHandle(tbl_id, effective_version), tbl_md.name, tvp, snapshot_only=True)
+            return tbl
+
+        assert False  # TODO: Views
 
     @_retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:

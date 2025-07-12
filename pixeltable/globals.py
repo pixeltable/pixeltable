@@ -445,9 +445,24 @@ def get_table(path: str) -> catalog.Table:
         Handles to views and snapshots are retrieved in the same way:
 
         >>> tbl = pxt.get_table('my_snapshot')
+
+        Get a handle to a specific version of a table:
+
+        >>> tbl = pxt.get_table('my_table:722')
     """
-    path_obj = catalog.Path(path)
-    tbl = Catalog.get().get_table(path_obj)
+    version: Optional[int] = None
+    if ':' in path:
+        components = path.split(':')
+        if len(components) != 2:
+            raise excs.Error(f'Invalid path: {path}')
+        path_obj = catalog.Path(components[0])
+        try:
+            version = int(components[1])
+        except ValueError:
+            raise excs.Error(f'Invalid path: {path}')
+    else:
+        path_obj = catalog.Path(path)
+    tbl = Catalog.get().get_table(path_obj, version)
     return tbl
 
 
