@@ -211,8 +211,7 @@ class View(Table):
         md = TableVersion.create_md(
             dir_id, name, columns, num_retained_versions, comment, media_validation=media_validation, view_md=view_md
         )
-        snapshot_only = is_snapshot and predicate is None and sample_clause is None and len(columns) == 0
-        if snapshot_only:
+        if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
             return md, []
         else:

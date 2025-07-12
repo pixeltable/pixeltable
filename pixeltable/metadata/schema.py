@@ -198,6 +198,7 @@ class TableMd:
         return (
             self.view_md is not None
             and self.view_md.is_snapshot
+            and self.view_md.sample_clause is None
             and self.view_md.predicate is None
             and len(self.column_md) == 0
         )
