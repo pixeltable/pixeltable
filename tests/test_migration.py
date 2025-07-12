@@ -80,7 +80,7 @@ class TestMigration:
                 convert_table_md(env.engine, substitution_fn=self.__substitute_md)
 
             # make sure we run the env db setup
-            Env.clear()
+            Env._init_env()
             env = Env.get()
 
             with orm.Session(env.engine) as session:

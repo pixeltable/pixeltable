@@ -150,10 +150,11 @@ class Table(SchemaObject):
         from pixeltable.catalog import retry_loop
 
         # we need retry_loop() here, because we end up loading Tables for the views
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
         def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
 
-        return retry_loop(tbl=self._tbl_version_path, for_write=False)(op)()
+        return op()
 
     def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()

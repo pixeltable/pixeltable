@@ -672,6 +672,7 @@ def ls(path: str = '') -> pd.DataFrame:
     path_obj = catalog.Path(path, empty_is_valid=True)
     dir_entries = cat.get_dir_contents(path_obj)
 
+    @retry_loop(for_write=False)
     def op() -> list[list[str]]:
         rows: list[list[str]] = []
         for name, entry in dir_entries.items():
@@ -701,7 +702,7 @@ def ls(path: str = '') -> pd.DataFrame:
             rows.append([name, kind, version, base])
         return rows
 
-    rows = retry_loop(for_write=False)(op)()
+    rows = op()
 
     rows = sorted(rows, key=lambda x: x[0])
     df = pd.DataFrame(

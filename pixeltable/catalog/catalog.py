@@ -76,7 +76,6 @@ def retry_loop(
     tbl: Optional[TableVersionPath] = None,
     for_write: bool,
     lock_mutable_tree: bool = False,
-    finalize_pending_ops: bool = True,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -98,13 +97,12 @@ def retry_loop(
                         for_write=for_write,
                         convert_db_excs=False,
                         lock_mutable_tree=lock_mutable_tree,
-                        finalize_pending_ops=finalize_pending_ops,
+                        finalize_pending_ops=True
                     ):
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
-                    assert finalize_pending_ops
                     _logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
-                    print(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
+                    Env.get().console_logger.info(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
                 except sql.exc.DBAPIError as e:
                     # TODO: what other exceptions should we be looking for?
@@ -280,7 +278,7 @@ class Catalog:
 
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors.
         """
-        assert tbl is None or tbl_id is None
+        assert tbl is None or tbl_id is None  # at most one can be specified
         if Env.get().in_xact:
             # make sure that we requested the required table lock at the beginning of the transaction
             if for_write:
@@ -303,7 +301,7 @@ class Catalog:
         while True:
             if pending_ops_tbl_id is not None:
                 _logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                print(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
+                Env.get().console_logger.info(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
@@ -469,7 +467,8 @@ class Catalog:
 
         Returns a handle to what was locked.
         """
-        assert (tbl_id is not None) ^ (dir_id is not None and tbl_name is not None)
+        assert (tbl_id is not None) != (dir_id is not None and tbl_name is not None)
+        assert (dir_id is None) == (tbl_name is None)
         where_clause: sql.ColumnElement
         if tbl_id is not None:
             where_clause = schema.Table.id == tbl_id
@@ -589,7 +588,7 @@ class Catalog:
         dir_entries: dict[str, Catalog.DirEntry]
         table: Optional[schema.Table]
 
-    @retry_loop(for_write=False, finalize_pending_ops=True)
+    @retry_loop(for_write=False)
     def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
         dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
         return self._get_dir_contents(dir._id, recursive=recursive)
@@ -616,7 +615,7 @@ class Catalog:
 
         return result
 
-    @retry_loop(for_write=True, finalize_pending_ops=True)
+    @retry_loop(for_write=True)
     def move(self, path: Path, new_path: Path) -> None:
         self._move(path, new_path)
 
@@ -791,7 +790,7 @@ class Catalog:
         #         _ = self.get_table_by_id(v.id)
         return tbl
 
-    @retry_loop(for_write=True, finalize_pending_ops=True)
+    @retry_loop(for_write=True)
     def create_table(
         self,
         path: Path,
@@ -839,6 +838,7 @@ class Catalog:
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
+        @retry_loop(for_write=True)
         def create_fn() -> UUID:
             if not is_snapshot and base.is_mutable():
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
@@ -883,12 +883,12 @@ class Catalog:
             self.store_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
             return tbl_id
 
-        view_id = retry_loop(for_write=True, finalize_pending_ops=True)(create_fn)()
-        view_handle = TableVersionHandle(view_id, effective_version=0 if is_snapshot else None)
+        view_id = create_fn()
         # TODO: instead of fixing up TableVersion instances in-place, which can introduce bugs, they should be
         #  invalidated and reloaded
         if not is_snapshot and base.is_mutable():
             base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version)
+            view_handle = TableVersionHandle(view_id, effective_version=None)
             base_tv.mutable_views.add(view_handle)
 
         # finalize pending ops
@@ -1051,7 +1051,7 @@ class Catalog:
             # It's a new version of a table that has a physical store, so we need to create a TableVersion instance.
             TableVersion.create_replica(md)
 
-    @retry_loop(for_write=False, finalize_pending_ops=True)
+    @retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
@@ -1106,7 +1106,7 @@ class Catalog:
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                     num_retries += 1
-                    print(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
+                    Env.get().console_logger.info(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
                     _logger.debug(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
@@ -1114,12 +1114,12 @@ class Catalog:
                     raise
             except Exception as e:
                 _logger.debug(f'finalize_pending_ops(): caught {e}')
-                print(f'finalize_pending_ops(): caught {e}')
+                Env.get().console_logger.info(f'finalize_pending_ops(): caught {e}')
                 raise
 
             num_retries = 0
 
-    @retry_loop(for_write=True, finalize_pending_ops=True)
+    @retry_loop(for_write=True)
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         tbl = self._get_schema_object(
             path,
@@ -1201,7 +1201,7 @@ class Catalog:
             assert (tv.id, tv.effective_version) in self._tbl_versions
             del self._tbl_versions[tv.id, tv.effective_version]
 
-    @retry_loop(for_write=True, finalize_pending_ops=True)
+    @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         return self._create_dir(path, if_exists, parents)
 
@@ -1236,7 +1236,7 @@ class Catalog:
         Env.get().console_logger.info(f'Created directory {str(path)!r}.')
         return dir
 
-    @retry_loop(for_write=True, finalize_pending_ops=True)
+    @retry_loop(for_write=True)
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         _, _, schema_obj = self._prepare_dir_op(
             drop_dir_path=path.parent,
@@ -1416,6 +1416,7 @@ class Catalog:
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+        # TODO: add TableVersionMd.is_pure_snapshot() and use that
         pure_snapshot = (
             view_md.is_snapshot
             and view_md.predicate is None
@@ -1442,7 +1443,7 @@ class Catalog:
         self._tbls[tbl_id] = view
         return view
 
-    @retry_loop(for_write=False, finalize_pending_ops=True)
+    @retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
@@ -1725,6 +1726,7 @@ class Catalog:
             )
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
+            # TODO: add TableVersionMd.is_pure_snapshot() and use that
             pure_snapshot = (
                 view_md.is_snapshot
                 and view_md.predicate is None
