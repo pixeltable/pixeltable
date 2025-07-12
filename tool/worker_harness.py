@@ -18,8 +18,9 @@ def run_workers(num_workers: int, duration: float, script: str) -> None:
         for i, p in enumerate(processes):
             returncode = p.poll()
             if returncode is not None:
+                end_time = time.time()
                 if returncode != 0:
-                    print(f'Worker {i} exited abnormally (exit code {returncode}). Terminating all workers.')
+                    print(f'Worker {i} exited abnormally (exit code {returncode}). Terminating all workers after {end_time - start_time:.2f} seconds.')
                     # Kill all remaining processes
                     for proc in processes:
                         if proc.poll() is None:  # Still running
@@ -28,7 +29,7 @@ def run_workers(num_workers: int, duration: float, script: str) -> None:
                     sys.exit(1)
                 else:
                     # Process completed successfully, but we still want to stop everything
-                    print(f'Worker {i} completed successfully. Terminating all workers.')
+                    print(f'Worker {i} completed successfully. Terminating all workers after {end_time - start_time:.2f} seconds.')
                     for proc in processes:
                         if proc.poll() is None:  # Still running
                             proc.kill()
@@ -38,6 +39,7 @@ def run_workers(num_workers: int, duration: float, script: str) -> None:
         time.sleep(0.1)  # Small delay to avoid busy waiting
 
     # Duration elapsed, kill all processes
+    print(f'Terminating all workers after {duration} seconds.')
     for p in processes:
         if p.poll() is None:  # Still running
             p.kill()

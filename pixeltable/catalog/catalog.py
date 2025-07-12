@@ -1063,7 +1063,7 @@ class Catalog:
         while True:
             try:
                 tbl_version: int
-                op: TableOp
+                op: Optional[TableOp] = None
                 delete_next_op_q: sql.Delete
                 with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
                     conn = Env.get().conn
@@ -1096,15 +1096,18 @@ class Catalog:
                 tv.exec_op(op)
                 with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
                     Env.get().conn.execute(delete_next_op_q)
-            except sql.exc.DBAPIError as e:
+            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                     num_retries += 1
-                    Env.get().console_logger.info(
-                        f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
-                    )
-                    _logger.debug(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
+                    log_msg: str
+                    if op is not None:
+                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
+                    else:
+                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
+                    Env.get().console_logger.info(log_msg)
+                    _logger.debug(log_msg)
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
                 else:
