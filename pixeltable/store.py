@@ -159,11 +159,10 @@ class StoreBase:
             conn.execute(sql.text(if_not_exists_stmt))
         except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
             Env.get().console_logger.info(f'StoreBase.create() failed with: {e}')
-            if isinstance(
-                e.orig, psycopg.errors.UniqueViolation
-            ) and 'duplicate key value violates unique constraint "pg_type_typname_nsp_index"' in str(e.orig):
-                pass
-            elif isinstance(e.orig, psycopg.errors.DuplicateObject) and 'already exists' in str(e.orig):
+            if (
+                isinstance(e.orig, psycopg.errors.UniqueViolation)
+                and 'duplicate key value violates unique constraint "pg_type_typname_nsp_index"' in str(e.orig)
+            ) or (isinstance(e.orig, psycopg.errors.DuplicateObject) and 'already exists' in str(e.orig)):
                 pass
             else:
                 raise
