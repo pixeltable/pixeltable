@@ -72,10 +72,7 @@ T = TypeVar('T')
 
 
 def retry_loop(
-    *,
-    tbl: Optional[TableVersionPath] = None,
-    for_write: bool,
-    lock_mutable_tree: bool = False,
+    *, tbl: Optional[TableVersionPath] = None, for_write: bool, lock_mutable_tree: bool = False
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -97,7 +94,7 @@ def retry_loop(
                         for_write=for_write,
                         convert_db_excs=False,
                         lock_mutable_tree=lock_mutable_tree,
-                        finalize_pending_ops=True
+                        finalize_pending_ops=True,
                     ):
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
@@ -1104,7 +1101,9 @@ class Catalog:
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                     num_retries += 1
-                    Env.get().console_logger.info(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
+                    Env.get().console_logger.info(
+                        f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
+                    )
                     _logger.debug(f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}')
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
