@@ -310,15 +310,15 @@ class Catalog:
                 with Env.get().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
-                            target: TableVersionHandle
+                            target: Optional[TableVersionHandle] = None
                             if tbl is not None:
-                                self._acquire_path_locks(
+                                if self._acquire_path_locks(
                                     tbl=tbl,
                                     for_write=for_write,
                                     lock_mutable_tree=lock_mutable_tree,
                                     check_pending_ops=finalize_pending_ops,
-                                )
-                                target = tbl.tbl_version
+                                ):
+                                    target = tbl.tbl_version
                             else:
                                 target = self._acquire_tbl_lock(
                                     tbl_id=tbl_id,
@@ -328,7 +328,11 @@ class Catalog:
                                     check_pending_ops=finalize_pending_ops,
                                 )
 
-                            if for_write:
+                            if target is None:
+                                # didn't get the write lock
+                                for_write = False
+                            elif for_write:
+                                # we know at this point that target is mutable because we got the X-lock
                                 if lock_mutable_tree and not target.is_snapshot:
                                     self._x_locked_tbl_ids = self._get_mutable_tree(target.id)
                                     self._compute_column_dependents(self._x_locked_tbl_ids)
@@ -420,7 +424,7 @@ class Catalog:
         for_write: bool = False,
         lock_mutable_tree: bool = False,
         check_pending_ops: Optional[bool] = None,
-    ) -> None:
+    ) -> bool:
         """
         Path locking protocol:
         - refresh cached TableVersions of ancestors (we need those even during inserts, for computed columns that
@@ -429,20 +433,23 @@ class Catalog:
         - if lock_mutable_tree, also X-lock all mutable views of tbl
 
         Raises Error if tbl doesn't exist.
+        Return False if the lock couldn't be acquired (X-lock on a non-mutable table), True otherwise.
         """
         path_handles = tbl.get_tbl_versions()
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
             _ = self.get_tbl_version(handle.id, handle.effective_version)
         if not for_write:
-            return  # nothing left to lock
-        self._acquire_tbl_lock(
+            return True  # nothing left to lock
+        handle = self._acquire_tbl_lock(
             tbl_id=tbl.tbl_id,
             for_write=True,
             lock_mutable_tree=lock_mutable_tree,
             raise_if_not_exists=True,
             check_pending_ops=check_pending_ops,
         )
+        _ = self.get_tbl_version(path_handles[0].id, path_handles[0].effective_version)
+        return handle is not None
 
     def _acquire_tbl_lock(
         self,
@@ -462,7 +469,7 @@ class Catalog:
         Returns True if the table was locked, False if it was a snapshot or not found.
         If lock_mutable_tree, recursively locks all mutable views of the table.
 
-        Returns a handle to what was locked.
+        Returns a handle to what was locked, None if the lock couldn't be acquired (eg, X-lock on a non-mutable table).
         """
         assert (tbl_id is not None) != (dir_id is not None and tbl_name is not None)
         assert (dir_id is None) == (tbl_name is None)
@@ -484,7 +491,8 @@ class Catalog:
             if raise_if_not_exists:
                 raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
             return None  # nothing to lock
-        if for_write:
+        tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+        if for_write and tbl_md.is_mutable:
             conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
 
         if check_pending_ops:
@@ -494,9 +502,11 @@ class Catalog:
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-        is_snapshot = row.md['view_md'] is not None and row.md['view_md']['is_snapshot']
-        effective_version = row.md['current_version'] if is_snapshot else None
-        if not is_snapshot and lock_mutable_tree:
+        if for_write and not tbl_md.is_mutable:
+            return None  # nothing to lock
+
+        effective_version = tbl_md.current_version if tbl_md.is_snapshot else None
+        if tbl_md.is_mutable and lock_mutable_tree:
             # also lock mutable views
             tv = self.get_tbl_version(tbl_id, effective_version)
             for view in tv.mutable_views:
@@ -509,8 +519,80 @@ class Catalog:
                 )
         return TableVersionHandle(tbl_id, effective_version)
 
+    def _finalize_pending_ops(self, tbl_id: UUID) -> None:
+        """
+        Finalizes the next pending op for the given table. Returns True if there was a pending op, False otherwise.
+        """
+        num_retries = 0
+        while True:
+            try:
+                tbl_version: int
+                op: Optional[TableOp] = None
+                delete_next_op_q: sql.Delete
+                with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
+                    conn = Env.get().conn
+                    q = (
+                        sql.select(schema.Table.md, schema.PendingTableOp)
+                        .select_from(schema.Table)
+                        .join(schema.PendingTableOp)
+                        .where(schema.Table.id == tbl_id)
+                        .where(schema.PendingTableOp.tbl_id == tbl_id)
+                        .order_by(schema.PendingTableOp.seq_num)
+                        .limit(1)
+                        .with_for_update()
+                    )
+                    row = conn.execute(q).one_or_none()
+                    if row is None:
+                        return
+                    tbl_version = row.md.get('current_version')
+                    op = schema.md_from_dict(TableOp, row.op)
+                    delete_next_op_q = sql.delete(schema.PendingTableOp).where(
+                        schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.seq_num == row.seq_num
+                    )
+                    if op.needs_xact:
+                        tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
+                        tv.exec_op(op)
+                        conn.execute(delete_next_op_q)
+                        continue
+
+                # this op runs outside of a transaction
+                tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
+                tv.exec_op(op)
+                with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
+                    Env.get().conn.execute(delete_next_op_q)
+            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+                # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
+                # logic of begin_xact()?
+                if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
+                    num_retries += 1
+                    log_msg: str
+                    if op is not None:
+                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
+                    else:
+                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
+                    Env.get().console_logger.info(log_msg)
+                    _logger.debug(log_msg)
+                    time.sleep(random.uniform(0.1, 0.5))
+                    continue
+                else:
+                    raise
+            except Exception as e:
+                _logger.debug(f'finalize_pending_ops(): caught {e}')
+                Env.get().console_logger.info(f'finalize_pending_ops(): caught {e}')
+                raise
+
+            num_retries = 0
+
+    def _debug_str(self) -> str:
+        tv_str = '\n'.join([str(k) for k in self._tbl_versions])
+        tbl_str = '\n'.join([str(k) for k in self._tbls])
+        return f'tbl_versions:\n{tv_str}\ntbls:\n{tbl_str}'
+
     def _get_mutable_tree(self, tbl_id: UUID) -> set[UUID]:
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
+        assert (tbl_id, None) in self._tbl_versions, (
+            f'({tbl_id}, None) not in {self._tbl_versions.keys()}\n{self._debug_str()}'
+        )
         tv = self.get_tbl_version(tbl_id, None)
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
@@ -522,13 +604,27 @@ class Catalog:
         assert self._column_dependents is None
         self._column_dependents = defaultdict(set)
         for tbl_id in mutable_tree:
-            assert tbl_id in self._column_dependencies
+            assert tbl_id in self._column_dependencies, (
+                f'{tbl_id} not in {self._column_dependencies.keys()}\n{self._debug_str()}'
+            )
             for col, dependencies in self._column_dependencies[tbl_id].items():
                 for dependency in dependencies:
                     if dependency.tbl_id not in mutable_tree:
                         continue
                     dependents = self._column_dependents[dependency]
                     dependents.add(col)
+
+    def record_column_dependencies(self, tbl_version: TableVersion) -> None:
+        """Update self._column_dependencies. Only valid for mutable versions."""
+        from pixeltable.exprs import Expr
+
+        assert tbl_version.is_mutable
+        dependencies: dict[QColumnId, set[QColumnId]] = {}
+        for col in tbl_version.cols_by_id.values():
+            if col.value_expr_dict is None:
+                continue
+            dependencies[QColumnId(tbl_version.id, col.id)] = Expr.get_refd_column_ids(col.value_expr_dict)
+        self._column_dependencies[tbl_version.id] = dependencies
 
     def get_column_dependents(self, tbl_id: UUID, col_id: int) -> set[Column]:
         """Return all Columns that transitively depend on the given column."""
@@ -1055,70 +1151,6 @@ class Catalog:
         obj._tbl_version_path.clear_cached_md()
         return obj
 
-    def _finalize_pending_ops(self, tbl_id: UUID) -> None:
-        """
-        Finalizes the next pending op for the given table. Returns True if there was a pending op, False otherwise.
-        """
-        num_retries = 0
-        while True:
-            try:
-                tbl_version: int
-                op: Optional[TableOp] = None
-                delete_next_op_q: sql.Delete
-                with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
-                    conn = Env.get().conn
-                    q = (
-                        sql.select(schema.Table.md, schema.PendingTableOp)
-                        .select_from(schema.Table)
-                        .join(schema.PendingTableOp)
-                        .where(schema.Table.id == tbl_id)
-                        .where(schema.PendingTableOp.tbl_id == tbl_id)
-                        .order_by(schema.PendingTableOp.seq_num)
-                        .limit(1)
-                        .with_for_update()
-                    )
-                    row = conn.execute(q).one_or_none()
-                    if row is None:
-                        return
-                    tbl_version = row.md.get('current_version')
-                    op = schema.md_from_dict(TableOp, row.op)
-                    delete_next_op_q = sql.delete(schema.PendingTableOp).where(
-                        schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.seq_num == row.seq_num
-                    )
-                    if op.needs_xact:
-                        tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
-                        tv.exec_op(op)
-                        conn.execute(delete_next_op_q)
-                        continue
-
-                # this op runs outside of a transaction
-                tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
-                tv.exec_op(op)
-                with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
-                    Env.get().conn.execute(delete_next_op_q)
-            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
-                # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
-                # logic of begin_xact()?
-                if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
-                    num_retries += 1
-                    log_msg: str
-                    if op is not None:
-                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
-                    else:
-                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
-                    Env.get().console_logger.info(log_msg)
-                    _logger.debug(log_msg)
-                    time.sleep(random.uniform(0.1, 0.5))
-                    continue
-                else:
-                    raise
-            except Exception as e:
-                _logger.debug(f'finalize_pending_ops(): caught {e}')
-                Env.get().console_logger.info(f'finalize_pending_ops(): caught {e}')
-                raise
-
-            num_retries = 0
-
     @retry_loop(for_write=True)
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         tbl = self._get_schema_object(
@@ -1293,7 +1325,11 @@ class Catalog:
         return result
 
     def get_tbl_version(
-        self, tbl_id: UUID, effective_version: Optional[int], check_pending_ops: Optional[bool] = None
+        self,
+        tbl_id: UUID,
+        effective_version: Optional[int],
+        check_pending_ops: Optional[bool] = None,
+        validate_initialized: bool = True,
     ) -> Optional[TableVersion]:
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
@@ -1326,7 +1362,9 @@ class Catalog:
                     # the cached metadata is valid
                     tv.is_validated = True
 
-            assert tv.is_validated
+            assert tv.is_validated, f'{tbl_id}:{effective_version} not validated\n{tv.__dict__}\n{self._debug_str()}'
+            if validate_initialized:
+                assert tv.is_initialized, f'{tbl_id}:{effective_version} not initialized\n{tv.__dict__}\n{self._debug_str()}'
             return tv
 
     def remove_tbl_version(self, tbl_version: TableVersion) -> None:
@@ -1748,21 +1786,17 @@ class Catalog:
                 mutable_views=mutable_views,
             )
 
+        # register the instance before init()
         self._tbl_versions[tbl_id, effective_version] = tbl_version
-        tbl_version.init()
+        try:
+            tbl_version.init()
+        except Exception as e:
+            _logger.debug(f'init() failed for {tbl_id}:{effective_version}: {e}')
+            Env.get().console_logger.info(f'init() failed for {tbl_id}:{effective_version}: {e}')
+            # don't leave a partially initialized instance in _tbl_versions
+            del self._tbl_versions[tbl_id, effective_version]
+            raise
         return tbl_version
-
-    def record_column_dependencies(self, tbl_version: TableVersion) -> None:
-        """Update self._column_dependencies. Only valid for non-snapshot versions."""
-        from pixeltable.exprs import Expr
-
-        assert not tbl_version.is_snapshot
-        dependencies: dict[QColumnId, set[QColumnId]] = {}
-        for col in tbl_version.cols_by_id.values():
-            if col.value_expr_dict is None:
-                continue
-            dependencies[QColumnId(tbl_version.id, col.id)] = Expr.get_refd_column_ids(col.value_expr_dict)
-        self._column_dependencies[tbl_version.id] = dependencies
 
     def _init_store(self) -> None:
         """One-time initialization of the stored catalog. Idempotent."""

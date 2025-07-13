@@ -194,6 +194,14 @@ class TableMd:
     additional_md: dict[str, Any]
 
     @property
+    def is_snapshot(self) -> bool:
+        return self.view_md is not None and self.view_md.is_snapshot
+
+    @property
+    def is_mutable(self) -> bool:
+        return not self.is_snapshot and not self.is_replica
+
+    @property
     def is_pure_snapshot(self) -> bool:
         return (
             self.view_md is not None

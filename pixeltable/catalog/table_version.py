@@ -106,6 +106,8 @@ class TableVersion:
     external_stores: dict[str, pxt.io.ExternalStore]
     store_tbl: Optional['store.StoreBase']
 
+    is_initialized: bool  # True if init() has been called
+
     # used by Catalog to invalidate cached instances at the end of a transaction;
     # True if this instance reflects the state of stored metadata in the context of this transaction and
     # it is the instance cached in Catalog
@@ -131,6 +133,7 @@ class TableVersion:
         base: Optional[TableVersionHandle] = None,
     ):
         self.is_validated = True  # a freshly constructed instance is always valid
+        self.is_initialized = False
         self.id = id
         self._tbl_md = copy.deepcopy(tbl_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
@@ -455,14 +458,9 @@ class TableVersion:
             if self.base.get().is_mutable:
                 self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        # cat = Catalog.get()
-        # delete this table and all associated data
         MediaStore.delete(self.id)
         FileCache.get().clear(tbl_id=self.id)
-        # cat.delete_tbl_md(self.id)
         self.store_tbl.drop()
-        # de-register table version from catalog
-        # cat.remove_tbl_version(self)
 
     def init(self) -> None:
         """
@@ -474,11 +472,11 @@ class TableVersion:
         cat = Catalog.get()
         assert (self.id, self.effective_version) in cat._tbl_versions
         self._init_schema()
-        if not self.is_snapshot:
+        if self.is_mutable:
             cat.record_column_dependencies(self)
-
         # init external stores; this needs to happen after the schema is created
         self._init_external_stores()
+        self.is_initialized = True
 
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
@@ -554,7 +552,13 @@ class TableVersion:
             # instantiate index object
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index_module, cls_name)
-            idx_col = self.path.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            idx_col: Column
+            if md.indexed_col_tbl_id == str(self.id):
+                # this is a reference to our own column: avoid TVP.get_column_by_id() here, because we're not fully
+                # initialized yet
+                idx_col = self.cols_by_id[md.indexed_col_id]
+            else:
+                idx_col = self.path.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
