@@ -387,6 +387,7 @@ class TableVersion:
         tbl_version.store_tbl.create()
         is_mutable = not is_snapshot and not table_md.is_replica
         if base is not None and base.get().is_mutable and is_mutable:
+            assert False
             from .table_version_handle import TableVersionHandle
 
             handle = TableVersionHandle(tbl_version.id, effective_version)
@@ -449,14 +450,14 @@ class TableVersion:
         return tbl_version
 
     def drop(self) -> None:
-        if self.is_view and self.is_mutable:
-            # update mutable_views
-            # TODO: invalidate base to force reload
-            from .table_version_handle import TableVersionHandle
-
-            assert self.base is not None
-            if self.base.get().is_mutable:
-                self.base.get().mutable_views.remove(TableVersionHandle.create(self))
+        # if self.is_view and self.is_mutable:
+        #     # update mutable_views
+        #     # TODO: invalidate base to force reload
+        #     from .table_version_handle import TableVersionHandle
+        #
+        #     assert self.base is not None
+        #     if self.base.get().is_mutable:
+        #         self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
         MediaStore.delete(self.id)
         FileCache.get().clear(tbl_id=self.id)

@@ -89,7 +89,7 @@ class View(Table):
         media_validation: MediaValidation,
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
-    ) -> tuple[TableVersionMd, list[TableOp]]:
+    ) -> tuple[TableVersionMd, Optional[list[TableOp]]]:
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
@@ -213,15 +213,19 @@ class View(Table):
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
-            return md, []
+            return md, None
         else:
             tbl_id = md.tbl_md.tbl_id
             view_path = TableVersionPath(
                 TableVersionHandle(UUID(tbl_id), effective_version=0 if is_snapshot else None), base=base_version_path
             )
             ops = [
-                TableOp(tbl_id=tbl_id, seq_num=0, needs_xact=False, create_store_table_op=CreateStoreTableOp()),
-                TableOp(tbl_id=tbl_id, seq_num=1, needs_xact=True, load_view_op=LoadViewOp(view_path.as_dict())),
+                TableOp(
+                    tbl_id=tbl_id, op_sn=0, num_ops=2, needs_xact=False, create_store_table_op=CreateStoreTableOp()
+                ),
+                TableOp(
+                    tbl_id=tbl_id, op_sn=1, num_ops=2, needs_xact=True, load_view_op=LoadViewOp(view_path.as_dict())
+                ),
             ]
             return md, ops
 

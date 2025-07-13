@@ -166,6 +166,7 @@ class Catalog:
     _tbls: dict[UUID, Table]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
+    _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
     _in_retry_loop: bool
 
     # cached column dependencies
@@ -199,6 +200,7 @@ class Catalog:
         self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
+        self._modified_tvs = set()
         self._in_retry_loop = False
         self._column_dependencies = {}
         self._column_dependents = None
@@ -295,6 +297,7 @@ class Catalog:
         # _logger.debug(f'begin_xact(): {tv_msg}')
         num_retries = 0
         pending_ops_tbl_id: Optional[UUID] = None
+        has_error = False
         while True:
             if pending_ops_tbl_id is not None:
                 _logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
@@ -305,7 +308,9 @@ class Catalog:
             try:
                 self._in_write_xact = False
                 self._x_locked_tbl_ids = set()
+                self._modified_tvs = set()
                 self._column_dependents = None
+                has_error = False
 
                 with Env.get().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
@@ -343,6 +348,7 @@ class Catalog:
                                     self.validate()
 
                         except PendingTableOpsError as e:
+                            has_error = True
                             if finalize_pending_ops:
                                 # we remember which table id to finalize
                                 pending_ops_tbl_id = e.tbl_id
@@ -350,6 +356,7 @@ class Catalog:
                             raise
 
                         except sql.exc.DBAPIError as e:
+                            has_error = True
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
                             ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
@@ -412,6 +419,13 @@ class Catalog:
                     if tv.effective_version is None:
                         _logger.debug(f'invalidating table version {tv.id}:None (tv={id(tv):x})')
                         tv.is_validated = False
+
+                if has_error:
+                    # purge all modified TableVersion instances, we can't guarantee they are still consistent with the
+                    # stored metadata
+                    for handle in self._modified_tvs:
+                        self._clear_tv_cache(handle.id, handle.effective_version)
+                self._modified_tvs = set()
 
     @property
     def in_write_xact(self) -> bool:
@@ -528,16 +542,18 @@ class Catalog:
             try:
                 tbl_version: int
                 op: Optional[TableOp] = None
-                delete_next_op_q: sql.Delete
-                with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
-                    conn = Env.get().conn
+                delete_next_op_stmt: sql.Delete
+                reset_has_pending_stmt: sql.Update
+                with self.begin_xact(
+                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                ) as conn:
                     q = (
                         sql.select(schema.Table.md, schema.PendingTableOp)
                         .select_from(schema.Table)
                         .join(schema.PendingTableOp)
                         .where(schema.Table.id == tbl_id)
                         .where(schema.PendingTableOp.tbl_id == tbl_id)
-                        .order_by(schema.PendingTableOp.seq_num)
+                        .order_by(schema.PendingTableOp.op_sn)
                         .limit(1)
                         .with_for_update()
                     )
@@ -546,22 +562,35 @@ class Catalog:
                         return
                     tbl_version = row.md.get('current_version')
                     op = schema.md_from_dict(TableOp, row.op)
-                    delete_next_op_q = sql.delete(schema.PendingTableOp).where(
-                        schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.seq_num == row.seq_num
+                    delete_next_op_stmt = sql.delete(schema.PendingTableOp).where(
+                        schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.op_sn == row.op_sn
                     )
+                    reset_has_pending_stmt = (
+                        sql.update(schema.Table)
+                        .where(schema.Table.id == tbl_id)
+                        .values(md=schema.Table.md.op('||')({'has_pending_ops': False}))
+                    )
+
                     if op.needs_xact:
                         tv = self.get_tbl_version(
                             tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True
                         )
                         tv.exec_op(op)
-                        conn.execute(delete_next_op_q)
+                        conn.execute(delete_next_op_stmt)
+                        if op.op_sn == op.num_ops - 1:
+                            conn.execute(reset_has_pending_stmt)
                         continue
 
                 # this op runs outside of a transaction
                 tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True)
                 tv.exec_op(op)
-                with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
-                    Env.get().conn.execute(delete_next_op_q)
+                with self.begin_xact(
+                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                ) as conn:
+                    conn.execute(delete_next_op_stmt)
+                    if op.op_sn == op.num_ops - 1:
+                        conn.execute(reset_has_pending_stmt)
+
             except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
@@ -977,16 +1006,22 @@ class Catalog:
             return tbl_id
 
         view_id = create_fn()
-        # TODO: instead of fixing up TableVersion instances in-place, which can introduce bugs, they should be
-        #  invalidated and reloaded
         if not is_snapshot and base.is_mutable():
-            base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version, validate_initialized=True)
-            view_handle = TableVersionHandle(view_id, effective_version=None)
-            base_tv.mutable_views.add(view_handle)
+            # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
+            self._clear_tv_cache(base.tbl_id, base.tbl_version.effective_version)
+            # base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version, validate_initialized=True)
+            # view_handle = TableVersionHandle(view_id, effective_version=None)
+            # base_tv.mutable_views.add(view_handle)
 
         # finalize pending ops
         with self.begin_xact(tbl_id=view_id, for_write=True, finalize_pending_ops=True):
             return self.get_table_by_id(view_id)
+
+    def _clear_tv_cache(self, tbl_id: UUID, effective_version: Optional[int]) -> None:
+        if (tbl_id, effective_version) in self._tbl_versions:
+            tv = self._tbl_versions[tbl_id, effective_version]
+            tv.is_validated = False
+            del self._tbl_versions[tbl_id, effective_version]
 
     def create_replica(self, path: Path, md: list[schema.FullTableMd]) -> None:
         """
@@ -1212,6 +1247,7 @@ class Catalog:
             base_id = tbl._tbl_version_path.base.tbl_id
             base_tv = self.get_tbl_version(base_id, None, validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
+            self._modified_tvs.add(base_tv.handle)
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
@@ -1219,21 +1255,24 @@ class Catalog:
             )
             assert result.rowcount == 1, result.rowcount
 
+        if tbl._tbl_version is not None:
+            # invalidate the TableVersion instance when we're done so that existing references to it can find out it
+            # has been dropped
+            self._modified_tvs.add(tbl._tbl_version)
         tv = tbl._tbl_version.get() if tbl._tbl_version is not None else None
-        if tv is not None:
+        # if tv is not None:
+        #     tv = tbl._tbl_version.get()
+        #     # invalidate the TableVersion instance so that existing references to it can find out it has been dropped
+        #     tv.is_validated = False
+        if tbl._tbl_version is not None:
+            # drop the store table before deleting the Table record
             tv = tbl._tbl_version.get()
-            # invalidate the TableVersion instance so that existing references to it can find out it has been dropped
-            tv.is_validated = False
+            tv.drop()
 
         self.delete_tbl_md(tbl._id)
         assert tbl._id in self._tbls
         del self._tbls[tbl._id]
         _logger.info(f'Dropped table `{tbl._path()}`.')
-
-        if tv is not None:
-            tv.drop()
-            assert (tv.id, tv.effective_version) in self._tbl_versions
-            del self._tbl_versions[tv.id, tv.effective_version]
 
     @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
@@ -1605,6 +1644,8 @@ class Catalog:
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         assert self._in_write_xact
+        assert pending_ops is None or len(pending_ops) > 0
+        assert pending_ops is None or tbl_md is not None  # if we write pending ops, we must also write new tbl_md
         session = Env.get().session
 
         # Construct and insert or update table record if requested.
@@ -1615,6 +1656,9 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
+            if pending_ops is not None:
+                tbl_md.has_pending_ops = True
+
             if dir_id is not None:
                 # We are inserting a record while creating a new table.
                 tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md))
@@ -1651,7 +1695,7 @@ class Catalog:
 
         if pending_ops is not None:
             for op in pending_ops:
-                op_record = schema.PendingTableOp(tbl_id=tbl_id, seq_num=op.seq_num, op=dataclasses.asdict(op))
+                op_record = schema.PendingTableOp(tbl_id=tbl_id, op_sn=op.op_sn, op=dataclasses.asdict(op))
                 session.add(op_record)
 
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
@@ -1792,14 +1836,10 @@ class Catalog:
 
         # register the instance before init()
         self._tbl_versions[tbl_id, effective_version] = tbl_version
-        try:
-            tbl_version.init()
-        except Exception as e:
-            _logger.debug(f'init() failed for {tbl_id}:{effective_version}: {e}')
-            Env.get().console_logger.info(f'init() failed for {tbl_id}:{effective_version}: {e}')
-            # don't leave a partially initialized instance in _tbl_versions
-            del self._tbl_versions[tbl_id, effective_version]
-            raise
+        # register this instance as modified, so that it gets purged if the transaction fails, it may not be
+        # fully initialized
+        self._modified_tvs.add(tbl_version.handle)
+        tbl_version.init()
         return tbl_version
 
     def _init_store(self) -> None:

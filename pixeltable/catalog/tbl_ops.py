@@ -36,7 +36,8 @@ class DropStoreTableOp:
 @dataclasses.dataclass
 class TableOp:
     tbl_id: str  # uuid.UUID
-    seq_num: int
+    op_sn: int  # sequence number within the update operation; [0, num_ops)
+    num_ops: int  # total number of ops forming the update operation
     needs_xact: bool  # if True, op must be run as part of a transaction
 
     create_store_table_op: Optional[CreateStoreTableOp] = None
