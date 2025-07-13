@@ -387,7 +387,8 @@ class TableVersion:
         tbl_version.store_tbl.create()
         is_mutable = not is_snapshot and not table_md.is_replica
         if base is not None and base.get().is_mutable and is_mutable:
-            assert False
+            # TODO before check-in: remove this branch
+            raise AssertionError()
             from .table_version_handle import TableVersionHandle
 
             handle = TableVersionHandle(tbl_version.id, effective_version)

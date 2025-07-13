@@ -372,6 +372,7 @@ class Catalog:
                     return
 
             except PendingTableOpsError:
+                has_error = True
                 if pending_ops_tbl_id is not None:
                     # the next iteration of the loop will deal with pending ops for this table id
                     continue
@@ -380,6 +381,7 @@ class Catalog:
                     raise
 
             except sql.exc.DBAPIError as e:
+                has_error = True
                 # we got some db error during the actual operation (not just while trying to get locks on the metadata
                 # records): we convert these into Errors, if asked to do so, and abort
                 # TODO: what other concurrency-related exceptions should we expect?
@@ -408,6 +410,10 @@ class Catalog:
                     ) from None
                 else:
                     raise
+
+            except:
+                has_error = True
+                raise
 
             finally:
                 self._in_write_xact = False
