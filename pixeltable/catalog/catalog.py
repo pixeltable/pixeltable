@@ -438,7 +438,7 @@ class Catalog:
         path_handles = tbl.get_tbl_versions()
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
-            _ = self.get_tbl_version(handle.id, handle.effective_version)
+            _ = self.get_tbl_version(handle.id, handle.effective_version, validate_initialized=True)
         if not for_write:
             return True  # nothing left to lock
         handle = self._acquire_tbl_lock(
@@ -448,7 +448,7 @@ class Catalog:
             raise_if_not_exists=True,
             check_pending_ops=check_pending_ops,
         )
-        _ = self.get_tbl_version(path_handles[0].id, path_handles[0].effective_version)
+        _ = self.get_tbl_version(path_handles[0].id, path_handles[0].effective_version, validate_initialized=True)
         return handle is not None
 
     def _acquire_tbl_lock(
@@ -508,7 +508,7 @@ class Catalog:
         effective_version = tbl_md.current_version if tbl_md.is_snapshot else None
         if tbl_md.is_mutable and lock_mutable_tree:
             # also lock mutable views
-            tv = self.get_tbl_version(tbl_id, effective_version)
+            tv = self.get_tbl_version(tbl_id, effective_version, validate_initialized=True)
             for view in tv.mutable_views:
                 self._acquire_tbl_lock(
                     for_write=for_write,
@@ -550,13 +550,15 @@ class Catalog:
                         schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.seq_num == row.seq_num
                     )
                     if op.needs_xact:
-                        tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
+                        tv = self.get_tbl_version(
+                            tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True
+                        )
                         tv.exec_op(op)
                         conn.execute(delete_next_op_q)
                         continue
 
                 # this op runs outside of a transaction
-                tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False)
+                tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True)
                 tv.exec_op(op)
                 with self.begin_xact(tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False):
                     Env.get().conn.execute(delete_next_op_q)
@@ -593,7 +595,7 @@ class Catalog:
         assert (tbl_id, None) in self._tbl_versions, (
             f'({tbl_id}, None) not in {self._tbl_versions.keys()}\n{self._debug_str()}'
         )
-        tv = self.get_tbl_version(tbl_id, None)
+        tv = self.get_tbl_version(tbl_id, None, validate_initialized=True)
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
             result.update(self._get_mutable_tree(view.id))
@@ -632,7 +634,7 @@ class Catalog:
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
         for dependent in dependents:
-            tv = self.get_tbl_version(dependent.tbl_id, None)
+            tv = self.get_tbl_version(dependent.tbl_id, None, validate_initialized=True)
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
@@ -935,7 +937,7 @@ class Catalog:
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 self._acquire_tbl_lock(tbl_id=base.tbl_id, for_write=True)
-                base_tv = self.get_tbl_version(base.tbl_id, None)
+                base_tv = self.get_tbl_version(base.tbl_id, None, validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
                 result = Env.get().conn.execute(
                     sql.update(schema.Table)
@@ -978,7 +980,7 @@ class Catalog:
         # TODO: instead of fixing up TableVersion instances in-place, which can introduce bugs, they should be
         #  invalidated and reloaded
         if not is_snapshot and base.is_mutable():
-            base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version)
+            base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version, validate_initialized=True)
             view_handle = TableVersionHandle(view_id, effective_version=None)
             base_tv.mutable_views.add(view_handle)
 
@@ -1208,7 +1210,7 @@ class Catalog:
         # if this is a mutable view of a mutable base, advance the base's view_sn
         if isinstance(tbl, View) and tbl._tbl_version_path.is_mutable() and tbl._tbl_version_path.base.is_mutable():
             base_id = tbl._tbl_version_path.base.tbl_id
-            base_tv = self.get_tbl_version(base_id, None)
+            base_tv = self.get_tbl_version(base_id, None, validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
@@ -1329,7 +1331,7 @@ class Catalog:
         tbl_id: UUID,
         effective_version: Optional[int],
         check_pending_ops: Optional[bool] = None,
-        validate_initialized: bool = True,
+        validate_initialized: bool = False,
     ) -> Optional[TableVersion]:
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
@@ -1364,7 +1366,9 @@ class Catalog:
 
             assert tv.is_validated, f'{tbl_id}:{effective_version} not validated\n{tv.__dict__}\n{self._debug_str()}'
             if validate_initialized:
-                assert tv.is_initialized, f'{tbl_id}:{effective_version} not initialized\n{tv.__dict__}\n{self._debug_str()}'
+                assert tv.is_initialized, (
+                    f'{tbl_id}:{effective_version} not initialized\n{tv.__dict__}\n{self._debug_str()}'
+                )
             return tv
 
     def remove_tbl_version(self, tbl_version: TableVersion) -> None:

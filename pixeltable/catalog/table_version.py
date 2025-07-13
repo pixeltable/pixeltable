@@ -554,11 +554,12 @@ class TableVersion:
             cls = getattr(index_module, cls_name)
             idx_col: Column
             if md.indexed_col_tbl_id == str(self.id):
-                # this is a reference to our own column: avoid TVP.get_column_by_id() here, because we're not fully
+                # this is a reference to one of our columns: avoid TVP.get_column_by_id() here, because we're not fully
                 # initialized yet
                 idx_col = self.cols_by_id[md.indexed_col_id]
             else:
-                idx_col = self.path.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+                assert self.path.base is not None
+                idx_col = self.path.base.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
