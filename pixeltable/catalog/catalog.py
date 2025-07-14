@@ -99,7 +99,7 @@ def retry_loop(
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
                     _logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
-                    Env.get().console_logger.info(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
+                    Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
                 except sql.exc.DBAPIError as e:
                     # TODO: what other exceptions should we be looking for?
@@ -297,11 +297,11 @@ class Catalog:
         # _logger.debug(f'begin_xact(): {tv_msg}')
         num_retries = 0
         pending_ops_tbl_id: Optional[UUID] = None
-        has_error = False
+        has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
         while True:
             if pending_ops_tbl_id is not None:
                 _logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                Env.get().console_logger.info(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
+                Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
@@ -310,7 +310,7 @@ class Catalog:
                 self._x_locked_tbl_ids = set()
                 self._modified_tvs = set()
                 self._column_dependents = None
-                has_error = False
+                has_exc = False
 
                 with Env.get().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
@@ -348,7 +348,7 @@ class Catalog:
                                     self.validate()
 
                         except PendingTableOpsError as e:
-                            has_error = True
+                            has_exc = True
                             if finalize_pending_ops:
                                 # we remember which table id to finalize
                                 pending_ops_tbl_id = e.tbl_id
@@ -356,7 +356,7 @@ class Catalog:
                             raise
 
                         except sql.exc.DBAPIError as e:
-                            has_error = True
+                            has_exc = True
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
                             ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
@@ -372,7 +372,7 @@ class Catalog:
                     return
 
             except PendingTableOpsError:
-                has_error = True
+                has_exc = True
                 if pending_ops_tbl_id is not None:
                     # the next iteration of the loop will deal with pending ops for this table id
                     continue
@@ -381,7 +381,7 @@ class Catalog:
                     raise
 
             except sql.exc.DBAPIError as e:
-                has_error = True
+                has_exc = True
                 # we got some db error during the actual operation (not just while trying to get locks on the metadata
                 # records): we convert these into Errors, if asked to do so, and abort
                 # TODO: what other concurrency-related exceptions should we expect?
@@ -412,7 +412,7 @@ class Catalog:
                     raise
 
             except:
-                has_error = True
+                has_exc = True
                 raise
 
             finally:
@@ -426,7 +426,7 @@ class Catalog:
                         _logger.debug(f'invalidating table version {tv.id}:None (tv={id(tv):x})')
                         tv.is_validated = False
 
-                if has_error:
+                if has_exc:
                     # purge all modified TableVersion instances, we can't guarantee they are still consistent with the
                     # stored metadata
                     for handle in self._modified_tvs:
@@ -607,7 +607,7 @@ class Catalog:
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
                     else:
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
-                    Env.get().console_logger.info(log_msg)
+                    Env.get().console_logger.debug(log_msg)
                     _logger.debug(log_msg)
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
@@ -615,7 +615,7 @@ class Catalog:
                     raise
             except Exception as e:
                 _logger.debug(f'finalize_pending_ops(): caught {e}')
-                Env.get().console_logger.info(f'finalize_pending_ops(): caught {e}')
+                Env.get().console_logger.debug(f'finalize_pending_ops(): caught {e}')
                 raise
 
             num_retries = 0

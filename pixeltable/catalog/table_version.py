@@ -208,7 +208,7 @@ class TableVersion:
         return TableVersionHandle(self.id, self.effective_version, self)
 
     @classmethod
-    def create_md(
+    def create_initial_md(
         cls,
         dir_id: UUID,
         name: str,

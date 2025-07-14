@@ -208,7 +208,7 @@ class View(Table):
             iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
         )
 
-        md = TableVersion.create_md(
+        md = TableVersion.create_initial_md(
             dir_id, name, columns, num_retained_versions, comment, media_validation=media_validation, view_md=view_md
         )
         if md.tbl_md.is_pure_snapshot:
