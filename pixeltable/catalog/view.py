@@ -284,10 +284,20 @@ class View(Table):
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
+    def _is_anonymous_snapshot(self) -> bool:
+        """
+        Returns True if this is an unnamed snapshot (i.e., a snapshot that is not a separate schema object).
+        """
+        return self._snapshot_only and self._id == self._tbl_version_path.tbl_id
+
     def _get_metadata(self) -> dict[str, Any]:
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
+        if self._is_anonymous_snapshot():
+            # Update name and path with version qualifiers.
+            md['name'] = f'{self._name}:{self._tbl_version_path.version()}'
+            md['path'] = f'{self._path()}:{self._tbl_version_path.version()}'
         base_tbl = self._get_base_table()
         if base_tbl is None:
             md['base'] = None
@@ -313,11 +323,14 @@ class View(Table):
         raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
 
     def _get_base_table(self) -> Optional['Table']:
-        if self._tbl_version_path.base is None and not self._snapshot_only:
-            return None  # this can happen for a replica of a base table
-        # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
-        # for the snapshot itself)
-        base_id = self._tbl_version_path.tbl_id if self._snapshot_only else self._tbl_version_path.base.tbl_id
+        if self._tbl_version_path.tbl_id != self._id:
+            # _tbl_version_path represents a different schema object from this one. This can only happen if this is a
+            # named pure snapshot.
+            base_id = self._tbl_version_path.tbl_id
+        elif self._tbl_version_path.base is None:
+            return None
+        else:
+            base_id = self._tbl_version_path.base.tbl_id
         return catalog.Catalog.get().get_table_by_id(base_id)
 
     @property

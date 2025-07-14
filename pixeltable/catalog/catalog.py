@@ -453,6 +453,7 @@ class Catalog:
 
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
+        assert isinstance(dir_id, UUID)
         conn = Env.get().conn
         names: list[str] = []
         while True:
@@ -631,7 +632,7 @@ class Catalog:
         """Return the schema object at the given path, or None if it doesn't exist.
 
         Raises Error if
-        - the parent directory doesn't exist'
+        - the parent directory doesn't exist
         - raise_if_exists is True and the path exists
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
@@ -1275,7 +1276,7 @@ class Catalog:
             if (tbl_id, effective_version) not in self._tbl_versions:
                 _ = self._load_tbl_version(tbl_id, effective_version)
             tvp = TableVersionPath(TableVersionHandle(tbl_id, effective_version))
-            tbl = View(tbl_record.dir_id, TableVersionHandle(tbl_id, effective_version), tbl_md.name, tvp, snapshot_only=True)
+            tbl = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
             return tbl
 
         assert False  # TODO: Views

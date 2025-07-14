@@ -6,7 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs
+from pixeltable import catalog, exceptions as excs, type_system as ts
 from pixeltable.func import Batch
 
 from .utils import ReloadTester, assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
@@ -846,6 +846,62 @@ class TestView:
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
         check(s, v, view_s)
+
+    def test_prior_versions_of_table(self, reset_db: None) -> None:
+        pxt.create_dir('dir')
+        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        assert t.get_metadata()['version'] == 0
+        t.insert(c1=1)
+        t.insert(c1=2)
+        t.add_column(c2=pxt.String)
+        t.insert({'c1': i, 'c2': f'str{i}'} for i in range(3, 10))
+        assert t.get_metadata()['version'] == 4
+        t.drop_column('c1')
+        t.rename_column('c2', 'balloon')
+        t.insert({'balloon': f'str{i}'} for i in range(10, 20))
+        assert t.get_metadata()['version'] == 7
+
+        # Check metadata
+        v = [pxt.get_table(f'dir.test_tbl:{version}') for version in range(0, 8)]
+        for i in range(len(v)):
+            assert isinstance(v[i], pxt.View)
+            vmd = v[i].get_metadata()
+            if i < 3:
+                expected_schema = {'c1': ts.IntType(nullable=True)}
+                expected_schema_version = 0
+            elif i < 5:
+                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True)}
+                expected_schema_version = 3
+            elif i < 6:
+                expected_schema = {'c2': ts.StringType(nullable=True)}
+                expected_schema_version = 5
+            else:
+                expected_schema = {'balloon': ts.StringType(nullable=True)}
+                expected_schema_version = 6
+            assert vmd == {
+                'base': None,
+                'comment': '',
+                'is_replica': False,
+                'is_snapshot': True,
+                'is_view': True,
+                'media_validation': 'on_write',
+                'name': f'test_tbl:{i}',
+                'num_retained_versions': 10,
+                'path': f'dir.test_tbl:{i}',
+                'schema': expected_schema,
+                'schema_version': expected_schema_version,
+                'version': i,
+            }
+
+        res = [list(v[i].head(100)) for i in range(len(v))]
+        assert res[0] == []
+        assert res[1] == [{'c1': 1}]
+        assert res[2] == [{'c1': 1}, {'c1': 2}]
+        assert res[3] == [{'c1': 1, 'c2': None}, {'c1': 2, 'c2': None}]
+        assert res[4] == res[3] + [{'c1': i, 'c2': f'str{i}'} for i in range(3, 10)]
+        assert res[5] == [{'c2': r['c2']} for r in res[4]]
+        assert res[6] == [{'balloon': r['c2']} for r in res[5]]
+        assert res[7] == res[6] + [{'balloon': f'str{i}'} for i in range(10, 20)]
 
     def test_column_defaults(self, reset_db: None) -> None:
         """
