@@ -862,10 +862,10 @@ class TestView:
         assert t.get_metadata()['version'] == 7
 
         # Check metadata
-        v = [pxt.get_table(f'dir.test_tbl:{version}') for version in range(0, 8)]
-        for i in range(len(v)):
-            assert isinstance(v[i], pxt.View)
-            vmd = v[i].get_metadata()
+        ver = [pxt.get_table(f'dir.test_tbl:{version}') for version in range(0, 8)]
+        for i in range(len(ver)):
+            assert isinstance(ver[i], pxt.View)
+            vmd = ver[i].get_metadata()
             if i < 3:
                 expected_schema = {'c1': ts.IntType(nullable=True)}
                 expected_schema_version = 0
@@ -893,7 +893,7 @@ class TestView:
                 'version': i,
             }
 
-        res = [list(v[i].head(100)) for i in range(len(v))]
+        res = [list(ver[i].head(100)) for i in range(len(ver))]
         assert res[0] == []
         assert res[1] == [{'c1': 1}]
         assert res[2] == [{'c1': 1}, {'c1': 2}]
@@ -902,6 +902,51 @@ class TestView:
         assert res[5] == [{'c2': r['c2']} for r in res[4]]
         assert res[6] == [{'balloon': r['c2']} for r in res[5]]
         assert res[7] == res[6] + [{'balloon': f'str{i}'} for i in range(10, 20)]
+
+    def test_prior_versions_of_view(self, reset_db: None) -> None:
+        pxt.create_dir('dir')
+        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        assert t.get_metadata()['version'] == 0
+        t.insert(c1=1)
+        t.insert(c1=2)
+        t.add_column(c2=pxt.String)
+        t.insert({'c1': i, 'c2': f'str{i}'} for i in range(3, 10))
+        assert t.get_metadata()['version'] == 4
+        v = pxt.create_view('dir.test_view', t.where(t.c1 % 2 == 0))
+        assert v.get_metadata()['version'] == 0
+        v.add_computed_column(c3=(v.c1 // 2))
+        v.add_column(c4=pxt.Int)
+        assert v.get_metadata()['version'] == 2
+        t.drop_column('c2')
+        t.rename_column('c1', 'balloon')
+        t.insert({'balloon': i} for i in range(10, 20))
+        v.rename_column('c3', 'hamburger')
+        v.update({'c4': v.hamburger + 91})
+        assert t.get_metadata()['version'] == 7
+        assert v.get_metadata()['version'] == 5
+
+        # Check metadata
+        ver = [pxt.get_table(f'dir.test_view:{version}') for version in range(0, 6)]
+        for i in range(len(ver)):
+            assert isinstance(ver[i], pxt.View)
+            vmd = ver[i].get_metadata()
+            if i < 3:
+                expected_schema = {'c1': ts.IntType(nullable=True)}
+                expected_schema_version = 0
+            assert vmd == {
+                'base': 'dir.test_tbl',
+                'comment': '',
+                'is_replica': False,
+                'is_snapshot': True,
+                'is_view': True,
+                'media_validation': 'on_write',
+                'name': f'test_view:{i}',
+                'num_retained_versions': 10,
+                'path': f'dir.test_view:{i}',
+                'schema': expected_schema,
+                'schema_version': expected_schema_version,
+                'version': i,
+            }
 
     def test_column_defaults(self, reset_db: None) -> None:
         """
