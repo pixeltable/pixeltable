@@ -336,8 +336,8 @@ class View(Table):
     @property
     def _effective_base_versions(self) -> list[Optional[int]]:
         effective_versions = [tv.effective_version for tv in self._tbl_version_path.get_tbl_versions()]
-        if self._snapshot_only:
-            return effective_versions
+        if self._snapshot_only and not self._is_anonymous_snapshot():
+            return effective_versions  # Named pure snapshot
         else:
             return effective_versions[1:]
 

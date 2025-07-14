@@ -1268,14 +1268,15 @@ class Catalog:
                 q = (
                     sql.select(schema.TableVersion)
                     .where(schema.TableVersion.tbl_id == ancestor_id)
-                    .where(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float <= {version_md.created_at}"))
-                    .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float DESC"))
+                    .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= version_md.created_at)
+                    .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                     .limit(1)
                 )
                 row = conn.execute(q).one_or_none()
                 assert row is not None, f'Ancestor {ancestor_id} not found for table {tbl_id}:{effective_version}'
                 ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
                 ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
+                assert ancestor_version_md.created_at <= version_md.created_at
                 ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
 
         # Add the primary table to the ancestors list.

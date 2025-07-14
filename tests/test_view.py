@@ -920,6 +920,7 @@ class TestView:
         t.drop_column('c2')
         t.rename_column('c1', 'balloon')
         t.insert({'balloon': i} for i in range(10, 20))
+        assert v.get_metadata()['version'] == 3
         v.rename_column('c3', 'hamburger')
         v.update({'c4': v.hamburger + 91})
         assert t.get_metadata()['version'] == 7
@@ -930,11 +931,28 @@ class TestView:
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
-            if i < 3:
-                expected_schema = {'c1': ts.IntType(nullable=True)}
+            if i == 0:
+                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True)}
                 expected_schema_version = 0
+                expected_base_version = 4
+            elif i == 1:
+                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True), 'c3': ts.IntType(nullable=True)}
+                expected_schema_version = 1
+                expected_base_version = 4
+            elif i == 2:
+                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True), 'c3': ts.IntType(nullable=True), 'c4': ts.IntType(nullable=True)}
+                expected_schema_version = 2
+                expected_base_version = 4
+            elif i == 3:
+                expected_schema = {'balloon': ts.IntType(nullable=True), 'c3': ts.IntType(nullable=True), 'c4': ts.IntType(nullable=True)}
+                expected_schema_version = 2
+                expected_base_version = 7
+            elif i == 4:
+                expected_schema = {'balloon': ts.IntType(nullable=True), 'c4': ts.IntType(nullable=True), 'hamburger': ts.IntType(nullable=True)}
+                expected_schema_version = 4
+                expected_base_version = 7
             assert vmd == {
-                'base': 'dir.test_tbl',
+                'base': f'dir.test_tbl:{expected_base_version}',
                 'comment': '',
                 'is_replica': False,
                 'is_snapshot': True,
