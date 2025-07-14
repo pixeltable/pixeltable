@@ -68,6 +68,7 @@ class TableVersion:
     _schema_version_md: schema.TableSchemaVersionMd
 
     effective_version: Optional[int]
+    created_at: float
     path: Optional[pxt.catalog.TableVersionPath]  # only set for live tables; needed to resolve computed cols
     base: Optional[TableVersionHandle]  # only set for views
     predicate: Optional[exprs.Expr]
@@ -111,6 +112,7 @@ class TableVersion:
         id: UUID,
         tbl_md: schema.TableMd,
         effective_version: Optional[int],
+        created_at: float,
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
@@ -121,6 +123,7 @@ class TableVersion:
         self._tbl_md = copy.deepcopy(tbl_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
         self.effective_version = effective_version
+        self.created_at = created_at
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
@@ -294,7 +297,7 @@ class TableVersion:
         effective_version = 0 if is_snapshot else None
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
-        tbl_version = cls(tbl_id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base)
+        tbl_version = cls(tbl_id, table_md, effective_version, timestamp, schema_version_md, [], base_path=base_path, base=base)
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
         cat._tbl_versions[tbl_id, effective_version] = tbl_version
         tbl_version.init()
@@ -331,7 +334,7 @@ class TableVersion:
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
-            tbl_id, md.tbl_md, md.version_md.version, md.schema_version_md, [], base_path=base_path, base=base
+            tbl_id, md.tbl_md, md.version_md.version, md.version_md.created_at, md.schema_version_md, [], base_path=base_path, base=base
         )
         cat = pxt.catalog.Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
@@ -501,16 +504,15 @@ class TableVersion:
             self.id, None, self._tbl_md, version_md, self._schema_version_md if new_schema_version else None
         )
 
-    def _write_md_update_status(self, new_version_ts: float, update_status: UpdateStatus) -> None:
+    def _write_md_update_status(self, update_status: UpdateStatus) -> None:
         """Writes a new update_status in the table version metadata in the database.
 
         Args:
-            timestamp: timestamp of the change
             update_status: UpdateStatus to be updated in the database
         """
         from pixeltable.catalog import Catalog
 
-        Catalog.get().update_tbl_version_md(self._create_version_md(new_version_ts, update_status))
+        Catalog.get().update_tbl_version_md(self._create_version_md(self.created_at, update_status))
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""

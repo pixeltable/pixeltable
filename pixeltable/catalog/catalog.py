@@ -1363,6 +1363,7 @@ class Catalog:
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         assert self._in_write_xact
+        assert version_md.created_at > 0.0
         session = Env.get().session
 
         # Construct and insert or update table record if requested.
@@ -1413,6 +1414,7 @@ class Catalog:
             version_md: TableVersionMd
         """
         assert self._in_write_xact
+        assert version_md.created_at > 0.0
         session = Env.get().session
 
         session.execute(
@@ -1462,7 +1464,7 @@ class Catalog:
 
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
-        tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
+        tbl_md, version_md, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
 
         conn = Env.get().conn
@@ -1487,7 +1489,7 @@ class Catalog:
         if view_md is None:
             # this is a base table
             tbl_version = TableVersion(
-                tbl_id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
+                tbl_id, tbl_md, effective_version, version_md.created_at, schema_version_md, mutable_views=mutable_views
             )
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
@@ -1506,6 +1508,7 @@ class Catalog:
                 tbl_id,
                 tbl_md,
                 effective_version,
+                version_md.created_at,
                 schema_version_md,
                 base_path=base_path,
                 base=base,
