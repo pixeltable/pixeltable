@@ -1249,37 +1249,49 @@ class Catalog:
 
         conn = Env.get().conn
         q = (
-            sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
+            sql.select(schema.Table, schema.TableVersion)
             .join(schema.TableVersion)
-            .join(schema.TableSchemaVersion)
-            .where(schema.Table.id == schema.TableVersion.tbl_id)
-            .where(schema.Table.id == schema.TableSchemaVersion.tbl_id)
-            .where(schema.TableVersion.version == effective_version)
-            # TableVersion.md['schema_version'] == TableSchemaVersion.schema_version
-            .where(
-                sql.text(
-                    f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                    f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                )
-            )
             .where(schema.Table.id == tbl_id)
+            .where(schema.Table.id == schema.TableVersion.tbl_id)
+            .where(schema.TableVersion.version == effective_version)
         )
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
-        tbl_record, version_record, schema_version_record = _unpack_row(row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion])
-
+        tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-        view_md = tbl_md.view_md
-        if view_md is None:
-            # this is a base table
-            if (tbl_id, effective_version) not in self._tbl_versions:
-                _ = self._load_tbl_version(tbl_id, effective_version)
-            tvp = TableVersionPath(TableVersionHandle(tbl_id, effective_version))
-            tbl = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
-            return tbl
+        version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
 
-        assert False  # TODO: Views
+        ancestors: list[tuple[UUID, Optional[int]]] = []
+        if tbl_md.view_md is not None:
+            for ancestor_id, _ in tbl_md.view_md.base_versions:
+                q = (
+                    sql.select(schema.TableVersion)
+                    .where(schema.TableVersion.id == ancestor_id)
+                    .where(schema.TableVersion.created_at == version_md.created_at)
+                )
+                row = conn.execute(q).one_or_none()
+                assert row is not None, f'Ancestor {ancestor_id} not found for table {tbl_id}:{effective_version}'
+                ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
+                ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
+                ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
+
+        # Add the primary table to the ancestors list.
+        ancestors.append((tbl_id, effective_version))
+
+        # Force any ancestors to be loaded.
+        for id, version in ancestors:
+            if (id, version) not in self._tbl_versions:
+                _ = self._load_tbl_version(id, version)
+
+        tvp: Optional[TableVersionPath] = None
+        for id, version in ancestors:
+            tvp = TableVersionPath(
+                TableVersionHandle(id, version), base=tvp
+            )
+
+        tbl = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
+        return tbl
 
     @_retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
