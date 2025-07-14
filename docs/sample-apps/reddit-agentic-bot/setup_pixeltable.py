@@ -143,7 +143,11 @@ questions.add_computed_column(
 # c. Call LLM 1 (Tool Selection)
 questions.add_computed_column(
     llm_response_1=messages(
-        model=config.LLM_MODEL_ID, system=config.SYSTEM_MESSAGE, messages=questions.initial_prompt, tools=tools
+        model=config.LLM_MODEL_ID,
+        max_tokens=1500,
+        messages=questions.initial_prompt,
+        tools=tools,
+        model_kwargs={'system': config.SYSTEM_MESSAGE},
     ),
     if_exists='replace',
 )
@@ -157,8 +161,9 @@ questions.add_computed_column(tool_output=invoke_tools(tools, questions.llm_resp
 questions.add_computed_column(
     llm_general_response=messages(
         model=config.LLM_MODEL_ID,
-        system=config.GENERAL_KNOWLEDGE_SYSTEM_MESSAGE,
+        max_tokens=1500,
         messages=[{'role': 'user', 'content': questions.question_text}],
+        model_kwargs={'system': config.GENERAL_KNOWLEDGE_SYSTEM_MESSAGE},
     ),
     if_exists='replace',
 )
