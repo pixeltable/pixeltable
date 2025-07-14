@@ -92,7 +92,7 @@ class TableVersion:
     num_iterator_cols: int
 
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
-    mutable_views: set[TableVersionHandle]
+    mutable_views: frozenset[TableVersionHandle]
 
     # contains complete history of columns, incl dropped ones
     cols: list[Column]
@@ -176,7 +176,7 @@ class TableVersion:
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
 
-        self.mutable_views = set(mutable_views)
+        self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
 
         self.cols = []

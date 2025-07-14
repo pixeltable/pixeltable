@@ -162,7 +162,10 @@ class StoreBase:
             if (
                 isinstance(e.orig, psycopg.errors.UniqueViolation)
                 and 'duplicate key value violates unique constraint "pg_type_typname_nsp_index"' in str(e.orig)
-            ) or (isinstance(e.orig, psycopg.errors.DuplicateObject) and 'already exists' in str(e.orig)):
+            ) or (
+                isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
+                and 'already exists' in str(e.orig)
+            ):
                 pass
             else:
                 raise
