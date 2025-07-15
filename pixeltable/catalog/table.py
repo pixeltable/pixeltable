@@ -153,10 +153,14 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.catalog import retry_loop
 
-        with Catalog.get().begin_xact(for_write=False):
+        # we need retry_loop() here, because we end up loading Tables for the views
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
+
+        return op()
 
     def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
@@ -184,7 +188,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
@@ -194,7 +198,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().where(pred)
 
     def join(
@@ -207,7 +211,7 @@ class Table(SchemaObject):
         """Join this table with another table."""
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
@@ -217,7 +221,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
@@ -227,7 +231,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().group_by(*items)
 
     def distinct(self) -> 'pxt.DataFrame':
@@ -283,10 +287,7 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
     def get_base_table(self) -> Optional['Table']:
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(for_write=False):
-            return self._get_base_table()
+        return self._get_base_table()
 
     @abc.abstractmethod
     def _get_base_table(self) -> Optional['Table']:
@@ -327,7 +328,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
             helper.append(self._col_descriptor())
@@ -806,6 +807,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         cat = Catalog.get()
+
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('drop columns from')
@@ -832,7 +834,7 @@ class Table(SchemaObject):
             dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
                 raise excs.Error(
-                    f'Cannot drop column `{col.name}` because the following columns depend on it:\n'
+                    f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 

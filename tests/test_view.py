@@ -71,6 +71,7 @@ class TestView:
         # create view with filter and computed columns
         schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v = pxt.create_view('test_view', t.where(t.c2 < 10), additional_columns=schema)
+        assert t.list_views() == ['test_view']
         # TODO: test repr more thoroughly
         _ = repr(v)
         assert_resultset_eq(

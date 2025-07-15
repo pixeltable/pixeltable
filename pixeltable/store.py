@@ -7,6 +7,7 @@ import warnings
 from typing import Any, Iterable, Iterator, Optional, Union
 
 import more_itertools
+import psycopg
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
@@ -146,8 +147,28 @@ class StoreBase:
         return result
 
     def create(self) -> None:
+        """Create If Not Exists for this table"""
         conn = Env.get().conn
-        self.sa_md.create_all(bind=conn)
+        stmt = sql.schema.CreateTable(self.sa_tbl).compile(conn)
+        create_stmt = str(stmt)
+        if_not_exists_stmt = create_stmt.replace('CREATE TABLE', 'CREATE TABLE IF NOT EXISTS')
+
+        # Postgres seems not to handle concurrent Create Table If Not Exists correctly, we need to ignore the various
+        # errors that can occur when two connections run the same Create Table statement.
+        try:
+            conn.execute(sql.text(if_not_exists_stmt))
+        except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
+            Env.get().console_logger.info(f'StoreBase.create() failed with: {e}')
+            if (
+                isinstance(e.orig, psycopg.errors.UniqueViolation)
+                and 'duplicate key value violates unique constraint "pg_type_typname_nsp_index"' in str(e.orig)
+            ) or (
+                isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
+                and 'already exists' in str(e.orig)
+            ):
+                pass
+            else:
+                raise
 
     def drop(self) -> None:
         """Drop store table"""
