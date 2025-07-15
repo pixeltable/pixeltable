@@ -1093,7 +1093,7 @@ class Catalog:
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
             raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
-        q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
+        q = sql.select(schema.Table.id).where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
         if for_update:
             q = q.with_for_update()
         result = [r[0] for r in conn.execute(q).all()]
@@ -1452,11 +1452,10 @@ class Catalog:
         # This is presumably a source of bugs, because it ignores schema version changes (eg, column renames).
         # TODO: retarget the value_expr_dict when instantiating Columns for a particular TV instance.
         if effective_version is None and not tbl_md.is_replica:
-            q = sql.select(schema.Table.id).where(
-                sql.text(
-                    f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
-                    "AND md->'view_md'->'base_versions'->0->>1 IS NULL"
-                )
+            q = (
+                sql.select(schema.Table.id)
+                .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
+                .where(schema.Table.md['view_md']['base_versions'][0][1].astext == None)
             )
             mutable_view_ids = [r[0] for r in conn.execute(q).all()]
         mutable_views = [TableVersionHandle(id, None) for id in mutable_view_ids]
