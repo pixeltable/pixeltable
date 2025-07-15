@@ -1250,8 +1250,7 @@ class Catalog:
             .select_from(schema.TableVersion)
             .join(
                 schema.TableSchemaVersion,
-                sql.cast(schema.TableVersion.md['schema_version'], sql.Integer)
-                == schema.TableSchemaVersion.schema_version,
+                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
             .where(schema.TableVersion.tbl_id == tbl_id)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)

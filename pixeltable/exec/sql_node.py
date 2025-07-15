@@ -569,10 +569,10 @@ class SqlSampleNode(SqlNode):
         General SQL form is:
         - MD5(<seed::text> [ + '___' + <rowid_col_val>::text]+
         """
-        sql_expr: sql.ColumnElement = sql.cast(seed, sql.Text)
+        sql_expr: sql.ColumnElement = seed.cast(sql.String)
         for e in sql_cols:
             # Quotes are required below to guarantee that the string is properly presented in SQL
-            sql_expr = sql_expr + sql.literal_column("'___'", sql.Text) + sql.cast(e, sql.Text)
+            sql_expr = sql_expr + sql.literal_column("'___'", sql.Text) + e.cast(sql.String)
         sql_expr = sql.func.md5(sql_expr)
         return sql_expr
 
@@ -591,9 +591,9 @@ class SqlSampleNode(SqlNode):
                 s_key = self._create_key_sql(self.input_cte)
 
                 # Construct a suitable where clause
-                fraction_sql = sql.cast(SampleClause.fraction_to_md5_hex(float(self.sample_clause.fraction)), sql.Text)
+                fraction_md5 = SampleClause.fraction_to_md5_hex(self.sample_clause.fraction)
                 order_by = self._create_key_sql(self.input_cte)
-                return sql.select(*self.input_cte.c).where(s_key < fraction_sql).order_by(order_by)
+                return sql.select(*self.input_cte.c).where(s_key < fraction_md5).order_by(order_by)
 
             return self._create_stmt_stratified_fraction(self.sample_clause.fraction)
         else:

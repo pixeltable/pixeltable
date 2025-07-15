@@ -83,7 +83,7 @@ def make_date(year: int, month: int, day: int) -> date:
 
 @make_date.to_sql
 def _(year: sql.ColumnElement, month: sql.ColumnElement, day: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.make_date(sql.cast(year, sql.Integer), sql.cast(month, sql.Integer), sql.cast(day, sql.Integer))
+    return sql.func.make_date(year.cast(sql.Integer), month.cast(sql.Integer), day.cast(sql.Integer))
 
 
 @pxt.udf(is_method=True)

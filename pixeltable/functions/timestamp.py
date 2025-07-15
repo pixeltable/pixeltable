@@ -237,12 +237,12 @@ def _(
     microsecond: sql.ColumnElement = _SQL_ZERO,
 ) -> sql.ColumnElement:
     return sql.func.make_timestamptz(
-        sql.cast(year, sql.Integer),
-        sql.cast(month, sql.Integer),
-        sql.cast(day, sql.Integer),
-        sql.cast(hour, sql.Integer),
-        sql.cast(minute, sql.Integer),
-        sql.cast(second + microsecond / 1000000.0, sql.Float),
+        year.cast(sql.Integer),
+        month.cast(sql.Integer),
+        day.cast(sql.Integer),
+        hour.cast(sql.Integer),
+        minute.cast(sql.Integer),
+        (second + microsecond / 1000000.0).cast(sql.Float),
     )
 
 

@@ -68,7 +68,7 @@ class StringOp(Expr):
         if self.operator == StringOperator.CONCAT:
             return left.concat(right)
         if self.operator == StringOperator.REPEAT:
-            return sql.func.repeat(sql.cast(left, sql.String), sql.cast(right, sql.Integer))
+            return sql.func.repeat(left.cast(sql.String), right.cast(sql.Integer))
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
