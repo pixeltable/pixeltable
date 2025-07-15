@@ -199,6 +199,7 @@ class TableVersion:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
+        timestamp: float,
         # base_path: Optional[pxt.catalog.TableVersionPath] = None,
         view_md: Optional[schema.ViewMd] = None,
     ) -> tuple[UUID, Optional[TableVersion]]:
@@ -213,7 +214,6 @@ class TableVersion:
             if col.is_computed:
                 col.check_value_expr()
 
-        timestamp = time.time()
         # create schema.Table
         # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
         column_md = cls._create_column_md(cols)

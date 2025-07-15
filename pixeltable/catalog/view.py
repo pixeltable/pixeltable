@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import time
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 from uuid import UUID
 
@@ -209,6 +210,7 @@ class View(Table):
             iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
         )
 
+        timestamp = time.time()
         id, tbl_version = TableVersion.create(
             dir_id,
             name,
@@ -218,6 +220,7 @@ class View(Table):
             media_validation=media_validation,
             # base_path=base_version_path,
             view_md=view_md,
+            timestamp=timestamp,
         )
         if tbl_version is None:
             # this is purely a snapshot: we use the base's tbl version path
@@ -241,7 +244,7 @@ class View(Table):
                 plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
                 _, row_counts = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
                 status = UpdateStatus(row_count_stats=row_counts)
-                tbl_version._write_md_update_status(0, update_status=status)
+                tbl_version._write_md_update_status(timestamp, update_status=status)
 
             except:
                 # we need to remove the orphaned TableVersion instance
