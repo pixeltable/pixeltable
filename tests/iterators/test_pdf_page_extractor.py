@@ -2,15 +2,16 @@ import io
 import os
 from typing import List
 
+import pytest
 from PIL import Image
 
+import pixeltable as pxt
 from pixeltable.iterators import PdfPageExtractor
 
-# get all PDF files from sample file folder (up to 50 : parameter limit)
-def find_pdfs(path: str, limit: int = 50, recursive: bool = True) -> List[str]:
-    print( "\nGather PDF files in path: ", path)
-    pdf_paths = []
 
+def find_pdfs(path: str, limit: int = 50, recursive: bool = True) -> List[str]:
+    """Find PDF files in a directory up to a certain limit."""
+    pdf_paths = []
     if recursive:
         for root, _, files in os.walk(path):
             for file in files:
@@ -24,31 +25,38 @@ def find_pdfs(path: str, limit: int = 50, recursive: bool = True) -> List[str]:
                 pdf_paths.append(os.path.join(path, file))
                 if len(pdf_paths) >= limit:
                     break
-
     return pdf_paths
 
-# get some example PDF files from project
-pdfs = find_pdfs("tests/data/documents", limit=50)
-print( "\nINGEST the following files: " , pdfs, "\n" )
 
-for doc_path in pdfs:
+class TestPdfPageExtractor:
+    @pytest.mark.parametrize("limit", [2])  # Only test a few PDFs to keep runtime low
+    def test_pdf_page_extraction(self, limit: int) -> None:
+        pdfs = find_pdfs("tests/data/documents", limit=limit)
+        assert len(pdfs) > 0, "No PDF files found for testing."
 
-    extractor = PdfPageExtractor(document=doc_path)
+        for doc_path in pdfs:
+            extractor = PdfPageExtractor(document=doc_path)
 
-    for chunk in extractor:
-        print(f'Page: {chunk["page"]}')
-        print(f'Text preview: {chunk["text"][:100]}')
-        width, height = chunk["image"].size
-        print(f'Image size: {width}x{height} pixels\n')
-        # print(f'Image bytes: {len(chunk["image"])} bytes\n')
+            for chunk in extractor:
+                assert 'page' in chunk
+                assert 'text' in chunk
+                assert 'image' in chunk
 
-        img_io = io.BytesIO()
-        chunk["image"].save(img_io, format="PNG")
-        img_bytes = img_io.getvalue()
+                # Test text is not empty
+                assert isinstance(chunk["text"], str)
+                assert len(chunk["text"]) > 0
 
-        print(f"Image size in bytes: {len(img_bytes)}")
+                # Test image is a PIL Image
+                assert isinstance(chunk["image"], Image.Image)
 
-        img = Image.open(io.BytesIO(img_bytes))
-        img.show()
+                # Convert image to bytes and reopen it
+                img_io = io.BytesIO()
+                chunk["image"].save(img_io, format="PNG")
+                img_bytes = img_io.getvalue()
+                assert len(img_bytes) > 0
 
-    extractor.close()
+                reopened_img = Image.open(io.BytesIO(img_bytes))
+                assert reopened_img.size == chunk["image"].size
+                break  # Only test the first page to keep the test fast
+
+            extractor.close()
