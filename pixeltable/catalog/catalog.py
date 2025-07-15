@@ -101,7 +101,6 @@ def retry_loop(
                     ):
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
-                    _logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
                 except sql.exc.DBAPIError as e:
@@ -303,7 +302,6 @@ class Catalog:
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
         while True:
             if pending_ops_tbl_id is not None:
-                _logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
                 Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
@@ -460,6 +458,7 @@ class Catalog:
         path_handles = tbl.get_tbl_versions()
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
+            # update cache
             _ = self.get_tbl_version(handle.id, handle.effective_version, validate_initialized=True)
         if not for_write:
             return True  # nothing left to lock
@@ -470,6 +469,7 @@ class Catalog:
             raise_if_not_exists=True,
             check_pending_ops=check_pending_ops,
         )
+        # update cache
         _ = self.get_tbl_version(path_handles[0].id, path_handles[0].effective_version, validate_initialized=True)
         return handle is not None
 
@@ -542,9 +542,7 @@ class Catalog:
         return TableVersionHandle(tbl_id, effective_version)
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> None:
-        """
-        Finalizes the next pending op for the given table. Returns True if there was a pending op, False otherwise.
-        """
+        """Finalizes all pending ops for the given table."""
         num_retries = 0
         while True:
             try:
@@ -610,21 +608,19 @@ class Catalog:
                     else:
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
                     Env.get().console_logger.debug(log_msg)
-                    _logger.debug(log_msg)
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
                 else:
                     raise
             except Exception as e:
-                _logger.debug(f'finalize_pending_ops(): caught {e}')
                 Env.get().console_logger.debug(f'finalize_pending_ops(): caught {e}')
                 raise
 
             num_retries = 0
 
     def _debug_str(self) -> str:
-        tv_str = '\n'.join([str(k) for k in self._tbl_versions])
-        tbl_str = '\n'.join([str(k) for k in self._tbls])
+        tv_str = '\n'.join(str(k) for k in self._tbl_versions)
+        tbl_str = '\n'.join(str(k) for k in self._tbls)
         return f'tbl_versions:\n{tv_str}\ntbls:\n{tbl_str}'
 
     def _get_mutable_tree(self, tbl_id: UUID) -> set[UUID]:
@@ -1380,6 +1376,12 @@ class Catalog:
         check_pending_ops: Optional[bool] = None,
         validate_initialized: bool = False,
     ) -> Optional[TableVersion]:
+        """
+        Returns the TableVersion instance for the given table and version and updates the cache.
+
+        If present in the cache and the instance isn't validated, validates version and view_sn against the stored
+        metadata.
+        """
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
         with self.begin_xact(for_write=False) as conn:

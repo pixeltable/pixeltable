@@ -289,8 +289,6 @@ class TableVersion:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-        # base_path: Optional[pxt.catalog.TableVersionPath] = None,
-        view_md: Optional[schema.ViewMd] = None,
     ) -> tuple[UUID, Optional[TableVersion]]:
         user = Env.get().user
 
@@ -323,7 +321,7 @@ class TableVersion:
             column_md=column_md,
             index_md={},
             external_stores=[],
-            view_md=view_md,
+            view_md=None,
             additional_md={},
         )
 
@@ -361,51 +359,15 @@ class TableVersion:
 
         cat = pxt.catalog.Catalog.get()
 
-        # if this is purely a snapshot (it doesn't require any additional storage for columns and it doesn't have a
-        # predicate to apply at runtime), we don't create a physical table and simply use the base's table version path
-        if (
-            view_md is not None
-            and view_md.is_snapshot
-            and view_md.predicate is None
-            and view_md.sample_clause is None
-            and len(cols) == 0
-        ):
-            cat.store_tbl_md(
-                tbl_id=tbl_id,
-                dir_id=dir_id,
-                tbl_md=table_md,
-                version_md=table_version_md,
-                schema_version_md=schema_version_md,
-            )
-            return tbl_id, None
-
-        # assert (base_path is not None) == (view_md is not None)
-        is_snapshot = view_md is not None and view_md.is_snapshot
-        effective_version = 0 if is_snapshot else None
-        base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
-        base = base_path.tbl_version if base_path is not None else None
-        tbl_version = cls(
-            tbl_id, table_md, table_version_md, effective_version, schema_version_md, [], base_path=base_path, base=base
-        )
+        tbl_version = cls(tbl_id, table_md, table_version_md, None, schema_version_md, [])
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
-        cat._tbl_versions[tbl_id, effective_version] = tbl_version
+        cat._tbl_versions[tbl_id, None] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
-        is_mutable = not is_snapshot and not table_md.is_replica
-        if base is not None and base.get().is_mutable and is_mutable:
-            # TODO before check-in: remove this branch
-            raise AssertionError()
-            from .table_version_handle import TableVersionHandle
-
-            handle = TableVersionHandle(tbl_version.id, effective_version)
-            assert handle not in base.get().mutable_views
-            base.get().mutable_views.add(handle)
-
-        if view_md is None or not view_md.is_snapshot:
-            # add default indices, after creating the store table
-            for col in tbl_version.cols_by_name.values():
-                status = tbl_version._add_default_index(col)
-                assert status is None or status.num_excs == 0
+        # add default indices, after creating the store table
+        for col in tbl_version.cols_by_name.values():
+            status = tbl_version._add_default_index(col)
+            assert status is None or status.num_excs == 0
 
         cat.store_tbl_md(
             tbl_id=tbl_id,

@@ -182,6 +182,7 @@ class TableMd:
     # sequence number to track changes in the set of mutable views of this table (ie, this table = the view base)
     # - incremented for each add/drop of a mutable view
     # - only maintained for mutable tables
+    # TODO: replace with mutable_views: list[UUID] to help with debugging
     view_sn: int
 
     # Metadata format for external stores:
