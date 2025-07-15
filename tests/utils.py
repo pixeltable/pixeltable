@@ -6,6 +6,7 @@ import random
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
+from unittest import TestCase
 
 import more_itertools
 import numpy as np
@@ -446,6 +447,20 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
     if len(mismatches) > 5:
         lines.append(f'(... {len(mismatches) - 5} more mismatches)')
     return '\n'.join(lines)
+
+
+def assert_table_metadata_eq(expected: dict[str, Any], actual: dict[str, Any]) -> None:
+    """
+    Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
+    `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact
+    equality.
+    """
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    actual_created_at: datetime.datetime = actual['version_created']
+    assert (now - actual_created_at).total_seconds() <= 60
+
+    trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
+    TestCase().assertDictEqual(expected, trimmed_actual)
 
 
 def strip_lines(s: str) -> str:

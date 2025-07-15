@@ -178,7 +178,9 @@ class TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(self.id, self.tbl_md, self.version, self.schema_version_md, mutable_views=[], base=base)
+        return TableVersion(
+            self.id, self.tbl_md, self.version, self.created_at, self.schema_version_md, mutable_views=[], base=base
+        )
 
     @property
     def versioned_name(self) -> str:

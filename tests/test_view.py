@@ -9,7 +9,14 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, type_system as ts
 from pixeltable.func import Batch
 
-from .utils import ReloadTester, assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
+from .utils import (
+    ReloadTester,
+    assert_resultset_eq,
+    assert_table_metadata_eq,
+    create_test_tbl,
+    reload_catalog,
+    validate_update_status,
+)
 
 logger = logging.getLogger('pixeltable')
 
@@ -878,20 +885,23 @@ class TestView:
             else:
                 expected_schema = {'balloon': ts.StringType(nullable=True)}
                 expected_schema_version = 6
-            assert vmd == {
-                'base': None,
-                'comment': '',
-                'is_replica': False,
-                'is_snapshot': True,
-                'is_view': True,
-                'media_validation': 'on_write',
-                'name': f'test_tbl:{i}',
-                'num_retained_versions': 10,
-                'path': f'dir.test_tbl:{i}',
-                'schema': expected_schema,
-                'schema_version': expected_schema_version,
-                'version': i,
-            }
+            assert_table_metadata_eq(
+                {
+                    'base': None,
+                    'comment': '',
+                    'is_replica': False,
+                    'is_snapshot': True,
+                    'is_view': True,
+                    'media_validation': 'on_write',
+                    'name': f'test_tbl:{i}',
+                    'num_retained_versions': 10,
+                    'path': f'dir.test_tbl:{i}',
+                    'schema': expected_schema,
+                    'schema_version': expected_schema_version,
+                    'version': i,
+                },
+                vmd,
+            )
 
         res = [list(ver[i].head(100)) for i in range(len(ver))]
         assert res[0] == []
@@ -968,20 +978,24 @@ class TestView:
                 }
                 expected_schema_version = 4
                 expected_base_version = 7
-            assert vmd == {
-                'base': f'dir.test_tbl:{expected_base_version}',
-                'comment': '',
-                'is_replica': False,
-                'is_snapshot': True,
-                'is_view': True,
-                'media_validation': 'on_write',
-                'name': f'test_view:{i}',
-                'num_retained_versions': 10,
-                'path': f'dir.test_view:{i}',
-                'schema': expected_schema,
-                'schema_version': expected_schema_version,
-                'version': i,
-            }
+
+            assert_table_metadata_eq(
+                {
+                    'base': f'dir.test_tbl:{expected_base_version}',
+                    'comment': '',
+                    'is_replica': False,
+                    'is_snapshot': True,
+                    'is_view': True,
+                    'media_validation': 'on_write',
+                    'name': f'test_view:{i}',
+                    'num_retained_versions': 10,
+                    'path': f'dir.test_view:{i}',
+                    'schema': expected_schema,
+                    'schema_version': expected_schema_version,
+                    'version': i,
+                },
+                vmd,
+            )
 
     def test_column_defaults(self, reset_db: None) -> None:
         """

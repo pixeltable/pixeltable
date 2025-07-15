@@ -1420,7 +1420,7 @@ class Catalog:
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         assert self._in_write_xact
-        assert version_md.created_at > 0.0
+        assert version_md is None or version_md.created_at > 0.0
         session = Env.get().session
 
         # Construct and insert or update table record if requested.
