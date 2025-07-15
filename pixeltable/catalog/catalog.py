@@ -1264,7 +1264,15 @@ class Catalog:
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
 
-        ancestors: list[tuple[UUID, Optional[int]]] = []
+        # Reconstruct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
+        # timestamps of this table and all its ancestors.
+        # TODO: Store the relevant TableVersionPaths in the database, so that we don't need to rely on timestamps
+        #     (which might be nondeterministic in the future).
+
+        # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
+        # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
+        # given TableVersion's created_at timestamp.
+        ancestors: list[tuple[UUID, Optional[int]]] = [(tbl_id, effective_version)]
         if tbl_md.view_md is not None:
             for ancestor_id, _ in tbl_md.view_md.base_versions:
                 q = (
@@ -1275,22 +1283,24 @@ class Catalog:
                     .limit(1)
                 )
                 row = conn.execute(q).one_or_none()
-                assert row is not None, f'Ancestor {ancestor_id} not found for table {tbl_id}:{effective_version}'
+                if row is None:
+                    # This can happen if an ancestor version is garbage collected; it can also happen in
+                    # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
+                    _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{effective_version}')
+                    raise excs.Error('The specified table version is no longer valid and cannot be retrieved.')
                 ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
                 ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
                 assert ancestor_version_md.created_at <= version_md.created_at
                 ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
 
-        # Add the primary table to the ancestors list.
-        ancestors.append((tbl_id, effective_version))
-
-        # Force any ancestors to be loaded.
-        for id, version in ancestors:
+        # Force any ancestors to be loaded (base table first).
+        for id, version in ancestors[::-1]:
             if (id, version) not in self._tbl_versions:
                 _ = self._load_tbl_version(id, version)
 
+        # Now reconstruct the relevant TableVersionPath instance from the ancestor versions.
         tvp: Optional[TableVersionPath] = None
-        for id, version in ancestors:
+        for id, version in ancestors[::-1]:
             tvp = TableVersionPath(TableVersionHandle(id, version), base=tvp)
 
         tbl = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)

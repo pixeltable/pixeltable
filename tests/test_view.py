@@ -926,19 +926,28 @@ class TestView:
         v = pxt.create_view('dir.test_view', t.where(t.c1 % 2 == 0))
         assert v.get_metadata()['version'] == 0
         v.add_computed_column(c3=(v.c1 // 2))
+        vv = pxt.create_view('dir.test_subview', v.where(v.c1 % 3 == 0))
+        assert vv.get_metadata()['version'] == 0
         v.add_column(c4=pxt.Int)
         assert v.get_metadata()['version'] == 2
+        assert vv.get_metadata()['version'] == 0
         t.drop_column('c2')
+        vv.add_column(c5=pxt.Float)
+        assert vv.get_metadata()['version'] == 1
         t.rename_column('c1', 'balloon')
         t.insert({'balloon': i} for i in range(10, 20))
         assert v.get_metadata()['version'] == 3
+        assert vv.get_metadata()['version'] == 2
         v.rename_column('c3', 'hamburger')
         v.update({'c4': v.hamburger + 91})
         assert t.get_metadata()['version'] == 7
         assert v.get_metadata()['version'] == 5
+        assert vv.get_metadata()['version'] == 2
+        vv.update({'c5': vv.c4 / 5.0})
+        assert vv.get_metadata()['version'] == 3
 
-        # Check metadata
-        ver = [pxt.get_table(f'dir.test_view:{version}') for version in range(0, 6)]
+        # Check view metadata
+        ver = [pxt.get_table(f'dir.test_view:{version}') for version in range(6)]
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
@@ -998,6 +1007,7 @@ class TestView:
                 vmd,
             )
 
+        # Check view data
         res = [list(ver[i].head(100)) for i in range(len(ver))]
         assert res[0] == [{'c1': 2, 'c2': None}] + [{'c1': i, 'c2': f'str{i}'} for i in range(4, 10, 2)]
         assert res[1] == [d | {'c3': d['c1'] // 2} for d in res[0]]
@@ -1005,6 +1015,64 @@ class TestView:
         assert res[3] == [{'balloon': i, 'c3': i // 2, 'c4': None} for i in range(2, 20, 2)]
         assert res[4] == [{'balloon': i, 'hamburger': i // 2, 'c4': None} for i in range(2, 20, 2)]
         assert res[5] == [{'balloon': i, 'hamburger': i // 2, 'c4': i // 2 + 91} for i in range(2, 20, 2)]
+
+        # Check subview metadata
+        ver = [pxt.get_table(f'dir.test_subview:{version}') for version in range(4)]
+        for i in range(len(ver)):
+            assert isinstance(ver[i], pxt.View)
+            vmd = ver[i].get_metadata()
+            if i == 0:
+                expected_schema = {
+                    'c1': ts.IntType(nullable=True),
+                    'c2': ts.StringType(nullable=True),
+                    'c3': ts.IntType(nullable=True),
+                }
+                expected_schema_version = 0
+                expected_base_version = 1
+            elif i == 1:
+                expected_schema = {
+                    'c1': ts.IntType(nullable=True),
+                    'c3': ts.IntType(nullable=True),
+                    'c4': ts.IntType(nullable=True),
+                    'c5': ts.FloatType(nullable=True),
+                }
+                expected_schema_version = 1
+                expected_base_version = 2
+            elif i == 2:
+                expected_schema = {
+                    'balloon': ts.IntType(nullable=True),
+                    'c3': ts.IntType(nullable=True),
+                    'c4': ts.IntType(nullable=True),
+                    'c5': ts.FloatType(nullable=True),
+                }
+                expected_schema_version = 1
+                expected_base_version = 3
+            elif i == 3:
+                expected_schema = {
+                    'balloon': ts.IntType(nullable=True),
+                    'c4': ts.IntType(nullable=True),
+                    'hamburger': ts.IntType(nullable=True),
+                    'c5': ts.FloatType(nullable=True),
+                }
+                expected_schema_version = 1
+                expected_base_version = 5
+            assert_table_metadata_eq(
+                {
+                    'base': f'dir.test_view:{expected_base_version}',
+                    'comment': '',
+                    'is_replica': False,
+                    'is_snapshot': True,
+                    'is_view': True,
+                    'media_validation': 'on_write',
+                    'name': f'test_subview:{i}',
+                    'num_retained_versions': 10,
+                    'path': f'dir.test_subview:{i}',
+                    'schema': expected_schema,
+                    'schema_version': expected_schema_version,
+                    'version': i,
+                },
+                vmd,
+            )
 
     def test_column_defaults(self, reset_db: None) -> None:
         """
