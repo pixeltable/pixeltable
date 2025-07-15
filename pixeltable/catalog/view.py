@@ -9,7 +9,6 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
-from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
 if TYPE_CHECKING:
@@ -19,9 +18,10 @@ if TYPE_CHECKING:
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -89,7 +89,7 @@ class View(Table):
         media_validation: MediaValidation,
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
-    ) -> View:
+    ) -> tuple[TableVersionMd, Optional[list[TableOp]]]:
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
@@ -180,7 +180,6 @@ class View(Table):
                     )
             columns = iterator_cols + columns
 
-        session = Env.get().session
         from pixeltable.exprs import InlineDict
 
         iterator_args_expr: exprs.Expr = InlineDict(iterator_args) if iterator_args is not None else None
@@ -209,54 +208,26 @@ class View(Table):
             iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
         )
 
-        id, tbl_version = TableVersion.create(
-            dir_id,
-            name,
-            columns,
-            num_retained_versions,
-            comment,
-            media_validation=media_validation,
-            # base_path=base_version_path,
-            view_md=view_md,
+        md = TableVersion.create_initial_md(
+            name, columns, num_retained_versions, comment, media_validation=media_validation, view_md=view_md
         )
-        if tbl_version is None:
-            # this is purely a snapshot: we use the base's tbl version path
-            view = cls(id, dir_id, name, base_version_path, snapshot_only=True)
-            _logger.info(f'Created snapshot {name!r}.')
+        if md.tbl_md.is_pure_snapshot:
+            # this is purely a snapshot: no store table to create or load
+            return md, None
         else:
-            view = cls(
-                id,
-                dir_id,
-                name,
-                TableVersionPath(
-                    TableVersionHandle(tbl_version.id, tbl_version.effective_version), base=base_version_path
+            tbl_id = md.tbl_md.tbl_id
+            view_path = TableVersionPath(
+                TableVersionHandle(UUID(tbl_id), effective_version=0 if is_snapshot else None), base=base_version_path
+            )
+            ops = [
+                TableOp(
+                    tbl_id=tbl_id, op_sn=0, num_ops=2, needs_xact=False, create_store_table_op=CreateStoreTableOp()
                 ),
-                snapshot_only=False,
-            )
-            _logger.info(f'Created view {name!r}, id={tbl_version.id}')
-
-            from pixeltable.plan import Planner
-
-            try:
-                plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
-                _, row_counts = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
-                status = UpdateStatus(row_count_stats=row_counts)
-                tbl_version._write_md_update_status(0, update_status=status)
-
-            except:
-                # we need to remove the orphaned TableVersion instance
-                del catalog.Catalog.get()._tbl_versions[tbl_version.id, tbl_version.effective_version]
-                base_tbl_version = base.tbl_version.get()
-                if tbl_version.effective_version is None and not base_tbl_version.is_snapshot:
-                    # also remove tbl_version from the base
-                    base_tbl_version.mutable_views.remove(TableVersionHandle.create(tbl_version))
-                raise
-            Env.get().console_logger.info(
-                f'Created view {name!r} with {status.num_rows} rows, {status.num_excs} exceptions.'
-            )
-
-        session.commit()
-        return view
+                TableOp(
+                    tbl_id=tbl_id, op_sn=1, num_ops=2, needs_xact=True, load_view_op=LoadViewOp(view_path.as_dict())
+                ),
+            ]
+            return md, ops
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -317,8 +288,11 @@ class View(Table):
             return None  # this can happen for a replica of a base table
         # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
         # for the snapshot itself)
+        from pixeltable.catalog import Catalog
+
         base_id = self._tbl_version_path.tbl_id if self._snapshot_only else self._tbl_version_path.base.tbl_id
-        return catalog.Catalog.get().get_table_by_id(base_id)
+        with Catalog.get().begin_xact(tbl_id=base_id, for_write=False):
+            return catalog.Catalog.get().get_table_by_id(base_id)
 
     @property
     def _effective_base_versions(self) -> list[Optional[int]]:

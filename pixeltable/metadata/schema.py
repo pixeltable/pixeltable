@@ -182,6 +182,7 @@ class TableMd:
     # sequence number to track changes in the set of mutable views of this table (ie, this table = the view base)
     # - incremented for each add/drop of a mutable view
     # - only maintained for mutable tables
+    # TODO: replace with mutable_views: list[UUID] to help with debugging
     view_sn: int
 
     # Metadata format for external stores:
@@ -193,11 +194,22 @@ class TableMd:
     view_md: Optional[ViewMd]
     additional_md: dict[str, Any]
 
+    has_pending_ops: bool = False
+
+    @property
+    def is_snapshot(self) -> bool:
+        return self.view_md is not None and self.view_md.is_snapshot
+
+    @property
+    def is_mutable(self) -> bool:
+        return not self.is_snapshot and not self.is_replica
+
     @property
     def is_pure_snapshot(self) -> bool:
         return (
             self.view_md is not None
             and self.view_md.is_snapshot
+            and self.view_md.sample_clause is None
             and self.view_md.predicate is None
             and len(self.column_md) == 0
         )
@@ -224,7 +236,7 @@ class Table(Base):
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class TableVersionMd:
     tbl_id: str  # uuid.UUID
     created_at: float  # time.time()
@@ -286,6 +298,22 @@ class TableSchemaVersion(Base):
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+
+
+class PendingTableOp(Base):
+    """
+    Table operation that needs to be completed before the table can be used.
+
+    Operations need to be completed in order of increasing seq_num.
+    """
+
+    __tablename__ = 'pendingtableops'
+
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
+        UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
+    )
+    op_sn: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)  # catalog.TableOp.op_sn
+    op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
 
 
 @dataclasses.dataclass

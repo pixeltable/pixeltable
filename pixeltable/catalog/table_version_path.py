@@ -76,7 +76,7 @@ class TableVersionPath:
         elif self._cached_tbl_version is not None:
             return
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl_id=self.tbl_version.id, for_write=False):
             self._cached_tbl_version = self.tbl_version.get()
 
     def clear_cached_md(self) -> None:

@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -86,6 +86,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
+    _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
 
@@ -99,6 +100,7 @@ class Env:
     def _init_env(cls, reinit_db: bool = False) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
+        cls._instance = None
         env = Env()
         env._set_up(reinit_db=reinit_db)
         env._upgrade_metadata()
@@ -142,6 +144,7 @@ class Env:
         self._resource_pool_info = {}
         self._current_conn = None
         self._current_session = None
+        self._current_isolation_level = None
         self._dbms = None
         self._event_loop = None
 
@@ -230,20 +233,34 @@ class Env:
         return self._db_server is not None
 
     @contextmanager
-    def begin_xact(self) -> Iterator[sql.Connection]:
-        """Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly."""
+    def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
+        """
+        Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
+
+        for_write: if True, uses serializable isolation; if False, uses repeatable_read
+
+        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
+        that avoids tripping over any pending ops
+        """
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                with self.engine.begin() as conn, sql.orm.Session(conn) as session:
+                self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
+                with (
+                    self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
+                    sql.orm.Session(conn) as session,
+                    conn.begin(),
+                ):
                     self._current_conn = conn
                     self._current_session = session
                     yield conn
             finally:
                 self._current_session = None
                 self._current_conn = None
+                self._current_isolation_level = None
         else:
             assert self._current_session is not None
+            assert for_write == (self._current_isolation_level == 'serializable')
             yield self._current_conn
 
     def configure_logging(

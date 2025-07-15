@@ -666,13 +666,16 @@ def ls(path: str = '') -> pd.DataFrame:
     To get a programmatic list of tables and/or directories, use [list_tables()][pixeltable.list_tables] and/or
     [list_dirs()][pixeltable.list_dirs] instead.
     """
+    from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
 
     cat = Catalog.get()
     path_obj = catalog.Path(path, empty_is_valid=True)
     dir_entries = cat.get_dir_contents(path_obj)
-    rows: list[list[str]] = []
-    with Catalog.get().begin_xact():
+
+    @retry_loop(for_write=False)
+    def op() -> list[list[str]]:
+        rows: list[list[str]] = []
         for name, entry in dir_entries.items():
             if name.startswith('_'):
                 continue
@@ -698,6 +701,9 @@ def ls(path: str = '') -> pd.DataFrame:
                 if md['is_replica']:
                     kind = f'{kind}-replica'
             rows.append([name, kind, version, base])
+        return rows
+
+    rows = op()
 
     rows = sorted(rows, key=lambda x: x[0])
     df = pd.DataFrame(

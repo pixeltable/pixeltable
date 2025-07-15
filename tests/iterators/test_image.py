@@ -40,6 +40,6 @@ class TestImage:
                     t,
                     iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=overlap),
                 )
-        assert f'overlap dimensions {list(overlap)} are not strictly smaller than tile size [100, 100]' in str(
-            exc_info.value
-        )
+            assert f'overlap dimensions {list(overlap)} are not strictly smaller than tile size [100, 100]' in str(
+                exc_info.value
+            )
