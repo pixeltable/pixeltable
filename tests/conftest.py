@@ -55,7 +55,12 @@ def pxt_test_harness() -> Iterator[None]:
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
+def init_env(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> None:
+    # worker_id is provided by pytest-xdist. If not running in parallel, we use a default.
+    if hasattr(request.config, 'workerinput'):
+        worker_id = request.config.workerinput['workerid']
+    else:
+        worker_id = 'main'
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
