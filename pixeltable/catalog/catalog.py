@@ -581,7 +581,9 @@ class Catalog:
         add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
 
-    def _get_dir_entry(self, dir_id: UUID, name: str, version: Optional[int] = None, lock_entry: bool = False) -> Optional[SchemaObject]:
+    def _get_dir_entry(
+        self, dir_id: UUID, name: str, version: Optional[int] = None, lock_entry: bool = False
+    ) -> Optional[SchemaObject]:
         user = Env.get().user
         conn = Env.get().conn
 
@@ -1289,9 +1291,7 @@ class Catalog:
 
         tvp: Optional[TableVersionPath] = None
         for id, version in ancestors:
-            tvp = TableVersionPath(
-                TableVersionHandle(id, version), base=tvp
-            )
+            tvp = TableVersionPath(TableVersionHandle(id, version), base=tvp)
 
         tbl = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
         return tbl

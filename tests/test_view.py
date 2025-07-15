@@ -936,19 +936,36 @@ class TestView:
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True), 'c3': ts.IntType(nullable=True)}
+                expected_schema = {
+                    'c1': ts.IntType(nullable=True),
+                    'c2': ts.StringType(nullable=True),
+                    'c3': ts.IntType(nullable=True),
+                }
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
-                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True), 'c3': ts.IntType(nullable=True), 'c4': ts.IntType(nullable=True)}
+                expected_schema = {
+                    'c1': ts.IntType(nullable=True),
+                    'c2': ts.StringType(nullable=True),
+                    'c3': ts.IntType(nullable=True),
+                    'c4': ts.IntType(nullable=True),
+                }
                 expected_schema_version = 2
                 expected_base_version = 4
             elif i == 3:
-                expected_schema = {'balloon': ts.IntType(nullable=True), 'c3': ts.IntType(nullable=True), 'c4': ts.IntType(nullable=True)}
+                expected_schema = {
+                    'balloon': ts.IntType(nullable=True),
+                    'c3': ts.IntType(nullable=True),
+                    'c4': ts.IntType(nullable=True),
+                }
                 expected_schema_version = 2
                 expected_base_version = 7
             elif i == 4:
-                expected_schema = {'balloon': ts.IntType(nullable=True), 'c4': ts.IntType(nullable=True), 'hamburger': ts.IntType(nullable=True)}
+                expected_schema = {
+                    'balloon': ts.IntType(nullable=True),
+                    'c4': ts.IntType(nullable=True),
+                    'hamburger': ts.IntType(nullable=True),
+                }
                 expected_schema_version = 4
                 expected_base_version = 7
             assert vmd == {
