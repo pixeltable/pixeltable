@@ -39,15 +39,15 @@ class MediaStore:
         return parent / f'{tbl_id.hex}_{col_id}_{version}_{id_hex}{ext or ""}'
 
     @classmethod
-    def move_tmp_media_file(cls, file_url: Optional[str], tbl_id: UUID, col_id: int, version: int) -> Optional[str]:
-        """Move a tmp media file with given url into the MediaStore, and return new url
+    def move_tmp_media_file(cls, file_url: Optional[str], tbl_id: UUID, col_id: int, v_min: int) -> Optional[str]:
+        """If the given url is a tmp file, move it into the MediaStore, and return new url
         If it is not a tmp file in the tmp_dir, return the original url.
 
         Args:
             file_url: URL of the tmp media file to move
             tbl_id: Table ID to associate with the media file
             col_id: Column ID to associate with the media file
-            version: Version number to associate with the media file
+            v_min: v_min number to associate with the media file
 
         Returns:
             URL of the media final location of the file
@@ -67,12 +67,12 @@ class MediaStore:
         if not src_path.startswith(pxt_tmp_dir):
             # not a tmp file
             return file_url
-        new_file_url = cls.relocate_local_media_file(Path(src_path), tbl_id, col_id, version)
+        new_file_url = cls.relocate_local_media_file(Path(src_path), tbl_id, col_id, v_min)
         return new_file_url
 
     @classmethod
     def relocate_local_media_file(cls, src_path: Path, tbl_id: UUID, col_id: int, tbl_version: int) -> str:
-        """Relocate a random local file to the MediaStore, and return its new URL"""
+        """Relocate a local file to the MediaStore, and return its new URL"""
         dest_path = MediaStore.prepare_media_path(tbl_id, col_id, tbl_version, ext=src_path.suffix)
         src_path.rename(dest_path)
         return urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
