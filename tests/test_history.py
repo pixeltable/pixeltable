@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 import pixeltable as pxt
@@ -40,6 +42,9 @@ class TestHistory:
         r = v.history()
         print(r)
         assert len(r) == 1
+        view_created_at = r['created_at'][0]
+        assert view_created_at > time.time() - 20  # created_at should be recent
+        assert view_created_at < time.time()  # created_at should be recent
         s = t.add_computed_column(c5=t.c1 + 20)
         self.pr_us(s, 'acc3')
         s = t.add_columns({'c6': pxt.String, 'c7': pxt.Int, 'c8': pxt.Float})

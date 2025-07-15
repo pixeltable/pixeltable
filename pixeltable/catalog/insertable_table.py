@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Literal, Optional, overload
 from uuid import UUID
 
@@ -81,6 +82,7 @@ class InsertableTable(Table):
                 raise excs.Error(f'Primary key column {pk_col!r} cannot be nullable.')
             col.is_pk = True
 
+        timestamp = time.time()
         _, tbl_version = TableVersion.create(
             dir_id,
             name,
@@ -88,6 +90,7 @@ class InsertableTable(Table):
             num_retained_versions=num_retained_versions,
             comment=comment,
             media_validation=media_validation,
+            timestamp=timestamp,
         )
         tbl = cls(dir_id, TableVersionHandle.create(tbl_version))
         # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
