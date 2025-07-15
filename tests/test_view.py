@@ -854,7 +854,7 @@ class TestView:
         assert t.count() == 110
         check(s, v, view_s)
 
-    def test_prior_versions_of_table(self, reset_db: None) -> None:
+    def test_table_time_travel(self, reset_db: None) -> None:
         pxt.create_dir('dir')
         t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
@@ -913,7 +913,7 @@ class TestView:
         assert res[6] == [{'balloon': r['c2']} for r in res[5]]
         assert res[7] == res[6] + [{'balloon': f'str{i}'} for i in range(10, 20)]
 
-    def test_prior_versions_of_view(self, reset_db: None) -> None:
+    def test_view_time_travel(self, reset_db: None) -> None:
         pxt.create_dir('dir')
         t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
@@ -970,7 +970,7 @@ class TestView:
                 }
                 expected_schema_version = 2
                 expected_base_version = 7
-            elif i == 4:
+            else:
                 expected_schema = {
                     'balloon': ts.IntType(nullable=True),
                     'c4': ts.IntType(nullable=True),
@@ -996,6 +996,15 @@ class TestView:
                 },
                 vmd,
             )
+
+        res = [list(ver[i].head(100)) for i in range(len(ver))]
+        assert res[0] == [{'c1': 2, 'c2': None}] + [{'c1': i, 'c2': f'str{i}'} for i in range(4, 10, 2)]
+        assert res[1] == [d | {'c3': d['c1'] // 2} for d in res[0]]
+        assert res[2] == [d | {'c4': None} for d in res[1]]
+        assert res[3] == [{'balloon': i, 'c3': i // 2, 'c4': None} for i in range(2, 20, 2)]
+        assert res[4] == [{'balloon': i, 'hamburger': i // 2, 'c4': None} for i in range(2, 20, 2)]
+        assert res[5] == [{'balloon': i, 'hamburger': i // 2, 'c4': i // 2 + 91} for i in range(2, 20, 2)]
+
 
     def test_column_defaults(self, reset_db: None) -> None:
         """
