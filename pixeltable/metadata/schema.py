@@ -235,7 +235,7 @@ class Table(Base):
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class TableVersionMd:
     tbl_id: str  # uuid.UUID
     created_at: float  # time.time()

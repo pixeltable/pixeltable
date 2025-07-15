@@ -14,6 +14,8 @@ import psycopg
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
+
+# from pixeltable import exceptions as excs, UpdateStatus
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -29,6 +31,7 @@ from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import TableOp
+from .update_status import UpdateStatus
 from .view import View
 
 if TYPE_CHECKING:
@@ -306,7 +309,7 @@ class Catalog:
                 pending_ops_tbl_id = None
 
             try:
-                self._in_write_xact = False
+                self._in_write_xact = for_write
                 self._x_locked_tbl_ids = set()
                 self._modified_tvs = set()
                 self._column_dependents = None
@@ -367,7 +370,6 @@ class Catalog:
                             else:
                                 raise
 
-                    self._in_write_xact = for_write
                     yield conn
                     return
 
@@ -1706,23 +1708,21 @@ class Catalog:
 
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
-    def update_tbl_version_md(self, version_md: Optional[schema.TableVersionMd]) -> None:
-        """
-        Update the TableVersion.md field in the DB. Typically used to update the cascade row count status.
-
-        Args:
-            version_md: TableVersionMd
-        """
+    def write_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
+        """Update the TableVersion.md.update_status field"""
         assert self._in_write_xact
-        session = Env.get().session
+        conn = Env.get().conn
 
-        session.execute(
-            sql.update(schema.TableVersion.__table__)
-            .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
-            .where(schema.TableVersion.tbl_id == version_md.tbl_id, schema.TableVersion.version == version_md.version)
+        stmt = (
+            sql.update(schema.TableVersion)
+            .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version)
+            .values(
+                md=schema.TableVersion.md.op('||')({'additional_md': {'update_status': dataclasses.asdict(status)}})
+            )
         )
 
-        session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
+        res = conn.execute(stmt)
+        assert res.rowcount == 1, res.rowcount
 
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
@@ -1766,7 +1766,7 @@ class Catalog:
         self, tbl_id: UUID, effective_version: Optional[int], check_pending_ops: bool = True
     ) -> Optional[TableVersion]:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
-        tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
+        tbl_md, version_md, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
 
         conn = Env.get().conn
@@ -1809,7 +1809,7 @@ class Catalog:
         if view_md is None:
             # this is a base table
             tbl_version = TableVersion(
-                tbl_id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
+                tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views=mutable_views
             )
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
@@ -1833,6 +1833,7 @@ class Catalog:
             tbl_version = TableVersion(
                 tbl_id,
                 tbl_md,
+                version_md,
                 effective_version,
                 schema_version_md,
                 base_path=base_path,

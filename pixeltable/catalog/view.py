@@ -209,7 +209,7 @@ class View(Table):
         )
 
         md = TableVersion.create_initial_md(
-            dir_id, name, columns, num_retained_versions, comment, media_validation=media_validation, view_md=view_md
+            name, columns, num_retained_versions, comment, media_validation=media_validation, view_md=view_md
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
