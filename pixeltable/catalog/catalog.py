@@ -1363,7 +1363,7 @@ class Catalog:
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         assert self._in_write_xact
-        assert version_md.created_at > 0.0
+        assert version_md is None or version_md.created_at > 0.0
         session = Env.get().session
 
         # Construct and insert or update table record if requested.
@@ -1406,7 +1406,7 @@ class Catalog:
             session.add(schema_version_record)
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
-    def update_tbl_version_md(self, version_md: Optional[schema.TableVersionMd]) -> None:
+    def update_tbl_version_md(self, version_md: schema.TableVersionMd) -> None:
         """
         Update the TableVersion.md field in the DB. Typically used to update the cascade row count status.
 

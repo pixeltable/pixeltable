@@ -178,7 +178,9 @@ class TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(self.id, self.tbl_md, self.version, self.schema_version_md, mutable_views=[], base=base)
+        return TableVersion(
+            self.id, self.tbl_md, self.version, self.created_at, self.schema_version_md, mutable_views=[], base=base
+        )
 
     @property
     def versioned_name(self) -> str:
@@ -297,7 +299,9 @@ class TableVersion:
         effective_version = 0 if is_snapshot else None
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
-        tbl_version = cls(tbl_id, table_md, effective_version, timestamp, schema_version_md, [], base_path=base_path, base=base)
+        tbl_version = cls(
+            tbl_id, table_md, effective_version, timestamp, schema_version_md, [], base_path=base_path, base=base
+        )
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
         cat._tbl_versions[tbl_id, effective_version] = tbl_version
         tbl_version.init()
@@ -334,7 +338,14 @@ class TableVersion:
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
-            tbl_id, md.tbl_md, md.version_md.version, md.version_md.created_at, md.schema_version_md, [], base_path=base_path, base=base
+            tbl_id,
+            md.tbl_md,
+            md.version_md.version,
+            md.version_md.created_at,
+            md.schema_version_md,
+            [],
+            base_path=base_path,
+            base=base,
         )
         cat = pxt.catalog.Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
