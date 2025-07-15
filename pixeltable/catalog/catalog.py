@@ -1652,6 +1652,7 @@ class Catalog:
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         assert self._in_write_xact
+        assert version_md is None or version_md.created_at > 0.0
         assert pending_ops is None or len(pending_ops) > 0
         assert pending_ops is None or tbl_md is not None  # if we write pending ops, we must also write new tbl_md
         session = Env.get().session
@@ -1708,7 +1709,7 @@ class Catalog:
 
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
-    def write_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
+    def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""
         assert self._in_write_xact
         conn = Env.get().conn
