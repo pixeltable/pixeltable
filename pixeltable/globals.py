@@ -459,7 +459,7 @@ def get_table(path: str) -> catalog.Table:
         try:
             version = int(components[1])
         except ValueError:
-            raise excs.Error(f'Invalid path: {path}')
+            raise excs.Error(f'Invalid path: {path}') from None
     else:
         path_obj = catalog.Path(path)
     tbl = Catalog.get().get_table(path_obj, version)

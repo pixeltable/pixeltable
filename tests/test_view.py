@@ -873,6 +873,7 @@ class TestView:
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
+            expected_schema: dict[str, ts.ColumnType]
             if i < 3:
                 expected_schema = {'c1': ts.IntType(nullable=True)}
                 expected_schema_version = 0
@@ -1004,7 +1005,6 @@ class TestView:
         assert res[3] == [{'balloon': i, 'c3': i // 2, 'c4': None} for i in range(2, 20, 2)]
         assert res[4] == [{'balloon': i, 'hamburger': i // 2, 'c4': None} for i in range(2, 20, 2)]
         assert res[5] == [{'balloon': i, 'hamburger': i // 2, 'c4': i // 2 + 91} for i in range(2, 20, 2)]
-
 
     def test_column_defaults(self, reset_db: None) -> None:
         """

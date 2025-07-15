@@ -1250,7 +1250,7 @@ class Catalog:
         from .view import View
 
         conn = Env.get().conn
-        q = (
+        q: sql.Executable = (
             sql.select(schema.Table, schema.TableVersion)
             .join(schema.TableVersion)
             .where(schema.Table.id == tbl_id)
