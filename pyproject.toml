@@ -139,7 +139,7 @@ google-genai = ">=1.25.0"
 groq = ">=0.26.0"
 boto3 = "==1.36.23"  # Locking a specific version of boto3/botocore dramatically improves `poetry lock` runtimes
 botocore = "==1.36.23"
-spacy = ">=3.8,<4.0"
+spacy = { version = ">=3.8.7", python = "<3.14" }
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.9"
 sentence-transformers = "^4.0"
