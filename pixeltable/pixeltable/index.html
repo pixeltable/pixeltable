@@ -2110,7 +2110,7 @@ if <code>my_snapshot</code> does not already exist:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_table</span><span class="p">(</span>
-    <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">schema</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">source</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.globals.TableDataSource">TableDataSource</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2128,17 +2128,21 @@ if <code>my_snapshot</code> does not already exist:</p>
 
     <div class="doc doc-contents ">
 
-      <p>Create a new base table.</p>
+      <p>Create a new base table. Exactly one of <code>schema</code> or <code>source</code> must be provided.</p>
+<p>If a <code>schema</code> is provided, then an empty table will be created with the specified schema.</p>
+<p>If a <code>source</code> is provided, then Pixeltable will attempt to infer a data source format and table schema from the
+contents of the specified data, and the data will be imported from the specified source into the new table. The
+source format and/or schema can be specified directly via the <code>source_format</code> and <code>schema_overrides</code> parameters.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>path_str</code></b>
+          <b><code>path</code></b>
               (<code>str</code>)
           –
           <div class="doc-md-description">
-            <p>Path to the table.</p>
+            <p>Pixeltable path (qualified name) of the table, such as <code>'my_table'</code> or <code>'my_dir.my_subdir.my_table'</code>.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -2148,7 +2152,7 @@ if <code>my_snapshot</code> does not already exist:</p>
 )
           –
           <div class="doc-md-description">
-            <p>A dictionary that maps column names to column types</p>
+            <p>Schema for the new table, mapping column names to Pixeltable types.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -2158,7 +2162,7 @@ if <code>my_snapshot</code> does not already exist:</p>
 )
           –
           <div class="doc-md-description">
-            <p>A data source from which a table schema can be inferred and data imported</p>
+            <p>A data source (file, URL, DataFrame, or list of rows) to import from.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -2168,7 +2172,9 @@ if <code>my_snapshot</code> does not already exist:</p>
 )
           –
           <div class="doc-md-description">
-            <p>A hint to the format of the source data</p>
+            <p>Must be used in conjunction with a <code>source</code>.
+If specified, then the given format will be used to read the source data. (Otherwise,
+Pixeltable will attempt to infer the format from the source data.)</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -2178,7 +2184,9 @@ if <code>my_snapshot</code> does not already exist:</p>
 )
           –
           <div class="doc-md-description">
-            <p>If specified, then columns in <code>schema_overrides</code> will be given the specified types</p>
+            <p>Must be used in conjunction with a <code>source</code>.
+If specified, then columns in <code>schema_overrides</code> will be given the specified types.
+(Pixeltable will attempt to infer the types of any columns not specified.)</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -2250,13 +2258,13 @@ table.</p>
 )
           –
           <div class="doc-md-description">
-            <p>Directive regarding how to handle if the path already exists.
-Must be one of the following:</p>
+            <p>Determines the behavior if a table already exists at the specified path location.</p>
 <ul>
 <li><code>'error'</code>: raise an error</li>
 <li><code>'ignore'</code>: do nothing and return the existing table handle</li>
-<li><code>'replace'</code>: if the existing table has no views, drop and replace it with a new one</li>
-<li><code>'replace_force'</code>: drop the existing table and all its views, and create a new one</li>
+<li><code>'replace'</code>: if the existing table has no views or snapshots, drop and replace it with a new one;
+    raise an error if the existing table has views or snapshots</li>
+<li><code>'replace_force'</code>: drop the existing table and all its views and snapshots, and create a new one</li>
 </ul>
           </div>
         </li>
@@ -2267,7 +2275,8 @@ Must be one of the following:</p>
 )
           –
           <div class="doc-md-description">
-            <p>Additional arguments to pass to the source data provider</p>
+            <p>Must be used in conjunction with a <code>source</code>. If specified, then additional arguments will be
+passed along to the source data provider.</p>
           </div>
         </li>
     </ul>
@@ -2314,7 +2323,7 @@ containing the exact contents of the query):</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl1</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;orig_table&#39;</span><span class="p">)</span>
 <span class="gp">... </span><span class="n">tbl2</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;new_table&#39;</span><span class="p">,</span> <span class="n">tbl1</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">tbl1</span><span class="o">.</span><span class="n">col1</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl1</span><span class="o">.</span><span class="n">col2</span><span class="p">))</span>
 </code></pre></div>
-    <p>Create a table if does not already exist, otherwise get the existing table:</p>
+    <p>Create a table if it does not already exist, otherwise get the existing table:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col1&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">,</span> <span class="s1">&#39;col2&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">String</span><span class="p">},</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
 </code></pre></div>
     <p>Create a table with an int and a float column, and replace any existing table:</p>
