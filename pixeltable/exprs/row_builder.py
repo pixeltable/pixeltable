@@ -10,7 +10,6 @@ import numpy as np
 
 from pixeltable import catalog, exceptions as excs, utils
 from pixeltable.env import Env
-from pixeltable.utils.media_store import MediaStore
 
 from .data_row import DataRow
 from .expr import Expr, ExprScope
@@ -462,8 +461,7 @@ class RowBuilder:
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
-                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
-                    data_row.flush_img(slot_idx, filepath)
+                    data_row.flush_img(slot_idx, col)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
