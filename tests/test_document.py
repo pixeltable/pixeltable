@@ -3,7 +3,7 @@ import itertools
 import json
 import os
 import re
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
 
@@ -161,7 +161,10 @@ class TestDocument:
         for sep1, sep2, limit, metadata in combinations:
             # Intentionally omit args that are not specified in this combination, to test that the iterator
             # applies defaults properly.
-            args = {'document': doc_t.doc, 'separators': sep1 if sep2 is None else ','.join([sep1, sep2])}
+            args: dict[str, Any] = {
+                'document': doc_t.doc,
+                'separators': sep1 if sep2 is None else ','.join([sep1, sep2]),
+            }
             if len(metadata) > 0:
                 args['metadata'] = ','.join(metadata)
             if sep2 is not None:
