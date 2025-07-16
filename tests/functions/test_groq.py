@@ -47,7 +47,7 @@ class TestGroq:
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=groq.chat_completions(
-                    model='llama3-8b-8192', messages=messages, tools=tools, tool_choice=tool_choice
+                    model='llama-3.1-8b-instant', messages=messages, tools=tools, tool_choice=tool_choice
                 )
             )
             t.add_computed_column(tool_calls=groq.invoke_tools(tools, t.response))

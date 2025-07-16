@@ -624,7 +624,7 @@ class Env:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
-        in windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
+        On Windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
         This arrangement enables serving media hosted within _home,
         as well as external media inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
