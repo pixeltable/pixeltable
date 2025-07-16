@@ -17,7 +17,7 @@ from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
-from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
+from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
 
 from .utils import (
@@ -129,6 +129,7 @@ def clean_db(restore_md_tables: bool = True) -> None:
         Table.__table__.create(engine)
         TableVersion.__table__.create(engine)
         TableSchemaVersion.__table__.create(engine)
+        PendingTableOp.__table__.create(engine)
         SystemInfo.__table__.create(engine)
         create_system_info(engine)
 

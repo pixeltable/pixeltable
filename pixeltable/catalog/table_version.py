@@ -23,9 +23,10 @@ from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
+from .tbl_ops import TableOp
+
 if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
-
 
 from ..func.globals import resolve_symbol
 from .column import Column
@@ -38,6 +39,19 @@ if TYPE_CHECKING:
     from .table_version_handle import TableVersionHandle
 
 _logger = logging.getLogger('pixeltable')
+
+
+@dataclasses.dataclass(frozen=True)
+class TableVersionMd:
+    """
+    Complete set of md records for a specific TableVersion instance.
+
+    TODO: subsume schema.FullTableMd
+    """
+
+    tbl_md: schema.TableMd
+    version_md: schema.TableVersionMd
+    schema_version_md: schema.TableSchemaVersionMd
 
 
 class TableVersion:
@@ -65,6 +79,7 @@ class TableVersion:
 
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
+    _version_md: schema.TableVersionMd
     _schema_version_md: schema.TableSchemaVersionMd
 
     effective_version: Optional[int]
@@ -78,7 +93,7 @@ class TableVersion:
     num_iterator_cols: int
 
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
-    mutable_views: set[TableVersionHandle]
+    mutable_views: frozenset[TableVersionHandle]
 
     # contains complete history of columns, incl dropped ones
     cols: list[Column]
@@ -91,6 +106,8 @@ class TableVersion:
 
     external_stores: dict[str, pxt.io.ExternalStore]
     store_tbl: Optional['store.StoreBase']
+
+    is_initialized: bool  # True if init() has been called
 
     # used by Catalog to invalidate cached instances at the end of a transaction;
     # True if this instance reflects the state of stored metadata in the context of this transaction and
@@ -110,6 +127,7 @@ class TableVersion:
         self,
         id: UUID,
         tbl_md: schema.TableMd,
+        version_md: schema.TableVersionMd,
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
@@ -117,8 +135,10 @@ class TableVersion:
         base: Optional[TableVersionHandle] = None,
     ):
         self.is_validated = True  # a freshly constructed instance is always valid
+        self.is_initialized = False
         self.id = id
         self._tbl_md = copy.deepcopy(tbl_md)
+        self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
         self.effective_version = effective_version
         assert not (self.is_view and base is None)
@@ -159,7 +179,7 @@ class TableVersion:
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
 
-        self.mutable_views = set(mutable_views)
+        self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
 
         self.cols = []
@@ -175,7 +195,9 @@ class TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(self.id, self.tbl_md, self.version, self.schema_version_md, mutable_views=[], base=base)
+        return TableVersion(
+            self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, mutable_views=[], base=base
+        )
 
     @property
     def versioned_name(self) -> str:
@@ -191,6 +213,74 @@ class TableVersion:
         return TableVersionHandle(self.id, self.effective_version, self)
 
     @classmethod
+    def create_initial_md(
+        cls,
+        name: str,
+        cols: list[Column],
+        num_retained_versions: int,
+        comment: str,
+        media_validation: MediaValidation,
+        view_md: Optional[schema.ViewMd] = None,
+    ) -> TableVersionMd:
+        user = Env.get().user
+
+        # assign ids
+        cols_by_name: dict[str, Column] = {}
+        for pos, col in enumerate(cols):
+            col.id = pos
+            col.schema_version_add = 0
+            cols_by_name[col.name] = col
+            if col.is_computed:
+                col.check_value_expr()
+
+        timestamp = time.time()
+        column_md = cls._create_column_md(cols)
+        tbl_id = uuid.uuid4()
+        tbl_id_str = str(tbl_id)
+        tbl_md = schema.TableMd(
+            tbl_id=tbl_id_str,
+            name=name,
+            user=user,
+            is_replica=False,
+            current_version=0,
+            current_schema_version=0,
+            next_col_id=len(cols),
+            next_idx_id=0,
+            next_row_id=0,
+            view_sn=0,
+            column_md=column_md,
+            index_md={},
+            external_stores=[],
+            view_md=view_md,
+            additional_md={},
+        )
+
+        table_version_md = schema.TableVersionMd(
+            tbl_id=tbl_id_str, created_at=timestamp, version=0, schema_version=0, additional_md={}
+        )
+
+        schema_col_md: dict[int, schema.SchemaColumn] = {}
+        for pos, col in enumerate(cols):
+            md = schema.SchemaColumn(
+                pos=pos,
+                name=col.name,
+                media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+            )
+            schema_col_md[col.id] = md
+
+        schema_version_md = schema.TableSchemaVersionMd(
+            tbl_id=tbl_id_str,
+            schema_version=0,
+            preceding_schema_version=None,
+            columns=schema_col_md,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=media_validation.name.lower(),
+            additional_md={},
+        )
+        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
+
+    @classmethod
     def create(
         cls,
         dir_id: UUID,
@@ -199,8 +289,6 @@ class TableVersion:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-        # base_path: Optional[pxt.catalog.TableVersionPath] = None,
-        view_md: Optional[schema.ViewMd] = None,
     ) -> tuple[UUID, Optional[TableVersion]]:
         user = Env.get().user
 
@@ -233,7 +321,7 @@ class TableVersion:
             column_md=column_md,
             index_md={},
             external_stores=[],
-            view_md=view_md,
+            view_md=None,
             additional_md={},
         )
 
@@ -271,47 +359,15 @@ class TableVersion:
 
         cat = pxt.catalog.Catalog.get()
 
-        # if this is purely a snapshot (it doesn't require any additional storage for columns and it doesn't have a
-        # predicate to apply at runtime), we don't create a physical table and simply use the base's table version path
-        if (
-            view_md is not None
-            and view_md.is_snapshot
-            and view_md.predicate is None
-            and view_md.sample_clause is None
-            and len(cols) == 0
-        ):
-            cat.store_tbl_md(
-                tbl_id=tbl_id,
-                dir_id=dir_id,
-                tbl_md=table_md,
-                version_md=table_version_md,
-                schema_version_md=schema_version_md,
-            )
-            return tbl_id, None
-
-        # assert (base_path is not None) == (view_md is not None)
-        is_snapshot = view_md is not None and view_md.is_snapshot
-        effective_version = 0 if is_snapshot else None
-        base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
-        base = base_path.tbl_version if base_path is not None else None
-        tbl_version = cls(tbl_id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base)
+        tbl_version = cls(tbl_id, table_md, table_version_md, None, schema_version_md, [])
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
-        cat._tbl_versions[tbl_id, effective_version] = tbl_version
+        cat._tbl_versions[tbl_id, None] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
-        is_mutable = not is_snapshot and not table_md.is_replica
-        if base is not None and base.get().is_mutable and is_mutable:
-            from .table_version_handle import TableVersionHandle
-
-            handle = TableVersionHandle(tbl_version.id, effective_version)
-            assert handle not in base.get().mutable_views
-            base.get().mutable_views.add(handle)
-
-        if view_md is None or not view_md.is_snapshot:
-            # add default indices, after creating the store table
-            for col in tbl_version.cols_by_name.values():
-                status = tbl_version._add_default_index(col)
-                assert status is None or status.num_excs == 0
+        # add default indices, after creating the store table
+        for col in tbl_version.cols_by_name.values():
+            status = tbl_version._add_default_index(col)
+            assert status is None or status.num_excs == 0
 
         cat.store_tbl_md(
             tbl_id=tbl_id,
@@ -322,6 +378,27 @@ class TableVersion:
         )
         return tbl_id, tbl_version
 
+    def exec_op(self, op: TableOp) -> None:
+        if op.create_store_table_op is not None:
+            # don't use Catalog.begin_xact() here, to avoid accidental recursive calls to exec_op()
+            with Env.get().begin_xact():
+                self.store_tbl.create()
+
+        elif op.load_view_op is not None:
+            from pixeltable.catalog import Catalog
+            from pixeltable.plan import Planner
+
+            from .table_version_path import TableVersionPath
+
+            # clear out any remaining media files from an aborted previous attempt
+            MediaStore.delete(self.id)
+            view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
+            plan, _ = Planner.create_view_load_plan(view_path)
+            _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            status = UpdateStatus(row_count_stats=row_counts)
+            Catalog.get().store_update_status(self.id, self.version, status)
+            _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
+
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
         assert Env.get().in_xact
@@ -331,7 +408,14 @@ class TableVersion:
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
-            tbl_id, md.tbl_md, md.version_md.version, md.schema_version_md, [], base_path=base_path, base=base
+            tbl_id,
+            md.tbl_md,
+            md.version_md,
+            md.version_md.version,
+            md.schema_version_md,
+            [],
+            base_path=base_path,
+            base=base,
         )
         cat = pxt.catalog.Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
@@ -345,23 +429,18 @@ class TableVersion:
         return tbl_version
 
     def drop(self) -> None:
-        if self.is_view and self.is_mutable:
-            # update mutable_views
-            # TODO: invalidate base to force reload
-            from .table_version_handle import TableVersionHandle
+        # if self.is_view and self.is_mutable:
+        #     # update mutable_views
+        #     # TODO: invalidate base to force reload
+        #     from .table_version_handle import TableVersionHandle
+        #
+        #     assert self.base is not None
+        #     if self.base.get().is_mutable:
+        #         self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-            assert self.base is not None
-            if self.base.get().is_mutable:
-                self.base.get().mutable_views.remove(TableVersionHandle.create(self))
-
-        # cat = Catalog.get()
-        # delete this table and all associated data
         MediaStore.delete(self.id)
         FileCache.get().clear(tbl_id=self.id)
-        # cat.delete_tbl_md(self.id)
         self.store_tbl.drop()
-        # de-register table version from catalog
-        # cat.remove_tbl_version(self)
 
     def init(self) -> None:
         """
@@ -373,11 +452,11 @@ class TableVersion:
         cat = Catalog.get()
         assert (self.id, self.effective_version) in cat._tbl_versions
         self._init_schema()
-        if not self.is_snapshot:
+        if self.is_mutable:
             cat.record_column_dependencies(self)
-
         # init external stores; this needs to happen after the schema is created
         self._init_external_stores()
+        self.is_initialized = True
 
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
@@ -453,7 +532,14 @@ class TableVersion:
             # instantiate index object
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index_module, cls_name)
-            idx_col = self.path.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            idx_col: Column
+            if md.indexed_col_tbl_id == str(self.id):
+                # this is a reference to one of our columns: avoid TVP.get_column_by_id() here, because we're not fully
+                # initialized yet
+                idx_col = self.cols_by_id[md.indexed_col_id]
+            else:
+                assert self.path.base is not None
+                idx_col = self.path.base.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
@@ -478,39 +564,16 @@ class TableVersion:
         else:
             self.store_tbl = StoreTable(self)
 
-    def _write_md(
-        self,
-        new_version: bool,
-        new_version_ts: float,
-        new_schema_version: bool,
-        update_status: Optional[UpdateStatus] = None,
-    ) -> None:
-        """Writes table metadata to the database.
-
-        Args:
-            timestamp: timestamp of the change
-            update_tbl_version: if `True`, will also write `TableVersion` metadata
-            preceding_schema_version: if specified, will also write `TableSchemaVersion` metadata, recording the
-                specified preceding schema version
-        """
+    def _write_md(self, new_version: bool, new_schema_version: bool) -> None:
         from pixeltable.catalog import Catalog
-
-        version_md = self._create_version_md(new_version_ts, update_status=update_status) if new_version else None
 
         Catalog.get().store_tbl_md(
-            self.id, None, self._tbl_md, version_md, self._schema_version_md if new_schema_version else None
+            self.id,
+            None,
+            self._tbl_md,
+            self._version_md if new_version else None,
+            self._schema_version_md if new_schema_version else None,
         )
-
-    def _write_md_update_status(self, new_version_ts: float, update_status: UpdateStatus) -> None:
-        """Writes a new update_status in the table version metadata in the database.
-
-        Args:
-            timestamp: timestamp of the change
-            update_status: UpdateStatus to be updated in the database
-        """
-        from pixeltable.catalog import Catalog
-
-        Catalog.get().update_tbl_version_md(self._create_version_md(new_version_ts, update_status))
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""
@@ -519,10 +582,10 @@ class TableVersion:
     def add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
         # we're creating a new schema version
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
         status = self._add_index(col, idx_name, idx)
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
 
@@ -643,7 +706,7 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
         idx_md = self._tbl_md.index_md[idx_id]
         idx_md.schema_version_drop = self.schema_version
@@ -656,7 +719,7 @@ class TableVersion:
         del self._tbl_md.index_md[idx_id]
 
         self._drop_columns([idx_info.val_col, idx_info.undo_col])
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
     def add_columns(
@@ -674,7 +737,7 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
@@ -691,7 +754,8 @@ class TableVersion:
         # Create indices and their md records
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True, update_status=status)
+        self.update_status = status
+        self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
         msg = (
@@ -805,7 +869,7 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
 
         # drop this column and all dependent index columns and indices
@@ -825,7 +889,7 @@ class TableVersion:
             del self.idxs_by_name[idx_name]
 
         self._drop_columns(dropped_cols)
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Dropped column {col.name} from table {self.name}, new version: {self.version}')
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
@@ -868,10 +932,10 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
 
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def set_comment(self, new_comment: Optional[str]) -> None:
@@ -890,9 +954,9 @@ class TableVersion:
     def _create_schema_version(self) -> None:
         # we're creating a new schema version
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
@@ -939,6 +1003,7 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
+        self.created_at = timestamp
         cols_with_excs, row_counts = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
@@ -956,7 +1021,8 @@ class TableVersion:
             result += status.to_cascade()
 
         # Use the net status after all propagations
-        self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False, update_status=result)
+        self.update_status = result
+        self._write_md(new_version=True, new_schema_version=False)
         if print_stats:
             exec_plan.ctx.profile.print(num_rows=result.num_rows)
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
@@ -1131,6 +1197,7 @@ class TableVersion:
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.version += 1
+            self.created_at = timestamp
             cols_with_excs, row_counts = self.store_tbl.insert_rows(
                 plan, v_min=self.version, show_progress=show_progress
             )
@@ -1157,7 +1224,8 @@ class TableVersion:
                 )
                 result += status.to_cascade()
         if create_new_table_version:
-            self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False, update_status=result)
+            self.update_status = result
+            self._write_md(new_version=True, new_schema_version=False)
         return result
 
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
@@ -1211,13 +1279,16 @@ class TableVersion:
         if del_rows > 0:
             # we're creating a new version
             self.version += 1
+            self.created_at = timestamp
         for view in self.mutable_views:
             status = view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
+        self.update_status = result
+
         if del_rows > 0:
-            self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False, update_status=result)
+            self._write_md(new_version=True, new_schema_version=False)
         return result
 
     def revert(self) -> None:
@@ -1316,7 +1387,7 @@ class TableVersion:
         )
 
         self.version -= 1
-        self._write_md(new_version=False, new_version_ts=0, new_schema_version=False)
+        self._write_md(new_version=False, new_schema_version=False)
 
         # propagate to views
         views_str = ', '.join([str(v.id) for v in self.mutable_views])
@@ -1338,27 +1409,31 @@ class TableVersion:
 
     def link_external_store(self, store: pxt.io.ExternalStore) -> None:
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
 
         self.external_stores[store.name] = store
         self._tbl_md.external_stores.append(
             {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()}
         )
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
 
     def unlink_external_store(self, store: pxt.io.ExternalStore) -> None:
         del self.external_stores[store.name]
         self.version += 1
-        self.preceding_schema_version = self.schema_version
+        self.created_at = time.time()
         self.schema_version = self.version
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
 
     @property
     def tbl_md(self) -> schema.TableMd:
         return self._tbl_md
+
+    @property
+    def version_md(self) -> schema.TableVersionMd:
+        return self._version_md
 
     @property
     def schema_version_md(self) -> schema.TableSchemaVersionMd:
@@ -1407,6 +1482,16 @@ class TableVersion:
     def version(self, version: int) -> None:
         assert self.effective_version is None
         self._tbl_md.current_version = version
+        self._version_md.version = version
+
+    @property
+    def created_at(self) -> float:
+        return self._version_md.created_at
+
+    @created_at.setter
+    def created_at(self, ts: float) -> None:
+        assert self.effective_version is None
+        self._version_md.created_at = ts
 
     @property
     def schema_version(self) -> int:
@@ -1416,16 +1501,22 @@ class TableVersion:
     def schema_version(self, version: int) -> None:
         assert self.effective_version is None
         self._tbl_md.current_schema_version = version
+        self._version_md.schema_version = version
+        self._schema_version_md.preceding_schema_version = self._schema_version_md.schema_version
         self._schema_version_md.schema_version = version
 
     @property
     def preceding_schema_version(self) -> int:
         return self._schema_version_md.preceding_schema_version
 
-    @preceding_schema_version.setter
-    def preceding_schema_version(self, v: int) -> None:
+    @property
+    def update_status(self) -> Optional[UpdateStatus]:
+        return self._version_md.update_status
+
+    @update_status.setter
+    def update_status(self, status: UpdateStatus) -> None:
         assert self.effective_version is None
-        self._schema_version_md.preceding_schema_version = v
+        self._version_md.update_status = status
 
     @property
     def media_validation(self) -> MediaValidation:
@@ -1558,37 +1649,6 @@ class TableVersion:
         return [
             {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()} for store in stores
         ]
-
-    def _create_version_md(self, timestamp: float, update_status: Optional[UpdateStatus]) -> schema.TableVersionMd:
-        return schema.TableVersionMd(
-            tbl_id=str(self.id),
-            created_at=timestamp,
-            version=self.version,
-            schema_version=self.schema_version,
-            user=Env.get().user,
-            update_status=update_status,
-            additional_md={},
-        )
-
-    def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
-        column_md: dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(self.cols_by_name.values()):
-            column_md[col.id] = schema.SchemaColumn(
-                pos=pos,
-                name=col.name,
-                media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
-            )
-        # preceding_schema_version to be set by the caller
-        return schema.TableSchemaVersionMd(
-            tbl_id=str(self.id),
-            schema_version=self.schema_version,
-            preceding_schema_version=preceding_schema_version,
-            columns=column_md,
-            num_retained_versions=self.num_retained_versions,
-            comment=self.comment,
-            media_validation=self.media_validation.name.lower(),
-            additional_md={},
-        )
 
     def as_dict(self) -> dict:
         return {'id': str(self.id), 'effective_version': self.effective_version}

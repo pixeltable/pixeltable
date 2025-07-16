@@ -325,7 +325,8 @@ class ColumnRef(Expr):
     @classmethod
     def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
-        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version)
+        # validate_initialized=False: this gets called as part of TableVersion.init()
+        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version, validate_initialized=False)
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
         col = next(col for col in tbl_version.cols if col.id == col_id)
         return col
