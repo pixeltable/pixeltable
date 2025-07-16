@@ -1,0 +1,148 @@
+---
+title: "Installation"
+description: "Get Pixeltable running in under 2 minutes"
+---
+
+# Installation
+
+Get Pixeltable up and running quickly with pip or conda.
+
+## Requirements
+
+- Python 3.9 or higher
+- macOS, Linux, or Windows with WSL2
+
+## Install with pip
+
+```bash
+pip install pixeltable
+```
+
+<Note>
+**First time setup:** Pixeltable will automatically create a local data directory on first run.
+</Note>
+
+## Install with conda
+
+```bash
+conda install -c conda-forge pixeltable
+```
+
+## Verify Installation
+
+Test your installation:
+
+```python
+import pixeltable as pxt
+
+# This should print your Pixeltable version
+print(pxt.__version__)
+
+# Create your first table to test everything works
+pxt.create_table('test_table', {'text': str})
+print("✅ Pixeltable is working!")
+```
+
+## Optional Dependencies
+
+Install additional packages for specific functionality:
+
+<Tabs>
+  <Tab title="Computer Vision">
+    ```bash
+    pip install "pixeltable[cv]"
+    ```
+    Includes: OpenCV, PIL, YOLO models
+  </Tab>
+  <Tab title="Audio Processing">
+    ```bash
+    pip install "pixeltable[audio]"
+    ```
+    Includes: Whisper, audio processing libraries
+  </Tab>
+  <Tab title="LLM Integrations">
+    ```bash
+    pip install "pixeltable[llm]"
+    ```
+    Includes: OpenAI, Anthropic, Hugging Face clients
+  </Tab>
+  <Tab title="Everything">
+    ```bash
+    pip install "pixeltable[all]"
+    ```
+    Includes all optional dependencies
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### API Keys
+
+Set up your AI service API keys:
+
+```bash
+# OpenAI
+export OPENAI_API_KEY="your-key-here"
+
+# Anthropic
+export ANTHROPIC_API_KEY="your-key-here" 
+
+# Hugging Face
+export HUGGINGFACE_API_TOKEN="your-token-here"
+```
+
+Or configure them in Python:
+
+```python
+import pixeltable as pxt
+
+pxt.configure_openai(api_key="your-key-here")
+pxt.configure_anthropic(api_key="your-key-here")
+```
+
+### Data Directory
+
+By default, Pixeltable stores data in `~/.pixeltable`. To use a different location:
+
+```python
+import pixeltable as pxt
+
+pxt.configure(data_dir="/path/to/your/data")
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ImportError: No module named 'pixeltable'">
+    Make sure you're using the correct Python environment:
+    ```bash
+    which python
+    pip list | grep pixeltable
+    ```
+  </Accordion>
+  
+  <Accordion title="Permission errors on first run">
+    Pixeltable needs to create a data directory. Ensure you have write permissions:
+    ```bash
+    ls -la ~/.pixeltable
+    ```
+  </Accordion>
+  
+  <Accordion title="GPU support for AI models">
+    Install CUDA-enabled PyTorch for GPU acceleration:
+    ```bash
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/docs/get-started/quickstart">
+    Build your first pipeline in 5 minutes
+  </Card>
+  <Card title="Examples" icon="code" href="/docs/examples">
+    Explore real-world use cases
+  </Card>
+</CardGroup>

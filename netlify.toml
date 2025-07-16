@@ -1,0 +1,36 @@
+# Netlify configuration for Pixeltable docs
+[build]
+  base = "docs2"
+  publish = "docs2/_site"
+  command = "npm install mintlify && npx mintlify build"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# Deploy previews for all branches and PRs
+[context.deploy-preview]
+  command = "npm install mintlify && npx mintlify build"
+
+[context.branch-deploy]
+  command = "npm install mintlify && npx mintlify build"
+
+# Headers for better performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Cache static assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Redirect old docs to new structure
+[[redirects]]
+  from = "/docs/overview/*"
+  to = "/docs/get-started/:splat"
+  status = 301

@@ -1,0 +1,40 @@
+name: 📚 Docs Build Test
+
+on:
+  push:
+    branches: [ main, docs-v2 ]
+    paths: [ 'docs2/**' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'docs2/**' ]
+
+jobs:
+  build-docs:
+    name: 🔨 Build Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: docs2/package-lock.json
+        
+    - name: 📦 Install dependencies
+      working-directory: docs2
+      run: npm ci
+      
+    - name: 🔨 Build docs
+      working-directory: docs2
+      run: npm run build
+      
+    - name: ✅ Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: docs-build
+        path: docs2/_site/
+        retention-days: 7

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Pixeltable Documentation",
+  "logo": {
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704",
+    "anchors": {
+      "from": "#F1AE03",
+      "to": "#DC2404"
+    },
+    "background": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "font": {
+    "headings": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Discord",
+      "url": "https://discord.com/invite/QPyqFYx2UN"
+    },
+    {
+      "name": "Book a Demo",
+      "url": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+    }
+  ],
+  "topbarCtaButton": {
+    "type": "github",
+    "url": "https://github.com/pixeltable/pixeltable"
+  },
+  "feedback": {
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs...",
+    "placeholder": "Try 'getting started' or 'multimodal AI'"
+  },
+  "tabs": [
+    {
+      "name": "Get Started",
+      "url": "/docs/get-started"
+    },
+    {
+      "name": "API Reference",
+      "url": "https://pixeltable.github.io/pixeltable/"
+    },
+    {
+      "name": "Examples",
+      "url": "/docs/examples"
+    },
+    {
+      "name": "Support",
+      "url": "/docs/support"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": [
+        "docs/get-started/overview",
+        "docs/get-started/installation",
+        "docs/get-started/quickstart"
+      ]
+    },
+    {
+      "group": "Examples", 
+      "pages": [
+        "docs/examples/overview"
+      ]
+    },
+    {
+      "group": "Support",
+      "pages": [
+        "docs/support/overview"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "twitter": "https://twitter.com/pixeltablehq",
+    "github": "https://github.com/pixeltable/pixeltable",
+    "discord": "https://discord.com/invite/QPyqFYx2UN"
+  }
+}

@@ -1,0 +1,210 @@
+---
+title: "5-Minute Quickstart"
+description: "Build a multimodal AI pipeline that processes videos, extracts transcripts, and generates summaries"
+---
+
+# 5-Minute Quickstart
+
+Build a complete multimodal AI pipeline that automatically processes videos, extracts transcripts, and generates AI summaries.
+
+<Note>
+**What you'll build:** A video analysis pipeline that takes any video file and automatically generates transcripts and summaries using Whisper and GPT-4.
+</Note>
+
+## Step 1: Import and Initialize
+
+```python
+import pixeltable as pxt
+
+# Pixeltable automatically initializes on first import
+print(f"✅ Pixeltable {pxt.__version__} ready!")
+```
+
+## Step 2: Create Your Data Table
+
+```python
+# Create a table to store videos and their AI-generated metadata
+videos = pxt.create_table('video_analysis', {
+    'video': pxt.Video,      # Stores video files
+    'title': str,            # Human-readable title
+    'uploaded_at': str       # When the video was added
+})
+
+print("✅ Table created!")
+```
+
+## Step 3: Add AI-Powered Computed Columns
+
+Here's where the magic happens - add columns that automatically compute using AI:
+
+```python
+# Add automatic transcript generation
+videos.add_computed_column(
+    transcript=pxt.functions.whisper.transcribe(
+        videos.video, 
+        model='base'
+    )
+)
+
+# Add automatic summary generation
+videos.add_computed_column(
+    summary=pxt.functions.openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{
+            'role': 'user', 
+            'content': f'Summarize this video transcript in 2-3 sentences: {videos.transcript}'
+        }]
+    ).content
+)
+
+# Add sentiment analysis
+videos.add_computed_column(
+    sentiment=pxt.functions.openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{
+            'role': 'user',
+            'content': f'What is the sentiment of this transcript? Reply with one word: {videos.transcript}'
+        }]
+    ).content
+)
+
+print("✅ AI columns added!")
+```
+
+<Warning>
+Make sure you have your OpenAI API key configured:
+```bash
+export OPENAI_API_KEY="your-key-here"
+```
+</Warning>
+
+## Step 4: Insert Data and Watch AI Work
+
+```python
+import datetime
+
+# Insert a video - all AI processing happens automatically!
+videos.insert({
+    'video': '/path/to/your/video.mp4',  # Replace with your video path
+    'title': 'My Sample Video',
+    'uploaded_at': datetime.datetime.now().isoformat()
+})
+
+print("✅ Video inserted - AI processing started automatically!")
+```
+
+## Step 5: Query Your Results
+
+```python
+# Get all videos with their AI-generated content
+results = videos.select(
+    videos.title,
+    videos.transcript,
+    videos.summary,
+    videos.sentiment
+).collect()
+
+for row in results:
+    print(f"\n🎬 {row['title']}")
+    print(f"📝 Summary: {row['summary']}")
+    print(f"😊 Sentiment: {row['sentiment']}")
+    print(f"📜 Transcript: {row['transcript'][:200]}...")
+```
+
+## Step 6: Add More Advanced Features
+
+Now let's add some advanced AI features:
+
+```python
+# Extract key topics using AI
+videos.add_computed_column(
+    key_topics=pxt.functions.openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{
+            'role': 'user',
+            'content': f'Extract 3-5 key topics from this transcript as a comma-separated list: {videos.transcript}'
+        }]
+    ).content
+)
+
+# Generate embeddings for semantic search
+videos.add_computed_column(
+    embedding=pxt.functions.openai.embeddings(
+        input=videos.transcript,
+        model='text-embedding-3-small'
+    ).embedding
+)
+
+print("✅ Advanced AI features added!")
+```
+
+## Step 7: Semantic Search
+
+Search your videos by meaning, not just keywords:
+
+```python
+# Search for videos about specific topics
+search_query = "machine learning and AI"
+
+# Get embedding for search query
+query_embedding = pxt.functions.openai.embeddings(
+    input=search_query,
+    model='text-embedding-3-small'
+).embedding
+
+# Find similar videos using cosine similarity
+similar_videos = videos.select(
+    videos.title,
+    videos.summary,
+    pxt.functions.cosine_similarity(videos.embedding, query_embedding).alias('similarity')
+).order_by(pxt.functions.cosine_similarity(videos.embedding, query_embedding), asc=False).limit(5)
+
+print(f"\n🔍 Videos similar to '{search_query}':")
+for row in similar_videos:
+    print(f"  {row['title']} (similarity: {row['similarity']:.3f})")
+```
+
+## What Just Happened?
+
+<Accordion title="🤯 The Magic Explained">
+
+You just built a production-ready multimodal AI pipeline with just a few lines of code. Here's what Pixeltable handled for you automatically:
+
+- **Incremental Processing**: Only new videos get processed
+- **Dependency Management**: Summaries wait for transcripts to complete  
+- **Error Handling**: Failed AI calls are retried automatically
+- **Caching**: Results are cached to avoid recomputation
+- **Type Safety**: Video files are validated on insert
+- **Versioning**: All transformations are versioned and reproducible
+
+**What would this take with traditional tools?**
+- Setting up video processing infrastructure
+- Managing AI API calls and retries  
+- Building a database schema
+- Implementing caching and incremental updates
+- Writing embedding storage and search
+- **Result**: 500+ lines of code vs. 20 lines with Pixeltable
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Examples Gallery" icon="images" href="/docs/examples">
+    Explore more real-world AI pipelines
+  </Card>
+  <Card title="API Reference" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Deep dive into all available functions
+  </Card>
+  <Card title="Computer Vision" icon="eye" href="/docs/examples/vision">
+    Build image classification pipelines
+  </Card>
+  <Card title="Document Intelligence" icon="file-text" href="/docs/examples/documents">
+    Extract insights from PDFs and documents
+  </Card>
+</CardGroup>
+
+---
+
+**🎉 Congratulations!** You've built a complete multimodal AI pipeline that would typically require multiple services, databases, and hundreds of lines of code.
+
+**Questions?** Join our [Discord community](https://discord.com/invite/QPyqFYx2UN) for help and to share what you're building!

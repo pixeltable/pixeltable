@@ -1,0 +1,16 @@
+{
+  "name": "pixeltable-docs",
+  "version": "2.0.0",
+  "description": "Pixeltable Documentation",
+  "scripts": {
+    "dev": "mintlify dev",
+    "build": "mintlify build",
+    "preview": "mintlify dev"
+  },
+  "dependencies": {
+    "mintlify": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
