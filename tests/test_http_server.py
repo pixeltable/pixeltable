@@ -9,7 +9,7 @@ from .utils import get_audio_files, get_documents, get_image_files, get_video_fi
 def test_http_server() -> None:
     """check path to url conversion and back"""
     httpd = make_server(address='127.0.0.1', port=0)
-    (host, port) = httpd.server_address
+    host, port = httpd.server_address  # type: ignore[misc]
     assert isinstance(host, str)
     http_address = f'http://{host}:{port}'
 
