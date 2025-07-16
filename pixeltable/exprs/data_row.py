@@ -264,8 +264,8 @@ class DataRow:
         assert self.excs[index] is None
         if self.file_paths[index] is None:
             if col is not None:
-                filepath, url = MediaStore.save_image_file(self.vals[index], col.tbl.id, col.id, col.tbl.version)
-                self.file_paths[index] = filepath
+                filepath, url = MediaStore.save_media_object(self.vals[index], col.tbl.id, col.id, col.tbl.version)
+                self.file_paths[index] = str(filepath)
                 self.file_urls[index] = url
             else:
                 # we discard the content of this cell
