@@ -5,7 +5,6 @@ from typing import List
 import pytest
 from PIL import Image
 
-import pixeltable as pxt
 from pixeltable.iterators import PdfPageExtractor
 
 
@@ -29,10 +28,10 @@ def find_pdfs(path: str, limit: int = 50, recursive: bool = True) -> List[str]:
 
 
 class TestPdfPageExtractor:
-    @pytest.mark.parametrize("limit", [2])  # Only test a few PDFs to keep runtime low
+    @pytest.mark.parametrize('limit', [2])  # Only test a few PDFs to keep runtime low
     def test_pdf_page_extraction(self, limit: int) -> None:
-        pdfs = find_pdfs("tests/data/documents", limit=limit)
-        assert len(pdfs) > 0, "No PDF files found for testing."
+        pdfs = find_pdfs('tests/data/documents', limit=limit)
+        assert len(pdfs) > 0, 'No PDF files found for testing.'
 
         for doc_path in pdfs:
             extractor = PdfPageExtractor(document=doc_path)
@@ -43,20 +42,20 @@ class TestPdfPageExtractor:
                 assert 'image' in chunk
 
                 # Test text is not empty
-                assert isinstance(chunk["text"], str)
-                assert len(chunk["text"]) > 0
+                assert isinstance(chunk['text'], str)
+                assert len(chunk['text']) > 0
 
                 # Test image is a PIL Image
-                assert isinstance(chunk["image"], Image.Image)
+                assert isinstance(chunk['image'], Image.Image)
 
                 # Convert image to bytes and reopen it
                 img_io = io.BytesIO()
-                chunk["image"].save(img_io, format="PNG")
+                chunk['image'].save(img_io, format='PNG')
                 img_bytes = img_io.getvalue()
                 assert len(img_bytes) > 0
 
                 reopened_img = Image.open(io.BytesIO(img_bytes))
-                assert reopened_img.size == chunk["image"].size
+                assert reopened_img.size == chunk['image'].size
                 break  # Only test the first page to keep the test fast
 
             extractor.close()

@@ -1,12 +1,14 @@
 import os
-import pytest
-import pixeltable as pxt
 from typing import List
-from pixeltable.iterators.pdf_page_extractor import PdfPageExtractor  # adjust path as needed
+
+import pytest
+
+import pixeltable as pxt
 from pixeltable.catalog import Catalog
+from pixeltable.iterators.pdf_page_extractor import PdfPageExtractor  # adjust path as needed
+
 
 class TestPdfExtraction:
-    
     def find_pdfs(self, path: str, limit: int = 50, recursive: bool = True) -> List[str]:
         pdf_paths = []
         if recursive:
@@ -24,10 +26,10 @@ class TestPdfExtraction:
                         break
         return pdf_paths
 
-    @pytest.mark.usefixtures("reset_db")  # ensures DB is reset between test runs
+    @pytest.mark.usefixtures('reset_db')  # ensures DB is reset between test runs
     def test_pdf_page_chunking(self):
-        pdf_paths = self.find_pdfs("tests/data/documents", limit=50)
-        assert len(pdf_paths) > 0, "No PDF files found for testing."
+        pdf_paths = self.find_pdfs('tests/data/documents', limit=50)
+        assert len(pdf_paths) > 0, 'No PDF files found for testing.'
 
         # Drop existing if any (safety)
         Catalog.get().drop_table('pdf_page_chunks', if_not_exists=True, force=True)
@@ -42,18 +44,10 @@ class TestPdfExtraction:
         assert insert_result.num_excs == 0
 
         # Create view
-        chunks_view = pxt.create_view(
-            'pdf_page_chunks',
-            docs,
-            iterator=PdfPageExtractor.create(document=docs.doc)
-        )
+        chunks_view = pxt.create_view('pdf_page_chunks', docs, iterator=PdfPageExtractor.create(document=docs.doc))
 
         # Run query
-        results_set = chunks_view.select(
-            chunks_view.page,
-            chunks_view.image,
-            chunks_view.text
-        ).collect()
+        results_set = chunks_view.select(chunks_view.page, chunks_view.image, chunks_view.text).collect()
         results = list(results_set)
 
         # Validate outputs
@@ -62,9 +56,9 @@ class TestPdfExtraction:
         assert all(r['text'] and isinstance(r['text'], str) for r in results)
 
         # Print chunk count and sample if needed
-        print(f"Extracted {len(results)} page chunks from {len(pdf_paths)} PDFs")
+        print(f'Extracted {len(results)} page chunks from {len(pdf_paths)} PDFs')
         if len(results) > 0:
-            print("Sample chunk:", results[0])
+            print('Sample chunk:', results[0])
 
         # Describe (optional, for manual inspection)
         docs.describe()

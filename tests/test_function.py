@@ -15,6 +15,7 @@ from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
 from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
+from typing_extensions import Self
 
 
 def dummy_fn(i: int) -> int:
@@ -583,7 +584,7 @@ class TestFunction:
         return x + y + 2.0
 
     @pxt.udf(type_substitutions=({T: str}, {T: int}, {T: float}))
-    def typevar_udf(x: T, y: T, z: str = 'a') -> T:  # noqa: N805
+    def typevar_udf(x, y: Self, z: str = 'a') -> Self:  # noqa: N805
         return x + y  # type: ignore[operator]
 
     def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:

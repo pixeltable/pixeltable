@@ -1,12 +1,13 @@
 import dataclasses
-import fitz  # PyMuPDF
-import base64
 import io
-from typing import Iterator, Optional, Any
-from pixeltable.utils.documents import get_document_handle
-from pixeltable.type_system import ColumnType, StringType, IntType, ImageType
-from pixeltable.iterators.base import ComponentIterator
+from typing import Any
+
 from PIL import Image
+
+from pixeltable.iterators.base import ComponentIterator
+from pixeltable.type_system import ColumnType, ImageType, IntType, StringType
+from pixeltable.utils.documents import get_document_handle
+
 
 @dataclasses.dataclass
 class PageChunk:
@@ -14,6 +15,7 @@ class PageChunk:
     page: int
     image_bytes: bytes
     image: Image
+
 
 class PdfPageExtractor(ComponentIterator):
     def __init__(self, document: str):
@@ -41,16 +43,12 @@ class PdfPageExtractor(ComponentIterator):
 
         # Remove NUL bytes
         clean_text = text.replace('\x00', '')
-        
+
         # Render image
         pix = page.get_pixmap(dpi=300)
-        image = Image.open(io.BytesIO(pix.tobytes("png")))
+        image = Image.open(io.BytesIO(pix.tobytes('png')))
 
-        return {
-            'text': clean_text,
-            'page': page_number,
-            'image': image
-        }
+        return {'text': clean_text, 'page': page_number, 'image': image}
 
     def close(self) -> None:
         self._pdf_doc.close()

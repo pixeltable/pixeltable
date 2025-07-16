@@ -155,6 +155,7 @@ ollama = ">=0.5.1"
 llama-cpp-python = { version = ">=0.3.9", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
 mcp = ">=1.9.4"
 pixeltable-yolox = "==0.4.2"
+flake8 = "^7.3.0"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
