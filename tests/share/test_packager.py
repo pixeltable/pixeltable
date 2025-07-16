@@ -79,7 +79,7 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, t)
 
-        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=16)
+        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=13)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = Path(Env.get().create_tmp_path())
@@ -120,11 +120,14 @@ class TestPackager:
             else:
                 select_exprs[col.store_name()] = t[col_name]
             actual_col_types.append(col.col_type)
-            if col.records_errors:
-                select_exprs[col.errortype_store_name()] = t[col_name].errortype
-                actual_col_types.append(ts.StringType())
-                select_exprs[col.errormsg_store_name()] = t[col_name].errormsg
-                actual_col_types.append(ts.StringType())
+            if col.stores_cellmd:
+                from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+
+                # This is not available in the user-facing API, but we use it for testing.
+                select_exprs[col.cellmd_store_name()] = exprs.ColumnPropertyRef(
+                    t[col_name], ColumnPropertyRef.Property.CELLMD
+                )
+                actual_col_types.append(col.cellmd_type())
 
         scope_tbl = scope_tbl or t
         pxt_data = scope_tbl.select(**select_exprs).collect()
@@ -138,7 +141,7 @@ class TestPackager:
                     assert np.array_equal(pxt_val, parquet_val)
             elif col_type.is_json_type():
                 # JSON columns were exported as strings; check that they parse properly
-                assert pxt_values == [json.loads(val) for val in parquet_values]
+                assert pxt_values == [json.loads(val) if val is not None else None for val in parquet_values]
             elif col_type.is_media_type():
                 assert media_dir is not None
                 self.__check_media(pxt_values, parquet_values, media_dir)
@@ -177,8 +180,6 @@ class TestPackager:
         """
         Runs the query `tbl.head(n=5000)`, packages the table into a bundle, and returns a BundleInfo.
         """
-        assert tbl.get_metadata()['is_snapshot']
-
         schema = tbl._get_schema()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
@@ -199,8 +200,8 @@ class TestPackager:
 
     def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
-        assert t._get_schema() == bundle_info.schema
-        assert t._tbl_version_path.path_len() == bundle_info.depth
+        assert bundle_info.schema == t._get_schema()
+        assert bundle_info.depth == t._tbl_version_path.path_len()
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
 
@@ -211,7 +212,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle, 'new_replica')
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
-        """package() / unpackage() round trip"""
+        """package() / restore() round trip for a single snapshot"""
         # Add some additional columns to test various additional datatypes
         t = test_tbl
         t.add_column(dt=pxt.Date)
@@ -223,6 +224,25 @@ class TestPackager:
 
         snapshot = pxt.create_snapshot('snapshot', t)
         self.__do_round_trip(snapshot)
+
+    def test_non_snapshot_round_trip(self, reset_db: None) -> None:
+        """package() / restore() round trip for multiple versions of a table that is not a snapshot"""
+        t = pxt.create_table('tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(200))
+
+        bundle1 = self.__package_table(t)
+
+        t.add_column(str_col=pxt.String)
+        t.insert({'int_col': i} for i in range(200, 400))
+        t.where(t.int_col % 2 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+
+        bundle2 = self.__package_table(t)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica')
+        self.__restore_and_check_table(bundle2, 'replica')
 
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
         snapshot = pxt.create_snapshot('snapshot', img_tbl)
@@ -328,16 +348,19 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_4(self, all_datatypes_tbl: pxt.Table) -> None:
+    @pytest.mark.parametrize('different_versions', [False, True])
+    def test_multi_view_round_trip_4(self, different_versions: bool, all_datatypes_tbl: pxt.Table) -> None:
         """
-        Snapshots that involve all the different column types.
+        Snapshots that involve all the different column types. Two snapshots of the same base table will be created;
+        they will snapshot either the same or different versions of the table, depending on `different_versions`.
         """
         t = all_datatypes_tbl
         snap1 = pxt.create_snapshot('snap1', t.where(t.row_id % 2 != 0))
         bundle1 = self.__package_table(snap1)
 
-        more_data = create_table_data(t, num_rows=22)
-        t.insert(more_data[11:])
+        if different_versions:
+            more_data = create_table_data(t, num_rows=22)
+            t.insert(more_data[11:])
 
         snap2 = pxt.create_snapshot('snap2', t.where(t.row_id % 3 != 0))
         bundle2 = self.__package_table(snap2)
@@ -367,12 +390,12 @@ class TestPackager:
         clean_db()
         reload_catalog()
 
-        for n in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+        for n in (7, 3, 0, 9, 4, 10, 1, 5, 8):
             # Snapshots 2 and 6 are intentionally never restored.
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
 
         # Check all the tables again to verify that everything is consistent.
-        for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+        for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
 
     def test_multi_view_round_trip_6(self, reset_db: None) -> None:
@@ -397,10 +420,105 @@ class TestPackager:
         clean_db()
         reload_catalog()
 
-        for n in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+        for n in (7, 3, 0, 9, 4, 10, 1, 5, 8):
             # Snapshots 2 and 6 are intentionally never restored.
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
 
         # Check all the tables again to verify that everything is consistent.
-        for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+        for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
+
+    def test_multi_view_non_snapshot_round_trip(self, reset_db: None) -> None:
+        """
+        A similar test, this one involving multiple versions of a table that is not a snapshot,
+        intermixed with various snapshots.
+        """
+        bundles: list[TestPackager.BundleInfo] = []
+
+        t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
+        t.insert({'row_number': i} for i in range(1024))
+        bundles.append(self.__package_table(pxt.create_snapshot('snap', t)))
+
+        for n in range(1, 11):
+            t.insert({'row_number': i} for i in range(1024 + 64 * n, 1024 + 64 * (n + 1)))
+            t.add_computed_column(**{f'new_col_{n}': t.value * n})
+            t.where(t.row_number.bitwise_and(2**n) != 0).update({'value': n})
+            t.where(t.row_number < 32 * n).delete()
+            if n >= 6:
+                t.drop_column(f'new_col_{n - 5}')
+            if n % 2 == 0:
+                # Even-numbered iterations create a snapshot
+                bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{n}', t)))
+            else:
+                # Odd-numbered iterations just package the table directly
+                bundles.append(self.__package_table(t))
+
+        clean_db()
+        reload_catalog()
+
+        # Restore the odd-numbered bundles (directly packaged table versions). This needs to be done in order
+        # currently, because we don't have a way to get a handle to an older version of a table.
+        # TODO: Randomize the order once we have such a feature.
+        for n in (1, 3, 7, 9):
+            self.__restore_and_check_table(bundles[n], 'replica')
+
+        for n in (4, 0, 8, 10, 6):
+            self.__restore_and_check_table(bundles[n], f'replica_{n}')
+
+    def test_replica_ops(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
+        v = pxt.create_view('test_view', t)
+        v.add_computed_column(iccol=(v.icol + 1))
+
+        t_bundle = self.__package_table(t)
+        v_bundle = self.__package_table(v)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(v_bundle, 'view_replica')
+        # Check that test_tbl was instantiated as a system table
+        assert pxt.list_tables() == ['view_replica']
+        system_path = pxt.catalog.Path('_system', allow_system_paths=True)
+        system_contents = pxt.globals._list_tables('_system', allow_system_paths=True)
+        assert len(system_contents) == 1 and system_contents[0].startswith('_system.replica_')
+
+        self.__restore_and_check_table(t_bundle, 'tbl_replica')
+        # Check that test_tbl has been renamed to a user table
+        assert pxt.list_tables() == ['view_replica', 'tbl_replica']
+        assert len(pxt.catalog.Catalog.get().get_dir_contents(system_path)) == 0
+
+        t = pxt.get_table('tbl_replica')
+        v = pxt.get_table('view_replica')
+
+        for s, name, kind in ((t, 'tbl_replica', 'table-replica'), (v, 'view_replica', 'view-replica')):
+            display_str = f'{kind} {name!r}'
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a {kind}.'):
+                s.insert({'icol': 10, 'scol': 'string 10'})
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a {kind}.'):
+                s.delete()
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+                s.add_column(new_col=pxt.Bool)
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+                s.add_columns({'new_col': pxt.Bool})
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+                s.add_computed_column(new_col=(t.icol + 1))
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a {kind}.'):
+                s.drop_column('scol')
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a {kind}.'):
+                s.add_embedding_index('icol', embedding=clip_embed)
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a {kind}.'):
+                s.drop_embedding_index(column='icol')
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a {kind}.'):
+                s.update({'icol': 11})
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a {kind}.'):
+                s.recompute_columns('icol')
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a {kind}.'):
+                s.revert()
+
+            # TODO: Align these DataFrame error messages with Table error messages
+            with pytest.raises(pxt.Error, match=r'Cannot use `update` on a replica.'):
+                s.where(s.icol < 5).update({'icol': 100})
+            with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
+                s.where(s.icol < 5).delete()

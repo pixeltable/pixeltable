@@ -115,11 +115,15 @@ class ColumnRef(Expr):
         from .column_property_ref import ColumnPropertyRef
 
         # resolve column properties
+        if name == ColumnPropertyRef.Property.CELLMD.name.lower():
+            # This is not user accessible, but used internally to store cell metadata
+            return super().__getattr__(name)
+
         if (
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            property_is_present = self.col.is_stored and (self.col.is_computed or self.col_type.is_media_type())
+            property_is_present = self.col.stores_cellmd
             if not property_is_present:
                 raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
@@ -321,7 +325,8 @@ class ColumnRef(Expr):
     @classmethod
     def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
-        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version)
+        # validate_initialized=False: this gets called as part of TableVersion.init()
+        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version, validate_initialized=False)
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
         col = next(col for col in tbl_version.cols if col.id == col_id)
         return col

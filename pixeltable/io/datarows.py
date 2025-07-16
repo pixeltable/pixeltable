@@ -8,7 +8,7 @@ from pixeltable import exceptions as excs
 
 
 def _infer_schema_from_rows(
-    rows: Iterable[dict[str, Any]], schema_overrides: dict[str, Any], primary_key: list[str]
+    rows: Iterable[dict[str, Any]], schema_overrides: dict[str, ts.ColumnType], primary_key: list[str]
 ) -> dict[str, ts.ColumnType]:
     schema: dict[str, ts.ColumnType] = {}
     cols_with_nones: set[str] = set()
@@ -20,6 +20,7 @@ def _infer_schema_from_rows(
                 # in which the column names are encountered in the input data, even if `schema_overrides`
                 # is specified.
                 if col_name not in schema:
+                    assert isinstance(schema_overrides[col_name], ts.ColumnType)
                     schema[col_name] = schema_overrides[col_name]
             elif value is not None:
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.

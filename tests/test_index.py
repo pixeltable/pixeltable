@@ -379,11 +379,14 @@ class TestIndex:
         img_t.insert(new_rows)
         print(img_t.head())
 
-        with pytest.raises(pxt.Error, match='reference to an error property of another column is not allowed'):
+        with pytest.raises(pxt.Error, match='property of another column is not allowed'):
             img_t.add_computed_column(emsg=img_t.img.errormsg)
 
-        with pytest.raises(pxt.Error, match='reference to an error property of another column is not allowed'):
+        with pytest.raises(pxt.Error, match='property of another column is not allowed'):
             img_t.add_computed_column(etype=img_t.img.errortype)
+
+        with pytest.raises(AttributeError, match='Unknown method '):
+            img_t.add_computed_column(etype=img_t.img.cellmd)
 
         # Update the first row with a new image
         repl_row = rows[6]
@@ -408,7 +411,7 @@ class TestIndex:
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
     def test_embedding_access(self, img_tbl: pxt.Table, e5_embed: func.Function) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'sentence_transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing

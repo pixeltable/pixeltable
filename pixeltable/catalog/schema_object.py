@@ -42,21 +42,26 @@ class SchemaObject:
 
     def get_metadata(self) -> dict[str, Any]:
         """Returns metadata associated with this schema object."""
-        from pixeltable.catalog import Catalog
+        from pixeltable.catalog import retry_loop
 
-        with Catalog.get().begin_xact(for_write=False):
+        @retry_loop(for_write=False)
+        def op() -> dict[str, Any]:
             return self._get_metadata()
+
+        return op()
 
     def _get_metadata(self) -> dict[str, Any]:
         return {'name': self._name, 'path': self._path()}
 
-    @classmethod
     @abstractmethod
-    def _display_name(cls) -> str:
+    def _display_name(self) -> str:
         """
         Return name displayed in error messages.
         """
         pass
+
+    def _display_str(self) -> str:
+        return f'{self._display_name()} {self._path()!r}'
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         """Subclasses need to override this to make the change persistent"""

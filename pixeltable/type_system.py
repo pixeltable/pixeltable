@@ -1153,8 +1153,8 @@ class ImageType(ColumnType):
                 img.load()
                 return img
             except Exception as exc:
-                errormsg_val = val if len(val) < 50 else val[:50] + '...'
-                raise excs.Error(f'data URL could not be decoded into a valid image: {errormsg_val}') from exc
+                error_msg_val = val if len(val) < 50 else val[:50] + '...'
+                raise excs.Error(f'data URL could not be decoded into a valid image: {error_msg_val}') from exc
         return val
 
     def _validate_literal(self, val: Any) -> None:

@@ -535,18 +535,18 @@ class TestDataFrame:
         # delete from view
         with pytest.raises(excs.Error) as exc_info:
             v2.where(t.c2 < 10).delete()
-        assert 'Cannot delete from view' in str(exc_info.value)
+        assert 'Cannot use `delete` on a view.' in str(exc_info.value)
 
         # update snapshot
         snap = pxt.create_snapshot('test_snapshot', t)
         with pytest.raises(excs.Error) as exc_info:
             snap.where(t.c2 < 10).update({'c3': 0.0})
-        assert 'Cannot update a snapshot' in str(exc_info.value)
+        assert 'Cannot use `update` on a snapshot.' in str(exc_info.value)
 
         # delete from snapshot
         with pytest.raises(excs.Error) as exc_info:
             snap.where(t.c2 < 10).delete()
-        assert 'Cannot delete from view' in str(exc_info.value)
+        assert 'Cannot use `delete` on a snapshot.' in str(exc_info.value)
 
     def __check_constant_query(self, df: pxt.DataFrame, v: Any) -> None:
         r = df.limit(5).collect()
@@ -561,8 +561,7 @@ class TestDataFrame:
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """tests all types are handled correctly in this conversion"""
-        skip_test_if_not_installed('torch')
-        skip_test_if_not_installed('pyarrow')
+        skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
 
         t = all_datatypes_tbl
@@ -592,9 +591,7 @@ class TestDataFrame:
 
     def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.Table) -> None:
         """tests the image_format parameter is honored"""
-        skip_test_if_not_installed('torch')
-        skip_test_if_not_installed('torchvision')
-        skip_test_if_not_installed('pyarrow')
+        skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
         import torchvision.transforms  # type: ignore[import-untyped]
 
@@ -709,8 +706,7 @@ class TestDataFrame:
         2. adding a row to the table invalidates the cached version
         3. changing the select list invalidates the cached version
         """
-        skip_test_if_not_installed('torch')
-        skip_test_if_not_installed('pyarrow')
+        skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         t = all_datatypes_tbl

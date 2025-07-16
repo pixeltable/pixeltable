@@ -378,7 +378,7 @@ class Planner:
 
         cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
 
-        row_builder = exprs.RowBuilder([], stored_cols, [])
+        row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
 
         # create InMemoryDataNode for 'rows'
         plan: exec.ExecNode = exec.InMemoryDataNode(
@@ -512,6 +512,7 @@ class Planner:
         # update row builder with column information
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        plan.ctx.num_computed_exprs = len(recomputed_exprs)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
@@ -592,7 +593,7 @@ class Planner:
         sql_exprs = list(
             exprs.Expr.list_subexprs(analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False)
         )
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs, target)
         analyzer.finalize(row_builder)
         sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, sql_exprs, sa_key_cols, key_vals)
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
@@ -659,6 +660,7 @@ class Planner:
             ignore_errors=True,
             exact_version_only=view.get_bases(),
         )
+        plan.ctx.num_computed_exprs = len(recomputed_exprs)
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
@@ -698,7 +700,7 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
         )
-        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [])
+        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target)
 
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
@@ -835,7 +837,11 @@ class Planner:
             order_by_clause=order_by_clause,
             sample_clause=sample_clause,
         )
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
+        # If the from_clause has a single table, we can use it as the context table for the RowBuilder.
+        # Otherwise there is no context table, but that's ok, because the context table is only needed for
+        # table mutations, which can't happen during a join.
+        context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -1038,16 +1044,14 @@ class Planner:
         return Analyzer(FromClause(tbls=[tbl]), [], where_clause=where_clause)
 
     @classmethod
-    def create_add_column_plan(
-        cls, tbl: catalog.TableVersionPath, col: catalog.Column
-    ) -> tuple[exec.ExecNode, Optional[int]]:
+    def create_add_column_plan(cls, tbl: catalog.TableVersionPath, col: catalog.Column) -> exec.ExecNode:
         """Creates a plan for InsertableTable.add_column()
         Returns:
             plan: the plan to execute
             value_expr slot idx for the plan output (for computed cols)
         """
         assert isinstance(tbl, catalog.TableVersionPath)
-        row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[])
+        row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[], tbl=tbl.tbl_version.get())
         analyzer = Analyzer(FromClause(tbls=[tbl]), row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(
             row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True
@@ -1055,9 +1059,10 @@ class Planner:
         plan.ctx.batch_size = 16
         plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True
+        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
+        plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
 
         # we want to flush images
         if col.is_computed and col.is_stored and col.col_type.is_image_type():
             plan.set_stored_img_cols(row_builder.output_slot_idxs())
-        value_expr_slot_idx = row_builder.output_slot_idxs()[0].slot_idx if col.is_computed else None
-        return plan, value_expr_slot_idx
+        return plan

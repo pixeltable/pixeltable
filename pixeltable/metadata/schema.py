@@ -8,6 +8,8 @@ from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
+from ..catalog.update_status import UpdateStatus
+
 # Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being
 # a type, it's also a `DeclarativeMeta`. The following pattern enables us to expose both `Base` and `Base.metadata`
 # outside of the module in a typesafe way.
@@ -22,7 +24,7 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
     if dataclasses.is_dataclass(data_class_type):
         fieldtypes = get_type_hints(data_class_type)
-        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})  # type: ignore[return-value]
+        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
 
     origin = typing.get_origin(data_class_type)
     if origin is not None:
@@ -180,6 +182,7 @@ class TableMd:
     # sequence number to track changes in the set of mutable views of this table (ie, this table = the view base)
     # - incremented for each add/drop of a mutable view
     # - only maintained for mutable tables
+    # TODO: replace with mutable_views: list[UUID] to help with debugging
     view_sn: int
 
     # Metadata format for external stores:
@@ -190,6 +193,26 @@ class TableMd:
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: Optional[ViewMd]
     additional_md: dict[str, Any]
+
+    has_pending_ops: bool = False
+
+    @property
+    def is_snapshot(self) -> bool:
+        return self.view_md is not None and self.view_md.is_snapshot
+
+    @property
+    def is_mutable(self) -> bool:
+        return not self.is_snapshot and not self.is_replica
+
+    @property
+    def is_pure_snapshot(self) -> bool:
+        return (
+            self.view_md is not None
+            and self.view_md.is_snapshot
+            and self.view_md.sample_clause is None
+            and self.view_md.predicate is None
+            and len(self.column_md) == 0
+        )
 
 
 class Table(Base):
@@ -219,7 +242,9 @@ class TableVersionMd:
     created_at: float  # time.time()
     version: int
     schema_version: int
-    additional_md: dict[str, Any]
+    user: Optional[str] = None  # User that created this version
+    update_status: Optional[UpdateStatus] = None  # UpdateStatus of the change that created this version
+    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 class TableVersion(Base):
@@ -275,6 +300,22 @@ class TableSchemaVersion(Base):
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
 
 
+class PendingTableOp(Base):
+    """
+    Table operation that needs to be completed before the table can be used.
+
+    Operations need to be completed in order of increasing seq_num.
+    """
+
+    __tablename__ = 'pendingtableops'
+
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
+        UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
+    )
+    op_sn: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)  # catalog.TableOp.op_sn
+    op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
+
+
 @dataclasses.dataclass
 class FunctionMd:
     name: str
@@ -307,6 +348,14 @@ class FullTableMd(NamedTuple):
     tbl_md: TableMd
     version_md: TableVersionMd
     schema_version_md: TableSchemaVersionMd
+
+    @property
+    def is_pure_snapshot(self) -> bool:
+        return (
+            self.tbl_md.view_md is not None
+            and self.tbl_md.view_md.predicate is None
+            and len(self.schema_version_md.columns) == 0
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {

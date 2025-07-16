@@ -10,11 +10,12 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
-from .globals import MediaValidation, UpdateStatus
+from .globals import MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -53,8 +54,8 @@ class InsertableTable(Table):
         super().__init__(tbl_version.id, dir_id, tbl_version.get().name, tbl_version_path)
         self._tbl_version = tbl_version
 
-    @classmethod
-    def _display_name(cls) -> str:
+    def _display_name(self) -> str:
+        assert not self._tbl_version_path.is_replica()
         return 'table'
 
     @classmethod
@@ -74,10 +75,10 @@ class InsertableTable(Table):
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
             if pk_col not in column_names:
-                raise excs.Error(f'Primary key column {pk_col} not found in table schema')
+                raise excs.Error(f'Primary key column {pk_col!r} not found in table schema.')
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
-                raise excs.Error(f'Primary key column {pk_col} cannot be nullable')
+                raise excs.Error(f'Primary key column {pk_col!r} cannot be nullable.')
             col.is_pk = True
 
         _, tbl_version = TableVersion.create(
@@ -100,12 +101,13 @@ class InsertableTable(Table):
             tbl_version.insert(None, df, fail_on_exception=True)
         session.commit()
 
-        _logger.info(f'Created table `{name}`, id={tbl_version.id}')
-        Env.get().console_logger.info(f'Created table `{name}`.')
+        _logger.info(f'Created table {name!r}, id={tbl_version.id}')
+        Env.get().console_logger.info(f'Created table {name!r}.')
         return tbl
 
     def _get_metadata(self) -> dict[str, Any]:
         md = super()._get_metadata()
+        md['base'] = None
         md['is_view'] = False
         md['is_snapshot'] = False
         return md
@@ -171,14 +173,14 @@ class InsertableTable(Table):
         from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import DFTableDataConduit
 
-        status = pxt.UpdateStatus()
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if isinstance(data_source, DFTableDataConduit):
-                status = self._tbl_version.get().insert(
+                status = pxt.UpdateStatus()
+                status += self._tbl_version.get().insert(
                     rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
                 )
             else:
-                status = UpdateStatus()
+                status = pxt.UpdateStatus()
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
                         rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
@@ -202,9 +204,9 @@ class InsertableTable(Table):
 
             for col_name, val in row.items():
                 if col_name not in valid_col_names:
-                    raise excs.Error(f'Unknown column name {col_name} in row {row}')
+                    raise excs.Error(f'Unknown column name {col_name!r} in row {row}')
                 if col_name in computed_col_names:
-                    raise excs.Error(f'Value for computed column {col_name} in row {row}')
+                    raise excs.Error(f'Value for computed column {col_name!r} in row {row}')
 
                 # validate data
                 col = self._tbl_version_path.get_column(col_name)
@@ -244,4 +246,4 @@ class InsertableTable(Table):
         return []
 
     def _table_descriptor(self) -> str:
-        return f'Table {self._path()!r}'
+        return self._display_str()

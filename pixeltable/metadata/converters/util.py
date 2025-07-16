@@ -16,6 +16,7 @@ def convert_table_md(
     column_md_updater: Optional[Callable[[dict], None]] = None,
     external_store_md_updater: Optional[Callable[[dict], None]] = None,
     substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None,
+    table_modifier: Optional[Callable[[sql.Connection, UUID, dict, dict], None]] = None,
 ) -> None:
     """
     Converts schema.TableMd dicts based on the specified conversion functions.
@@ -50,6 +51,8 @@ def convert_table_md(
             if updated_table_md != table_md:
                 __logger.info(f'Updating schema for table: {tbl_id}')
                 conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_table_md))
+            if table_modifier is not None:
+                table_modifier(conn, tbl_id, table_md, updated_table_md)
 
         for row in conn.execute(sql.select(Function)):
             fn_id = row[0]

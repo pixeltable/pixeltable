@@ -40,8 +40,8 @@ help:
 	@echo ''
 	@echo 'Targets:'
 	@echo '  install       Install the development environment'
-	@echo '  test          Run pytest and check'
-	@echo '  fulltest      Run fullpytest, nbtest, and check'
+	@echo '  test          Run pytest, stresstest, and check'
+	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
 	@echo '  check		   Run typecheck, docscheck, lint, and formatcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
@@ -52,6 +52,7 @@ help:
 	@echo '  pytest        Run `pytest`'
 	@echo '  fullpytest    Run `pytest`, including expensive tests'
 	@echo '  nbtest        Run `pytest` on notebooks'
+	@echo '  stresstest    Run stress tests such as random-tbl-ops'
 	@echo '  typecheck     Run `mypy`'
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
@@ -124,6 +125,10 @@ nbtest: install
 	@echo 'Running `pytest` on notebooks ...'
 	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
 	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
+
+.PHONY: stresstest
+stresstest: install
+	@$(SHELL_PREFIX) scripts/stress-tests.sh
 
 .PHONY: typecheck
 typecheck: install

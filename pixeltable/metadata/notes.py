@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    40: 'Convert error property columns to cellmd columns',
     39: 'ColumnHandles in external stores',
     38: 'Added TableMd.view_sn',
     37: 'Add support for the sample() method on DataFrames',

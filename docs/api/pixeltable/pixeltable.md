@@ -26,11 +26,12 @@ below.
 | [`pxt.list_dirs`][pixeltable.list_dirs]   | List the directories in a directory |
 | [`pxt.drop_dir`][pixeltable.drop_dir]     | Remove a directory                  |
 
-| Misc                                                    |                                                                       |
-|---------------------------------------------------------|-----------------------------------------------------------------------|
-| [`pxt.configure_logging`][pixeltable.configure_logging] | Configure logging                                                     |
-| [`pxt.init`][pixeltable.init]                           | Initialize Pixeltable runtime now (if not already initialized)        |
-| [`pxt.move`][pixeltable.move]                           | Move a schema object to a new directory and/or rename a schema object |
+| Misc                                                    |                                                                        |
+|---------------------------------------------------------|------------------------------------------------------------------------|
+| [`pxt.ls`][pixeltable.ls]                               | Output a human-readable list of the contents of a Pixeltable directory |
+| [`pxt.configure_logging`][pixeltable.configure_logging] | Configure logging                                                      |
+| [`pxt.init`][pixeltable.init]                           | Initialize Pixeltable runtime now (if not already initialized)         |
+| [`pxt.move`][pixeltable.move]                           | Move a schema object to a new directory and/or rename a schema object  |
 
 ## ::: pixeltable
 
@@ -45,6 +46,7 @@ below.
       - drop_table
       - get_table
       - init
+      - ls
       - list_tables
       - list_dirs
       - move

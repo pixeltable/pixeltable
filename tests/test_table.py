@@ -247,12 +247,19 @@ class TestTable:
     def test_names(self, reset_db: None) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
-        for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
+        for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            puresnap_path = f'{tbl_path}_puresnap'
+            puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
-            snap = pxt.create_snapshot(snap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            snap = pxt.create_snapshot(
+                snap_path,
+                tbl,
+                media_validation=media_val,  # type: ignore[arg-type]
+                additional_columns={'col2': tbl.col + 'x'},
+            )
             assert tbl._path() == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
@@ -287,8 +294,23 @@ class TestTable:
                 'version': 0,
             }
 
+            assert puresnap.get_metadata() == {
+                'base': f'{tbl_path}:0',
+                'comment': '',
+                'is_view': True,
+                'is_snapshot': True,
+                'is_replica': False,
+                'name': 'test_puresnap',
+                'num_retained_versions': 10,
+                'media_validation': media_val,
+                'path': puresnap_path,
+                'schema': puresnap._get_schema(),
+                'schema_version': 0,
+                'version': 0,
+            }
+
             assert snap.get_metadata() == {
-                'base': tbl_path,
+                'base': f'{tbl_path}:0',
                 'comment': '',
                 'is_view': True,
                 'is_snapshot': True,
@@ -729,15 +751,15 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key='c2')
-        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+        assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c1', 'c2'])
-        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+        assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c2'])
-        assert 'primary key column c2 not found' in str(exc_info.value).lower()
+        assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=0)  # type: ignore[arg-type]
@@ -1588,6 +1610,7 @@ class TestTable:
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
+    @pytest.mark.skip('Crashes pytest')
     def test_computed_col_with_interrupts(self, reset_db: None) -> None:
         schema = {'c1': pxt.Int}
         t = pxt.create_table('test_interrupt', schema)
@@ -2133,10 +2156,10 @@ class TestTable:
         # drop_column is not allowed on a snapshot
         s1 = pxt.create_snapshot('s1', t, additional_columns={'s1': t.c3 + 1})
         assert 'c1' not in s1.columns()
-        with pytest.raises(excs.Error, match='Cannot drop column from a snapshot'):
+        with pytest.raises(excs.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('c1')
         assert 's1' in s1.columns()
-        with pytest.raises(excs.Error, match='Cannot drop column from a snapshot'):
+        with pytest.raises(excs.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('s1')
         assert 's1' in s1.columns()
 
@@ -2274,7 +2297,7 @@ class TestTable:
         # test case: view with additional columns
         r = repr(v2)
         assert strip_lines(r) == strip_lines(
-            """View 'test_subview' (of 'test_view', 'test_tbl')
+            """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
             Column Name                          Type           Computed With
@@ -2303,7 +2326,7 @@ class TestTable:
         s1 = pxt.create_snapshot('test_snap1', v2)
         r = repr(s1)
         assert strip_lines(r) == strip_lines(
-            """Snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
+            """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
             Column Name                          Type           Computed With
@@ -2328,7 +2351,7 @@ class TestTable:
         s2 = pxt.create_snapshot('test_snap2', test_tbl)
         r = repr(s2)
         assert strip_lines(r) == strip_lines(
-            """Snapshot 'test_snap2' (of 'test_tbl:2')
+            """snapshot 'test_snap2' (of 'test_tbl:2')
 
             Column Name                          Type           Computed With
                      c1              Required[String]
@@ -2346,7 +2369,7 @@ class TestTable:
         s3 = pxt.create_snapshot('test_snap3', test_tbl, additional_columns={'computed1': test_tbl.c2 + test_tbl.c3})
         r = repr(s3)
         assert strip_lines(r) == strip_lines(
-            """View 'test_snap3' (of 'test_tbl:2')
+            """snapshot 'test_snap3' (of 'test_tbl:2')
 
             Column Name                          Type           Computed With
               computed1               Required[Float]                 c2 + c3

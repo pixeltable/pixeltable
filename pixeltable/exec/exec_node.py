@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import abc
-import asyncio
 import logging
 from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
 
 from pixeltable import exprs
+from pixeltable.env import Env
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
@@ -59,26 +59,7 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
-        running_loop: Optional[asyncio.AbstractEventLoop] = None
-        loop: asyncio.AbstractEventLoop
-        try:
-            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
-            # multiple run_until_complete()
-            running_loop = asyncio.get_running_loop()
-            import nest_asyncio  # type: ignore[import-untyped]
-
-            nest_asyncio.apply()
-            loop = running_loop
-            _logger.debug('Patched running loop')
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
-            loop.slow_callback_duration = 3600
-
-        if _logger.isEnabledFor(logging.DEBUG):
-            loop.set_debug(True)
-
+        loop = Env.get().event_loop
         aiter = self.__aiter__()
         try:
             while True:
@@ -86,9 +67,11 @@ class ExecNode(abc.ABC):
                 yield batch
         except StopAsyncIteration:
             pass
-        finally:
-            if loop != running_loop:
-                loop.close()
+        # TODO:
+        #  - we seem to have some tasks that aren't accounted for by ExprEvalNode and don't get cancelled by the time
+        #    we end up here
+        # - however, blindly cancelling all pending tasks doesn't work when running in a jupyter environment, which
+        #   creates tasks on its own
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""

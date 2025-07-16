@@ -34,8 +34,7 @@ class Dir(SchemaObject):
         dir = cls(dir_record.id, parent_id, name)
         return dir
 
-    @classmethod
-    def _display_name(cls) -> str:
+    def _display_name(self) -> str:
         return 'directory'
 
     def _path(self) -> str:

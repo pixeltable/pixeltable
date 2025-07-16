@@ -4,7 +4,6 @@ import logging
 from typing import Iterator, Optional
 
 from pixeltable import catalog, exprs
-from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
 
@@ -90,8 +89,8 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                filepath = str(MediaStore.prepare_media_path(self.tbl.id, info.col.id, self.tbl.get().version))
-                row.flush_img(info.slot_idx, filepath)
+                assert info.col.tbl.id == self.tbl.id
+                row.flush_img(info.slot_idx, info.col)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)
 

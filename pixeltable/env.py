@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import glob
 import http.server
@@ -19,9 +20,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
@@ -84,7 +86,9 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
+    _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
     _dbms: Optional[Dbms]
+    _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
@@ -96,6 +100,7 @@ class Env:
     def _init_env(cls, reinit_db: bool = False) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
+        cls._instance = None
         env = Env()
         env._set_up(reinit_db=reinit_db)
         env._upgrade_metadata()
@@ -139,7 +144,34 @@ class Env:
         self._resource_pool_info = {}
         self._current_conn = None
         self._current_session = None
+        self._current_isolation_level = None
         self._dbms = None
+        self._event_loop = None
+
+    def _init_event_loop(self) -> None:
+        try:
+            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
+            # multiple run_until_complete()
+            running_loop = asyncio.get_running_loop()
+            self._event_loop = running_loop
+            _logger.debug('Patched running loop')
+        except RuntimeError:
+            self._event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._event_loop)
+            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
+            self._event_loop.slow_callback_duration = 3600
+
+        # always allow nested event loops, we need that to run async udfs synchronously (eg, for SimilarityExpr);
+        # see run_coroutine_synchronously()
+        nest_asyncio.apply()
+        if _logger.isEnabledFor(logging.DEBUG):
+            self._event_loop.set_debug(True)
+
+    @property
+    def event_loop(self) -> asyncio.AbstractEventLoop:
+        if self._event_loop is None:
+            self._init_event_loop()
+        return self._event_loop
 
     @property
     def db_url(self) -> str:
@@ -201,20 +233,34 @@ class Env:
         return self._db_server is not None
 
     @contextmanager
-    def begin_xact(self) -> Iterator[sql.Connection]:
-        """Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly."""
+    def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
+        """
+        Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
+
+        for_write: if True, uses serializable isolation; if False, uses repeatable_read
+
+        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
+        that avoids tripping over any pending ops
+        """
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                with self.engine.begin() as conn, sql.orm.Session(conn) as session:
+                self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
+                with (
+                    self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
+                    sql.orm.Session(conn) as session,
+                    conn.begin(),
+                ):
                     self._current_conn = conn
                     self._current_session = session
                     yield conn
             finally:
                 self._current_session = None
                 self._current_conn = None
+                self._current_isolation_level = None
         else:
             assert self._current_session is not None
+            assert for_write == (self._current_isolation_level == 'serializable')
             yield self._current_conn
 
     def configure_logging(
@@ -578,7 +624,7 @@ class Env:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
-        in windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
+        On Windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
         This arrangement enables serving media hosted within _home,
         as well as external media inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.

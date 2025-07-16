@@ -77,5 +77,11 @@ class Path:
     def __str__(self) -> str:
         return '.'.join(self.components)
 
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Path) and str(self) == str(other)
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
     def __lt__(self, other: Path) -> bool:
         return str(self) < str(other)
