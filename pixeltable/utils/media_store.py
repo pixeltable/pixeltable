@@ -2,12 +2,15 @@ import glob
 import os
 import re
 import shutil
-import urllib
+import urllib.parse
+import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
+
+import PIL.Image
 
 from pixeltable.env import Env
 
@@ -37,14 +40,14 @@ class MediaStore:
 
     @classmethod
     def move_tmp_media_file(cls, file_url: Optional[str], tbl_id: UUID, col_id: int, v_min: int) -> Optional[str]:
-        """Move a tmp media file with given url into the MediaStore, and return new url
+        """If the given url is a tmp file, move it into the MediaStore, and return new url
         If it is not a tmp file in the tmp_dir, return the original url.
 
         Args:
             file_url: URL of the tmp media file to move
             tbl_id: Table ID to associate with the media file
             col_id: Column ID to associate with the media file
-            v_min: Version number to associate with the media file
+            v_min: v_min number to associate with the media file
 
         Returns:
             URL of the media final location of the file
@@ -52,7 +55,6 @@ class MediaStore:
         if file_url is None:
             return None
         assert isinstance(file_url, str), type(file_url)
-        pxt_tmp_dir = str(Env.get().tmp_dir)
         parsed = urllib.parse.urlparse(file_url)
         # We should never be passed a local file path here. The "len > 1" ensures that Windows
         # file paths aren't mistaken for URLs with a single-character scheme.
@@ -60,29 +62,45 @@ class MediaStore:
         if parsed.scheme != 'file':
             # remote url
             return file_url
-        file_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-        if not file_path.startswith(pxt_tmp_dir):
+        src_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        pxt_tmp_dir = str(Env.get().tmp_dir)
+        if not src_path.startswith(pxt_tmp_dir):
             # not a tmp file
             return file_url
-        new_file_url = cls.relocate_local_media_file(Path(file_path), tbl_id, col_id, v_min)
+        new_file_url = cls.relocate_local_media_file(Path(src_path), tbl_id, col_id, v_min)
         return new_file_url
 
     @classmethod
     def relocate_local_media_file(cls, src_path: Path, tbl_id: UUID, col_id: int, tbl_version: int) -> str:
+        """Relocate a local file to the MediaStore, and return its new URL"""
         dest_path = MediaStore.prepare_media_path(tbl_id, col_id, tbl_version, ext=src_path.suffix)
         src_path.rename(dest_path)
         return urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
 
     @classmethod
     def save_media_file(cls, file_data: bytes, tbl_id: UUID, col_id: int, tbl_version: int) -> Path:
-        """Save a media binary data to a file in the MediaStore."""
+        """Save a media binary data to a file in the MediaStore"""
         assert isinstance(file_data, bytes)
-        media_path = cls.prepare_media_path(tbl_id, col_id, tbl_version)
-        with open(media_path, 'wb') as f:
+        dest_path = cls.prepare_media_path(tbl_id, col_id, tbl_version)
+        with open(dest_path, 'wb') as f:
             f.write(file_data)
             f.flush()  # Ensures Python buffers are written to OS
             os.fsync(f.fileno())  # Forces OS to write to physical storage
-        return media_path
+        return dest_path
+
+    @classmethod
+    def save_image_file(cls, image: PIL.Image.Image, tbl_id: UUID, col_id: int, version: int) -> tuple[str, str]:
+        """Save a PIL Image to a file in the MediaStore"""
+        dest_path = str(MediaStore.prepare_media_path(tbl_id, col_id, version))
+        assert isinstance(image, PIL.Image.Image)
+        # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+        # In that case, use WebP instead.
+        format = 'webp' if image.has_transparency_data else 'jpeg'
+        if not dest_path.endswith(f'.{format}'):
+            dest_path += f'.{format}'
+        image.save(dest_path, format=format)
+        url = urllib.parse.urljoin('file:', urllib.request.pathname2url(dest_path))
+        return dest_path, url
 
     @classmethod
     def delete(cls, tbl_id: UUID, version: Optional[int] = None) -> None:

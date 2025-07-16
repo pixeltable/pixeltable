@@ -2,7 +2,7 @@ import http
 import http.server
 import logging
 import pathlib
-import urllib
+import urllib.request
 from typing import Any
 
 _logger = logging.getLogger('pixeltable.http.server')
@@ -36,8 +36,7 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
         path = path.split('?', 1)[0]
         path = path.split('#', 1)[0]
 
-        path = pathlib.Path(urllib.request.url2pathname(path))
-        return str(path)
+        return str(pathlib.Path(urllib.request.url2pathname(path)))
 
     def log_message(self, format: str, *args: Any) -> None:
         """override logging to stderr in http.server.BaseHTTPRequestHandler"""
