@@ -21,7 +21,7 @@ class TestGroq:
         t.add_computed_column(
             output2=chat_completions(
                 messages=msgs,
-                model='llama-3.1-8b-instant',
+                model='llama3-8b-8192',
                 model_kwargs={
                     'temperature': 0.8,
                     'top_p': 0.95,
@@ -47,7 +47,7 @@ class TestGroq:
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=groq.chat_completions(
-                    model='llama3-8b-8192', messages=messages, tools=tools, tool_choice=tool_choice
+                    model='llama-3.1-8b-instant', messages=messages, tools=tools, tool_choice=tool_choice
                 )
             )
             t.add_computed_column(tool_calls=groq.invoke_tools(tools, t.response))
