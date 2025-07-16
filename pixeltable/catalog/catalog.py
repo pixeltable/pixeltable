@@ -1582,8 +1582,9 @@ class Catalog:
             # JOIN TableVersion tv ON (tv.tbl_id = tbl_id AND tv.version = effective_version)
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND tv.md.schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
-            q = q.where(schema.TableVersion.md['version'].cast(sql.Integer) == effective_version).where(
-                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version
+            q = q.where(
+                schema.TableVersion.md['version'].cast(sql.Integer) == effective_version,
+                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
         else:
             # we are loading the current version
@@ -1592,8 +1593,9 @@ class Catalog:
             # JOIN TableVersion tv ON (tv.tbl_id = tbl_id AND t.current_version = tv.version)
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND t.current_schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
-            q = q.where(schema.Table.md['current_version'].cast(sql.Integer) == schema.TableVersion.version).where(
-                schema.Table.md['current_schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version
+            q = q.where(
+                schema.Table.md['current_version'].cast(sql.Integer) == schema.TableVersion.version,
+                schema.Table.md['current_schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
 
         row = conn.execute(q).one_or_none()
