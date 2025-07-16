@@ -17,8 +17,13 @@ env:
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   # in a PR, the secrets will be empty
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_DEFAULT_REGION: us-west-2
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
@@ -30,23 +35,19 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
-        # We DO include 'expensive' tests in the nightly workflow, but they will only run twice per test (in the
-        # min version + max version tests with the configuration that references them).
         os: [ubuntu-22.04]
         python-version: ["3.10", "3.13"]
         package-configs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
-          - "anthropic fireworks-ai google-genai mistralai openai replicate together"
-          - "huggingface-hub llama-cpp-python"
+          - "anthropic fireworks-ai google-genai groq mistralai openai replicate together"
+          - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
           - "label_studio_sdk"
+          - "whisperx pixeltable-yolox"
         include:
           # Test the basic pixeltable installation on other platforms.
           - os: macos-15
-            python-version: "3.10"
-            package-configs: ""
-          - os: macos-latest
             python-version: "3.10"
             package-configs: ""
           - os: windows-2022
@@ -68,6 +69,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: release
+      - name: Set up tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
@@ -86,6 +92,10 @@ jobs:
         run: |
           conda install -y python=${{ matrix.python-version }} pip=25.0
           conda info
+      - name: Install ffmpeg
+        # libiconv and ffmpeg are needed by whisper.
+        if: ${{ contains(matrix.package-configs, 'whisper') }}
+        run: ./scripts/retry.sh 3 30 conda install -c conda-forge libiconv ffmpeg
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

@@ -348,16 +348,19 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_4(self, all_datatypes_tbl: pxt.Table) -> None:
+    @pytest.mark.parametrize('different_versions', [False, True])
+    def test_multi_view_round_trip_4(self, different_versions: bool, all_datatypes_tbl: pxt.Table) -> None:
         """
-        Snapshots that involve all the different column types.
+        Snapshots that involve all the different column types. Two snapshots of the same base table will be created;
+        they will snapshot either the same or different versions of the table, depending on `different_versions`.
         """
         t = all_datatypes_tbl
         snap1 = pxt.create_snapshot('snap1', t.where(t.row_id % 2 != 0))
         bundle1 = self.__package_table(snap1)
 
-        more_data = create_table_data(t, num_rows=22)
-        t.insert(more_data[11:])
+        if different_versions:
+            more_data = create_table_data(t, num_rows=22)
+            t.insert(more_data[11:])
 
         snap2 = pxt.create_snapshot('snap2', t.where(t.row_id % 3 != 0))
         bundle2 = self.__package_table(snap2)
@@ -461,3 +464,61 @@ class TestPackager:
 
         for n in (4, 0, 8, 10, 6):
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
+
+    def test_replica_ops(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
+        v = pxt.create_view('test_view', t)
+        v.add_computed_column(iccol=(v.icol + 1))
+
+        t_bundle = self.__package_table(t)
+        v_bundle = self.__package_table(v)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(v_bundle, 'view_replica')
+        # Check that test_tbl was instantiated as a system table
+        assert pxt.list_tables() == ['view_replica']
+        system_path = pxt.catalog.Path('_system', allow_system_paths=True)
+        system_contents = pxt.globals._list_tables('_system', allow_system_paths=True)
+        assert len(system_contents) == 1 and system_contents[0].startswith('_system.replica_')
+
+        self.__restore_and_check_table(t_bundle, 'tbl_replica')
+        # Check that test_tbl has been renamed to a user table
+        assert pxt.list_tables() == ['view_replica', 'tbl_replica']
+        assert len(pxt.catalog.Catalog.get().get_dir_contents(system_path)) == 0
+
+        t = pxt.get_table('tbl_replica')
+        v = pxt.get_table('view_replica')
+
+        for s, name, kind in ((t, 'tbl_replica', 'table-replica'), (v, 'view_replica', 'view-replica')):
+            display_str = f'{kind} {name!r}'
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a {kind}.'):
+                s.insert({'icol': 10, 'scol': 'string 10'})
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a {kind}.'):
+                s.delete()
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+                s.add_column(new_col=pxt.Bool)
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+                s.add_columns({'new_col': pxt.Bool})
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+                s.add_computed_column(new_col=(t.icol + 1))
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a {kind}.'):
+                s.drop_column('scol')
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a {kind}.'):
+                s.add_embedding_index('icol', embedding=clip_embed)
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a {kind}.'):
+                s.drop_embedding_index(column='icol')
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a {kind}.'):
+                s.update({'icol': 11})
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a {kind}.'):
+                s.recompute_columns('icol')
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a {kind}.'):
+                s.revert()
+
+            # TODO: Align these DataFrame error messages with Table error messages
+            with pytest.raises(pxt.Error, match=r'Cannot use `update` on a replica.'):
+                s.where(s.icol < 5).update({'icol': 100})
+            with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
+                s.where(s.icol < 5).delete()

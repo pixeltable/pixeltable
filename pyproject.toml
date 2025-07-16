@@ -135,7 +135,7 @@ together = ">=1.5.11"
 fireworks-ai = ">=0.17.6"
 mistralai = ">=1.8.2"
 replicate = "^1.0.7"
-google-genai = "^1.15.0"
+google-genai = ">=1.25.0"
 groq = ">=0.26.0"
 boto3 = "==1.36.23"  # Locking a specific version of boto3/botocore dramatically improves `poetry lock` runtimes
 botocore = "==1.36.23"

@@ -147,10 +147,14 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.catalog import retry_loop
 
-        with Catalog.get().begin_xact(for_write=False):
+        # we need retry_loop() here, because we end up loading Tables for the views
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
+
+        return op()
 
     def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
@@ -178,7 +182,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
@@ -188,7 +192,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().where(pred)
 
     def join(
@@ -201,7 +205,7 @@ class Table(SchemaObject):
         """Join this table with another table."""
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
@@ -211,7 +215,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
@@ -221,7 +225,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return self._df().group_by(*items)
 
     def distinct(self) -> 'pxt.DataFrame':
@@ -277,10 +281,7 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
     def get_base_table(self) -> Optional['Table']:
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(for_write=False):
-            return self._get_base_table()
+        return self._get_base_table()
 
     @abc.abstractmethod
     def _get_base_table(self) -> Optional['Table']:
@@ -321,7 +322,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(for_write=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
             helper.append(self._col_descriptor())
@@ -492,8 +493,7 @@ class Table(SchemaObject):
 
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot add column to a snapshot.')
+            self.__check_mutable('add columns to')
             col_schema = {
                 col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
                 for col_name, spec in schema.items()
@@ -553,24 +553,18 @@ class Table(SchemaObject):
 
             >>> tbl.add_columns({'new_col': pxt.Int})
         """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            # verify kwargs
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot add column to a snapshot.')
-            # verify kwargs and construct column schema dict
-            if len(kwargs) != 1:
-                raise excs.Error(
-                    f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
-                    f'got {len(kwargs)} instead ({", ".join(kwargs.keys())})'
-                )
-            col_type = next(iter(kwargs.values()))
-            if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
-                raise excs.Error(
-                    'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
-                )
-            return self.add_columns(kwargs, if_exists=if_exists)
+        # verify kwargs and construct column schema dict
+        if len(kwargs) != 1:
+            raise excs.Error(
+                f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
+                f'got {len(kwargs)} instead ({", ".join(kwargs.keys())})'
+            )
+        col_type = next(iter(kwargs.values()))
+        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
+            raise excs.Error(
+                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+            )
+        return self.add_columns(kwargs, if_exists=if_exists)
 
     def add_computed_column(
         self,
@@ -622,8 +616,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot add column to a snapshot.')
+            self.__check_mutable('add columns to')
             if len(kwargs) != 1:
                 raise excs.Error(
                     f'add_computed_column() requires exactly one keyword argument of the form '
@@ -808,10 +801,10 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         cat = Catalog.get()
+
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot drop column from a snapshot.')
+            self.__check_mutable('drop columns from')
             col: Column = None
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
@@ -835,7 +828,7 @@ class Table(SchemaObject):
             dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
                 raise excs.Error(
-                    f'Cannot drop column `{col.name}` because the following columns depend on it:\n'
+                    f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
@@ -989,8 +982,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot add an index to a snapshot')
+            self.__check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
 
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
@@ -1174,8 +1166,7 @@ class Table(SchemaObject):
     ) -> None:
         from pixeltable.catalog import Catalog
 
-        if self._tbl_version_path.is_snapshot():
-            raise excs.Error('Cannot drop an index from a snapshot')
+        self.__check_mutable('drop an index from')
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
@@ -1347,8 +1338,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot update a snapshot')
+            self.__check_mutable('update')
             result = self._tbl_version.get().update(value_spec, where, cascade)
             FileCache.get().emit_eviction_warnings()
             return result
@@ -1387,8 +1377,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot update a snapshot')
+            self.__check_mutable('update')
             rows = list(rows)
 
             row_updates: list[dict[Column, exprs.Expr]] = []
@@ -1456,8 +1445,7 @@ class Table(SchemaObject):
         cat = Catalog.get()
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot recompute columns of a snapshot.')
+            self.__check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.Error('At least one column must be specified to recompute')
             if errors_only and len(columns) > 1:
@@ -1514,8 +1502,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error('Cannot revert a snapshot')
+            self.__check_mutable('revert')
             self._tbl_version.get().revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
@@ -1530,8 +1517,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
-            if self._tbl_version_path.is_snapshot():
-                raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
+            self.__check_mutable('link an external store to')
             if store.name in self.external_stores():
                 raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
             _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
@@ -1560,7 +1546,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        if self._tbl_version_path.is_snapshot():
+        if not self._tbl_version_path.is_mutable():
             return
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             all_stores = self.external_stores()
@@ -1600,7 +1586,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        if self._tbl_version_path.is_snapshot():
+        if not self._tbl_version_path.is_mutable():
             return UpdateStatus()
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
         # have their updates propagated down the tree
@@ -1711,3 +1697,9 @@ class Table(SchemaObject):
             report_lines.append(report_line)
 
         return pxt.dataframe.DataFrameResultSet(report_lines, self._REPORT_SCHEMA)
+
+    def __check_mutable(self, op_descr: str) -> None:
+        if self._tbl_version_path.is_snapshot():
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
+        if self._tbl_version_path.is_replica():
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')
