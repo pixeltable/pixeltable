@@ -108,7 +108,6 @@ class DataFrameResultSet:
             except pydantic.ValidationError as e:
                 error_msg = f'Validation error:\n{e}'
                 raise excs.Error(error_msg) from e
-        return
 
     def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
