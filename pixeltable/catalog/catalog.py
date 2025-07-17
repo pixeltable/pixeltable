@@ -930,7 +930,7 @@ class Catalog:
         return obj
 
     @_retry_loop(for_write=True)
-    def drop_table(self, path: str, if_not_exists: IfNotExistsParam, force: bool) -> None:
+    def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         tbl = self._get_schema_object(
             Path(path),
             expected=Table,
