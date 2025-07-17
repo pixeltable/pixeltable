@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Iterator, Optional
 
-from pixeltable import catalog, exprs
+from pixeltable import exprs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -14,22 +14,16 @@ class DataRowBatch:
     Contains the metadata needed to initialize DataRows.
     """
 
-    tbl: Optional[catalog.TableVersionHandle]
     row_builder: exprs.RowBuilder
     rows: list[exprs.DataRow]
 
     def __init__(
-        self,
-        tbl: Optional[catalog.TableVersionHandle],
-        row_builder: exprs.RowBuilder,
-        num_rows: Optional[int] = None,
-        rows: Optional[list[exprs.DataRow]] = None,
+        self, row_builder: exprs.RowBuilder, num_rows: Optional[int] = None, rows: Optional[list[exprs.DataRow]] = None
     ):
         """
         Requires either num_rows or rows to be specified, but not both.
         """
         assert num_rows is None or rows is None
-        self.tbl = tbl
         self.row_builder = row_builder
         if rows is not None:
             self.rows = rows
@@ -57,7 +51,6 @@ class DataRowBatch:
         self, idx_range: Optional[slice], stored_img_info: list[exprs.ColumnSlotIdx], flushed_img_slots: list[int]
     ) -> None:
         """Flushes images in the given range of rows."""
-        assert self.tbl is not None
         if len(stored_img_info) == 0 and len(flushed_img_slots) == 0:
             return
 
@@ -65,7 +58,6 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                assert info.col.tbl.id == self.tbl.id
                 row.flush_img(info.slot_idx, info.col)
             for slot_idx in flushed_img_slots:
                 row.flush_img(slot_idx)

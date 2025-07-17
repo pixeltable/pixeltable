@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, Optional
 from uuid import UUID
 
-from pixeltable import catalog, env, exceptions as excs, exprs
+from pixeltable import env, exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
 
 from .data_row_batch import DataRowBatch
@@ -37,7 +37,6 @@ class CachePrefetchNode(ExecNode):
     boto_client_lock: threading.Lock
 
     # execution state
-    batch_tbl_version: Optional[catalog.TableVersionHandle]  # needed to construct output batches
     num_returned_rows: int
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
@@ -68,7 +67,6 @@ class CachePrefetchNode(ExecNode):
         self.boto_client = None
         self.boto_client_lock = threading.Lock()
 
-        self.batch_tbl_version = None
         self.num_returned_rows = 0
         self.ready_rows = deque()
         self.in_flight_rows = {}
@@ -95,7 +93,7 @@ class CachePrefetchNode(ExecNode):
 
                 if len(self.ready_rows) > 0:
                     # create DataRowBatch from the first BATCH_SIZE ready rows
-                    batch = DataRowBatch(self.batch_tbl_version, self.row_builder)
+                    batch = DataRowBatch(self.row_builder)
                     rows = [self.ready_rows.popleft() for _ in range(min(self.BATCH_SIZE, len(self.ready_rows)))]
                     for row in rows:
                         assert row is not None
@@ -173,8 +171,6 @@ class CachePrefetchNode(ExecNode):
         if input_batch is None:
             self.input_finished = True
             return
-        if self.batch_tbl_version is None:
-            self.batch_tbl_version = input_batch.tbl
 
         file_cache = FileCache.get()
 

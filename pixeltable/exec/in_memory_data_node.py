@@ -56,7 +56,7 @@ class InMemoryDataNode(ExecNode):
         }
         output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
-        self.output_rows = DataRowBatch(self.tbl, self.row_builder, len(self.input_rows))
+        self.output_rows = DataRowBatch(self.row_builder, len(self.input_rows))
         for row_idx, input_row in enumerate(self.input_rows):
             # populate the output row with the values provided in the input row
             input_slot_idxs: set[int] = set()

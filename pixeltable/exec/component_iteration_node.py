@@ -40,7 +40,7 @@ class ComponentIterationNode(ExecNode):
         }
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        output_batch = DataRowBatch(self.view, self.row_builder)
+        output_batch = DataRowBatch(self.row_builder)
         async for input_batch in self.input:
             for input_row in input_batch:
                 self.row_builder.eval(input_row, self.iterator_args_ctx)
@@ -58,7 +58,7 @@ class ComponentIterationNode(ExecNode):
                         self.__populate_output_row(output_row, pos, component_dict)
                         if len(output_batch) == self.__OUTPUT_BATCH_SIZE:
                             yield output_batch
-                            output_batch = DataRowBatch(self.view, self.row_builder)
+                            output_batch = DataRowBatch(self.row_builder)
 
         if len(output_batch) > 0:
             yield output_batch
