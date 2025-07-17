@@ -20,7 +20,7 @@ class DataRowBatch:
 
     def __init__(
         self,
-        tbl: catalog.TableVersionHandle,
+        tbl: Optional[catalog.TableVersionHandle],
         row_builder: exprs.RowBuilder,
         num_rows: Optional[int] = None,
         rows: Optional[list[exprs.DataRow]] = None,
@@ -36,20 +36,11 @@ class DataRowBatch:
         else:
             if num_rows is None:
                 num_rows = 0
-            self.rows = [self.factory_row() for _ in range(num_rows)]
-
-    def factory_row(self) -> exprs.DataRow:
-        """Creates a new DataRow with the current row_builder's configuration."""
-        return exprs.DataRow(
-            self.row_builder.num_materialized,
-            self.row_builder.get_img_slot_idxs(),
-            self.row_builder.get_media_slot_idxs(),
-            self.row_builder.get_array_slot_idxs(),
-        )
+            self.rows = [self.row_builder.make_row() for _ in range(num_rows)]
 
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
         if row is None:
-            row = self.factory_row()
+            row = self.row_builder.make_row()
         self.rows.append(row)
         return row
 
@@ -63,18 +54,11 @@ class DataRowBatch:
         return self.rows[index]
 
     def flush_imgs(
-        self,
-        idx_range: Optional[slice] = None,
-        stored_img_info: Optional[list[exprs.ColumnSlotIdx]] = None,
-        flushed_slot_idxs: Optional[list[int]] = None,
+        self, idx_range: Optional[slice], stored_img_info: list[exprs.ColumnSlotIdx], flushed_img_slots: list[int]
     ) -> None:
         """Flushes images in the given range of rows."""
         assert self.tbl is not None
-        if stored_img_info is None:
-            stored_img_info = []
-        if flushed_slot_idxs is None:
-            flushed_slot_idxs = []
-        if len(stored_img_info) == 0 and len(flushed_slot_idxs) == 0:
+        if len(stored_img_info) == 0 and len(flushed_img_slots) == 0:
             return
 
         if idx_range is None:
@@ -83,7 +67,7 @@ class DataRowBatch:
             for info in stored_img_info:
                 assert info.col.tbl.id == self.tbl.id
                 row.flush_img(info.slot_idx, info.col)
-            for slot_idx in flushed_slot_idxs:
+            for slot_idx in flushed_img_slots:
                 row.flush_img(slot_idx)
 
     def __iter__(self) -> Iterator[exprs.DataRow]:
