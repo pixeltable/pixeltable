@@ -28,18 +28,17 @@ class TestPdfExtraction:
 
     @pytest.mark.usefixtures('reset_db')  # ensures DB is reset between test runs
     def test_pdf_page_chunking(self):
+
         pdf_paths = self.find_pdfs('tests/data/documents', limit=50)
+
         assert len(pdf_paths) > 0, 'No PDF files found for testing.'
 
-        # Drop existing if any (safety)
-        Catalog.get().drop_table('pdf_page_chunks', if_not_exists=True, force=True)
-        Catalog.get().drop_table('pdf_docs', if_not_exists=True, force=True)
-
         # Create base table
-        docs = pxt.create_table('pdf_docs', {'doc': pxt.String}, if_exists='replace_force')
+        docs = pxt.create_table('pdf_docs', {'doc': pxt.Document}, if_exists='replace_force')
 
         # Insert documents
-        insert_result = docs.insert([{'doc': p} for p in pdf_paths])
+        insert_result = docs.insert({'doc': p} for p in pdf_paths)
+        
         assert insert_result.num_rows == len(pdf_paths)
         assert insert_result.num_excs == 0
 

@@ -2,10 +2,10 @@ import dataclasses
 import io
 from typing import Any
 
-from PIL import Image
+import PIL.Image
 
 from pixeltable.iterators.base import ComponentIterator
-from pixeltable.type_system import ColumnType, ImageType, IntType, StringType
+from pixeltable.type_system import ColumnType, ImageType, IntType, StringType, DocumentType
 from pixeltable.utils.documents import get_document_handle
 
 
@@ -14,7 +14,7 @@ class PageChunk:
     text: str
     page: int
     image_bytes: bytes
-    image: Image
+    image: PIL.Image.Image
 
 
 class PdfPageExtractor(ComponentIterator):
@@ -29,7 +29,7 @@ class PdfPageExtractor(ComponentIterator):
     @classmethod
     def input_schema(cls) -> dict[str, ColumnType]:
         return {
-            'document': StringType(nullable=False),
+            'document': DocumentType(nullable=False),
             'dpi': IntType(nullable=True),
             'image_format': StringType(nullable=True),
         }
@@ -52,7 +52,7 @@ class PdfPageExtractor(ComponentIterator):
 
         # Render image
         pix = page.get_pixmap(dpi=self._dpi)
-        image = Image.open(io.BytesIO(pix.tobytes(self._image_format)))
+        image = PIL.Image.open(io.BytesIO(pix.tobytes(self._image_format)))
 
         return {'text': clean_text, 'page': page_number, 'image': image}
 

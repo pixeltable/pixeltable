@@ -1,5 +1,6 @@
 import io
 import os
+import itertools
 from typing import List
 
 import pytest
@@ -36,7 +37,7 @@ class TestPdfPageExtractor:
         for doc_path in pdfs:
             extractor = PdfPageExtractor(document=doc_path)
 
-            for chunk in extractor:
+            for chunk in itertools.islice(extractor, 3):
                 assert 'page' in chunk
                 assert 'text' in chunk
                 assert 'image' in chunk

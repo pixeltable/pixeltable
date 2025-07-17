@@ -309,15 +309,11 @@ class Env:
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
             path_parts = list(Path(record.pathname).parts)
             path_parts.reverse()
-            try:
+            if 'pixeltable' in path_parts:
                 max_idx = path_parts.index('pixeltable')
                 for module_name in path_parts[:max_idx]:
                     if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
                         return True
-            except ValueError:
-                # 'pixeltable' is not in the path, so we can't check for module-specific log levels.
-                # Fall through to the default log level check.
-                pass
         return record.levelno >= self._default_log_level
 
     @property
