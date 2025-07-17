@@ -15,7 +15,7 @@ from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
 from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
- 
+
 
 def dummy_fn(i: int) -> int:
     return i

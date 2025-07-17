@@ -5,9 +5,9 @@ from typing import Any, Optional
 import PIL.Image
 
 from pixeltable.iterators.base import ComponentIterator
-from pixeltable.type_system import ColumnType, ImageType, IntType, StringType, DocumentType
+from pixeltable.iterators.document import ChunkMetadata, DocumentSplitter, _parse_metadata
+from pixeltable.type_system import ColumnType, DocumentType, ImageType, IntType, StringType
 from pixeltable.utils.documents import get_document_handle
-from pixeltable.iterators.document import _parse_metadata, ChunkMetadata, DocumentSplitter
 
 
 @dataclasses.dataclass
@@ -27,7 +27,7 @@ class PdfPageExtractor(ComponentIterator):
         metadata: str = '',
         limit: Optional[int] = None,
         overlap: Optional[int] = None,
-        separators: str = 'page'
+        separators: str = 'page',
     ):
         self._doc_handle = get_document_handle(document)
         assert self._doc_handle.pdf_doc is not None
@@ -73,11 +73,7 @@ class PdfPageExtractor(ComponentIterator):
         pix = page.get_pixmap(dpi=self._dpi)
         image = PIL.Image.open(io.BytesIO(pix.tobytes(self._image_format)))
 
-        result = {
-            'text': clean_text,
-            'page': page_number,
-            'image': image
-        }
+        result = {'text': clean_text, 'page': page_number, 'image': image}
 
         # Dynamically include metadata fields
         for md_field in self._metadata_fields:

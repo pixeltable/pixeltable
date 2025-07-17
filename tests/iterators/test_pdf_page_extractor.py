@@ -1,6 +1,6 @@
 import io
-import os
 import itertools
+import os
 from typing import List
 
 import pytest
