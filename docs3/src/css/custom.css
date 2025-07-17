@@ -1,0 +1,188 @@
+/**
+ * Custom CSS to make Docusaurus look more like Mintlify
+ */
+
+/* Import Inter font (same as Mintlify) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* Set custom CSS variables */
+:root {
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  
+  /* Mintlify-inspired colors */
+  --ifm-color-primary: #1E5AA8;
+  --ifm-color-primary-dark: #1a4f96;
+  --ifm-color-primary-darker: #184b8d;
+  --ifm-color-primary-darkest: #143e74;
+  --ifm-color-primary-light: #2165ba;
+  --ifm-color-primary-lighter: #2469c3;
+  --ifm-color-primary-lightest: #2b76dc;
+  
+  /* Background colors */
+  --ifm-background-color: #ffffff;
+  --ifm-background-surface-color: #f8fafc;
+  
+  /* Border radius */
+  --ifm-global-radius: 0.75rem;
+  --ifm-button-border-radius: 0.5rem;
+  
+  /* Spacing */
+  --ifm-spacing-horizontal: 1.5rem;
+  --ifm-spacing-vertical: 1.5rem;
+}
+
+/* Dark mode colors */
+[data-theme='dark'] {
+  --ifm-color-primary: #F1AE03;
+  --ifm-color-primary-dark: #da9c03;
+  --ifm-color-primary-darker: #cd9303;
+  --ifm-color-primary-darkest: #a87902;
+  --ifm-color-primary-light: #f4b820;
+  --ifm-color-primary-lighter: #f5c133;
+  --ifm-color-primary-lightest: #f8d066;
+  
+  --ifm-background-color: #020704;
+  --ifm-background-surface-color: #0f1419;
+}
+
+/* Typography improvements */
+.markdown h1 {
+  font-size: 1.75rem;  /* Reduced from 2.25rem */
+  font-weight: 500;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+
+.markdown h2 {
+  font-size: 1.5rem;   /* Reduced from 1.875rem */
+  font-weight: 400;
+  line-height: 1.3;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+.markdown h3 {
+  font-size: 1.25rem;  /* Reduced from 1.5rem */
+  font-weight: 300;
+  line-height: 1.4;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Better code blocks */
+.prism-code {
+  border-radius: var(--ifm-global-radius);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Navbar improvements */
+.navbar {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] .navbar {
+  background: rgba(2, 7, 4, 0.8);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Sidebar improvements */
+.theme-doc-sidebar-container {
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] .theme-doc-sidebar-container {
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Sidebar menu styling */
+.theme-doc-sidebar-menu {
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+.menu__link {
+  font-weight: 400;
+  font-size: 0.875rem;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.menu__link--active {
+  font-weight: 500;
+  color: var(--ifm-color-primary);
+}
+
+.menu__list-item-collapsible .menu__link {
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+/* Table of contents */
+.table-of-contents {
+  font-size: 0.875rem;
+}
+
+.table-of-contents__link {
+  border-left: 2px solid transparent;
+  padding-left: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.table-of-contents__link--active {
+  border-left-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
+  font-weight: 500;
+}
+
+/* Admonitions (info boxes) styling */
+.admonition {
+  border-radius: var(--ifm-global-radius);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Button improvements */
+.button {
+  border-radius: var(--ifm-button-border-radius);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Link improvements */
+a {
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+/* Footer improvements */
+.footer {
+  background: var(--ifm-background-surface-color);
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] .footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Content width */
+.container {
+  max-width: 1400px;
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+  .markdown h1 {
+    font-size: 1.5rem;   /* Reduced from 1.875rem */
+  }
+  
+  .markdown h2 {
+    font-size: 1.25rem;  /* Reduced from 1.5rem */
+  }
+}

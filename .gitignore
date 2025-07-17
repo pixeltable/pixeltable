@@ -12,3 +12,12 @@ docs/local
 local
 site
 target
+
+# Documentation builds
+docs2/node_modules/
+docs2/out/
+docs2/.docusaurus/
+docs3/node_modules/
+docs3/build/
+docs3/.docusaurus/
+docs3/.cache/
