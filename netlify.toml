@@ -1,8 +1,8 @@
 # Netlify configuration for Pixeltable docs
 [build]
   base = "docs2"
-  publish = "docs2/_site"
-  command = "npm install mintlify && npx mintlify build"
+  publish = ".mintlify"
+  command = "npm install && npx mintlify build"
 
 [build.environment]
   NODE_VERSION = "18"
