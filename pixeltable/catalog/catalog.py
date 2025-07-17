@@ -165,7 +165,7 @@ class Catalog:
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
     _tbl_versions: dict[tuple[UUID, Optional[int]], TableVersion]
-    _tbls: dict[UUID, Table]
+    _tbls: dict[tuple[UUID, Optional[int]], Table]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -857,12 +857,7 @@ class Catalog:
         )
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
-            if version is not None:
-                return self._load_tbl_with_specified_version(tbl_id, version)
-            else:
-                if tbl_id not in self._tbls:
-                    _ = self._load_tbl(tbl_id)
-                return self._tbls[tbl_id]
+            return self.get_table_by_id(tbl_id, version)
 
         return None
 
@@ -910,18 +905,14 @@ class Catalog:
             raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.')
         return obj
 
-    def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
+    def get_table_by_id(self, tbl_id: UUID, version: Optional[int] = None) -> Optional[Table]:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
-        if tbl_id in self._tbls:
-            return self._tbls[tbl_id]
-        tbl = self._load_tbl(tbl_id)
-        # # if this is a mutable table, we also need to have its mutable views loaded, in order to track column
-        # # dependencies
-        # tbl_version = tbl._tbl_version.get()
-        # if tbl_version.is_mutable:
-        #     for v in tbl_version.mutable_views:
-        #         _ = self.get_table_by_id(v.id)
-        return tbl
+        if (tbl_id, version) not in self._tbls:
+            if version is None:
+                self._load_tbl(tbl_id)
+            else:
+                self._load_tbl_at_version(tbl_id, version)
+        return self._tbls.get((tbl_id, version))
 
     @retry_loop(for_write=True)
     def create_table(
@@ -953,7 +944,7 @@ class Catalog:
             comment=comment,
             media_validation=media_validation,
         )
-        self._tbls[tbl._id] = tbl
+        self._tbls[tbl._id, None] = tbl
         return tbl
 
     def create_view(
@@ -1281,8 +1272,10 @@ class Catalog:
             tv.drop()
 
         self.delete_tbl_md(tbl._id)
-        assert tbl._id in self._tbls
-        del self._tbls[tbl._id]
+        assert (tbl._id, None) in self._tbls
+        versions = [k[1] for k in self._tbls if k[0] == tbl._id]
+        for version in versions:
+            del self._tbls[tbl._id, version]
         _logger.info(f'Dropped table `{tbl._path()}`.')
 
     @retry_loop(for_write=True)
@@ -1469,7 +1462,7 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
-    def _load_tbl(self, tbl_id: UUID) -> Optional[Table]:
+    def _load_tbl(self, tbl_id: UUID) -> None:
         """Loads metadata for the table with the given id and caches it."""
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
@@ -1508,8 +1501,8 @@ class Catalog:
             if (tbl_id, None) not in self._tbl_versions:
                 _ = self._load_tbl_version(tbl_id, None)
             tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(tbl_id, None))
-            self._tbls[tbl_id] = tbl
-            return tbl
+            self._tbls[tbl_id, None] = tbl
+            return
 
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
@@ -1533,10 +1526,9 @@ class Catalog:
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
-        self._tbls[tbl_id] = view
-        return view
+        self._tbls[tbl_id, None] = view
 
-    def _load_tbl_with_specified_version(self, tbl_id: UUID, effective_version: int) -> Optional[Table]:
+    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> None:
         from .view import View
 
         # Load the specified TableMd and TableVersionMd records from the db.
@@ -1546,7 +1538,7 @@ class Catalog:
             .join(schema.TableVersion)
             .where(schema.Table.id == tbl_id)
             .where(schema.Table.id == schema.TableVersion.tbl_id)
-            .where(schema.TableVersion.version == effective_version)
+            .where(schema.TableVersion.version == version)
         )
         row = conn.execute(q).one_or_none()
         if row is None:
@@ -1563,7 +1555,7 @@ class Catalog:
         # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
         # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
         # given TableVersion's created_at timestamp.
-        ancestors: list[tuple[UUID, Optional[int]]] = [(tbl_id, effective_version)]
+        ancestors: list[tuple[UUID, Optional[int]]] = [(tbl_id, version)]
         if tbl_md.view_md is not None:
             for ancestor_id, _ in tbl_md.view_md.base_versions:
                 q = (
@@ -1577,7 +1569,7 @@ class Catalog:
                 if row is None:
                     # This can happen if an ancestor version is garbage collected; it can also happen in
                     # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
-                    _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{effective_version}')
+                    _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{version}')
                     raise excs.Error('The specified table version is no longer valid and cannot be retrieved.')
                 ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
                 ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
@@ -1585,17 +1577,17 @@ class Catalog:
                 ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
 
         # Force any ancestors to be loaded (base table first).
-        for id, version in ancestors[::-1]:
-            if (id, version) not in self._tbl_versions:
-                _ = self._load_tbl_version(id, version)
+        for anc_id, anc_version in ancestors[::-1]:
+            if (anc_id, anc_version) not in self._tbl_versions:
+                _ = self._load_tbl_version(anc_id, anc_version)
 
         # Now reconstruct the relevant TableVersionPath instance from the ancestor versions.
         tvp: Optional[TableVersionPath] = None
-        for id, version in ancestors[::-1]:
-            tvp = TableVersionPath(TableVersionHandle(id, version), base=tvp)
+        for anc_id, anc_version in ancestors[::-1]:
+            tvp = TableVersionPath(TableVersionHandle(anc_id, anc_version), base=tvp)
 
-        tbl = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
-        return tbl
+        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
+        self._tbls[tbl_id, version] = view
 
     @retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
