@@ -1,5 +1,6 @@
 import datetime
 import pickle
+import re
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 import bs4
 import numpy as np
 import PIL.Image
+import pydantic
 import pytest
 
 import pixeltable as pxt
@@ -867,3 +869,58 @@ class TestDataFrame:
         assert 'c1' in results.schema
         assert 'c3' in results.schema
         assert 'c4' in results.schema
+
+    def test_to_pydantic(self, reset_db: None) -> None:
+        class TestModel(pydantic.BaseModel):
+            i: int
+            s: str
+            f: float
+            b: bool
+            ts: datetime.datetime
+            d: dict
+
+        class StrictTestModel(pydantic.BaseModel):
+            i: int
+            s: str
+            f: float
+            b: bool
+            ts: datetime.datetime
+            d: dict
+            model_config = pydantic.ConfigDict(extra='forbid')
+
+        schema = {'i': pxt.Int, 's': pxt.String, 'f': pxt.Float, 'b': pxt.Bool, 'ts': pxt.Timestamp, 'd': pxt.Json}
+        t = pxt.create_table('pydantic_tbl', schema)
+        t.insert(
+            [
+                {'i': 1, 's': 'one', 'f': 1.0, 'b': True, 'ts': datetime.datetime(2024, 7, 2), 'd': {'k1': 'v1'}},
+                {'i': 2, 's': 'two', 'f': 2.0, 'b': False, 'ts': datetime.datetime(2024, 7, 3), 'd': {'k2': 'v2'}},
+                {'i': 3, 's': 'three', 'f': 3.0, 'b': True, 'ts': datetime.datetime(2024, 7, 4), 'd': {'k3': 'v3'}},
+            ]
+        )
+        results = t.collect()
+        models = list(results.to_pydantic(TestModel))
+        assert len(models) == len(results)
+        models = list(results.to_pydantic(StrictTestModel))
+        assert len(models) == len(results)
+
+        def extract_fields(exc_info: pytest.ExceptionInfo) -> set[str]:
+            # extract missing fields from error message
+            fields_str = re.search(r'\{[^}]+\}', str(exc_info.value)).group()
+            return set(re.findall(r"'([^']*)'", fields_str))
+
+        with pytest.raises(pxt.Error, match=r'Required model fields .* are missing') as exc_info:
+            _ = list(t.select(t.i).collect().to_pydantic(TestModel))
+        assert extract_fields(exc_info) == {'s', 'f', 'b', 'ts', 'd'}
+        # case-sensitive field names
+        with pytest.raises(pxt.Error, match=r'Required model fields .* are missing') as exc_info:
+            _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
+        assert extract_fields(exc_info) == {'d'}
+
+        with pytest.raises(pxt.Error, match='Input should be a valid integer'):
+            _ = list(t.select(t.f, t.s, t.b, t.ts, t.d, i=t.i + 0.1).collect().to_pydantic(TestModel))
+
+        # extra fields
+        _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(TestModel))
+        with pytest.raises(pxt.Error, match=r'Extra fields .* are not allowed in model') as exc_info:
+            _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
+        assert extract_fields(exc_info) == {'extra'}

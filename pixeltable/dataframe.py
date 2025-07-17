@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Optional, Sequence, Union
 
 import pandas as pd
+import pydantic
 import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
@@ -32,6 +33,11 @@ _logger = logging.getLogger('pixeltable')
 
 
 class DataFrameResultSet:
+    _rows: list[list[Any]]
+    _col_names: list[str]
+    __schema: dict[str, ColumnType]
+    __formatter: Formatter
+
     def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
         self._rows = rows
         self._col_names = list(schema.keys())
@@ -65,6 +71,44 @@ class DataFrameResultSet:
 
     def to_pandas(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
+
+    def to_pydantic(self, model: type[pydantic.BaseModel]) -> Iterator[pydantic.BaseModel]:
+        """
+        Convert the DataFrameResultSet to a list of Pydantic model instances.
+
+        Args:
+            model: A Pydantic model class.
+
+        Returns:
+            A list of Pydantic model instances, one for each row in the result set.
+
+        Raises:
+            Error: If the row data doesn't match the model schema.
+        """
+        model_fields = model.model_fields
+        model_config = getattr(model, 'model_config', {})
+        forbid_extra_fields = model_config.get('extra', 'ignore') == 'forbid'
+
+        # schema validation
+        required_fields = {name for name, field in model_fields.items() if field.is_required()}
+        col_names = set(self._col_names)
+        missing_fields = required_fields - col_names
+        if len(missing_fields) > 0:
+            raise excs.Error(
+                f'Required model fields {missing_fields} are missing from result set columns {self._col_names}'
+            )
+        if forbid_extra_fields:
+            extra_fields = col_names - set(model_fields.keys())
+            if len(extra_fields) > 0:
+                raise excs.Error(f"Extra fields {extra_fields} are not allowed in model with extra='forbid'")
+
+        for row in self:
+            try:
+                yield model(**row)
+            except pydantic.ValidationError as e:
+                error_msg = f'Validation error:\n{e}'
+                raise excs.Error(error_msg) from e
+        return
 
     def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
