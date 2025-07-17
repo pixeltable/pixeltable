@@ -1,18 +1,18 @@
 # Netlify configuration for Pixeltable docs
 [build]
   base = "docs2"
-  publish = "."
-  command = "echo 'No build needed - serving static files'"
+  publish = "build"
+  command = "npm install mintlify && npx mintlify build"
 
 [build.environment]
   NODE_VERSION = "18"
 
 # Deploy previews for all branches and PRs  
 [context.deploy-preview]
-  command = "echo 'No build needed - serving static files'"
+  command = "npm install mintlify && npx mintlify build"
 
 [context.branch-deploy]
-  command = "echo 'No build needed - serving static files'"
+  command = "npm install mintlify && npx mintlify build"
 
 # Headers for better performance
 [[headers]]

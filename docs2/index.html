@@ -6,50 +6,162 @@
     <title>Pixeltable Documentation</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
-    <!-- Mintlify CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/@mintlify/ui@latest/dist/index.css">
+    <!-- Tailwind CSS for quick styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
-        body { 
-            margin: 0; 
-            font-family: Inter, sans-serif; 
-            background: #fafafa;
-        }
-        .loading {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            font-size: 18px;
-            color: #666;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #1E5AA8 0%, #F1AE03 100%); }
     </style>
 </head>
-<body>
-    <div id="root">
-        <div class="loading">📚 Loading Pixeltable Documentation...</div>
-    </div>
-    
-    <!-- Mintlify JavaScript -->
-    <script src="https://unpkg.com/@mintlify/ui@latest/dist/index.js"></script>
-    <script>
-        // Initialize Mintlify
-        window.addEventListener('DOMContentLoaded', function() {
-            if (window.Mintlify) {
-                window.Mintlify.init({
-                    config: './mint.json'
-                });
-            } else {
-                // Fallback: redirect to a working solution
-                document.getElementById('root').innerHTML = `
-                    <div style="text-align: center; padding: 50px; font-family: Inter, sans-serif;">
-                        <h1>🚀 Pixeltable Documentation</h1>
-                        <p>The declarative data infrastructure for multimodal AI applications</p>
-                        <p><a href="docs/get-started/overview.mdx" style="color: #1E5AA8; text-decoration: none;">→ Get Started</a></p>
-                        <p><em>Full documentation site coming soon!</em></p>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center">
+                    <img src="/logo/pxt-light.svg" alt="Pixeltable" class="h-8 mr-3">
+                    <span class="text-xl font-semibold text-gray-900">Documentation</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="https://github.com/pixeltable/pixeltable" class="text-gray-600 hover:text-gray-900">GitHub</a>
+                    <a href="https://discord.com/invite/QPyqFYx2UN" class="text-gray-600 hover:text-gray-900">Discord</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex">
+        <!-- Sidebar -->
+        <nav class="w-64 bg-white h-screen shadow-sm border-r">
+            <div class="p-6">
+                <div class="space-y-6">
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Get Started</h3>
+                        <ul class="mt-3 space-y-2">
+                            <li><a href="#overview" class="text-blue-600 font-medium">Overview</a></li>
+                            <li><a href="#installation" class="text-gray-600 hover:text-gray-900">Installation</a></li>
+                            <li><a href="#quickstart" class="text-gray-600 hover:text-gray-900">5-Minute Quickstart</a></li>
+                        </ul>
                     </div>
-                `;
-            }
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Examples</h3>
+                        <ul class="mt-3 space-y-2">
+                            <li><a href="#examples" class="text-gray-600 hover:text-gray-900">Coming Soon</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Support</h3>
+                        <ul class="mt-3 space-y-2">
+                            <li><a href="#support" class="text-gray-600 hover:text-gray-900">Getting Help</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-8">
+            <div id="content" class="max-w-4xl">
+                <!-- Overview Section -->
+                <div id="overview">
+                    <div class="gradient-bg text-white rounded-lg p-8 mb-8">
+                        <h1 class="text-4xl font-bold mb-4">Welcome to Pixeltable</h1>
+                        <p class="text-xl opacity-90">The declarative data infrastructure for multimodal AI applications</p>
+                    </div>
+
+                    <div class="prose prose-lg max-w-none">
+                        <p class="text-xl text-gray-600 mb-6">
+                            Pixeltable is a <strong>declarative data infrastructure</strong> that unifies multimodal AI workflows. 
+                            Think of it as "Snowflake for AI data" - a single platform that replaces 5+ tools while reducing infrastructure code by 70-90%.
+                        </p>
+
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+                            <h3 class="text-lg font-semibold text-blue-900 mb-2">🌟 Why Pixeltable?</h3>
+                            <p class="text-blue-800">Store, version, index, and orchestrate multimodal data with simple Python APIs</p>
+                        </div>
+
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">What makes Pixeltable different?</h2>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            <div class="bg-white p-6 rounded-lg shadow-sm border">
+                                <h3 class="font-semibold text-gray-900 mb-2">📝 Declarative</h3>
+                                <p class="text-gray-600">Define what you want, not how to get it. Let Pixeltable handle the infrastructure.</p>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow-sm border">
+                                <h3 class="font-semibold text-gray-900 mb-2">⚡ Incremental</h3>
+                                <p class="text-gray-600">Only recompute what changed. Save 90% on compute costs with smart caching.</p>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow-sm border">
+                                <h3 class="font-semibold text-gray-900 mb-2">🖼️ Multimodal Native</h3>
+                                <p class="text-gray-600">First-class support for images, videos, audio, documents, and embeddings.</p>
+                            </div>
+                            <div class="bg-white p-6 rounded-lg shadow-sm border">
+                                <h3 class="font-semibold text-gray-900 mb-2">🧠 AI-First</h3>
+                                <p class="text-gray-600">Built-in integrations with OpenAI, Anthropic, Hugging Face, and more.</p>
+                            </div>
+                        </div>
+
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Quick Example</h2>
+                        
+                        <div class="bg-gray-900 text-white p-6 rounded-lg mb-8 overflow-x-auto">
+                            <pre class="text-sm"><code>import pixeltable as pxt
+
+# Create a table
+videos = pxt.create_table('videos', {'video': pxt.Video})
+
+# Add AI transformations - computed automatically
+videos.add_computed_column(
+    transcript=whisper.transcribe(videos.video)
+)
+videos.add_computed_column(
+    summary=openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{'role': 'user', 'content': f'Summarize: {videos.transcript}'}]
+    )
+)
+
+# Insert data and watch the magic happen
+videos.insert({'video': '/path/to/video.mp4'})
+# ✨ Transcript and summary computed automatically</code></pre>
+                        </div>
+
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Ready to get started?</h2>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                            <a href="#installation" class="bg-blue-600 text-white p-4 rounded-lg hover:bg-blue-700 transition-colors">
+                                <h3 class="font-semibold mb-2">🚀 Quick Start</h3>
+                                <p class="text-blue-100">Build your first multimodal AI pipeline in 5 minutes</p>
+                            </a>
+                            <a href="#installation" class="bg-gray-100 text-gray-900 p-4 rounded-lg hover:bg-gray-200 transition-colors">
+                                <h3 class="font-semibold mb-2">📦 Installation</h3>
+                                <p class="text-gray-600">Install Pixeltable and set up your environment</p>
+                            </a>
+                        </div>
+
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                            <p class="text-yellow-800">
+                                <strong>Join the community:</strong> Get help and share ideas in our 
+                                <a href="https://discord.com/invite/QPyqFYx2UN" class="text-yellow-900 underline">Discord</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Simple navigation
+        document.querySelectorAll('nav a[href^="#"]').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
         });
     </script>
 </body>
