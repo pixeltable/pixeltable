@@ -4,7 +4,8 @@
   "description": "Pixeltable Documentation",
   "scripts": {
     "dev": "mintlify dev",
-    "build": "mintlify build",
+    "build": "node build.js",
+    "build:netlify": "node build.js",
     "preview": "mintlify dev"
   },
   "dependencies": {

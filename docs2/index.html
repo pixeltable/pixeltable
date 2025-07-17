@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixeltable Documentation</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
+    <!-- Mintlify CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/@mintlify/ui@latest/dist/index.css">
+    
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Inter, sans-serif; 
+            background: #fafafa;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-size: 18px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="loading">📚 Loading Pixeltable Documentation...</div>
+    </div>
+    
+    <!-- Mintlify JavaScript -->
+    <script src="https://unpkg.com/@mintlify/ui@latest/dist/index.js"></script>
+    <script>
+        // Initialize Mintlify
+        window.addEventListener('DOMContentLoaded', function() {
+            if (window.Mintlify) {
+                window.Mintlify.init({
+                    config: './mint.json'
+                });
+            } else {
+                // Fallback: redirect to a working solution
+                document.getElementById('root').innerHTML = `
+                    <div style="text-align: center; padding: 50px; font-family: Inter, sans-serif;">
+                        <h1>🚀 Pixeltable Documentation</h1>
+                        <p>The declarative data infrastructure for multimodal AI applications</p>
+                        <p><a href="docs/get-started/overview.mdx" style="color: #1E5AA8; text-decoration: none;">→ Get Started</a></p>
+                        <p><em>Full documentation site coming soon!</em></p>
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>
