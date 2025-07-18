@@ -916,7 +916,8 @@ class TestDataFrame:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'d'}
 
-        with pytest.raises(pxt.Error, match='Input should be a valid integer'):
+        # (s?): dotall mode, needed to match the embedded \n's
+        with pytest.raises(pxt.Error, match=r'(?s)1 validation error .* Input should be a valid integer'):
             _ = list(t.select(t.f, t.s, t.b, t.ts, t.d, i=t.i + 0.1).collect().to_pydantic(TestModel))
 
         # extra fields

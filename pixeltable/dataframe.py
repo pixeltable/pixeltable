@@ -8,7 +8,19 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Optional, Sequence, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Callable,
+    Hashable,
+    Iterator,
+    NoReturn,
+    Optional,
+    Sequence,
+    TypeVar,
+    Union,
+)
 
 import pandas as pd
 import pydantic
@@ -72,7 +84,9 @@ class DataFrameResultSet:
     def to_pandas(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
 
-    def to_pydantic(self, model: type[pydantic.BaseModel]) -> Iterator[pydantic.BaseModel]:
+    BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
+
+    def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]:
         """
         Convert the DataFrameResultSet to a list of Pydantic model instances.
 
@@ -80,14 +94,14 @@ class DataFrameResultSet:
             model: A Pydantic model class.
 
         Returns:
-            A list of Pydantic model instances, one for each row in the result set.
+            An iterator over Pydantic model instances, one for each row in the result set.
 
         Raises:
             Error: If the row data doesn't match the model schema.
         """
         model_fields = model.model_fields
         model_config = getattr(model, 'model_config', {})
-        forbid_extra_fields = model_config.get('extra', 'ignore') == 'forbid'
+        forbid_extra_fields = model_config.get('extra') == 'forbid'
 
         # schema validation
         required_fields = {name for name, field in model_fields.items() if field.is_required()}
@@ -106,8 +120,7 @@ class DataFrameResultSet:
             try:
                 yield model(**row)
             except pydantic.ValidationError as e:
-                error_msg = f'Validation error:\n{e}'
-                raise excs.Error(error_msg) from e
+                raise excs.Error(str(e)) from e
 
     def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
