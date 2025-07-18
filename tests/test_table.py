@@ -135,7 +135,7 @@ class TestTable:
             pxt.drop_table('test')
         with pytest.raises(excs.Error, match=r"Path 'dir1.test2' does not exist"):
             pxt.drop_table('dir1.test2')
-        with pytest.raises(excs.Error, match='Invalid path: .test2'):
+        with pytest.raises(excs.Error, match=r'Invalid path: .test2'):
             pxt.drop_table('.test2')
         with pytest.raises(excs.Error, match='Versioned path not allowed here: test2:120'):
             pxt.drop_table('test2:120')

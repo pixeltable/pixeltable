@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import ClassVar, Iterator, Optional
+from typing import Optional
 
 from pixeltable import exceptions as excs
 
@@ -23,8 +23,8 @@ class Path:
     def parse(
         cls,
         path: str,
-        empty_is_valid: bool = False,
-        allow_system_paths: bool = False,
+        allow_empty_path: bool = False,
+        allow_system_path: bool = False,
         allow_versioned_path: bool = False,
     ) -> Path:
         components: list[str]
@@ -42,12 +42,13 @@ class Path:
             components = path.split('.')
             version = None
 
-        if (components == [''] and not empty_is_valid) or not (
-            components == [''] or all(is_valid_identifier(c, allow_system_paths) for c in components)
-        ):
+        if components == [''] and not allow_empty_path:
             raise excs.Error(f'Invalid path: {path}')
 
-        if not allow_versioned_path and version is not None:
+        if components != [''] and not all(is_valid_identifier(c, allow_system_path) for c in components):
+            raise excs.Error(f'Invalid path: {path}')
+
+        if version is not None and not allow_versioned_path:
             raise excs.Error(f'Versioned path not allowed here: {path}')
 
         return Path(components, version)
@@ -79,7 +80,7 @@ class Path:
         if self.is_root:
             return Path([name])
         else:
-            return Path(self.components + [name])
+            return Path([*self.components, name])
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -92,16 +93,15 @@ class Path:
         is_prefix = self.components == other.components[: self.len]
         return is_prefix and (self.len == (other.len - 1) or not is_parent)
 
-    def ancestors(self) -> Iterator[Path]:
+    def ancestors(self) -> list[Path]:
         """
-        Return all ancestors of this path in top-down order including root.
+        Return all proper ancestors of this path in top-down order including root.
         If this path is for the root directory, which has no parent, then None is returned.
         """
         if self.is_root:
-            return
+            return []
         else:
-            for i in range(len(self.components)):
-                yield Path(self.components[:i]) if i > 0 else ROOT_PATH
+            return [Path(self.components[:i]) if i > 0 else ROOT_PATH for i in range(len(self.components))]
 
     def __repr__(self) -> str:
         return repr(str(self))

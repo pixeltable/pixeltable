@@ -22,11 +22,11 @@ class TestDirs:
             pxt.create_dir('_dir1')
         with pytest.raises(excs.Error, match='Invalid path: dir 1'):
             pxt.create_dir('dir 1')
-        with pytest.raises(excs.Error, match='Invalid path: dir1..sub2'):
+        with pytest.raises(excs.Error, match=r'Invalid path: dir1..sub2'):
             pxt.create_dir('dir1..sub2')
-        with pytest.raises(excs.Error, match='Invalid path: dir1.sub2.'):
+        with pytest.raises(excs.Error, match=r'Invalid path: dir1.sub2.'):
             pxt.create_dir('dir1.sub2.')
-        with pytest.raises(excs.Error, match='Invalid path: dir1:sub2.'):
+        with pytest.raises(excs.Error, match=r'Invalid path: dir1:sub2.'):
             pxt.create_dir('dir1:sub2.')
         with pytest.raises(excs.Error, match='Versioned path not allowed here: dir1:120'):
             pxt.create_dir('dir1:120')
@@ -171,7 +171,7 @@ class TestDirs:
         with pytest.raises(excs.Error, match='Invalid path: 1dir'):
             pxt.drop_dir('1dir')
         # bad path
-        with pytest.raises(excs.Error, match='Invalid path: dir1..sub1'):
+        with pytest.raises(excs.Error, match=r'Invalid path: dir1..sub1'):
             pxt.drop_dir('dir1..sub1')
         with pytest.raises(excs.Error, match='Versioned path not allowed here: dir1:120'):
             pxt.drop_dir('dir1:120')

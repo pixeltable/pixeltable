@@ -561,7 +561,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 
 def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
-    path_obj = catalog.Path.parse(dir_path, empty_is_valid=True, allow_system_paths=allow_system_paths)
+    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True, allow_system_path=allow_system_paths)
     contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
@@ -674,7 +674,7 @@ def ls(path: str = '') -> pd.DataFrame:
     from pixeltable.metadata import schema
 
     cat = Catalog.get()
-    path_obj = catalog.Path.parse(path, empty_is_valid=True)
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)
     dir_entries = cat.get_dir_contents(path_obj)
 
     @retry_loop(for_write=False)
@@ -763,7 +763,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         >>> cl.list_dirs('my_dir', recursive=True)
         ['my_dir', 'my_dir.sub_dir1']
     """
-    path_obj = catalog.Path.parse(path, empty_is_valid=True)  # validate format
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
     cat = Catalog.get()
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
