@@ -24,7 +24,7 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
     if dataclasses.is_dataclass(data_class_type):
         fieldtypes = get_type_hints(data_class_type)
-        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})  # type: ignore[return-value]
+        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
 
     origin = typing.get_origin(data_class_type)
     if origin is not None:
