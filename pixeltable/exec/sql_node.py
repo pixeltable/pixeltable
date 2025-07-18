@@ -316,8 +316,7 @@ class SqlNode(ExecNode):
             for _ in w:
                 pass
 
-        tbl_version = self.tbl.tbl_version if self.tbl is not None else None
-        output_batch = DataRowBatch(tbl_version, self.row_builder)
+        output_batch = DataRowBatch(self.row_builder)
         output_row: Optional[exprs.DataRow] = None
         num_rows_returned = 0
 
@@ -359,7 +358,7 @@ class SqlNode(ExecNode):
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
                 yield output_batch
-                output_batch = DataRowBatch(tbl_version, self.row_builder)
+                output_batch = DataRowBatch(self.row_builder)
 
         if len(output_batch) > 0:
             _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
