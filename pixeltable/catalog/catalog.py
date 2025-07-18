@@ -1138,7 +1138,7 @@ class Catalog:
         q = (
             sql.select(schema.TableVersion.md)
             .where(schema.TableVersion.tbl_id == tbl_id)
-            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {md.version_md.version}"))
+            .where(schema.TableVersion.md['version'].cast(sql.Integer) == md.version_md.version)
         )
         existing_version_md_row = conn.execute(q).one_or_none()
         if existing_version_md_row is None:
@@ -1157,10 +1157,7 @@ class Catalog:
             sql.select(schema.TableSchemaVersion.md)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
             .where(
-                sql.text(
-                    f"({schema.TableSchemaVersion.__table__}.md->>'schema_version')::int = "
-                    f'{md.schema_version_md.schema_version}'
-                )
+                schema.TableSchemaVersion.md['schema_version'].cast(sql.Integer) == md.schema_version_md.schema_version
             )
         )
         existing_schema_version_md_row = conn.execute(q).one_or_none()
@@ -1363,7 +1360,7 @@ class Catalog:
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
             raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
-        q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
+        q = sql.select(schema.Table.id).where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
         if for_update:
             q = q.with_for_update()
         result = [r[0] for r in conn.execute(q).all()]
@@ -1480,12 +1477,8 @@ class Catalog:
             sql.select(schema.Table, schema.TableSchemaVersion)
             .join(schema.TableSchemaVersion)
             .where(schema.Table.id == schema.TableSchemaVersion.tbl_id)
-            # Table.md['current_schema_version'] == TableSchemaVersion.schema_version
             .where(
-                sql.text(
-                    f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
-                    f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                )
+                schema.Table.md['current_schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version
             )
             .where(schema.Table.id == tbl_id)
         )
@@ -1547,8 +1540,7 @@ class Catalog:
             .select_from(schema.TableVersion)
             .join(
                 schema.TableSchemaVersion,
-                sql.cast(schema.TableVersion.md['schema_version'], sql.Integer)
-                == schema.TableSchemaVersion.schema_version,
+                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
             .where(schema.TableVersion.tbl_id == tbl_id)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
@@ -1590,13 +1582,9 @@ class Catalog:
             # JOIN TableVersion tv ON (tv.tbl_id = tbl_id AND tv.version = effective_version)
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND tv.md.schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
-            q = q.where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {effective_version}")).where(
-                sql.text(
-                    (
-                        f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                    )
-                )
+            q = q.where(
+                schema.TableVersion.md['version'].cast(sql.Integer) == effective_version,
+                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
         else:
             # we are loading the current version
@@ -1606,17 +1594,8 @@ class Catalog:
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND t.current_schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
             q = q.where(
-                sql.text(
-                    f"({schema.Table.__table__}.md->>'current_version')::int = "
-                    f'{schema.TableVersion.__table__}.{schema.TableVersion.version.name}'
-                )
-            ).where(
-                sql.text(
-                    (
-                        f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
-                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                    )
-                )
+                schema.Table.md['current_version'].cast(sql.Integer) == schema.TableVersion.version,
+                schema.Table.md['current_schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
 
         row = conn.execute(q).one_or_none()
@@ -1798,11 +1777,10 @@ class Catalog:
         # This is presumably a source of bugs, because it ignores schema version changes (eg, column renames).
         # TODO: retarget the value_expr_dict when instantiating Columns for a particular TV instance.
         if effective_version is None and not tbl_md.is_replica:
-            q = sql.select(schema.Table.id).where(
-                sql.text(
-                    f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
-                    "AND md->'view_md'->'base_versions'->0->>1 IS NULL"
-                )
+            q = (
+                sql.select(schema.Table.id)
+                .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
+                .where(schema.Table.md['view_md']['base_versions'][0][1].astext == None)
             )
             mutable_view_ids = [r[0] for r in conn.execute(q).all()]
 
