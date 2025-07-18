@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs, func
 
-from .utils import ReloadTester, assert_resultset_eq, create_img_tbl, create_test_tbl, reload_catalog
+from .utils import ReloadTester, assert_resultset_eq, create_img_tbl, create_test_tbl, reload_catalog, validate_update_status
 
 
 class TestSnapshot:
@@ -224,15 +224,15 @@ class TestSnapshot:
             snap = pxt.create_snapshot('img_snap', img_tbl)
             snap.add_embedding_index('img', image_embed=clip_embed)
 
-    def test_views_of_snapshots(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('anonymous', [True, False])
+    def test_views_of_snapshots(self, anonymous: bool, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
-        s1 = pxt.create_snapshot('s1', t)
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        assert t._get_version() == 1
+        s1 = pxt.get_table('tbl:1') if anonymous else pxt.create_snapshot('s1', t)
         v1 = pxt.create_view('v1', s1)
-        s2 = pxt.create_snapshot('s2', v1)
+        s2 = pxt.get_table('v1:0') if anonymous else pxt.create_snapshot('s2', v1)
         v2 = pxt.create_view('v2', s2)
 
         def verify(s1: pxt.Table, s2: pxt.Table, v1: pxt.Table, v2: pxt.Table) -> None:
@@ -243,14 +243,12 @@ class TestSnapshot:
 
         verify(s1, s2, v1, v2)
 
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
         verify(s1, s2, v1, v2)
 
         reload_catalog()
-        s1 = pxt.get_table('s1')
-        s2 = pxt.get_table('s2')
+        s1 = pxt.get_table('tbl:1') if anonymous else pxt.get_table('s1')
+        s2 = pxt.get_table('v1:0') if anonymous else pxt.get_table('s2')
         v1 = pxt.get_table('v1')
         v2 = pxt.get_table('v2')
         verify(s1, s2, v1, v2)
@@ -258,9 +256,7 @@ class TestSnapshot:
     def test_snapshot_of_view_chain(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
         v1 = pxt.create_view('v1', t)
         v2 = pxt.create_view('v2', v1)
         s = pxt.create_snapshot('s', v2)
@@ -272,9 +268,7 @@ class TestSnapshot:
 
         verify(v1, v2, s)
 
-        status = t.insert(rows)
-        assert status.num_rows == len(rows) * 3  # we also updated 2 views
-        assert status.num_excs == 0
+        validate_update_status(t.insert(rows), expected_rows=(len(rows) * 3))  # we also updated 2 views
         verify(v1, v2, s)
 
         reload_catalog()
