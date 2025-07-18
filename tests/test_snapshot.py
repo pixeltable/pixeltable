@@ -6,7 +6,14 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs, func
 
-from .utils import ReloadTester, assert_resultset_eq, create_img_tbl, create_test_tbl, reload_catalog, validate_update_status
+from .utils import (
+    ReloadTester,
+    assert_resultset_eq,
+    create_img_tbl,
+    create_test_tbl,
+    reload_catalog,
+    validate_update_status,
+)
 
 
 class TestSnapshot:
