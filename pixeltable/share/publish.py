@@ -39,17 +39,16 @@ def push_replica(
         raise excs.Error(f'Error publishing snapshot: unexpected response from server.\n{response_json}')
     upload_id = response_json['upload_id']
     destination_uri = response_json['destination_uri']
-    destination = response_json['destination']
 
     Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path()}' at: {dest_tbl_uri}")
 
     bundle = packager.package()
 
     parsed_location = urllib.parse.urlparse(destination_uri)
-    if destination == 's3':
+    if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
-    elif destination == 'r2':
-        _upload_bundle_to_r2(bundle, parsed_location)
+    elif parsed_location.scheme == 'https':
+        _upload_bundle_with_presigned_url(bundle, parsed_location)
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
@@ -120,14 +119,13 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         raise excs.Error(f'Error cloning shapshot: unexpected response from server.\n{response_json}')
 
     primary_tbl_additional_md = response_json['md']['tables'][0]['table_md']['additional_md']
-    bundle_uri_destination = response_json['destination']
     bundle_uri = response_json['destination_uri']
     bundle_filename = primary_tbl_additional_md['datafile']
     parsed_location = urllib.parse.urlparse(bundle_uri)
-    if bundle_uri_destination == 's3':
+    if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
-    elif bundle_uri_destination == 'r2':
-        bundle_path = _download_bundle_from_r2(parsed_location)
+    elif parsed_location.scheme == 'https':
+        bundle_path = _download_bundle_from_presigned_url(parsed_location)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
@@ -167,7 +165,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     return bundle_path
 
 
-def _upload_bundle_to_r2(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
+def _upload_bundle_with_presigned_url(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
     try:
         with open(bundle, 'rb') as f:
             file_size = os.path.getsize(bundle)
@@ -178,7 +176,7 @@ def _upload_bundle_to_r2(bundle: Path, parsed_location: urllib.parse.ParseResult
         raise excs.Error(f'Failed to upload bundle: {e}') from e
 
 
-def _download_bundle_from_r2(parsed_location: urllib.parse.ParseResult) -> Path:
+def _download_bundle_from_presigned_url(parsed_location: urllib.parse.ParseResult) -> Path:
     bundle_path = Path(Env.get().create_tmp_path())
     try:
         response = requests.get(parsed_location.geturl())

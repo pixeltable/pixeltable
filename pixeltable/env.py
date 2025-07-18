@@ -804,6 +804,164 @@ class Env:
         except Exception as exc:
             raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
+    @classmethod
+    def clear(cls) -> None:
+        """
+        Completely destroy the singleton instance and reset all state.
+        This method ensures proper cleanup of all resources before destruction.
+        """
+        if cls._instance is None:
+            return
+
+        try:
+            # Clean up the instance
+            cls._instance._cleanup()
+
+            # Reset the singleton instance
+            cls._instance = None
+            cls.__initializing = False
+
+        except Exception as e:
+            _logger.error(f"Error during Env destruction: {e}")
+            # Force reset even if cleanup fails
+            cls._instance = None
+            cls.__initializing = False
+            raise
+
+    def _cleanup(self) -> None:
+        """
+        Internal cleanup method that properly closes all resources and resets state.
+        This is called before destroying the singleton instance.
+        """
+        # Close database connections and sessions
+        if self._current_session is not None:
+            try:
+                self._current_session.close()
+            except Exception as e:
+                _logger.error(f"Error closing session: {e}")
+            self._current_session = None
+
+        if self._current_conn is not None:
+            try:
+                self._current_conn.close()
+            except Exception as e:
+                _logger.error(f"Error closing connection: {e}")
+            self._current_conn = None
+
+        # Stop HTTP server
+        if self._httpd is not None:
+            try:
+                self._httpd.shutdown()
+                self._httpd.server_close()
+            except Exception as e:
+                _logger.error(f"Error stopping HTTP server: {e}")
+            self._httpd = None
+
+        # Stop database server (for local environment)
+        if self._db_server is not None and self._dbms is not None:
+            try:
+                # First terminate all connections to the database
+                if self._db_name is not None:
+                    temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+                    try:
+                        with temp_engine.begin() as conn:
+                            stmt = f"""
+                                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                                FROM pg_stat_activity
+                                WHERE pg_stat_activity.datname = '{self._db_name}'
+                                AND pid <> pg_backend_pid()
+                            """
+                            conn.execute(sql.text(stmt))
+                            _logger.info(f"Terminated all connections to database '{self._db_name}'")
+                    except Exception as e:
+                        _logger.warning(f"Error terminating database connections: {e}")
+                    finally:
+                        temp_engine.dispose()
+            except Exception as e:
+                _logger.error(f"Error stopping database server: {e}")
+            self._db_server = None
+
+        # Dispose of SQLAlchemy engine (after stopping db server)
+        if self._sa_engine is not None:
+            try:
+                self._sa_engine.dispose()
+            except Exception as e:
+                _logger.error(f"Error disposing engine: {e}")
+            self._sa_engine = None
+
+        # Close event loop
+        if self._event_loop is not None:
+            try:
+                if self._event_loop.is_running():
+                    self._event_loop.stop()
+                self._event_loop.close()
+            except Exception as e:
+                _logger.error(f"Error closing event loop: {e}")
+            self._event_loop = None
+
+        # Remove logging handlers
+        for handler in self._logger.handlers[:]:
+            try:
+                handler.close()
+                self._logger.removeHandler(handler)
+            except Exception as e:
+                _logger.error(f"Error removing handler: {e}")
+
+        # Clear temporary directory
+        try:
+            self.clear_tmp_dir()
+        except Exception as e:
+            _logger.error(f"Error clearing tmp directory: {e}")
+
+        # Reset all instance variables to None
+        self._reset_fields()
+
+        # Set initialized flag to False
+        self._initialized = False
+
+    def _reset_fields(self) -> None:
+        """Reset all instance fields to their initial None/empty state."""
+        # Directory paths
+        self._media_dir = None
+        self._file_cache_dir = None
+        self._dataset_cache_dir = None
+        self._log_dir = None
+        self._tmp_dir = None
+
+        # Database related
+        self._sa_engine = None
+        self._pgdata_dir = None
+        self._db_name = None
+        self._db_server = None
+        self._db_url = None
+        self._dbms = None
+        self._default_time_zone = None
+
+        # Connection/session state
+        self._current_conn = None
+        self._current_session = None
+        self._current_isolation_level = None
+
+        # Services
+        self._spacy_nlp = None
+        self._httpd = None
+        self._http_address = None
+        self._event_loop = None
+
+        # Configuration
+        self._file_cache_size_g = None
+        self._pxt_api_key = None
+
+        # Logging state
+        self._logfilename = None
+        self._log_to_stdout = False
+        self._module_log_level = {}
+        self._default_log_level = logging.INFO
+
+        # Other state
+        self._resource_pool_info = {}
+        self.__optional_packages = {}
+        self._initialized = False
 
 def register_client(name: str) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.
