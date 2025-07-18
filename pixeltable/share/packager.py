@@ -572,16 +572,18 @@ class TableRestorer:
         for col_name in pydict:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
-        media_col_ids: dict[str, int] = {}
+        media_cols: dict[str, catalog.Column] = {}
         for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
-                media_col_ids[col.store_name()] = col.id
+                assert tv.id == col.tbl.id
+                assert tv.version == col.tbl.version
+                media_cols[col.store_name()] = col
 
         row_count = len(next(iter(pydict.values())))
         rows: list[dict[str, Any]] = []
         for i in range(row_count):
             row = {
-                col_name: self.__from_pa_value(tv, col_vals[i], sql_types[col_name], media_col_ids.get(col_name))
+                col_name: self.__from_pa_value(col_vals[i], sql_types[col_name], media_cols.get(col_name))
                 for col_name, col_vals in pydict.items()
             }
             rows.append(row)
@@ -589,18 +591,18 @@ class TableRestorer:
         return rows
 
     def __from_pa_value(
-        self, tv: catalog.TableVersion, val: Any, sql_type: sql.types.TypeEngine[Any], media_col_id: Optional[int]
+        self, val: Any, sql_type: sql.types.TypeEngine[Any], media_col: Optional[catalog.Column]
     ) -> Any:
         if val is None:
             return None
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
-        if media_col_id is not None:
+        if media_col is not None:
             assert isinstance(val, str)
-            return self.__relocate_media_file(tv, media_col_id, val)
+            return self.__relocate_media_file(media_col, val)
         return val
 
-    def __relocate_media_file(self, tv: catalog.TableVersion, media_col_id: int, url: str) -> str:
+    def __relocate_media_file(self, media_col: catalog.Column, url: str) -> str:
         # If this is a pxtmedia:// URL, relocate it
         parsed_url = urllib.parse.urlparse(url)
         assert parsed_url.scheme != 'file'  # These should all have been converted to pxtmedia:// URLs
@@ -610,7 +612,9 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, tv.id, media_col_id, tv.version)
+                self.media_files[url] = MediaStore.relocate_local_media_file(
+                    src_path, media_col.tbl.id, media_col.id, media_col.tbl.version
+                )
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
