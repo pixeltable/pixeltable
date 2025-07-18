@@ -14,7 +14,6 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 from pixeltable import exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -480,25 +479,7 @@ class TableVersion:
         sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
         for col_md in sorted_column_md:
             schema_col_md = self.schema_version_md.columns.get(col_md.id)
-            col_name = schema_col_md.name if schema_col_md is not None else None
-            media_val = (
-                MediaValidation[schema_col_md.media_validation.upper()]
-                if schema_col_md is not None and schema_col_md.media_validation is not None
-                else None
-            )
-            col = Column(
-                col_id=col_md.id,
-                name=col_name,
-                col_type=ts.ColumnType.from_dict(col_md.col_type),
-                is_pk=col_md.is_pk,
-                stored=col_md.stored,
-                media_validation=media_val,
-                schema_version_add=col_md.schema_version_add,
-                schema_version_drop=col_md.schema_version_drop,
-                value_expr_dict=col_md.value_expr,
-                tbl=self,
-            )
-            col.tbl = self
+            col = Column.from_md(col_md, self, schema_col_md)
             self.cols.append(col)
 
             # populate the lookup structures before Expr.from_dict()
@@ -792,15 +773,7 @@ class TableVersion:
             self.cols_by_id[col.id] = col
 
             # also add to stored md
-            self._tbl_md.column_md[col.id] = schema.ColumnMd(
-                id=col.id,
-                col_type=col.col_type.as_dict(),
-                is_pk=col.is_pk,
-                schema_version_add=col.schema_version_add,
-                schema_version_drop=col.schema_version_drop,
-                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
-                stored=col.stored,
-            )
+            self._tbl_md.column_md[col.id] = col.to_md()
             if col.name is not None:
                 self._schema_version_md.columns[col.id] = schema.SchemaColumn(
                     name=col.name,
@@ -1631,17 +1604,7 @@ class TableVersion:
     def _create_column_md(cls, cols: list[Column]) -> dict[int, schema.ColumnMd]:
         column_md: dict[int, schema.ColumnMd] = {}
         for col in cols:
-            value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
-            assert col.is_pk is not None
-            column_md[col.id] = schema.ColumnMd(
-                id=col.id,
-                col_type=col.col_type.as_dict(),
-                is_pk=col.is_pk,
-                schema_version_add=col.schema_version_add,
-                schema_version_drop=col.schema_version_drop,
-                value_expr=value_expr_dict,
-                stored=col.stored,
-            )
+            column_md[col.id] = col.to_md()
         return column_md
 
     @classmethod
