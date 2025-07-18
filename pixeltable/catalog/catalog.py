@@ -709,7 +709,7 @@ class Catalog:
                 break
             names.insert(0, dir.md['name'])
             dir_id = dir.parent_id
-        return Path('.'.join(names), empty_is_valid=True, allow_system_paths=True)
+        return Path.parse('.'.join(names), empty_is_valid=True, allow_system_paths=True)
 
     @dataclasses.dataclass
     class DirEntry:
@@ -1042,12 +1042,12 @@ class Catalog:
             )
 
         # Ensure that the system directory exists.
-        self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
+        self._create_dir(Path.parse('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
         # Now check to see if this table already exists in the catalog.
         existing = self.get_table_by_id(tbl_id)
         if existing is not None:
-            existing_path = Path(existing._path(), allow_system_paths=True)
+            existing_path = Path.parse(existing._path(), allow_system_paths=True)
             if existing_path != path:
                 # It does exist, under a different path from the specified one.
                 if not existing_path.is_system_path:
@@ -1070,12 +1070,12 @@ class Catalog:
             replica_path: Path
             if replica is None:
                 # We've never seen this table before. Create a new anonymous system table for it.
-                replica_path = Path(f'_system.replica_{ancestor_id.hex}', allow_system_paths=True)
+                replica_path = Path.parse(f'_system.replica_{ancestor_id.hex}', allow_system_paths=True)
             else:
                 # The table already exists in the catalog. The existing path might be a system path (if the table
                 # was created as an anonymous base table of some other table), or it might not (if it's a snapshot
                 # that was directly replicated by the user at some point). In either case, use the existing path.
-                replica_path = Path(replica._path(), allow_system_paths=True)
+                replica_path = Path.parse(replica._path(), allow_system_paths=True)
 
             # Store the metadata; it could be a new version (in which case a new record will be created), or a known
             # version (in which case the newly received metadata will be validated as identical).

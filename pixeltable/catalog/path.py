@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterator, Optional
+from typing import ClassVar, Iterator, Optional
 
 from pixeltable import exceptions as excs
 
@@ -14,33 +14,43 @@ class Path:
     components: list[str]
     version: Optional[int]
 
-    def __init__(
-        self,
+    def __init__(self, components: list[str], version: Optional[int] = None) -> None:
+        assert len(components) > 0
+        self.components = components
+        self.version = version
+
+    @classmethod
+    def parse(
+        cls,
         path: str,
         empty_is_valid: bool = False,
         allow_system_paths: bool = False,
         allow_versioned_path: bool = False,
-    ):
+    ) -> Path:
+        components: list[str]
+        version: Optional[int]
         if ':' in path:
             parts = path.split(':')
             if len(parts) != 2:
                 raise excs.Error(f'Invalid path: {path}')
             try:
-                self.components = parts[0].split('.')
-                self.version = int(parts[1])
+                components = parts[0].split('.')
+                version = int(parts[1])
             except ValueError:
                 raise excs.Error(f'Invalid path: {path}') from None
         else:
-            self.components = path.split('.')
-            self.version = None
+            components = path.split('.')
+            version = None
 
-        if (self.is_root and not empty_is_valid) or not (
-            self.is_root or all(is_valid_identifier(c, allow_system_paths) for c in self.components)
+        if (components == [''] and not empty_is_valid) or not (
+            components == [''] or all(is_valid_identifier(c, allow_system_paths) for c in components)
         ):
             raise excs.Error(f'Invalid path: {path}')
 
-        if not allow_versioned_path and self.version is not None:
+        if not allow_versioned_path and version is not None:
             raise excs.Error(f'Versioned path not allowed here: {path}')
+
+        return Path(components, version)
 
     @property
     def len(self) -> int:
@@ -48,7 +58,6 @@ class Path:
 
     @property
     def name(self) -> str:
-        assert len(self.components) > 0
         return self.components[-1]
 
     @property
@@ -60,24 +69,17 @@ class Path:
         return self.components[0].startswith('_')
 
     @property
-    def is_versioned(self) -> bool:
-        return self.version is not None
-
-    @property
     def parent(self) -> Path:
         if len(self.components) == 1:
-            if self.is_root:
-                return self
-            else:
-                return Path('', empty_is_valid=True, allow_system_paths=True)
+            return ROOT_PATH  # Includes the case of the root path, which is its own parent.
         else:
-            return Path('.'.join(self.components[:-1]), allow_system_paths=True)
+            return Path(self.components[:-1])
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path(name, allow_system_paths=True)
+            return Path([name])
         else:
-            return Path(f'{self}.{name}', allow_system_paths=True)
+            return Path(self.components + [name])
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -99,17 +101,17 @@ class Path:
             return
         else:
             for i in range(len(self.components)):
-                yield Path('.'.join(self.components[0:i]), empty_is_valid=True)
+                yield Path(self.components[:i]) if i > 0 else ROOT_PATH
 
     def __repr__(self) -> str:
         return repr(str(self))
 
     def __str__(self) -> str:
-        base_path = '.'.join(self.components)
+        base = '.'.join(self.components)
         if self.version is not None:
-            return f'{base_path}:{self.version}'
+            return f'{base}:{self.version}'
         else:
-            return base_path
+            return base
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Path) and str(self) == str(other)
@@ -119,3 +121,6 @@ class Path:
 
     def __lt__(self, other: Path) -> bool:
         return str(self) < str(other)
+
+
+ROOT_PATH = Path([''])

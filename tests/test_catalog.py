@@ -38,7 +38,7 @@ class TestCatalog:
 
     def test_path_ancestors(self) -> None:
         # multiple ancestors in path
-        path = Path('a.b.c')
+        path = Path.parse('a.b.c')
         ancestors = path.ancestors()
         assert str(next(ancestors)) == ''
         assert str(next(ancestors)) == 'a'
@@ -47,14 +47,14 @@ class TestCatalog:
             next(ancestors)
 
         # single element in path
-        path = Path('a')
+        path = Path.parse('a')
         ancestors = path.ancestors()
         assert str(next(ancestors)) == ''
         with pytest.raises(StopIteration):
             next(ancestors)
 
         # root
-        path = Path('', empty_is_valid=True)
+        path = Path.parse('', empty_is_valid=True)
         ancestors = path.ancestors()
         with pytest.raises(StopIteration):
             next(ancestors)
