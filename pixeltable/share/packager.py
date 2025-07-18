@@ -598,12 +598,12 @@ class TableRestorer:
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
         if media_col is not None:
-            assert isinstance(val, str)
             return self.__relocate_media_file(media_col, val)
         return val
 
     def __relocate_media_file(self, media_col: catalog.Column, url: str) -> str:
         # If this is a pxtmedia:// URL, relocate it
+        assert isinstance(url, str)
         parsed_url = urllib.parse.urlparse(url)
         assert parsed_url.scheme != 'file'  # These should all have been converted to pxtmedia:// URLs
         if parsed_url.scheme == 'pxtmedia':
@@ -612,9 +612,7 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = MediaStore.relocate_local_media_file(
-                    src_path, media_col.tbl.id, media_col.id, media_col.tbl.version
-                )
+                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, media_col)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
