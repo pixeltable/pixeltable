@@ -123,15 +123,15 @@ class StoreBase:
     def _storage_name(self) -> str:
         """Return the name of the data store table"""
 
-    def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
-        return MediaStore.move_tmp_media_file(file_url, self.tbl_version.id, col.id, v_min)
+    def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column) -> str:
+        return MediaStore.move_tmp_media_file(file_url, col.tbl.id, col.id, col.tbl.version)
 
     def _move_tmp_media_files(
         self, table_row: list[Any], media_cols_by_sql_idx: dict[int, catalog.Column], v_min: int
     ) -> None:
         """Move tmp media files that we generated to a permanent location"""
         for n, col in media_cols_by_sql_idx.items():
-            table_row[n] = self._move_tmp_media_file(table_row[n], col, v_min)
+            table_row[n] = self._move_tmp_media_file(table_row[n], col)
 
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
@@ -259,9 +259,7 @@ class StoreBase:
                         raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}') from exc
                     table_row, num_row_exc = row_builder.create_table_row(row, None, row.pk)
                     if col.col_type.is_media_type():
-                        table_row[tmp_val_col_sql_idx] = self._move_tmp_media_file(
-                            table_row[tmp_val_col_sql_idx], col, row.pk[-1]
-                        )
+                        table_row[tmp_val_col_sql_idx] = self._move_tmp_media_file(table_row[tmp_val_col_sql_idx], col)
                     num_excs += num_row_exc
                     batch_table_rows.append(tuple(table_row))
 

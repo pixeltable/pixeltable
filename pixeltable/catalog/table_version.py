@@ -742,6 +742,7 @@ class TableVersion:
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
         for col in cols:
+            assert col.tbl == self
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex(col)
@@ -773,6 +774,7 @@ class TableVersion:
         cols_to_add = list(cols)
         row_count = self.store_tbl.count()
         for col in cols_to_add:
+            assert col.tbl is self
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
