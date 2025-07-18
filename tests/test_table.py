@@ -96,10 +96,12 @@ class TestTable:
         tbl = pxt.create_table('test', schema)
         _ = pxt.create_table('dir1.test', schema)
 
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: 1test'):
             pxt.create_table('1test', schema)
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: bad name'):
             pxt.create_table('bad name', {'c1': pxt.String})
+        with pytest.raises(excs.Error, match='Versioned path not allowed here: test:120'):
+            pxt.create_table('test:120', schema)
         with pytest.raises(excs.Error, match='is an existing table'):
             pxt.create_table('test', schema)
         with pytest.raises(excs.Error, match='does not exist'):
@@ -108,7 +110,7 @@ class TestTable:
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')
 
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: 1dir'):
             pxt.list_tables('1dir')
         with pytest.raises(excs.Error, match='does not exist'):
             pxt.list_tables('dir2')
@@ -133,8 +135,10 @@ class TestTable:
             pxt.drop_table('test')
         with pytest.raises(excs.Error, match=r"Path 'dir1.test2' does not exist"):
             pxt.drop_table('dir1.test2')
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: .test2'):
             pxt.drop_table('.test2')
+        with pytest.raises(excs.Error, match='Versioned path not allowed here: test2:120'):
+            pxt.drop_table('test2:120')
 
         with pytest.raises(excs.Error, match="'pos' is a reserved name in Pixeltable"):
             pxt.create_table('bad_col_name', {'pos': pxt.Int})

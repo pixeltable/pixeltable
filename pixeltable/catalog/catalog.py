@@ -864,7 +864,6 @@ class Catalog:
     def _get_schema_object(
         self,
         path: Path,
-        version: Optional[int] = None,
         expected: Optional[type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
@@ -894,7 +893,7 @@ class Catalog:
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
         if parent_dir is None:
             raise excs.Error(f'Directory {parent_path!r} does not exist.')
-        obj = self._get_dir_entry(parent_dir.id, path.name, version, lock_entry=lock_obj)
+        obj = self._get_dir_entry(parent_dir.id, path.name, path.version, lock_entry=lock_obj)
 
         if obj is None and raise_if_not_exists:
             raise excs.Error(f'Path {path!r} does not exist.')
@@ -1182,8 +1181,8 @@ class Catalog:
             TableVersion.create_replica(md)
 
     @retry_loop(for_write=False)
-    def get_table(self, path: Path, version: Optional[int]) -> Table:
-        obj = Catalog.get()._get_schema_object(path, version=version, expected=Table, raise_if_not_exists=True)
+    def get_table(self, path: Path) -> Table:
+        obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
         # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
         # by another process.

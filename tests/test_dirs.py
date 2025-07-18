@@ -16,18 +16,20 @@ class TestDirs:
             assert md['name'] == name.split('.')[-1]
 
         # invalid names
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: 1dir'):
             pxt.create_dir('1dir')
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: _dir1'):
             pxt.create_dir('_dir1')
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: dir 1'):
             pxt.create_dir('dir 1')
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: dir1..sub2'):
             pxt.create_dir('dir1..sub2')
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: dir1.sub2.'):
             pxt.create_dir('dir1.sub2.')
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: dir1:sub2.'):
             pxt.create_dir('dir1:sub2.')
+        with pytest.raises(excs.Error, match='Versioned path not allowed here: dir1:120'):
+            pxt.create_dir('dir1:120')
 
         # existing dirs raise error by default
         with pytest.raises(excs.Error, match='is an existing'):
@@ -166,11 +168,13 @@ class TestDirs:
         make_tbl('dir1.t1')
 
         # bad name
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: 1dir'):
             pxt.drop_dir('1dir')
         # bad path
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: dir1..sub1'):
             pxt.drop_dir('dir1..sub1')
+        with pytest.raises(excs.Error, match='Versioned path not allowed here: dir1:120'):
+            pxt.drop_dir('dir1:120')
         # doesn't exist
         self._test_drop_if_not_exists('dir2')
         # not empty
