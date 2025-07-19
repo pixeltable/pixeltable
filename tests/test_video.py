@@ -12,11 +12,15 @@ from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, 
 
 
 class TestVideo:
-    def create_tbls(self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True) -> tuple[pxt.Table, pxt.Table]:
+    def create_tbls(
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True
+    ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
-        view_t = pxt.create_view(view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1, all_frame_attrs=all_frame_attrs))
+        view_t = pxt.create_view(
+            view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
+        )
         return base_t, view_t
 
     def create_and_insert(self, stored: Optional[bool], paths: list[str]) -> tuple[pxt.Table, pxt.Table]:

@@ -53,7 +53,14 @@ class FrameIterator(ComponentIterator):
     # frame index in the video. Otherwise, the corresponding video index is `frames_to_extract[next_pos]`.
     next_pos: int
 
-    def __init__(self, video: str, *, fps: Optional[float] = None, num_frames: Optional[int] = None, all_frame_attrs: bool = False):
+    def __init__(
+        self,
+        video: str,
+        *,
+        fps: Optional[float] = None,
+        num_frames: Optional[int] = None,
+        all_frame_attrs: bool = False,
+    ):
         if fps is not None and num_frames is not None:
             raise excs.Error('At most one of `fps` or `num_frames` may be specified')
 
@@ -130,14 +137,16 @@ class FrameIterator(ComponentIterator):
             'pos_frame': ts.IntType(),
         }
         if kwargs.get('all_frame_attrs'):
-            attrs.update({
-                'pts': ts.IntType(),
-                'dts': ts.IntType(nullable=True),
-                'time': ts.FloatType(),
-                'key_frame': ts.BoolType(),
-                'pict_type': ts.IntType(nullable=True),
-                'interlaced_frame': ts.BoolType(),
-            })
+            attrs.update(
+                {
+                    'pts': ts.IntType(),
+                    'dts': ts.IntType(nullable=True),
+                    'time': ts.FloatType(),
+                    'key_frame': ts.BoolType(),
+                    'pict_type': ts.IntType(nullable=True),
+                    'interlaced_frame': ts.BoolType(),
+                }
+            )
         return {**attrs, 'frame': ts.ImageType()}, ['frame']
 
     def __next__(self) -> dict[str, Any]:
@@ -179,21 +188,18 @@ class FrameIterator(ComponentIterator):
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
             pos_msec = float(pts * self.video_time_base * 1000)
-            result = {
-                'frame_idx': self.next_pos,
-                'pos_msec': pos_msec,
-                'pos_frame': video_idx,
-                'frame': img,
-            }
+            result = {'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx, 'frame': img}
             if self.all_frame_attrs:
-                result.update({
-                    'pts': frame.pts,
-                    'dts': frame.dts,
-                    'time': frame.time,
-                    'key_frame': frame.key_frame,
-                    'pict_type': frame.pict_type,
-                    'interlaced_frame': frame.interlaced_frame,
-                })
+                result.update(
+                    {
+                        'pts': frame.pts,
+                        'dts': frame.dts,
+                        'time': frame.time,
+                        'key_frame': frame.key_frame,
+                        'pict_type': frame.pict_type,
+                        'interlaced_frame': frame.interlaced_frame,
+                    }
+                )
             self.next_pos += 1
             return result
 
