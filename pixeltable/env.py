@@ -245,7 +245,10 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
+                if self.dbms.name == 'cockroachdb':
+                    self._current_isolation_level = 'SERIALIZABLE'
+                else:
+                    self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
                     sql.orm.Session(conn) as session,
