@@ -93,10 +93,10 @@ class TablePackager:
         self.bundle_path = self.__build_tarball()
 
         _logger.info('Extracting preview data.')
-        self.md['count'] = self.table.count()
+        self.md['rows'] = self.table.count()
         preview_header, preview = self.__extract_preview_data()
         self.md['preview_header'] = preview_header
-        self.md['preview'] = preview
+        self.md['preview_data'] = preview
 
         _logger.info(f'Packaging complete: {self.bundle_path}')
         return self.bundle_path
