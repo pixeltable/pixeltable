@@ -742,7 +742,6 @@ class TableVersion:
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
         for col in cols:
-            assert col.tbl == self
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex(col)

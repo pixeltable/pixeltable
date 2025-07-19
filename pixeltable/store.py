@@ -124,6 +124,7 @@ class StoreBase:
         """Return the name of the data store table"""
 
     def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column) -> str:
+        assert col.tbl.id == self.tbl_version.id  # Ensure the column belongs to the same table as this store
         return MediaStore.move_tmp_media_file(file_url, col.tbl.id, col.id, col.tbl.version)
 
     def _move_tmp_media_files(
