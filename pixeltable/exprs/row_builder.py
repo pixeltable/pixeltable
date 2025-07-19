@@ -8,7 +8,7 @@ from uuid import UUID
 
 import numpy as np
 
-from pixeltable import catalog, exceptions as excs, utils
+from pixeltable import catalog, exceptions as excs, exprs, utils
 from pixeltable.env import Env
 
 from .data_row import DataRow
@@ -83,6 +83,10 @@ class RowBuilder:
     # records the output_expr that a subexpr belongs to
     # (a subexpr can be shared across multiple output exprs)
     output_expr_ids: list[set[int]]
+
+    img_slot_idxs: list[int]  # Indices of image slots
+    media_slot_idxs: list[int]  # Indices of non-image media slots
+    array_slot_idxs: list[int]  # Indices of array slots
 
     @dataclass
     class EvalCtx:
@@ -233,6 +237,12 @@ class RowBuilder:
         self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in self.output_exprs:
             self._record_output_expr_id(e, e.slot_idx)
+
+        self.img_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_image_type()]
+        self.media_slot_idxs = [
+            e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
+        ]
+        self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
@@ -487,3 +497,7 @@ class RowBuilder:
                 store_col_names.append(col.col.cellmd_store_name())
 
         return store_col_names, media_cols
+
+    def make_row(self) -> exprs.DataRow:
+        """Creates a new DataRow with the current row_builder's configuration."""
+        return exprs.DataRow(self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)

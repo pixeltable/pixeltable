@@ -240,7 +240,7 @@ class ExprEvalNode(ExecNode):
                         # make sure we top up our in-flight rows before yielding
                         self._dispatch_input_rows()
                         self._log_state(f'yielding {len(batch_rows)} rows')
-                        yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
+                        yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
                         # at this point, we may have more completed rows
 
                 assert self.completed_rows.empty()  # all completed rows should be sitting in output_buffer
@@ -254,7 +254,7 @@ class ExprEvalNode(ExecNode):
                         batch_rows = self.output_buffer.get_rows(self.output_buffer.num_ready)
                         self.num_output_rows += len(batch_rows)
                         self._log_state(f'yielding {len(batch_rows)} rows')
-                        yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
+                        yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
 
                     assert self.output_buffer.num_rows == 0
                     return
