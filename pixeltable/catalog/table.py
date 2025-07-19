@@ -89,6 +89,8 @@ class Table(SchemaObject):
 
                 ```python
                 {
+                    'name': 'my_table',
+                    'path': 'my_dir.my_subdir.my_table',
                     'base': None,  # If this is a view or snapshot, will contain the name of its base table
                     'schema': {
                         'col1': StringType(),
@@ -96,6 +98,7 @@ class Table(SchemaObject):
                     },
                     'is_replica': False,
                     'version': 22,
+                    'version_created': datetime.datetime(...),
                     'schema_version': 1,
                     'comment': '',
                     'num_retained_versions': 10,
@@ -112,6 +115,9 @@ class Table(SchemaObject):
         md['schema'] = self._get_schema()
         md['is_replica'] = self._tbl_version_path.is_replica()
         md['version'] = self._get_version()
+        md['version_created'] = datetime.datetime.fromtimestamp(
+            self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc
+        )
         md['schema_version'] = self._tbl_version_path.schema_version()
         md['comment'] = self._get_comment()
         md['num_retained_versions'] = self._get_num_retained_versions()

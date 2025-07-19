@@ -480,14 +480,13 @@ class TestPackager:
         self.__restore_and_check_table(v_bundle, 'view_replica')
         # Check that test_tbl was instantiated as a system table
         assert pxt.list_tables() == ['view_replica']
-        system_path = pxt.catalog.Path('_system', allow_system_paths=True)
         system_contents = pxt.globals._list_tables('_system', allow_system_paths=True)
         assert len(system_contents) == 1 and system_contents[0].startswith('_system.replica_')
 
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
         # Check that test_tbl has been renamed to a user table
         assert pxt.list_tables() == ['view_replica', 'tbl_replica']
-        assert len(pxt.catalog.Catalog.get().get_dir_contents(system_path)) == 0
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
 
         t = pxt.get_table('tbl_replica')
         v = pxt.get_table('view_replica')

@@ -1,20 +1,57 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterator
+from typing import Optional
 
 from pixeltable import exceptions as excs
 
-from .globals import is_valid_path
+from .globals import is_valid_identifier
 
 _logger = logging.getLogger('pixeltable')
 
 
 class Path:
-    def __init__(self, path: str, empty_is_valid: bool = False, allow_system_paths: bool = False):
-        if not is_valid_path(path, empty_is_valid, allow_system_paths):
-            raise excs.Error(f"Invalid path format: '{path}'")
-        self.components = path.split('.')
+    components: list[str]
+    version: Optional[int]
+
+    def __init__(self, components: list[str], version: Optional[int] = None) -> None:
+        assert len(components) > 0
+        self.components = components
+        self.version = version
+
+    @classmethod
+    def parse(
+        cls,
+        path: str,
+        allow_empty_path: bool = False,
+        allow_system_path: bool = False,
+        allow_versioned_path: bool = False,
+    ) -> Path:
+        components: list[str]
+        version: Optional[int]
+        if ':' in path:
+            parts = path.split(':')
+            if len(parts) != 2:
+                raise excs.Error(f'Invalid path: {path}')
+            try:
+                components = parts[0].split('.')
+                version = int(parts[1])
+            except ValueError:
+                raise excs.Error(f'Invalid path: {path}') from None
+        else:
+            components = path.split('.')
+            version = None
+
+        if components == [''] and not allow_empty_path:
+            raise excs.Error(f'Invalid path: {path}')
+
+        if components != [''] and not all(is_valid_identifier(c, allow_system_path) for c in components):
+            raise excs.Error(f'Invalid path: {path}')
+
+        if version is not None and not allow_versioned_path:
+            raise excs.Error(f'Versioned path not allowed here: {path}')
+
+        return Path(components, version)
 
     @property
     def len(self) -> int:
@@ -22,7 +59,6 @@ class Path:
 
     @property
     def name(self) -> str:
-        assert len(self.components) > 0
         return self.components[-1]
 
     @property
@@ -36,18 +72,15 @@ class Path:
     @property
     def parent(self) -> Path:
         if len(self.components) == 1:
-            if self.is_root:
-                return self
-            else:
-                return Path('', empty_is_valid=True, allow_system_paths=True)
+            return ROOT_PATH  # Includes the case of the root path, which is its own parent.
         else:
-            return Path('.'.join(self.components[:-1]), allow_system_paths=True)
+            return Path(self.components[:-1])
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path(name, allow_system_paths=True)
+            return Path([name])
         else:
-            return Path(f'{self}.{name}', allow_system_paths=True)
+            return Path([*self.components, name])
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -60,22 +93,25 @@ class Path:
         is_prefix = self.components == other.components[: self.len]
         return is_prefix and (self.len == (other.len - 1) or not is_parent)
 
-    def ancestors(self) -> Iterator[Path]:
+    def ancestors(self) -> list[Path]:
         """
-        Return all ancestors of this path in top-down order including root.
+        Return all proper ancestors of this path in top-down order including root.
         If this path is for the root directory, which has no parent, then None is returned.
         """
         if self.is_root:
-            return
+            return []
         else:
-            for i in range(0, len(self.components)):
-                yield Path('.'.join(self.components[0:i]), empty_is_valid=True)
+            return [Path(self.components[:i]) if i > 0 else ROOT_PATH for i in range(len(self.components))]
 
     def __repr__(self) -> str:
         return repr(str(self))
 
     def __str__(self) -> str:
-        return '.'.join(self.components)
+        base = '.'.join(self.components)
+        if self.version is not None:
+            return f'{base}:{self.version}'
+        else:
+            return base
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Path) and str(self) == str(other)
@@ -85,3 +121,6 @@ class Path:
 
     def __lt__(self, other: Path) -> bool:
         return str(self) < str(other)
+
+
+ROOT_PATH = Path([''])
