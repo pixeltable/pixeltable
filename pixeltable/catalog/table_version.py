@@ -773,6 +773,7 @@ class TableVersion:
         cols_to_add = list(cols)
         row_count = self.store_tbl.count()
         for col in cols_to_add:
+            assert col.tbl is self
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
