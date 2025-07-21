@@ -18,6 +18,7 @@ class SchemaObject:
 
     def __init__(self, obj_id: UUID, name: str, dir_id: Optional[UUID]):
         # make these private so they don't collide with column names (id and name are fairly common)
+        assert dir_id is None or isinstance(dir_id, UUID), type(dir_id)
         self._id = obj_id
         self._name = name
         self._dir_id = dir_id
