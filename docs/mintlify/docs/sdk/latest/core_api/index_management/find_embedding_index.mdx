@@ -1,0 +1,445 @@
+---
+title: "table.find_embedding_index"
+description: "table.find_embedding_index() - Discovers and retrieves information about existing embedding indexes on the table"
+---
+
+<Badge text="AI/ML" color="orange" size="small" />
+
+## Function Signature
+
+```python
+table.find_embedding_index(
+    idx_name: Optional[str] = None,
+    method_name: Optional[str] = None
+) -> Dict[str, IndexInfo]
+```
+
+## Description
+
+Discovers and retrieves detailed information about embedding indexes on the table. This function is essential for understanding what AI-powered similarity search capabilities are available, which embedding models are being used, and how indexes are configured.
+
+Use this function to audit existing AI infrastructure, understand index configurations before making changes, and discover available similarity search capabilities in your tables.
+
+## Parameters
+
+<ParamField path="idx_name" type="str" default="None">
+  Optional name of a specific embedding index to find. If provided, returns information only about that index.
+</ParamField>
+
+<ParamField path="method_name" type="str" default="None">
+  Optional method name filter for finding indexes by embedding function. Useful for finding all indexes using a specific model.
+</ParamField>
+
+## Returns
+
+<ResponseField name="index_info" type="Dict[str, IndexInfo]">
+  Dictionary mapping index names to IndexInfo objects containing detailed information about each embedding index, including embedding model, dimensions, metrics, and configuration details.
+</ResponseField>
+
+## Examples
+
+### Discover All Embedding Indexes
+
+```python
+import pixeltable as pxt
+
+# Get table and discover all embedding indexes
+product_catalog = pxt.get_table('product_catalog')
+all_indexes = product_catalog.find_embedding_index()
+
+print("🔍 Embedding Indexes Found:")
+for idx_name, idx_info in all_indexes.items():
+    print(f"   📊 {idx_name}: {idx_info}")
+    
+# Example output format:
+# 📊 visual_similarity: IndexInfo(column='main_image', embedding='clip', dimensions=512, metric='cosine')
+# 📊 text_search: IndexInfo(column='description', embedding='sentence_transformer', dimensions=384, metric='cosine')
+```
+
+### Find Specific Index by Name
+
+```python
+# Look for a specific embedding index
+visual_index = product_catalog.find_embedding_index(idx_name='visual_similarity')
+
+if visual_index:
+    print("✅ Visual similarity index found:")
+    for name, info in visual_index.items():
+        print(f"   Index: {name}")
+        print(f"   Column: {info.column}")
+        print(f"   Model: {info.embedding_model}")
+        print(f"   Dimensions: {info.dimensions}")
+        print(f"   Metric: {info.metric}")
+else:
+    print("❌ Visual similarity index not found")
+```
+
+### Audit AI Infrastructure
+
+```python
+def audit_ai_capabilities(table_name):
+    """Comprehensive audit of AI/ML capabilities in a table"""
+    
+    table = pxt.get_table(table_name)
+    indexes = table.find_embedding_index()
+    
+    audit_report = {
+        'table_name': table_name,
+        'total_embedding_indexes': len(indexes),
+        'ai_capabilities': [],
+        'storage_usage': 0,
+        'models_in_use': set()
+    }
+    
+    print(f"🔍 AI Infrastructure Audit: {table_name}")
+    print("=" * 50)
+    
+    if not indexes:
+        print("❌ No embedding indexes found")
+        print("💡 Consider adding embedding indexes for AI-powered search")
+        return audit_report
+    
+    for idx_name, idx_info in indexes.items():
+        print(f"\n📊 Index: {idx_name}")
+        print(f"   Column: {idx_info.column}")
+        print(f"   Model: {idx_info.embedding_model}")
+        print(f"   Dimensions: {idx_info.dimensions}")
+        print(f"   Metric: {idx_info.metric}")
+        
+        # Estimate storage usage (rough calculation)
+        estimated_storage_mb = idx_info.dimensions * 4 * 1000 / (1024 * 1024)  # 4 bytes per float, 1K rows
+        print(f"   Est. Storage: ~{estimated_storage_mb:.1f}MB per 1K rows")
+        
+        audit_report['ai_capabilities'].append({
+            'index': idx_name,
+            'column': idx_info.column,
+            'capability': 'similarity_search',
+            'model': idx_info.embedding_model
+        })
+        
+        audit_report['storage_usage'] += estimated_storage_mb
+        audit_report['models_in_use'].add(idx_info.embedding_model)
+    
+    print(f"\n📈 Summary:")
+    print(f"   • {len(indexes)} embedding indexes active")
+    print(f"   • {len(audit_report['models_in_use'])} different AI models")
+    print(f"   • ~{audit_report['storage_usage']:.1f}MB storage per 1K rows")
+    
+    return audit_report
+
+# Run audit on multiple tables
+tables_to_audit = ['product_catalog', 'user_images', 'document_archive']
+
+for table_name in tables_to_audit:
+    try:
+        audit_results = audit_ai_capabilities(table_name)
+    except Exception as e:
+        print(f"❌ Could not audit {table_name}: {e}")
+```
+
+### Find Indexes by Embedding Model
+
+```python
+# Find all indexes using CLIP embeddings
+clip_indexes = product_catalog.find_embedding_index(method_name='clip')
+
+print("🖼️ CLIP-based similarity indexes:")
+for idx_name, idx_info in clip_indexes.items():
+    print(f"   • {idx_name} on {idx_info.column}")
+    print(f"     Model: {idx_info.embedding_model}")
+    print(f"     Metric: {idx_info.metric}")
+
+# Find all text embedding indexes
+text_indexes = product_catalog.find_embedding_index(method_name='sentence_transformers')
+
+print("\n📝 Text embedding indexes:")
+for idx_name, idx_info in text_indexes.items():
+    print(f"   • {idx_name} on {idx_info.column}")
+    print(f"     Dimensions: {idx_info.dimensions}")
+```
+
+### Pre-Migration Index Analysis
+
+```python
+def analyze_before_migration(table, target_model):
+    """Analyze existing indexes before migrating to new embedding model"""
+    
+    current_indexes = table.find_embedding_index()
+    
+    print(f"🔄 Pre-Migration Analysis for {target_model}")
+    print("=" * 45)
+    
+    if not current_indexes:
+        print("✅ No existing indexes - clean migration")
+        return True
+    
+    migration_plan = []
+    
+    for idx_name, idx_info in current_indexes.items():
+        print(f"\n📊 Current Index: {idx_name}")
+        print(f"   Column: {idx_info.column}")
+        print(f"   Current Model: {idx_info.embedding_model}")
+        print(f"   Current Dimensions: {idx_info.dimensions}")
+        
+        if idx_info.embedding_model == target_model:
+            print("   ✅ Already using target model")
+            migration_plan.append({
+                'action': 'keep',
+                'index': idx_name,
+                'reason': 'already_target_model'
+            })
+        else:
+            print(f"   🔄 Needs migration to {target_model}")
+            migration_plan.append({
+                'action': 'migrate',
+                'index': idx_name,
+                'old_model': idx_info.embedding_model,
+                'new_model': target_model,
+                'column': idx_info.column
+            })
+    
+    print(f"\n📋 Migration Plan:")
+    keep_count = sum(1 for item in migration_plan if item['action'] == 'keep')
+    migrate_count = sum(1 for item in migration_plan if item['action'] == 'migrate')
+    
+    print(f"   • Keep existing: {keep_count} indexes")
+    print(f"   • Migrate: {migrate_count} indexes")
+    
+    return migration_plan
+
+# Example usage
+media_table = pxt.get_table('media_library')
+migration_plan = analyze_before_migration(media_table, 'clip-vit-large-patch14')
+```
+
+### Production Index Monitoring
+
+```python
+class EmbeddingIndexMonitor:
+    """Monitor and track embedding index performance and usage"""
+    
+    def __init__(self, table_names):
+        self.table_names = table_names
+        self.monitoring_data = {}
+    
+    def scan_all_tables(self):
+        """Scan all tables for embedding indexes"""
+        
+        total_indexes = 0
+        total_storage_est = 0
+        models_used = set()
+        
+        for table_name in self.table_names:
+            try:
+                table = pxt.get_table(table_name)
+                indexes = table.find_embedding_index()
+                
+                table_data = {
+                    'indexes': indexes,
+                    'count': len(indexes),
+                    'models': set()
+                }
+                
+                for idx_name, idx_info in indexes.items():
+                    table_data['models'].add(idx_info.embedding_model)
+                    models_used.add(idx_info.embedding_model)
+                    
+                    # Storage estimation
+                    storage_per_1k = idx_info.dimensions * 4 / 1024  # KB per 1K rows
+                    total_storage_est += storage_per_1k
+                
+                self.monitoring_data[table_name] = table_data
+                total_indexes += len(indexes)
+                
+            except Exception as e:
+                print(f"⚠️ Could not scan {table_name}: {e}")
+                self.monitoring_data[table_name] = {'error': str(e)}
+        
+        return {
+            'total_tables_scanned': len(self.table_names),
+            'total_indexes_found': total_indexes,
+            'total_models_used': len(models_used),
+            'models_in_use': list(models_used),
+            'estimated_storage_kb_per_1k_rows': total_storage_est
+        }
+    
+    def get_model_usage_report(self):
+        """Generate report of which models are used where"""
+        
+        model_usage = {}
+        
+        for table_name, table_data in self.monitoring_data.items():
+            if 'error' in table_data:
+                continue
+                
+            for idx_name, idx_info in table_data['indexes'].items():
+                model = idx_info.embedding_model
+                
+                if model not in model_usage:
+                    model_usage[model] = {
+                        'tables': [],
+                        'total_indexes': 0,
+                        'dimensions': idx_info.dimensions
+                    }
+                
+                model_usage[model]['tables'].append({
+                    'table': table_name,
+                    'index': idx_name,
+                    'column': idx_info.column
+                })
+                model_usage[model]['total_indexes'] += 1
+        
+        return model_usage
+    
+    def print_comprehensive_report(self):
+        """Print detailed monitoring report"""
+        
+        summary = self.scan_all_tables()
+        model_usage = self.get_model_usage_report()
+        
+        print("🤖 AI Infrastructure Monitoring Report")
+        print("=" * 50)
+        
+        print(f"\n📊 Overall Summary:")
+        print(f"   • Tables scanned: {summary['total_tables_scanned']}")
+        print(f"   • Embedding indexes: {summary['total_indexes_found']}")
+        print(f"   • AI models in use: {summary['total_models_used']}")
+        print(f"   • Est. storage: ~{summary['estimated_storage_kb_per_1k_rows']:.1f}KB per 1K rows")
+        
+        print(f"\n🔬 Models in Production:")
+        for model in summary['models_in_use']:
+            usage = model_usage[model]
+            print(f"   • {model}:")
+            print(f"     - Indexes: {usage['total_indexes']}")
+            print(f"     - Dimensions: {usage['dimensions']}")
+            print(f"     - Tables: {len(usage['tables'])}")
+        
+        print(f"\n📋 Per-Table Breakdown:")
+        for table_name, table_data in self.monitoring_data.items():
+            if 'error' in table_data:
+                print(f"   ❌ {table_name}: {table_data['error']}")
+            else:
+                print(f"   📊 {table_name}: {table_data['count']} indexes")
+                for model in table_data['models']:
+                    print(f"      └─ Uses: {model}")
+
+# Monitor production AI infrastructure
+production_tables = [
+    'product_catalog',
+    'user_generated_content',
+    'media_library',
+    'document_store',
+    'customer_support_tickets'
+]
+
+monitor = EmbeddingIndexMonitor(production_tables)
+monitor.print_comprehensive_report()
+```
+
+### Index Compatibility Analysis
+
+```python
+def check_similarity_compatibility(table1_name, table2_name):
+    """Check if tables have compatible embedding indexes for cross-table similarity"""
+    
+    table1 = pxt.get_table(table1_name)
+    table2 = pxt.get_table(table2_name)
+    
+    indexes1 = table1.find_embedding_index()
+    indexes2 = table2.find_embedding_index()
+    
+    print(f"🔄 Cross-Table Similarity Compatibility")
+    print(f"Table 1: {table1_name} ({len(indexes1)} indexes)")
+    print(f"Table 2: {table2_name} ({len(indexes2)} indexes)")
+    print("=" * 50)
+    
+    compatible_pairs = []
+    
+    for idx1_name, idx1_info in indexes1.items():
+        for idx2_name, idx2_info in indexes2.items():
+            
+            # Check compatibility criteria
+            same_model = idx1_info.embedding_model == idx2_info.embedding_model
+            same_dimensions = idx1_info.dimensions == idx2_info.dimensions
+            same_metric = idx1_info.metric == idx2_info.metric
+            
+            compatibility_score = sum([same_model, same_dimensions, same_metric])
+            
+            if compatibility_score >= 2:  # At least 2 out of 3 match
+                compatible_pairs.append({
+                    'table1_index': idx1_name,
+                    'table2_index': idx2_name,
+                    'model': idx1_info.embedding_model,
+                    'dimensions': idx1_info.dimensions,
+                    'compatibility': 'High' if compatibility_score == 3 else 'Medium'
+                })
+                
+                print(f"✅ Compatible pair found:")
+                print(f"   {table1_name}.{idx1_name} ↔ {table2_name}.{idx2_name}")
+                print(f"   Model: {idx1_info.embedding_model}")
+                print(f"   Compatibility: {'High' if compatibility_score == 3 else 'Medium'}")
+    
+    if not compatible_pairs:
+        print("❌ No compatible embedding indexes found")
+        print("💡 Consider creating matching indexes for cross-table similarity")
+    
+    return compatible_pairs
+
+# Check compatibility between product and user tables
+compatible = check_similarity_compatibility('product_catalog', 'user_preferences')
+```
+
+## Index Information Structure
+
+The `IndexInfo` object returned contains:
+
+### **Core Properties:**
+- **`column`** - Name of the indexed column
+- **`embedding_model`** - Embedding function/model name
+- **`dimensions`** - Vector dimensionality (e.g., 384, 512, 768)
+- **`metric`** - Distance metric ('cosine', 'ip', 'l2')
+
+### **Configuration Details:**
+- **`index_name`** - Unique identifier for the index
+- **`created_timestamp`** - When the index was created
+- **`last_updated`** - Most recent update time
+- **`row_count`** - Number of indexed rows
+
+## Use Cases
+
+### **Development & Debugging:**
+- **Index discovery** - Find what AI capabilities exist
+- **Model auditing** - Understand which embedding models are deployed
+- **Configuration verification** - Confirm index settings before queries
+
+### **Production Operations:**
+- **Infrastructure monitoring** - Track AI resource usage
+- **Migration planning** - Analyze before model upgrades
+- **Cross-table compatibility** - Enable similarity across tables
+
+### **Cost Optimization:**
+- **Storage analysis** - Calculate embedding storage costs
+- **Performance tuning** - Optimize index configurations
+- **Resource planning** - Estimate scaling requirements
+
+## Best Practices
+
+### **Regular Monitoring:**
+- **Weekly audits** - Check for unused or redundant indexes
+- **Model tracking** - Monitor which AI models are in production
+- **Performance metrics** - Correlate index usage with query performance
+
+### **Documentation:**
+- **Index inventory** - Maintain catalog of all embedding indexes
+- **Model registry** - Track embedding model versions and purposes
+- **Usage patterns** - Document which features use which indexes
+
+## Related Functions
+
+- [`add_embedding_index`](./add_embedding_index) - Create new vector similarity indexes
+- [`drop_embedding_index`](./drop_embedding_index) - Remove embedding indexes
+- [`add_index`](./add_index) - Create traditional database indexes
+
+---
+
+*Generated from Pixeltable semantic database. Enhanced with AI infrastructure monitoring patterns.*

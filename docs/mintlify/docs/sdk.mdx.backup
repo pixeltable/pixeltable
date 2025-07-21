@@ -1,0 +1,73 @@
+---
+title: "Pixeltable SDK Documentation"
+description: "Complete semantic API reference for all versions of Pixeltable"
+---
+
+# Pixeltable SDK Documentation
+
+<Note>
+🚀 **Semantic SDK Reference**
+
+This documentation is **automatically generated** from the Pixeltable codebase using semantic analysis, ensuring it's always up-to-date and comprehensive.
+</Note>
+
+## Available Versions
+
+<CardGroup cols={1}>
+  <Card title="Latest (v0.4)" icon="rocket" href="/docs/sdk/latest/overview">
+    2,808 public functions • Enhanced ML/AI integration
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="v0.3" icon="archive" href="/docs/sdk/v0.3/overview">
+    Legacy version • Available for reference
+  </Card>
+  
+  <Card title="v0.2" icon="archive" href="/docs/sdk/v0.2/overview">
+    Legacy version • Available for reference
+  </Card>
+</CardGroup>
+
+<Info>
+**Always use "Latest"** for new projects. Historical versions are maintained for reference and migration support.
+</Info>
+
+## 📚 What Makes This Special
+
+### 🤖 Automated Generation
+- **Extracted directly from source code** - no manual documentation maintenance
+- **Always up-to-date** with the latest codebase changes
+- **Complete function signatures** with all parameters and types
+
+### 🔍 Semantic Analysis
+- **Rich parameter documentation** with types, defaults, and descriptions
+- **Cross-references** between related functions
+- **Real code examples** extracted from docstrings
+
+### 📖 Comprehensive Coverage
+- **All public functions** documented with full detail
+- **Organized by functionality** for easy navigation
+- **Multiple versions** supported for backward compatibility
+
+## 🎯 Quick Start
+
+Ready to dive in? Start with the most commonly used functions:
+
+<CardGroup cols={3}>
+  <Card title="Table Management" icon="table" href="/docs/sdk/latest/core_api/table_management/create_table">
+    Create and manage your data tables
+  </Card>
+  
+  <Card title="Data Operations" icon="database">
+    Insert, query, and manipulate data (Coming soon)
+  </Card>
+  
+  <Card title="Image Processing" icon="image">
+    Transform and analyze images (Coming soon)
+  </Card>
+</CardGroup>
+
+---
+
+*This semantic documentation system represents the future of API documentation - always accurate, always complete, always up-to-date.* ✨

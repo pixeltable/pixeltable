@@ -1,0 +1,505 @@
+---
+title: "table.join"
+description: "join(other, on, how='inner') - Join DataFrame with another table using various join types"
+---
+
+<Badge text="Query Operations" color="purple" size="small" />
+
+## Function Signature
+
+```python
+def join(self, other: Table, on: Expr, how: str = 'inner') -> DataFrame
+```
+
+## Description
+
+Join this DataFrame with another table using SQL-style join operations. This powerful function enables combining data from multiple tables based on matching conditions, supporting all major join types including inner, left, right, full outer, and cross joins.
+
+The join operation is fundamental for relational data analysis, allowing you to combine related data across tables while maintaining referential integrity and optimizing query performance.
+
+**Key Features:**
+- **Multiple join types** - Inner, left, right, full outer, and cross joins
+- **Flexible join conditions** - Column references or complex boolean expressions
+- **Automatic column name resolution** - Smart handling of duplicate column names
+- **Composite key support** - Join on multiple columns with complex conditions
+- **Query optimization** - Efficient execution planning for join operations
+
+## Parameters
+
+<ParamField path="other" type="Table" required>
+  The table to join with this DataFrame. Must be a valid Pixeltable table object obtained via `pxt.get_table()` or similar.
+</ParamField>
+
+<ParamField path="on" type="Expr" required>
+  Join condition that can be either:
+  
+  **Column References:**
+  - `other_table.column_name` - Implies equality join on matching column names
+  - Must exist in both tables with unique names (no ambiguity)
+  
+  **Boolean Expressions:**
+  - `table1.col1 == table2.col2` - Explicit equality condition
+  - `(table1.a == table2.a) & (table1.b == table2.b)` - Composite keys
+  - Complex conditions with operators: `<`, `>`, `<=`, `>=`, `!=`
+</ParamField>
+
+<ParamField path="how" type="str" default="'inner'">
+  Type of join to perform:
+  
+  - **`'inner'`** - Only rows with matches in both tables
+  - **`'left'`** - All rows from left table + matching rows from right
+  - **`'right'`** - All rows from right table + matching rows from left  
+  - **`'full_outer'`** - All rows from both tables
+  - **`'cross'`** - Cartesian product (no `on` condition allowed)
+</ParamField>
+
+## Returns
+
+<ResponseField name="result" type="DataFrame">
+  A new DataFrame containing the joined data with columns from both tables. Column names are automatically disambiguated when conflicts exist.
+</ResponseField>
+
+## Examples
+
+### Basic Inner Joins
+
+```python
+import pixeltable as pxt
+
+# Get table handles
+users = pxt.get_table('users')
+orders = pxt.get_table('orders')
+
+# Simple inner join on matching column names
+user_orders = users.join(orders, on=orders.user_id)
+print(f"Found {user_orders.count()} user-order combinations")
+
+# Execute and examine results
+results = user_orders.select().limit(10).collect()
+for row in results:
+    print(f"User: {row['users.name']}, Order: {row['orders.order_id']}")
+```
+
+### All Join Types Demonstrated
+
+```python
+# Inner join - only matching records
+inner_join = users.join(orders, on=orders.user_id, how='inner')
+print(f"Inner join: {inner_join.count()} rows")
+
+# Left join - all users, even without orders
+left_join = users.join(orders, on=orders.user_id, how='left')
+print(f"Left join: {left_join.count()} rows")
+
+# Right join - all orders, even orphaned ones
+right_join = users.join(orders, on=orders.user_id, how='right') 
+print(f"Right join: {right_join.count()} rows")
+
+# Full outer join - all users and all orders
+full_join = users.join(orders, on=orders.user_id, how='full_outer')
+print(f"Full outer join: {full_join.count()} rows")
+```
+
+### Explicit Join Conditions
+
+```python
+# Explicit equality condition (equivalent to column reference)
+explicit_join = users.join(
+    orders, 
+    on=users.user_id == orders.user_id,
+    how='inner'
+)
+
+# Non-equality joins
+recent_big_orders = users.join(
+    orders,
+    on=(users.user_id == orders.user_id) & (orders.amount > 1000),
+    how='inner'
+)
+
+# Date range joins
+active_users = users.join(
+    orders,
+    on=(users.user_id == orders.user_id) & 
+       (orders.created_date >= '2024-01-01'),
+    how='left'
+)
+```
+
+### Composite Key Joins
+
+```python
+# Tables with composite primary/foreign keys
+products = pxt.get_table('products')  # (product_id, variant_id)
+inventory = pxt.get_table('inventory')  # (product_id, variant_id, warehouse_id)
+
+# Join on multiple columns
+product_inventory = products.join(
+    inventory,
+    on=(products.product_id == inventory.product_id) & 
+       (products.variant_id == inventory.variant_id),
+    how='left'
+)
+
+# Three-way composite join
+order_items = pxt.get_table('order_items')
+detailed_orders = orders.join(
+    order_items,
+    on=(orders.order_id == order_items.order_id) &
+       (orders.customer_id == order_items.customer_id) &
+       (orders.store_id == order_items.store_id),
+    how='inner'
+)
+```
+
+### Multiple Sequential Joins
+
+```python
+# Chain multiple joins for complex queries
+comprehensive_view = (users
+    .join(orders, on=orders.user_id, how='left')  # User -> Orders
+    .join(order_items, on=orders.order_id, how='left')  # Orders -> Items
+    .join(products, on=order_items.product_id, how='left')  # Items -> Products
+)
+
+# Note: Be careful with column name ambiguity in chained joins
+# Use explicit conditions when column names repeat
+safe_chain = (users
+    .join(orders, on=users.user_id == orders.user_id, how='left')
+    .join(order_items, on=orders.order_id == order_items.order_id, how='left')
+    .join(products, on=order_items.product_id == products.product_id, how='left')
+)
+```
+
+### Cross Joins (Cartesian Product)
+
+```python
+# Cross join for generating combinations
+categories = pxt.get_table('categories')
+stores = pxt.get_table('stores')
+
+# All category-store combinations
+all_combinations = categories.join(stores, how='cross')
+print(f"Generated {all_combinations.count()} combinations")
+
+# Cross join with filtering
+valid_combinations = (categories
+    .join(stores, how='cross')
+    .where(categories.type == stores.supported_type)
+)
+```
+
+### Handling Column Name Conflicts
+
+```python
+# When both tables have same column names
+users_extended = users.join(
+    orders, 
+    on=orders.user_id,
+    how='left'
+)
+
+# Access conflicting columns with table prefixes
+results = users_extended.select(
+    users_extended['users.user_id'],    # From users table
+    users_extended['users.name'],       # From users table
+    users_extended['orders.created_date'], # From orders table
+    users_extended['orders.amount']     # From orders table
+).collect()
+
+# Alternative: Rename columns explicitly
+clean_results = users_extended.select(
+    user_id=users_extended['users.user_id'],
+    user_name=users_extended['users.name'],
+    order_date=users_extended['orders.created_date'],
+    order_amount=users_extended['orders.amount']
+)
+```
+
+### Aggregated Joins
+
+```python
+# Join with aggregated data
+order_stats = (orders
+    .group_by(orders.user_id)
+    .aggregate(
+        total_orders=pxt.functions.count(),
+        total_spent=pxt.functions.sum(orders.amount),
+        avg_order=pxt.functions.avg(orders.amount),
+        last_order=pxt.functions.max(orders.created_date)
+    )
+)
+
+# Join users with their order statistics
+user_analytics = users.join(
+    order_stats,
+    on=users.user_id == order_stats.user_id,
+    how='left'
+)
+
+# Select with computed customer segments
+segmented_users = user_analytics.select(
+    user_analytics['users.name'],
+    user_analytics.total_orders,
+    user_analytics.total_spent,
+    customer_segment=user_analytics.total_spent.apply(lambda x:
+        'VIP' if x > 5000 else
+        'Premium' if x > 1000 else
+        'Standard' if x > 0 else
+        'New'
+    )
+)
+```
+
+### Media Table Joins
+
+```python
+# Joining tables with media columns
+media_files = pxt.get_table('media_files')
+media_metadata = pxt.get_table('media_metadata')
+
+# Join media files with their analysis results
+analyzed_media = media_files.join(
+    media_metadata,
+    on=media_files.file_id == media_metadata.file_id,
+    how='left'
+)
+
+# Select with media operations
+enriched_media = analyzed_media.select(
+    analyzed_media['media_files.filename'],
+    analyzed_media['media_files.image'],
+    analyzed_media['media_metadata.detected_objects'],
+    analyzed_media['media_metadata.confidence_score'],
+    
+    # Computed columns from join
+    is_high_quality=analyzed_media['media_metadata.confidence_score'] > 0.9,
+    file_size_mb=analyzed_media['media_files.image'].filesize / 1024 / 1024
+)
+```
+
+### Performance-Optimized Joins
+
+```python
+# Optimize joins for large datasets
+def optimized_user_orders(user_ids_filter=None, date_range=None):
+    """Build optimized join query with pre-filtering."""
+    
+    # Pre-filter base tables before joining
+    filtered_users = users
+    filtered_orders = orders
+    
+    if user_ids_filter:
+        filtered_users = users.where(users.user_id.isin(user_ids_filter))
+        filtered_orders = orders.where(orders.user_id.isin(user_ids_filter))
+    
+    if date_range:
+        filtered_orders = filtered_orders.where(
+            orders.created_date.between(date_range[0], date_range[1])
+        )
+    
+    # Join pre-filtered tables
+    return filtered_users.join(
+        filtered_orders,
+        on=filtered_users.user_id == filtered_orders.user_id,
+        how='inner'
+    )
+
+# Usage
+recent_active_users = optimized_user_orders(
+    date_range=('2024-01-01', '2024-12-31')
+)
+```
+
+### Self-Joins
+
+```python
+# Self-join for hierarchical data
+employees = pxt.get_table('employees')
+
+# Find employees and their managers
+employee_hierarchy = employees.join(
+    employees.alias('managers'),  # Create alias to avoid confusion
+    on=employees.manager_id == employees['managers.employee_id'],
+    how='left'
+)
+
+# Select with meaningful names
+hierarchy_view = employee_hierarchy.select(
+    employee_name=employee_hierarchy['employees.name'],
+    employee_title=employee_hierarchy['employees.title'],
+    manager_name=employee_hierarchy['managers.name'],
+    manager_title=employee_hierarchy['managers.title']
+)
+```
+
+### Temporal Joins
+
+```python
+# Join tables with time-based conditions
+events = pxt.get_table('events')
+sessions = pxt.get_table('user_sessions')
+
+# Find events that occurred during user sessions
+events_in_sessions = events.join(
+    sessions,
+    on=(events.user_id == sessions.user_id) &
+       (events.timestamp >= sessions.start_time) &
+       (events.timestamp <= sessions.end_time),
+    how='inner'
+)
+
+# Time-bucketed joins
+hourly_stats = events.join(
+    sessions,
+    on=(events.user_id == sessions.user_id) &
+       (events.timestamp.hour == sessions.start_time.hour),
+    how='left'
+)
+```
+
+### Error Handling and Validation
+
+```python
+def safe_join(left_table, right_table, join_condition, join_type='inner'):
+    """Safely execute joins with validation and error handling."""
+    
+    try:
+        # Validate tables exist and are accessible
+        left_count = left_table.count()
+        right_count = right_table.count()
+        
+        print(f"Joining {left_count} rows with {right_count} rows")
+        
+        # Execute join
+        result = left_table.join(right_table, on=join_condition, how=join_type)
+        result_count = result.count()
+        
+        print(f"Join produced {result_count} rows")
+        
+        # Warn about potential issues
+        if join_type == 'inner' and result_count == 0:
+            print("Warning: Inner join produced no results - check join condition")
+        
+        if join_type == 'cross' and result_count > 1000000:
+            print("Warning: Cross join produced very large result set")
+        
+        return result
+        
+    except Exception as e:
+        print(f"Join error: {e}")
+        # Return information about the error for debugging
+        raise Exception(f"Join failed between tables: {e}")
+
+# Usage
+try:
+    user_orders = safe_join(
+        users, 
+        orders, 
+        users.user_id == orders.user_id,
+        'left'
+    )
+except Exception as e:
+    print(f"Could not complete join: {e}")
+```
+
+### Advanced Join Patterns
+
+```python
+# Anti-join pattern (users without orders)
+users_without_orders = users.join(
+    orders,
+    on=users.user_id == orders.user_id,
+    how='left'
+).where(orders.user_id.is_null())
+
+# Semi-join pattern (users with orders)
+users_with_orders = users.join(
+    orders,
+    on=users.user_id == orders.user_id,
+    how='inner'
+).select(
+    users.user_id,
+    users.name,
+    users.email
+).distinct()  # Remove duplicates from multiple orders
+
+# Existence checks
+high_value_customers = users.join(
+    orders.where(orders.amount > 1000),
+    on=users.user_id == orders.user_id,
+    how='inner'
+).select(users.user_id, users.name).distinct()
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in various error conditions:
+  - **Ambiguous column references** - Column names exist in multiple tables without qualification
+  - **Invalid join conditions** - Boolean expressions that don't evaluate properly
+  - **Table access errors** - Referenced tables don't exist or aren't accessible
+  - **Type mismatches** - Incompatible data types in join conditions
+  - **Memory errors** - Cross joins or large result sets exceed available memory
+  - **Syntax errors** - Malformed join expressions or invalid join types
+</ResponseField>
+
+## Related Functions
+
+- [`table.select()`](/docs/sdk/latest/core_api/query_operations/select) - Choose columns from joined data
+- [`table.where()`](/docs/sdk/latest/core_api/query_operations/where) - Filter joined results
+- [`table.order_by()`](/docs/sdk/latest/core_api/query_operations/order_by) - Sort joined data
+- [`table.limit()`](/docs/sdk/latest/core_api/query_operations/limit) - Limit joined results
+- [`pxt.get_table()`](/docs/sdk/latest/core_api/table_management/get_table) - Get table handles for joining
+
+## Best Practices
+
+### Choose the Right Join Type
+
+```python
+# ✅ Use appropriate join type for your use case
+user_orders = users.join(orders, on=orders.user_id, how='left')  # All users
+active_users = users.join(orders, on=orders.user_id, how='inner')  # Only users with orders
+
+# ❌ Avoid inefficient join types
+# cross_join = users.join(orders, how='cross')  # Usually too large
+```
+
+### Optimize Join Conditions
+
+```python
+# ✅ Use indexed columns in join conditions when possible
+optimized = users.join(orders, on=users.user_id == orders.user_id)  # user_id likely indexed
+
+# ✅ Filter before joining to reduce dataset size
+recent_orders = orders.where(orders.created_date >= '2024-01-01')
+user_recent = users.join(recent_orders, on=orders.user_id, how='left')
+```
+
+### Handle Column Naming
+
+```python
+# ✅ Use explicit column references to avoid ambiguity
+clear_join = users.join(
+    orders,
+    on=users.user_id == orders.user_id,
+    how='left'
+).select(
+    user_name=users.name,
+    order_total=orders.amount,
+    order_date=orders.created_date
+)
+```
+
+### Memory Management
+
+```python
+# ✅ Be cautious with large joins
+large_join = big_table1.join(big_table2, on=condition, how='inner')
+# Process in chunks or add limits for testing
+sample_join = large_join.limit(10000)
+```
+
+---
+
+*This documentation was generated from the Pixeltable codebase and enhanced with comprehensive join patterns and best practices.*

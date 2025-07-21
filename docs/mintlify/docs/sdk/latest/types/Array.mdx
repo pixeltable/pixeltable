@@ -1,0 +1,338 @@
+---
+title: "pxt.Array"
+description: "Array data type for storing sequences and vectors in Pixeltable"
+---
+
+<Badge text="Data Type" color="purple" size="small" />
+
+## Type Definition
+
+```python
+pxt.Array[element_type, shape]
+```
+
+## Description
+
+The Array data type is designed for storing sequences, vectors, and multi-dimensional data in Pixeltable. It provides native support for embeddings, feature vectors, numerical computations, and integration with AI/ML workflows.
+
+Arrays are type-safe, support various shapes and dimensions, and are optimized for AI operations like similarity search and vector computations.
+
+## Schema Usage
+
+```python
+import pixeltable as pxt
+
+# Define arrays with specific element types
+schema = {
+    'embedding': pxt.Array[pxt.Float],           # Variable-length float array
+    'coordinates': pxt.Array[pxt.Float, 2],      # Fixed-length array (2 elements)
+    'features': pxt.Array[pxt.Float, 512],       # 512-dimensional feature vector
+    'tags': pxt.Array[pxt.String],               # Array of strings
+    'scores': pxt.Array[pxt.Int, 10]             # Array of 10 integers
+}
+
+table = pxt.create_table('vectors', schema)
+```
+
+## Data Insertion
+
+```python
+# Insert arrays of different types
+table.insert([{
+    'embedding': [0.1, 0.2, 0.3, 0.4, 0.5],
+    'coordinates': [40.7128, -74.0060],  # NYC coordinates
+    'features': [0.0] * 512,              # Zero vector
+    'tags': ['ml', 'ai', 'embedding'],
+    'scores': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+}])
+
+# Insert numpy arrays
+import numpy as np
+embedding_vector = np.random.random(256)
+table.insert([{
+    'embedding': embedding_vector.tolist(),
+    'coordinates': [37.7749, -122.4194],  # SF coordinates
+    'features': np.zeros(512).tolist(),
+    'tags': ['vector', 'numpy'],
+    'scores': list(range(10))
+}])
+```
+
+## AI/ML Integration
+
+```python
+# Embeddings table with vector search
+embeddings = pxt.create_table('embeddings', {
+    'text': pxt.String,
+    'image': pxt.Image,
+    'text_embedding': pxt.Array[pxt.Float],
+    'image_embedding': pxt.Array[pxt.Float]
+})
+
+# Generate embeddings using AI functions
+embeddings.add_computed_column(
+    text_embedding=pxt.functions.clip(
+        embeddings.text, 
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+embeddings.add_computed_column(
+    image_embedding=pxt.functions.clip(
+        embeddings.image, 
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+
+# Create vector indexes for similarity search
+embeddings.add_embedding_index('text_embedding')
+embeddings.add_embedding_index('image_embedding')
+```
+
+## Array Operations
+
+```python
+# Mathematical operations with arrays
+data = pxt.create_table('array_ops', {
+    'vector_a': pxt.Array[pxt.Float, 3],
+    'vector_b': pxt.Array[pxt.Float, 3]
+})
+
+# Custom array processing with UDFs
+@pxt.udf
+def vector_magnitude(arr: pxt.Array[pxt.Float, 3]) -> float:
+    return sum(x**2 for x in arr) ** 0.5
+
+@pxt.udf
+def dot_product(a: pxt.Array[pxt.Float, 3], b: pxt.Array[pxt.Float, 3]) -> float:
+    return sum(x * y for x, y in zip(a, b))
+
+data.add_computed_column(
+    magnitude_a=vector_magnitude(data.vector_a)
+)
+data.add_computed_column(
+    dot_product_ab=dot_product(data.vector_a, data.vector_b)
+)
+```
+
+## Similarity Search
+
+```python
+# Vector similarity queries
+similar_items = embeddings.order_by(
+    embeddings.text_embedding.similarity([0.1, 0.2, 0.3]),  # Query vector
+    asc=False
+).limit(10)
+
+# Cross-modal similarity search
+image_to_text = embeddings.order_by(
+    embeddings.text_embedding.similarity(embeddings.image_embedding),
+    asc=False
+).limit(5)
+```
+
+## Array Shapes and Constraints
+
+```python
+# Different array configurations
+schema = {
+    # Variable-length arrays
+    'tags': pxt.Array[pxt.String],                    # Any number of strings
+    'scores': pxt.Array[pxt.Float],                   # Any number of floats
+    
+    # Fixed-length arrays
+    'rgb_color': pxt.Array[pxt.Int, 3],               # Exactly 3 integers
+    'coordinates_2d': pxt.Array[pxt.Float, 2],        # Exactly 2 floats
+    'embedding_512': pxt.Array[pxt.Float, 512],       # Exactly 512 floats
+    
+    # Multi-dimensional arrays (conceptual)
+    'matrix_data': pxt.Array[pxt.Float]               # Can represent flattened matrices
+}
+```
+
+## Common Use Cases
+
+### Recommendation Systems
+
+```python
+# User-item embeddings for recommendations
+recommendations = pxt.create_table('user_embeddings', {
+    'user_id': pxt.String,
+    'preferences': pxt.Array[pxt.Float, 128],
+    'viewed_items': pxt.Array[pxt.String],
+    'ratings': pxt.Array[pxt.Float]
+})
+
+# Find similar users
+similar_users = recommendations.order_by(
+    recommendations.preferences.similarity(target_user_embedding),
+    asc=False
+).limit(20)
+```
+
+### Feature Engineering
+
+```python
+# Machine learning feature storage
+features = pxt.create_table('ml_features', {
+    'sample_id': pxt.String,
+    'numerical_features': pxt.Array[pxt.Float, 50],
+    'categorical_features': pxt.Array[pxt.String],
+    'target': pxt.Float
+})
+
+# Feature transformations
+@pxt.udf
+def normalize_features(features: pxt.Array[pxt.Float, 50]) -> pxt.Array[pxt.Float, 50]:
+    # Min-max normalization
+    min_val = min(features)
+    max_val = max(features)
+    if max_val == min_val:
+        return [0.0] * len(features)
+    return [(x - min_val) / (max_val - min_val) for x in features]
+
+features.add_computed_column(
+    normalized_features=normalize_features(features.numerical_features)
+)
+```
+
+### Geospatial Data
+
+```python
+# Location and spatial analysis
+locations = pxt.create_table('geographic_points', {
+    'location_name': pxt.String,
+    'coordinates': pxt.Array[pxt.Float, 2],  # [latitude, longitude]
+    'elevation': pxt.Float,
+    'nearby_pois': pxt.Array[pxt.String]
+})
+
+@pxt.udf
+def calculate_distance(coord1: pxt.Array[pxt.Float, 2], coord2: pxt.Array[pxt.Float, 2]) -> float:
+    # Haversine distance calculation
+    from math import radians, sin, cos, sqrt, atan2
+    
+    lat1, lon1 = radians(coord1[0]), radians(coord1[1])
+    lat2, lon2 = radians(coord2[0]), radians(coord2[1])
+    
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    
+    return 6371 * c  # Earth's radius in kilometers
+
+# Find nearby locations
+target_coords = [40.7128, -74.0060]  # NYC
+nearby_locations = locations.where(
+    calculate_distance(locations.coordinates, target_coords) < 50  # Within 50km
+)
+```
+
+## Performance Optimization
+
+```python
+# Efficient array operations
+large_vectors = pxt.create_table('large_embeddings', {
+    'item_id': pxt.String,
+    'embedding': pxt.Array[pxt.Float, 1536]  # Large embedding dimension
+})
+
+# Batch similarity computations
+batch_similarities = large_vectors.select(
+    large_vectors.item_id,
+    large_vectors.embedding.similarity(query_vector).alias('similarity')
+).where(
+    large_vectors.embedding.similarity(query_vector) > 0.8
+).order_by('similarity', asc=False)
+```
+
+## Validation and Error Handling
+
+```python
+# Array validation
+try:
+    # This will fail if array doesn't match expected shape
+    table.insert([{
+        'coordinates': [1.0, 2.0, 3.0]  # Too many elements for pxt.Array[pxt.Float, 2]
+    }])
+except pxt.Error as e:
+    print(f"Array validation failed: {e}")
+
+# Type checking
+@pxt.udf
+def safe_array_operation(arr: pxt.Array[pxt.Float]) -> float:
+    if not arr or len(arr) == 0:
+        return 0.0
+    return sum(arr) / len(arr)
+```
+
+## Advanced Patterns
+
+### Time Series Data
+
+```python
+# Time series storage with arrays
+timeseries = pxt.create_table('sensor_data', {
+    'sensor_id': pxt.String,
+    'timestamps': pxt.Array[pxt.Timestamp],
+    'values': pxt.Array[pxt.Float],
+    'moving_average': pxt.Array[pxt.Float]
+})
+
+@pxt.udf
+def calculate_moving_average(values: pxt.Array[pxt.Float], window: int = 5) -> pxt.Array[pxt.Float]:
+    if len(values) < window:
+        return values
+    
+    result = []
+    for i in range(len(values)):
+        start = max(0, i - window + 1)
+        end = i + 1
+        avg = sum(values[start:end]) / (end - start)
+        result.append(avg)
+    return result
+
+timeseries.add_computed_column(
+    smoothed_values=calculate_moving_average(timeseries.values)
+)
+```
+
+### Multi-Modal Embeddings
+
+```python
+# Combine multiple embedding types
+multimodal = pxt.create_table('multimodal_embeddings', {
+    'content_id': pxt.String,
+    'text_embedding': pxt.Array[pxt.Float, 512],
+    'image_embedding': pxt.Array[pxt.Float, 512],
+    'combined_embedding': pxt.Array[pxt.Float, 1024]
+})
+
+@pxt.udf
+def combine_embeddings(
+    text_emb: pxt.Array[pxt.Float, 512], 
+    image_emb: pxt.Array[pxt.Float, 512]
+) -> pxt.Array[pxt.Float, 1024]:
+    # Concatenate embeddings
+    return list(text_emb) + list(image_emb)
+
+multimodal.add_computed_column(
+    combined_embedding=combine_embeddings(
+        multimodal.text_embedding,
+        multimodal.image_embedding
+    )
+)
+```
+
+## Best Practices
+
+1. **Specify dimensions**: Use fixed-size arrays for embeddings and vectors when possible
+2. **Type consistency**: Ensure all array elements have the same type
+3. **Index optimization**: Create embedding indexes for large-scale similarity search
+4. **Memory efficiency**: Consider array size and storage requirements for large datasets
+5. **Batch operations**: Process multiple arrays together for better performance
+
+---
+
+*This documentation represents the Array data type capabilities in Pixeltable. For implementation details and updates, refer to the official Pixeltable documentation.*

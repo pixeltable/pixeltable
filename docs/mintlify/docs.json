@@ -1,0 +1,394 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pixeltable Documentation",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Welcome to Pixeltable",
+            "pages": [
+              "docs/overview/pixeltable",
+              "docs/overview/installation",
+              "docs/overview/configuration",
+              "docs/overview/quick-start",
+              "docs/overview/building-pixeltable-with-llms"
+            ]
+          },
+          {
+            "group": "Multimodal AI Datastore",
+            "pages": [
+              "docs/datastore/tables-and-operations",
+              "docs/datastore/views",
+              "docs/datastore/iterators",
+              "docs/datastore/bringing-data",
+              "docs/datastore/filtering-and-selecting",
+              "docs/datastore/computed-columns",
+              "docs/datastore/vector-database",
+              "docs/datastore/custom-functions",
+              "docs/datastore/sampling"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "docs/tutorials/fundamentals",
+              "docs/tutorials/feature-guide"
+            ]
+          },
+          {
+            "group": "Libraries",
+            "pages": [
+              "docs/libraries/pixelagent",
+              "docs/libraries/mcp",
+              "docs/libraries/yolox"
+            ]
+          },
+          {
+            "group": "Jupyter Notebooks",
+            "pages": [
+              "docs/jupyter/pixeltable-basics",
+              "docs/jupyter/tables-and-data-operations",
+              "docs/jupyter/computed-columns",
+              "docs/jupyter/queries-and-expressions",
+              "docs/jupyter/working-with-external-files",
+              "docs/jupyter/udfs-in-pixeltable",
+              "docs/jupyter/embedding-indexes",
+              "docs/jupyter/audio-transcriptions",
+              "docs/jupyter/object-detection-in-videos",
+              "docs/jupyter/rag-demo",
+              "docs/jupyter/rag-operations",
+              "docs/jupyter/time-zones",
+              "docs/jupyter/using-label-studio-with-pixeltable",
+              "docs/jupyter/working-with-fiftyone",
+              "docs/jupyter/working-with-openai",
+              "docs/jupyter/working-with-anthropic",
+              "docs/jupyter/working-with-gemini",
+              "docs/jupyter/working-with-bedrock",
+              "docs/jupyter/working-with-hugging-face",
+              "docs/jupyter/working-with-ollama",
+              "docs/jupyter/working-with-llama-cpp",
+              "docs/jupyter/working-with-groq",
+              "docs/jupyter/working-with-fireworks",
+              "docs/jupyter/working-with-together",
+              "docs/jupyter/working-with-replicate",
+              "docs/jupyter/working-with-mistralai",
+              "docs/jupyter/working-with-deepseek"
+            ]
+          }
+
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Explore",
+            "pages": [
+              "docs/examples/use-cases",
+              "docs/examples/interactive-demos",
+              "docs/examples/sample-apps"
+            ]
+          },
+          {
+            "group": "Chatbot",
+            "pages": [
+              "docs/examples/chat/multimodal",
+              "docs/examples/chat/memory",
+              "docs/examples/chat/tools",
+              "docs/examples/chat/evals"
+            ]
+          },
+          {
+            "group": "Computer Vision",
+            "pages": [
+              "docs/examples/vision/label-studio",
+              "docs/examples/vision/voxel51",
+              "docs/examples/vision/yolox"
+            ]
+          },
+          {
+            "group": "Semantic Search",
+            "pages": [
+              "docs/examples/search/audio",
+              "docs/examples/search/images",
+              "docs/examples/search/PDF",
+              "docs/examples/search/website",
+              "docs/examples/search/video"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "href": "https://pixeltable.github.io/pixeltable/"
+      },
+      {
+        "tab": "SDK",
+        "dropdowns": [
+          {
+            "dropdown": "Current (v0.4)",
+            "pages": [
+              "docs/sdk/latest/overview"
+            ],
+            "groups": [
+              {
+                "group": "Core API",
+                "pages": [
+                  {
+                    "group": "Table Management",
+                    "pages": [
+                      "docs/sdk/latest/core_api/table_management/create_table",
+                      "docs/sdk/latest/core_api/table_management/drop_table",
+                      "docs/sdk/latest/core_api/table_management/get_table",
+                      "docs/sdk/latest/core_api/table_management/list_tables"
+                    ]
+                  },
+                  {
+                    "group": "Data Operations",
+                    "pages": [
+                      "docs/sdk/latest/core_api/data_operations/insert",
+                      "docs/sdk/latest/core_api/data_operations/update",
+                      "docs/sdk/latest/core_api/data_operations/delete"
+                    ]
+                  },
+                  {
+                    "group": "Query Operations",
+                    "pages": [
+                      "docs/sdk/latest/core_api/query_operations/select",
+                      "docs/sdk/latest/core_api/query_operations/where",
+                      "docs/sdk/latest/core_api/query_operations/order_by",
+                      "docs/sdk/latest/core_api/query_operations/limit",
+                      "docs/sdk/latest/core_api/query_operations/join"
+                    ]
+                  },
+                  {
+                    "group": "Column Operations",
+                    "pages": [
+                      "docs/sdk/latest/core_api/column_operations/add_computed_column",
+                      "docs/sdk/latest/core_api/column_operations/add_column",
+                      "docs/sdk/latest/core_api/column_operations/drop_column",
+                      "docs/sdk/latest/core_api/column_operations/rename_column"
+                    ]
+                  },
+                  {
+                    "group": "Configuration",
+                    "pages": [
+                      "docs/sdk/latest/configuration/configure_logging",
+                      "docs/sdk/latest/configuration/get_client"
+                    ]
+                  },
+                  {
+                    "group": "Directory Management",
+                    "pages": [
+                      "docs/sdk/latest/core_api/directory_management/create_dir",
+                      "docs/sdk/latest/core_api/directory_management/drop_dir",
+                      "docs/sdk/latest/core_api/directory_management/list_dirs"
+                    ]
+                  },
+                  {
+                    "group": "View Management",
+                    "pages": [
+                      "docs/sdk/latest/core_api/view_management/create_view",
+                      "docs/sdk/latest/core_api/view_management/list_views",
+                      "docs/sdk/latest/core_api/view_management/drop_table"
+                    ]
+                  },
+                  {
+                    "group": "Index Management",
+                    "pages": [
+                      "docs/sdk/latest/core_api/index_management/add_index",
+                      "docs/sdk/latest/core_api/index_management/add_embedding_index",
+                      "docs/sdk/latest/core_api/index_management/drop_index",
+                      "docs/sdk/latest/core_api/index_management/drop_embedding_index",
+                      "docs/sdk/latest/core_api/index_management/find_embedding_index"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "Media Processing",
+                "pages": [
+                  {
+                    "group": "Image Functions",
+                    "pages": [
+                      "docs/sdk/latest/media/image/resize",
+                      "docs/sdk/latest/media/image/rotate",
+                      "docs/sdk/latest/media/image/crop",
+                      "docs/sdk/latest/media/image/alpha_composite",
+                      "docs/sdk/latest/media/image/width",
+                      "docs/sdk/latest/media/image/height"
+                    ]
+                  },
+                  {
+                    "group": "Video Functions",
+                    "pages": [
+                      "docs/sdk/latest/media/video/extract_audio",
+                      "docs/sdk/latest/media/video/extract_first_video_frame"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "ML & AI Integration",
+                "pages": [
+                  {
+                    "group": "Embeddings",
+                    "pages": [
+                      "docs/sdk/latest/ml/embeddings/clip"
+                    ]
+                  },
+                  {
+                    "group": "Object Detection",
+                    "pages": [
+                      "docs/sdk/latest/ml/detection/yolox"
+                    ]
+                  },
+                  {
+                    "group": "Dataset Integration",
+                    "pages": [
+                      "docs/sdk/latest/ml/datasets/import_huggingface_dataset"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "Functions & UDFs",
+                "pages": [
+                  {
+                    "group": "User-Defined Functions",
+                    "pages": [
+                      "docs/sdk/latest/functions/udf/udf",
+                      "docs/sdk/latest/functions/udf/mcp_tool_to_udf",
+                      "docs/sdk/latest/functions/udf/mcp_udfs"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "Data Types",
+                "pages": [
+                  "docs/sdk/latest/types/Image",
+                  "docs/sdk/latest/types/Video",
+                  "docs/sdk/latest/types/Audio",
+                  "docs/sdk/latest/types/Array",
+                  "docs/sdk/latest/types/Json",
+                  "docs/sdk/latest/types/Basic"
+                ]
+              }
+            ]
+          },
+          {
+            "dropdown": "v0.3",
+            "pages":[
+              "docs/sdk/v0.3/overview"
+            ]
+          },
+          {
+            "dropdown": "v0.2",
+            "pages":[
+              "docs/sdk/v0.2/overview"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Built-in Integrations",
+            "pages": [
+              "docs/integrations/frameworks",
+              "docs/integrations/models"
+            ]
+          },
+          {
+            "group": "Bring Your Own",
+            "pages": [
+              "docs/integrations/embedding-model"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Changelog",
+        "groups": [
+          {
+            "group": "Changelog",
+            "pages": [
+              "docs/changelog/product-updates"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Support",
+        "groups": [
+          {
+            "group": "Support",
+            "pages": [
+              "docs/support/getting-help",
+              "docs/support/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/QPyqFYx2UN"
+      },
+      {
+        "label": "Book a Demo",
+        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+      },
+      {
+        "label": "Hiring",
+        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pixeltable/pixeltable"
+    }
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs..."
+  },
+  "footer": {
+    "socials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}

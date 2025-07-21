@@ -1,0 +1,258 @@
+---
+title: "table.add_column"
+description: "Add simple data columns to tables with built-in types"
+---
+
+<Badge text="Column Operations" color="orange" size="small" />
+
+## Function Signature
+
+```python
+table.add_column(
+    **kwargs,
+    if_exists: str = 'error'
+) -> UpdateStatus
+```
+
+## Description
+
+Add ordinary (non-computed) columns to a table using Pixeltable's built-in data types. These are simple storage columns that hold static data values, unlike computed columns which calculate values from expressions.
+
+Use `add_column` for storing basic data like metadata, labels, user inputs, or any static information that doesn't need to be calculated from other columns. For columns that compute values from expressions or AI functions, use [`add_computed_column`](/docs/sdk/latest/core_api/column_operations/add_computed_column) instead.
+
+## Parameters
+
+<ParamField path="**kwargs" type="dict" required>
+  Exactly one keyword argument of the form `col_name=col_type`. The keyword name becomes the column name, and the value specifies the Pixeltable data type.
+  
+  **Examples:**
+  - `user_rating=pxt.Int` 
+  - `description=pxt.String`
+  - `is_processed=pxt.Bool`
+  - `metadata=pxt.Json`
+</ParamField>
+
+<ParamField path="if_exists" type="str" default="'error'">
+  Behavior when column already exists.
+  
+  - `'error'`: Raise exception if column exists
+  - `'ignore'`: Do nothing and return if column exists  
+  - `'replace'` or `'replace_force'`: Drop existing column and add new one (only if no dependents)
+  
+  **Note:** You cannot replace columns that have dependent computed columns.
+</ParamField>
+
+## Returns
+
+<ResponseField name="UpdateStatus" type="UpdateStatus">
+  Information about the execution status of the operation, including confirmation of the column addition and any relevant details.
+</ResponseField>
+
+## Examples
+
+### Basic Data Types
+
+```python
+import pixeltable as pxt
+
+# Create a table for image analysis
+images = pxt.create_table('image_collection', {
+    'image': pxt.Image,
+    'filename': pxt.String
+})
+
+# Add simple data columns
+images.add_column(user_rating=pxt.Int)
+images.add_column(category=pxt.String)
+images.add_column(is_favorite=pxt.Bool)
+images.add_column(upload_date=pxt.Timestamp)
+```
+
+### Working with JSON Metadata
+
+```python
+# Add JSON column for flexible metadata
+images.add_column(camera_settings=pxt.Json)
+
+# Insert data with JSON metadata
+images.insert([{
+    'image': '/path/to/photo.jpg',
+    'filename': 'photo.jpg',
+    'user_rating': 5,
+    'category': 'landscape',
+    'is_favorite': True,
+    'camera_settings': {
+        'iso': 100,
+        'aperture': 'f/2.8',
+        'shutter_speed': '1/500',
+        'focal_length': '85mm'
+    }
+}])
+```
+
+### Arrays and Complex Types
+
+```python
+# Create table with array columns
+documents = pxt.create_table('documents', {
+    'title': pxt.String,
+    'content': pxt.String
+})
+
+# Add array columns
+documents.add_column(tags=pxt.Array(pxt.String))
+documents.add_column(scores=pxt.Array(pxt.Float))
+documents.add_column(metadata=pxt.Json)
+
+# Insert with array data
+documents.insert([{
+    'title': 'AI Research Paper',
+    'content': 'Abstract: This paper discusses...',
+    'tags': ['artificial-intelligence', 'machine-learning', 'research'],
+    'scores': [0.95, 0.87, 0.92],
+    'metadata': {'author': 'Dr. Smith', 'year': 2024}
+}])
+```
+
+### Column Replacement
+
+```python
+# Replace existing column (if no dependents)
+try:
+    images.add_column(
+        user_rating=pxt.Float,  # Change from Int to Float
+        if_exists='replace'
+    )
+    print("Column type updated successfully")
+except Exception as e:
+    print(f"Cannot replace column: {e}")
+
+# Safe column addition with ignore
+images.add_column(
+    processing_notes=pxt.String,
+    if_exists='ignore'  # Won't fail if already exists
+)
+```
+
+### Building Schema Incrementally
+
+```python
+# Start with basic table
+videos = pxt.create_table('video_library', {
+    'video': pxt.Video,
+    'title': pxt.String
+})
+
+# Add columns as needs evolve
+videos.add_column(duration_seconds=pxt.Int)
+videos.add_column(resolution=pxt.String)
+videos.add_column(file_size_mb=pxt.Float)
+videos.add_column(upload_timestamp=pxt.Timestamp)
+videos.add_column(processing_status=pxt.String)
+
+# Add metadata for organization
+videos.add_column(tags=pxt.Array(pxt.String))
+videos.add_column(custom_metadata=pxt.Json)
+videos.add_column(is_public=pxt.Bool)
+```
+
+### Error Handling
+
+```python
+try:
+    # Attempt to add column
+    status = images.add_column(new_field=pxt.String)
+    print(f"Column added successfully: {status}")
+    
+except Exception as e:
+    if "already exists" in str(e):
+        print("Column already exists, using existing column")
+        # Continue with existing column
+    else:
+        print(f"Failed to add column: {e}")
+        raise
+```
+
+### Data Type Reference
+
+```python
+# All available Pixeltable data types
+table.add_column(text_field=pxt.String)           # Text data
+table.add_column(number_field=pxt.Int)            # Integer numbers
+table.add_column(decimal_field=pxt.Float)         # Decimal numbers  
+table.add_column(flag_field=pxt.Bool)             # True/False values
+table.add_column(time_field=pxt.Timestamp)        # Date and time
+table.add_column(data_field=pxt.Json)             # JSON objects
+table.add_column(image_field=pxt.Image)           # Image files
+table.add_column(video_field=pxt.Video)           # Video files
+table.add_column(audio_field=pxt.Audio)           # Audio files
+table.add_column(list_field=pxt.Array(pxt.String)) # Arrays of values
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Column name errors:**
+  - Invalid column name (contains reserved characters or conflicts with system columns)
+  - Column already exists and `if_exists='error'`
+  
+  **Replacement errors:**
+  - Attempting to replace column that has dependents when `if_exists='replace'`
+  - Cannot replace base table columns
+  
+  **Type errors:**
+  - Invalid or unsupported data type specified
+</ResponseField>
+
+## Best Practices
+
+### Schema Design
+```python
+# Design schema thoughtfully - consider future needs
+users = pxt.create_table('users', {
+    'user_id': pxt.String,
+    'email': pxt.String  
+})
+
+# Add columns for common patterns
+users.add_column(created_at=pxt.Timestamp)      # Always useful
+users.add_column(metadata=pxt.Json)             # Future flexibility
+users.add_column(is_active=pxt.Bool)            # Common flag
+users.add_column(tags=pxt.Array(pxt.String))    # Categorization
+```
+
+### Development Workflow
+```python
+# Safe column addition during development
+def add_column_safely(table, **kwargs):
+    """Add column with safe error handling"""
+    try:
+        return table.add_column(**kwargs, if_exists='ignore')
+    except Exception as e:
+        print(f"Column addition skipped: {e}")
+        return None
+
+# Use in development scripts
+add_column_safely(images, processing_stage=pxt.String)
+add_column_safely(images, quality_score=pxt.Float)
+```
+
+### Performance Considerations
+```python
+# Add multiple columns efficiently using bulk operations
+# instead of multiple individual calls
+new_columns = {
+    'user_rating': pxt.Int,
+    'category': pxt.String,
+    'is_favorite': pxt.Bool,
+    'upload_date': pxt.Timestamp
+}
+
+# More efficient than multiple add_column calls
+for col_name, col_type in new_columns.items():
+    images.add_column(**{col_name: col_type}, if_exists='ignore')
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

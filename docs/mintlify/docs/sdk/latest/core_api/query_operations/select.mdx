@@ -1,0 +1,342 @@
+---
+title: "table.select"
+description: "table.select() - Query columns and expressions, returns DataFrame"
+---
+
+<Badge text="Query Operations" color="purple" size="small" />
+
+## Function Signature
+
+```python
+table.select(*items, **named_items) -> DataFrame
+```
+
+## Description
+
+The `select` method creates queries to retrieve specific columns, computed expressions, or all data from a table. It returns a `DataFrame` object that represents the query but doesn't execute it until you call methods like `.collect()`, `.limit()`, or `.count()`.
+
+This is the foundation of Pixeltable's querying system, similar to SQL SELECT statements but with powerful expression capabilities and lazy evaluation.
+
+## Parameters
+
+<ParamField path="*items" type="Expr">
+  Column references or expressions to select. Can be:
+  - **Column references**: `table.column_name`
+  - **Computed expressions**: `table.price * 1.1`
+  - **Function calls**: `pxt.functions.abs(table.value)`
+  - **Multiple items**: `table.col1, table.col2, table.col3`
+</ParamField>
+
+<ParamField path="**named_items" type="Expr">
+  Named expressions that create new computed columns:
+  - `total_price=table.price * table.quantity`
+  - `is_adult=table.age >= 18`
+  - `full_name=table.first_name + ' ' + table.last_name`
+</ParamField>
+
+## Returns
+
+<ResponseField name="DataFrame" type="DataFrame">
+  A lazy DataFrame object representing the query. Use `.collect()` to execute and get results, or chain with other operations like `.where()`, `.limit()`.
+</ResponseField>
+
+## Examples
+
+### Basic Column Selection
+
+```python
+import pixeltable as pxt
+
+# Get table handle
+tbl = pxt.get_table('users')
+
+# Select all columns (like SELECT * in SQL)
+all_data = tbl.select()
+print(f"Query created for {all_data.count()} rows")
+
+# Select specific columns
+user_basics = tbl.select(tbl.name, tbl.email, tbl.created_date)
+
+# Execute the query
+results = user_basics.collect()
+for row in results:
+    print(f"{row['name']}: {row['email']}")
+```
+
+### Computed Expressions
+
+```python
+# Select with computed columns
+enhanced_data = tbl.select(
+    tbl.name,
+    tbl.price,
+    discounted_price=tbl.price * 0.9,
+    is_premium=tbl.price > 100,
+    price_category=tbl.price.apply(
+        lambda x: 'High' if x > 50 else 'Low'
+    )
+)
+
+# Get results
+results = enhanced_data.limit(10).collect()
+for row in results:
+    print(f"{row['name']}: ${row['price']} → ${row['discounted_price']}")
+```
+
+### Working with Media Columns
+
+```python
+# Table with media data
+media_tbl = pxt.get_table('media_files')
+
+# Select media metadata
+media_info = media_tbl.select(
+    media_tbl.filename,
+    media_tbl.image,  # Full image data
+    image_width=media_tbl.image.width,
+    image_height=media_tbl.image.height,
+    file_size=media_tbl.image.filesize,
+    aspect_ratio=media_tbl.image.width / media_tbl.image.height
+)
+
+# Execute and analyze
+results = media_info.collect()
+```
+
+### Advanced Expressions
+
+```python
+# Complex computed expressions
+analytics = tbl.select(
+    tbl.user_id,
+    tbl.revenue,
+    
+    # String operations
+    clean_email=tbl.email.lower().strip(),
+    domain=tbl.email.split('@')[1],
+    
+    # Date operations  
+    days_since_signup=(pxt.functions.now() - tbl.created_date).days,
+    signup_year=tbl.created_date.year,
+    
+    # Conditional logic
+    customer_tier=tbl.revenue.apply(lambda x: 
+        'Gold' if x > 1000 else 
+        'Silver' if x > 500 else 
+        'Bronze'
+    ),
+    
+    # Mathematical operations
+    revenue_log=pxt.functions.log(tbl.revenue + 1),
+    normalized_score=(tbl.score - tbl.score.mean()) / tbl.score.std()
+)
+```
+
+### Chaining with Other Operations
+
+```python
+# Select + Where + Limit (method chaining)
+filtered_query = (tbl
+    .select(tbl.name, tbl.score, grade=tbl.score.apply(
+        lambda x: 'A' if x >= 90 else 'B' if x >= 80 else 'C'
+    ))
+    .where(tbl.active == True)
+    .order_by(tbl.score.desc())
+    .limit(10)
+)
+
+# Execute the complete query
+top_performers = filtered_query.collect()
+```
+
+### JSON and Nested Data
+
+```python
+# Working with JSON columns
+logs_tbl = pxt.get_table('api_logs')
+
+json_analysis = logs_tbl.select(
+    logs_tbl.timestamp,
+    logs_tbl.request_data,  # JSON column
+    
+    # Extract JSON fields
+    endpoint=logs_tbl.request_data['endpoint'],
+    method=logs_tbl.request_data['method'],
+    user_agent=logs_tbl.request_data['headers']['user-agent'],
+    
+    # JSON array operations
+    num_params=pxt.functions.json_array_length(
+        logs_tbl.request_data['params']
+    )
+)
+```
+
+### Aggregations in Select
+
+```python
+# Select with window functions and aggregations
+sales_analysis = tbl.select(
+    tbl.date,
+    tbl.revenue,
+    
+    # Running totals
+    cumulative_revenue=pxt.functions.sum(tbl.revenue).over(
+        order_by=tbl.date
+    ),
+    
+    # Moving averages
+    avg_7day=pxt.functions.avg(tbl.revenue).over(
+        order_by=tbl.date,
+        rows=(6, 0)  # 7-day window
+    ),
+    
+    # Ranking
+    revenue_rank=pxt.functions.rank().over(
+        order_by=tbl.revenue.desc()
+    )
+)
+```
+
+### Performance-Optimized Queries
+
+```python
+# Efficient querying patterns
+def efficient_user_query(table, user_ids):
+    """Optimized query for specific users."""
+    
+    return (table
+        .select(
+            table.id,
+            table.name,
+            table.email,
+            # Only compute expensive operations for needed data
+            profile_summary=table.profile_data.summary()
+        )
+        .where(table.id.isin(user_ids))  # Filter early
+        .limit(100)  # Limit results
+    )
+
+# Usage
+target_users = [1, 2, 3, 4, 5]
+results = efficient_user_query(tbl, target_users).collect()
+```
+
+### Working with DataFrames
+
+```python
+# DataFrame represents a query, not materialized data
+df = tbl.select(tbl.name, tbl.score)
+
+# DataFrame methods for query building
+print(f"Query will return {df.count()} rows")
+print(f"Columns in query: {df.column_names()}")
+
+# Preview without loading all data
+preview = df.limit(5).collect()
+print("Preview:", preview)
+
+# Full execution
+all_results = df.collect()
+
+# Convert to pandas for analysis
+pandas_df = df.to_pandas()
+```
+
+### Error Handling
+
+```python
+def safe_select_query(table, columns, conditions=None):
+    """Safely build and execute select queries."""
+    
+    try:
+        # Build query
+        query = table.select(*columns)
+        
+        if conditions:
+            query = query.where(conditions)
+        
+        # Test query first
+        count = query.count()
+        print(f"Query will return {count} rows")
+        
+        # Execute if reasonable size
+        if count > 10000:
+            print("Large result set - consider adding limits")
+            return query.limit(10000).collect()
+        else:
+            return query.collect()
+            
+    except Exception as e:
+        print(f"Query error: {e}")
+        return None
+
+# Usage
+results = safe_select_query(
+    tbl, 
+    [tbl.name, tbl.email],
+    tbl.active == True
+)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in various error conditions:
+  - Invalid column references
+  - Expression evaluation errors
+  - Type mismatches in computed expressions
+  - References to non-existent tables or columns
+  - Memory errors with very large result sets
+</ResponseField>
+
+## Related Functions
+
+- [`table.where()`](/docs/sdk/latest/core_api/query_operations/where) - Filter rows with conditions
+- [`table.order_by()`](/docs/sdk/latest/core_api/query_operations/order_by) - Sort query results
+- [`table.limit()`](/docs/sdk/latest/core_api/query_operations/limit) - Limit number of results
+- [`table.join()`](/docs/sdk/latest/core_api/query_operations/join) - Join with other tables
+- [`table.insert()`](/docs/sdk/latest/core_api/data_operations/insert) - Add new rows to table
+- [`table.update()`](/docs/sdk/latest/core_api/data_operations/update) - Modify existing rows
+
+## Best Practices
+
+### Efficient Column Selection
+
+```python
+# ✅ Select only needed columns
+df = tbl.select(tbl.name, tbl.email)
+
+# ❌ Avoid selecting all when you only need some
+# df = tbl.select()  # Then filtering in Python
+```
+
+### Lazy Evaluation Strategy
+
+```python
+# Build complex queries step by step
+base_query = tbl.select(tbl.name, tbl.score)
+filtered_query = base_query.where(tbl.score > 80)
+final_query = filtered_query.order_by(tbl.score.desc())
+
+# Execute only when needed
+results = final_query.limit(10).collect()
+```
+
+### Expression Reuse
+
+```python
+# Define complex expressions once
+high_value_customer = (tbl.revenue > 1000) & (tbl.orders > 10)
+customer_score = tbl.revenue * tbl.satisfaction_rating
+
+# Use in multiple queries
+summary = tbl.select(
+    tbl.name,
+    is_high_value=high_value_customer,
+    score=customer_score
+).where(high_value_customer)
+```
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*

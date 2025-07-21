@@ -1,0 +1,512 @@
+---
+title: "table.list_views"
+description: "List views and snapshots derived from a table"
+---
+
+<Badge text="View Management" color="purple" size="small" />
+
+## Function Signature
+
+```python
+table.list_views(
+    recursive: bool = False
+) -> list[str]
+```
+
+## Description
+
+List all views and snapshots that are derived from this table. This method helps you understand the dependency tree of views built on top of your tables, track data lineage, and manage complex view hierarchies in your workspace.
+
+Views form a directed acyclic graph where tables can have multiple views, and views can themselves have sub-views. This function lets you explore this structure to understand how your data flows through different perspectives and transformations.
+
+## Parameters
+
+<ParamField path="recursive" type="bool" default="False">
+  Whether to include nested sub-views in the results.
+  
+  - `False`: Return only direct views of this table (one level)
+  - `True`: Return all descendant views recursively (complete dependency tree)
+</ParamField>
+
+## Returns
+
+<ResponseField name="list[str]" type="list[str]">
+  List of view paths in dot notation. Returns empty list if no views exist for this table.
+</ResponseField>
+
+## Examples
+
+### Basic View Listing
+
+```python
+import pixeltable as pxt
+
+# Get base table
+images = pxt.get_table('image_collection')
+
+# List direct views of this table
+direct_views = images.list_views()
+print("Direct views:", direct_views)
+# Output: ['high_quality_images', 'large_images', 'professional_photos']
+
+# List all views recursively (including views of views)
+all_views = images.list_views(recursive=True)
+print("All descendant views:", all_views)
+# Output: ['high_quality_images', 'large_images', 'professional_photos', 
+#          'analysis.premium_subset', 'teams.ds.feature_analysis']
+```
+
+### Dependency Analysis
+
+```python
+def analyze_view_dependencies(table_path):
+    """Analyze the complete view dependency tree for a table"""
+    
+    try:
+        table = pxt.get_table(table_path)
+        
+        # Get direct and recursive views
+        direct_views = table.list_views(recursive=False)
+        all_views = table.list_views(recursive=True)
+        
+        print(f"📊 View Analysis for '{table_path}':")
+        print(f"   Direct views: {len(direct_views)}")
+        print(f"   Total descendant views: {len(all_views)}")
+        
+        if direct_views:
+            print(f"\n📝 Direct Views:")
+            for view_path in direct_views:
+                print(f"   - {view_path}")
+                
+                # Check if this view has its own sub-views
+                try:
+                    view_table = pxt.get_table(view_path)
+                    sub_views = view_table.list_views(recursive=False)
+                    if sub_views:
+                        print(f"     └─ Sub-views: {len(sub_views)}")
+                except:
+                    pass
+        
+        # Calculate depth of view hierarchy
+        nested_views = [v for v in all_views if v not in direct_views]
+        if nested_views:
+            print(f"\n🔗 Nested Views ({len(nested_views)}):")
+            for nested_view in nested_views[:5]:  # Show first 5
+                print(f"   - {nested_view}")
+            if len(nested_views) > 5:
+                print(f"   ... and {len(nested_views) - 5} more")
+        
+        return {
+            'direct': direct_views,
+            'all': all_views,
+            'nested': nested_views
+        }
+        
+    except Exception as e:
+        print(f"❌ Error analyzing dependencies for {table_path}: {e}")
+        return None
+
+# Analyze view dependencies
+dependency_info = analyze_view_dependencies('image_collection')
+```
+
+### View Hierarchy Visualization
+
+```python
+def visualize_view_tree(table_path, max_depth=3):
+    """Visualize the view hierarchy as a tree"""
+    
+    def get_view_tree(table_path, current_depth=0, visited=None):
+        """Recursively build view tree"""
+        if visited is None:
+            visited = set()
+        
+        if table_path in visited or current_depth > max_depth:
+            return {}
+        
+        visited.add(table_path)
+        
+        try:
+            table = pxt.get_table(table_path)
+            direct_views = table.list_views(recursive=False)
+            
+            tree = {}
+            for view_path in direct_views:
+                tree[view_path] = get_view_tree(view_path, current_depth + 1, visited.copy())
+            
+            return tree
+            
+        except Exception as e:
+            return {}
+    
+    def print_tree(tree, indent=0):
+        """Print tree structure with indentation"""
+        for view_path, subtree in tree.items():
+            prefix = "│   " * indent + "├── " if indent > 0 else ""
+            view_name = view_path.split('.')[-1]
+            print(f"{prefix}{view_name}")
+            
+            if subtree:
+                print_tree(subtree, indent + 1)
+    
+    print(f"📂 View Tree for '{table_path}':")
+    tree = get_view_tree(table_path)
+    
+    if tree:
+        print_tree(tree)
+    else:
+        print("   (No views found)")
+    
+    return tree
+
+# Visualize view hierarchy
+visualize_view_tree('image_collection')
+```
+
+### View Lineage Tracking
+
+```python
+def trace_view_lineage(view_path):
+    """Trace the complete lineage of a view back to its source tables"""
+    
+    lineage = []
+    current_path = view_path
+    
+    try:
+        while current_path:
+            lineage.append(current_path)
+            
+            # Get the view/table object
+            table = pxt.get_table(current_path)
+            
+            # In a real implementation, you'd need to get the base table
+            # For now, we'll simulate the concept
+            base_path = getattr(table, '_base_table_path', None)
+            
+            if base_path and base_path != current_path:
+                current_path = base_path
+            else:
+                break
+        
+        print(f"🔍 Lineage for '{view_path}':")
+        for i, path in enumerate(reversed(lineage)):
+            indent = "  " * i
+            arrow = " └─ " if i > 0 else ""
+            path_type = "View" if i < len(lineage) - 1 else "Source Table"
+            print(f"{indent}{arrow}{path} ({path_type})")
+        
+        return lineage
+        
+    except Exception as e:
+        print(f"❌ Error tracing lineage for {view_path}: {e}")
+        return [view_path]
+
+# Trace view lineage
+lineage = trace_view_lineage('analysis.premium_subset')
+```
+
+### View Discovery and Exploration
+
+```python
+def discover_view_patterns(base_table_path):
+    """Discover common patterns in view creation"""
+    
+    try:
+        table = pxt.get_table(base_table_path)
+        all_views = table.list_views(recursive=True)
+        
+        if not all_views:
+            print(f"No views found for {base_table_path}")
+            return
+        
+        # Analyze naming patterns
+        print(f"🔍 View Discovery for '{base_table_path}':")
+        print(f"Total views: {len(all_views)}")
+        
+        # Group by naming patterns
+        patterns = {}
+        for view_path in all_views:
+            parts = view_path.split('.')
+            
+            # Look for common prefixes/patterns
+            if len(parts) >= 2:
+                pattern = parts[0]  # First part as pattern
+                if pattern not in patterns:
+                    patterns[pattern] = []
+                patterns[pattern].append(view_path)
+            else:
+                if 'root_level' not in patterns:
+                    patterns['root_level'] = []
+                patterns['root_level'].append(view_path)
+        
+        print(f"\n📊 View Patterns:")
+        for pattern, views in patterns.items():
+            print(f"   {pattern}: {len(views)} views")
+            for view in views[:3]:  # Show first 3
+                print(f"      - {view}")
+            if len(views) > 3:
+                print(f"      ... and {len(views) - 3} more")
+        
+        # Find potential cleanup candidates
+        temp_views = [v for v in all_views if any(keyword in v.lower() 
+                     for keyword in ['temp', 'test', 'debug', 'scratch'])]
+        
+        if temp_views:
+            print(f"\n🧹 Potential Cleanup Candidates:")
+            for temp_view in temp_views:
+                print(f"   - {temp_view}")
+        
+        return {
+            'total_views': len(all_views),
+            'patterns': patterns,
+            'temp_views': temp_views
+        }
+        
+    except Exception as e:
+        print(f"❌ Error discovering patterns: {e}")
+        return None
+
+# Discover view patterns
+patterns = discover_view_patterns('image_collection')
+```
+
+### Bulk View Operations
+
+```python
+def analyze_all_table_views(table_paths):
+    """Analyze views across multiple tables"""
+    
+    view_summary = {}
+    
+    for table_path in table_paths:
+        try:
+            table = pxt.get_table(table_path)
+            direct_views = table.list_views(recursive=False)
+            all_views = table.list_views(recursive=True)
+            
+            view_summary[table_path] = {
+                'direct_count': len(direct_views),
+                'total_count': len(all_views),
+                'direct_views': direct_views,
+                'all_views': all_views,
+                'complexity_score': len(all_views) - len(direct_views)  # Nested views
+            }
+            
+        except Exception as e:
+            view_summary[table_path] = {
+                'error': str(e),
+                'direct_count': 0,
+                'total_count': 0
+            }
+    
+    # Generate summary report
+    print("📈 Multi-Table View Analysis:")
+    
+    total_tables = len(table_paths)
+    tables_with_views = sum(1 for info in view_summary.values() 
+                           if info.get('direct_count', 0) > 0)
+    
+    print(f"   Tables analyzed: {total_tables}")
+    print(f"   Tables with views: {tables_with_views}")
+    
+    # Most complex view hierarchies
+    complex_tables = sorted(
+        [(path, info) for path, info in view_summary.items() 
+         if 'complexity_score' in info],
+        key=lambda x: x[1]['complexity_score'],
+        reverse=True
+    )
+    
+    print(f"\n🏗️ Most Complex View Hierarchies:")
+    for path, info in complex_tables[:5]:
+        print(f"   {path}: {info['total_count']} total views "
+              f"({info['complexity_score']} nested)")
+    
+    return view_summary
+
+# Analyze multiple tables
+table_list = ['image_collection', 'user_profiles', 'sensor_data', 'documents']
+multi_table_analysis = analyze_all_table_views(table_list)
+```
+
+### View Maintenance and Cleanup
+
+```python
+def identify_orphaned_views():
+    """Identify views that might be orphaned or unused"""
+    
+    # This is a conceptual example - actual implementation would need
+    # to check view dependencies and usage patterns
+    
+    all_tables = pxt.list_tables('', recursive=True)
+    view_usage = {}
+    
+    for table_path in all_tables:
+        try:
+            table = pxt.get_table(table_path)
+            views = table.list_views(recursive=True)
+            
+            for view_path in views:
+                if view_path not in view_usage:
+                    view_usage[view_path] = {
+                        'source_table': table_path,
+                        'has_sub_views': False,
+                        'potential_orphan': True
+                    }
+                
+                # Check if this view has its own sub-views
+                try:
+                    view_table = pxt.get_table(view_path)
+                    sub_views = view_table.list_views(recursive=False)
+                    if sub_views:
+                        view_usage[view_path]['has_sub_views'] = True
+                        # Mark parent views as not orphaned
+                        for sub_view in sub_views:
+                            if sub_view in view_usage:
+                                view_usage[sub_view]['potential_orphan'] = False
+                except:
+                    pass
+                    
+        except Exception as e:
+            continue
+    
+    # Identify potential orphans
+    potential_orphans = [path for path, info in view_usage.items() 
+                        if info.get('potential_orphan', False)]
+    
+    print("🔍 View Maintenance Analysis:")
+    print(f"   Total views found: {len(view_usage)}")
+    print(f"   Potential orphaned views: {len(potential_orphans)}")
+    
+    if potential_orphans:
+        print(f"\n🧹 Views to Review:")
+        for orphan in potential_orphans[:10]:  # Show first 10
+            source = view_usage[orphan]['source_table']
+            print(f"   - {orphan} (from {source})")
+    
+    return view_usage, potential_orphans
+
+# Identify maintenance opportunities
+# view_usage, orphans = identify_orphaned_views()
+```
+
+### Performance Monitoring
+
+```python
+def monitor_view_performance(table_path):
+    """Monitor view creation and query performance"""
+    
+    try:
+        table = pxt.get_table(table_path)
+        views = table.list_views(recursive=True)
+        
+        print(f"⚡ Performance Analysis for '{table_path}':")
+        print(f"   Base table: {table_path}")
+        print(f"   Total derived views: {len(views)}")
+        
+        # Analyze view complexity (concept)
+        simple_views = []
+        complex_views = []
+        
+        for view_path in views:
+            try:
+                view_table = pxt.get_table(view_path)
+                sub_views = view_table.list_views(recursive=False)
+                
+                if len(sub_views) == 0:
+                    simple_views.append(view_path)
+                else:
+                    complex_views.append((view_path, len(sub_views)))
+                    
+            except:
+                continue
+        
+        print(f"\n📊 View Complexity Distribution:")
+        print(f"   Simple views (no sub-views): {len(simple_views)}")
+        print(f"   Complex views (with sub-views): {len(complex_views)}")
+        
+        if complex_views:
+            # Sort by complexity
+            complex_views.sort(key=lambda x: x[1], reverse=True)
+            print(f"\n🔗 Most Complex Views:")
+            for view_path, sub_count in complex_views[:5]:
+                print(f"   - {view_path}: {sub_count} sub-views")
+        
+        return {
+            'total_views': len(views),
+            'simple_views': simple_views,
+            'complex_views': complex_views
+        }
+        
+    except Exception as e:
+        print(f"❌ Error monitoring performance: {e}")
+        return None
+
+# Monitor view performance
+performance_data = monitor_view_performance('image_collection')
+```
+
+## Best Practices
+
+### Regular View Auditing
+```python
+# ✅ Regular view dependency analysis
+def monthly_view_audit():
+    """Run monthly audit of view dependencies"""
+    all_tables = pxt.list_tables('', recursive=True)
+    
+    for table_path in all_tables:
+        table = pxt.get_table(table_path)
+        views = table.list_views(recursive=True)
+        
+        if len(views) > 10:  # Flag tables with many views
+            print(f"⚠️ High view count: {table_path} ({len(views)} views)")
+
+# ✅ Document view purposes
+def document_view_relationships():
+    """Create documentation of view relationships"""
+    # Implementation would create relationship documentation
+    pass
+```
+
+### Performance Optimization
+```python
+# ✅ Monitor view depth for performance
+def check_view_depth(table_path, max_recommended_depth=3):
+    """Check if view hierarchy is getting too deep"""
+    
+    def calculate_depth(view_path, current_depth=0, visited=None):
+        if visited is None:
+            visited = set()
+        if view_path in visited:
+            return current_depth
+        visited.add(view_path)
+        
+        try:
+            view = pxt.get_table(view_path)
+            sub_views = view.list_views(recursive=False)
+            
+            if not sub_views:
+                return current_depth
+            
+            max_sub_depth = 0
+            for sub_view in sub_views:
+                sub_depth = calculate_depth(sub_view, current_depth + 1, visited.copy())
+                max_sub_depth = max(max_sub_depth, sub_depth)
+            
+            return max_sub_depth
+        except:
+            return current_depth
+    
+    table = pxt.get_table(table_path)
+    views = table.list_views(recursive=False)
+    
+    for view in views:
+        depth = calculate_depth(view)
+        if depth > max_recommended_depth:
+            print(f"⚠️ Deep view hierarchy: {view} (depth: {depth})")
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

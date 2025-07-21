@@ -1,0 +1,369 @@
+---
+title: "table.rename_column"
+description: "Rename table columns while preserving data and dependencies"
+---
+
+<Badge text="Column Operations" color="orange" size="small" />
+
+## Function Signature
+
+```python
+table.rename_column(
+    old_name: str,
+    new_name: str
+) -> None
+```
+
+## Description
+
+Rename an existing column in the table while preserving all data and maintaining computed column dependencies. This operation updates the column name throughout the table schema, including any computed columns that reference the renamed column.
+
+Use `rename_column` when evolving your schema to use better naming conventions, fixing typos in column names, or adapting to changing business requirements without losing data or breaking existing computed columns.
+
+## Parameters
+
+<ParamField path="old_name" type="str" required>
+  The current name of the column to rename.
+  
+  Must be an existing column in the table. Case-sensitive.
+</ParamField>
+
+<ParamField path="new_name" type="str" required>
+  The new name for the column.
+  
+  Must be a valid column name that doesn't conflict with existing columns or reserved names.
+</ParamField>
+
+## Returns
+
+<ResponseField name="None" type="None">
+  This function doesn't return a value. The column is renamed immediately and all references are updated.
+</ResponseField>
+
+## Examples
+
+### Basic Column Renaming
+
+```python
+import pixeltable as pxt
+
+# Get table reference
+images = pxt.get_table('image_collection')
+
+# Rename a column
+images.rename_column('user_score', 'user_rating')
+
+# Fix typos in column names
+images.rename_column('descritpion', 'description')
+
+# Update to better naming conventions
+images.rename_column('img_w', 'image_width')
+images.rename_column('img_h', 'image_height')
+```
+
+### Schema Evolution
+
+```python
+# Evolve column names as business requirements change
+documents = pxt.get_table('documents')
+
+# Business terminology evolution
+documents.rename_column('client_id', 'customer_id')
+documents.rename_column('doc_type', 'document_category')
+documents.rename_column('created', 'created_timestamp')
+
+# Technical naming improvements
+documents.rename_column('txt', 'content_text')
+documents.rename_column('proc_status', 'processing_status')
+```
+
+### Batch Renaming
+
+```python
+# Rename multiple columns systematically
+column_mapping = {
+    'old_name': 'new_name',
+    'usr_rating': 'user_rating',
+    'img_url': 'image_url', 
+    'proc_date': 'processed_date',
+    'meta_data': 'metadata',
+    'temp_flag': 'is_temporary'
+}
+
+for old_name, new_name in column_mapping.items():
+    try:
+        images.rename_column(old_name, new_name)
+        print(f"✅ Renamed: {old_name} → {new_name}")
+    except Exception as e:
+        print(f"❌ Failed to rename {old_name}: {e}")
+```
+
+### Naming Convention Standardization
+
+```python
+# Standardize naming conventions across the table
+def standardize_column_names(table):
+    """Convert camelCase and other formats to snake_case"""
+    
+    # Common camelCase to snake_case conversions
+    conversions = {
+        'userId': 'user_id',
+        'imageUrl': 'image_url',
+        'createdAt': 'created_at',
+        'updatedAt': 'updated_at',
+        'fileName': 'file_name',
+        'fileSize': 'file_size',
+        'isActive': 'is_active',
+        'hasError': 'has_error'
+    }
+    
+    # Get current column names
+    current_columns = table.column_names()
+    
+    # Apply conversions
+    for old_name in current_columns:
+        if old_name in conversions:
+            new_name = conversions[old_name]
+            try:
+                table.rename_column(old_name, new_name)
+                print(f"Standardized: {old_name} → {new_name}")
+            except Exception as e:
+                print(f"Could not rename {old_name}: {e}")
+
+# Apply standardization
+standardize_column_names(images)
+```
+
+### API Migration Support
+
+```python
+# Support API version migrations by renaming columns
+def migrate_api_v1_to_v2(table):
+    """Migrate column names from API v1 to v2 naming"""
+    
+    v1_to_v2_mapping = {
+        'img': 'image',
+        'desc': 'description', 
+        'cat': 'category',
+        'tags_list': 'tags',
+        'user_rank': 'user_rating',
+        'proc_state': 'processing_status',
+        'err_msg': 'error_message'
+    }
+    
+    migrated = []
+    for v1_name, v2_name in v1_to_v2_mapping.items():
+        try:
+            table.rename_column(v1_name, v2_name)
+            migrated.append(f"{v1_name} → {v2_name}")
+        except Exception as e:
+            print(f"Migration note: {v1_name} - {e}")
+    
+    print(f"Migrated {len(migrated)} columns to v2 naming")
+    return migrated
+
+# Perform migration
+migrate_api_v1_to_v2(images)
+```
+
+### Error Handling and Validation
+
+```python
+def safe_rename_column(table, old_name, new_name):
+    """Safely rename column with validation and error handling"""
+    
+    # Check if old column exists
+    if old_name not in table.column_names():
+        print(f"Column '{old_name}' doesn't exist")
+        return False
+    
+    # Check if new name is already taken
+    if new_name in table.column_names():
+        print(f"Column name '{new_name}' already exists")
+        return False
+    
+    # Validate new name format
+    if not new_name.replace('_', '').isalnum():
+        print(f"Invalid column name format: '{new_name}'")
+        return False
+    
+    # Perform rename
+    try:
+        table.rename_column(old_name, new_name)
+        print(f"Successfully renamed: {old_name} → {new_name}")
+        return True
+    except Exception as e:
+        print(f"Rename failed: {e}")
+        return False
+
+# Usage with validation
+safe_rename_column(images, 'user_score', 'user_rating')
+```
+
+### Computed Column Dependencies
+
+```python
+# Renaming columns preserves computed column dependencies
+videos = pxt.get_table('videos')
+
+# Original column
+videos.add_computed_column(
+    duration_minutes=videos.duration_seconds / 60
+)
+
+# Rename the source column - computed column still works!
+videos.rename_column('duration_seconds', 'duration_sec')
+
+# The computed column automatically updates its reference
+# videos.duration_minutes now references videos.duration_sec internally
+
+# Verify the computed column still works
+sample = videos.select(videos.duration_sec, videos.duration_minutes).limit(1).collect()
+print("Computed column preserved:", sample)
+```
+
+### Documentation and Logging
+
+```python
+def rename_with_documentation(table, old_name, new_name, reason=""):
+    """Rename column with logging for documentation"""
+    
+    timestamp = datetime.now().isoformat()
+    
+    try:
+        table.rename_column(old_name, new_name)
+        
+        # Log the change
+        log_entry = {
+            'timestamp': timestamp,
+            'action': 'rename_column',
+            'old_name': old_name,
+            'new_name': new_name,
+            'reason': reason,
+            'status': 'success'
+        }
+        
+        print(f"📝 Column renamed: {old_name} → {new_name}")
+        if reason:
+            print(f"   Reason: {reason}")
+            
+        # Save to your logging system
+        # save_schema_change_log(log_entry)
+        
+    except Exception as e:
+        print(f"❌ Rename failed: {old_name} → {new_name} - {e}")
+        raise
+
+# Usage with documentation
+rename_with_documentation(
+    images, 
+    'usr_rating', 
+    'user_rating',
+    reason="Standardizing naming convention to snake_case"
+)
+```
+
+### Interactive Renaming
+
+```python
+def interactive_column_rename(table):
+    """Interactive column renaming with preview"""
+    
+    columns = table.column_names()
+    print("Current columns:")
+    for i, col in enumerate(columns, 1):
+        print(f"  {i}. {col}")
+    
+    while True:
+        try:
+            choice = input("\nSelect column number to rename (or 'quit'): ")
+            if choice.lower() == 'quit':
+                break
+                
+            idx = int(choice) - 1
+            if 0 <= idx < len(columns):
+                old_name = columns[idx]
+                new_name = input(f"New name for '{old_name}': ")
+                
+                if new_name and new_name != old_name:
+                    confirm = input(f"Rename '{old_name}' → '{new_name}'? (y/n): ")
+                    if confirm.lower() == 'y':
+                        table.rename_column(old_name, new_name)
+                        print(f"✅ Renamed: {old_name} → {new_name}")
+                        # Update the list
+                        columns[idx] = new_name
+            else:
+                print("Invalid selection")
+                
+        except (ValueError, KeyboardInterrupt):
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+
+# Run interactive renaming
+# interactive_column_rename(images)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Column not found:**
+  - Source column (`old_name`) doesn't exist in the table
+  
+  **Name conflicts:**
+  - Target column name (`new_name`) already exists
+  - New name conflicts with reserved column names or system columns
+  
+  **Invalid names:**
+  - New name contains invalid characters or doesn't meet naming requirements
+  - New name is empty or None
+</ResponseField>
+
+## Best Practices
+
+### Naming Conventions
+```python
+# Follow consistent naming patterns
+# ✅ Good names
+table.rename_column('score', 'user_rating')      # Clear purpose
+table.rename_column('ts', 'timestamp')           # Full words
+table.rename_column('isActive', 'is_active')     # snake_case
+
+# ❌ Avoid these patterns  
+# table.rename_column('rating', 'r')             # Too abbreviated
+# table.rename_column('name', 'Name')            # Inconsistent case
+# table.rename_column('data', 'misc_data')       # Vague naming
+```
+
+### Migration Planning
+```python
+# Plan column renames as part of larger migrations
+def plan_schema_migration():
+    """Document planned column renames"""
+    migration_plan = {
+        'phase_1_standardization': {
+            'usr_id': 'user_id',
+            'img_url': 'image_url',
+            'desc': 'description'
+        },
+        'phase_2_business_terms': {
+            'client_id': 'customer_id',
+            'doc_type': 'document_category'
+        }
+    }
+    return migration_plan
+
+# Execute planned migration
+def execute_migration_phase(table, phase_renames):
+    """Execute a phase of column renames"""
+    for old_name, new_name in phase_renames.items():
+        try:
+            table.rename_column(old_name, new_name)
+            print(f"✅ {old_name} → {new_name}")
+        except Exception as e:
+            print(f"❌ {old_name}: {e}")
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

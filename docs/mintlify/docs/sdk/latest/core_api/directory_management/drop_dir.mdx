@@ -1,0 +1,436 @@
+---
+title: "pxt.drop_dir"
+description: "Remove directories and manage workspace cleanup"
+---
+
+<Badge text="Destructive" color="red" size="small" />
+
+## Function Signature
+
+```python
+pxt.drop_dir(
+    path: str,
+    force: bool = False,
+    if_not_exists: str = 'error'
+) -> None
+```
+
+## Description
+
+Remove a directory from the Pixeltable workspace. This is a **destructive operation** that can permanently delete directories and all their contents, including tables, views, snapshots, and subdirectories. The operation includes safety checks to prevent accidental deletion of non-empty directories unless explicitly forced.
+
+Use `drop_dir` for cleaning up temporary directories, removing obsolete project structures, or reorganizing your workspace hierarchy. Always exercise caution when using the `force` parameter in production environments.
+
+<Callout type="warning">
+  **🚨 Destructive Operation**  
+  This permanently removes directories and potentially all contents. Use `force=True` with extreme caution.
+</Callout>
+
+## Parameters
+
+<ParamField path="path" type="str" required>
+  Name or path of the directory to remove using dot notation.
+  
+  **Examples:**
+  - `'temp_experiments'` - Top-level directory
+  - `'projects.old_analysis'` - Nested directory
+  - `'dev.archived.2023'` - Deep hierarchy path
+</ParamField>
+
+<ParamField path="force" type="bool" default="False">
+  Whether to recursively remove all contents.
+  
+  - `False`: Only remove empty directories (safe default)
+  - `True`: Remove directory and ALL contents including tables, views, snapshots, and subdirectories
+  
+  **Warning:** `force=True` is irreversible and deletes everything!
+</ParamField>
+
+<ParamField path="if_not_exists" type="str" default="'error'">
+  Behavior when directory doesn't exist.
+  
+  - `'error'`: Raise exception if directory doesn't exist
+  - `'ignore'`: Do nothing if directory doesn't exist (safe for cleanup scripts)
+</ParamField>
+
+## Returns
+
+<ResponseField name="None" type="None">
+  This function doesn't return a value. The directory is removed from the workspace immediately.
+</ResponseField>
+
+## Examples
+
+### Basic Directory Removal
+
+```python
+import pixeltable as pxt
+
+# Remove empty directory
+pxt.drop_dir('temp_experiments')
+
+# Remove nested empty directory
+pxt.drop_dir('projects.completed.old_analysis')
+
+# Safe removal that won't fail if directory doesn't exist
+pxt.drop_dir('temp_data', if_not_exists='ignore')
+```
+
+### Force Removal (Use with Caution!)
+
+```python
+# Remove directory and ALL its contents
+# ⚠️ This is irreversible!
+pxt.drop_dir('experiments.failed_attempts', force=True)
+
+# Clean up entire temporary workspace
+pxt.drop_dir('temp_workspace', force=True, if_not_exists='ignore')
+```
+
+### Safe Cleanup Operations
+
+```python
+def safe_cleanup_empty_dirs(directory_list):
+    """Safely remove only empty directories"""
+    
+    removed = []
+    failed = []
+    
+    for dir_path in directory_list:
+        try:
+            pxt.drop_dir(dir_path, force=False, if_not_exists='ignore')
+            removed.append(dir_path)
+            print(f"✅ Removed empty directory: {dir_path}")
+        except Exception as e:
+            failed.append((dir_path, str(e)))
+            print(f"❌ Could not remove {dir_path}: {e}")
+    
+    print(f"\nCleanup complete: {len(removed)} removed, {len(failed)} failed")
+    return removed, failed
+
+# Clean up list of temporary directories
+temp_dirs = [
+    'experiments.temp_2024_01',
+    'experiments.temp_2024_02', 
+    'scratch.user_tests',
+    'staging.old_imports'
+]
+
+safe_cleanup_empty_dirs(temp_dirs)
+```
+
+### Project Lifecycle Management
+
+```python
+def archive_completed_project(project_name):
+    """Archive or remove completed project safely"""
+    
+    project_path = f'projects.{project_name}'
+    archive_path = f'archive.{project_name}'
+    
+    try:
+        # First, try to create archive directory
+        pxt.create_dir(archive_path, if_exists='ignore')
+        print(f"Archive directory ready: {archive_path}")
+        
+        # In real implementation, you'd move tables to archive
+        # For now, we'll just demonstrate safe removal
+        
+        # Remove original project (only if empty)
+        pxt.drop_dir(project_path, force=False)
+        print(f"✅ Project archived: {project_name}")
+        
+    except Exception as e:
+        print(f"❌ Could not archive project {project_name}: {e}")
+        print("Project may contain tables or subdirectories")
+
+# Archive completed projects
+archive_completed_project('pilot_study_2023')
+```
+
+### Development Environment Cleanup
+
+```python
+def cleanup_dev_environment():
+    """Clean up development directories and temporary data"""
+    
+    # Safe cleanup patterns for development
+    cleanup_patterns = [
+        # Temporary directories (safe to force-remove)
+        ('temp.*', True),
+        ('scratch.*', True),
+        ('debug.*', True),
+        
+        # Experimental directories (check first)
+        ('experiments.failed.*', False),
+        ('experiments.obsolete.*', False),
+        
+        # Old development branches
+        ('dev.feature_branch_*', False)
+    ]
+    
+    for pattern, force_remove in cleanup_patterns:
+        # In real implementation, you'd list directories matching pattern
+        # For demo, we'll show the concept
+        example_dirs = [
+            'temp.data_import_test',
+            'scratch.model_experiments', 
+            'debug.column_issues'
+        ]
+        
+        for dir_path in example_dirs:
+            if pattern.replace('*', '') in dir_path:
+                try:
+                    pxt.drop_dir(dir_path, force=force_remove, if_not_exists='ignore')
+                    print(f"🧹 Cleaned up: {dir_path}")
+                except Exception as e:
+                    print(f"⚠️ Manual review needed for {dir_path}: {e}")
+
+# Run development cleanup
+cleanup_dev_environment()
+```
+
+### Staged Removal with Confirmation
+
+```python
+def remove_directory_with_confirmation(dir_path, show_contents=True):
+    """Remove directory with user confirmation for safety"""
+    
+    try:
+        # Check if directory exists
+        if show_contents:
+            # In real implementation, you'd list directory contents
+            print(f"Directory: {dir_path}")
+            print("Contents: [would show tables, subdirs, etc.]")
+        
+        # Get confirmation (in real app, use input())
+        confirm = True  # Simulated confirmation
+        
+        if confirm:
+            # Try safe removal first
+            try:
+                pxt.drop_dir(dir_path, force=False)
+                print(f"✅ Safely removed empty directory: {dir_path}")
+            except Exception as e:
+                print(f"Directory not empty: {e}")
+                
+                # Ask for force removal confirmation
+                force_confirm = False  # Simulated - would be user input
+                if force_confirm:
+                    pxt.drop_dir(dir_path, force=True)
+                    print(f"✅ Force removed directory: {dir_path}")
+                else:
+                    print("❌ Removal cancelled by user")
+        else:
+            print("❌ Removal cancelled by user")
+            
+    except Exception as e:
+        print(f"❌ Error during removal: {e}")
+
+# Interactive removal
+remove_directory_with_confirmation('experiments.old_models')
+```
+
+### Bulk Cleanup Operations
+
+```python
+def cleanup_by_age_pattern(base_path, patterns_to_remove):
+    """Remove directories matching age-based patterns"""
+    
+    # Example: remove old dated directories
+    dated_patterns = [
+        f'{base_path}.2022.*',  # Old year directories
+        f'{base_path}.temp_*',  # All temp directories
+        f'{base_path}.test_*'   # All test directories
+    ]
+    
+    removed_count = 0
+    for pattern in dated_patterns:
+        # In real implementation, you'd find matching directories
+        example_matches = [
+            f'{base_path}.2022.q1_analysis',
+            f'{base_path}.temp_image_processing',
+            f'{base_path}.test_new_features'
+        ]
+        
+        for dir_path in example_matches:
+            try:
+                pxt.drop_dir(dir_path, force=False, if_not_exists='ignore')
+                removed_count += 1
+                print(f"🗑️ Removed: {dir_path}")
+            except Exception as e:
+                print(f"⚠️ Needs manual review: {dir_path} - {e}")
+    
+    print(f"Bulk cleanup completed: {removed_count} directories removed")
+
+# Clean up old directories
+cleanup_by_age_pattern('experiments', ['2022.*', 'temp_*'])
+```
+
+### Production Safety Patterns
+
+```python
+class DirectoryManager:
+    """Safe directory management with logging and rollback"""
+    
+    def __init__(self):
+        self.removal_log = []
+    
+    def safe_remove(self, dir_path, backup_first=True):
+        """Remove directory with safety checks and logging"""
+        
+        try:
+            # Log the intended operation
+            self.removal_log.append({
+                'action': 'remove_directory',
+                'path': dir_path,
+                'timestamp': datetime.now().isoformat(),
+                'backup_created': backup_first
+            })
+            
+            if backup_first:
+                # In real implementation, create backup
+                print(f"📋 Backup created for: {dir_path}")
+            
+            # Attempt safe removal
+            pxt.drop_dir(dir_path, force=False, if_not_exists='ignore')
+            print(f"✅ Safely removed: {dir_path}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to remove {dir_path}: {e}")
+            return False
+    
+    def force_remove_with_checks(self, dir_path):
+        """Force remove with multiple confirmation checks"""
+        
+        # Multiple safety checks for force operations
+        checks = [
+            f"Confirm removal of ALL contents in {dir_path}",
+            "This operation cannot be undone",
+            "Have you created a backup if needed?"
+        ]
+        
+        print(f"⚠️ FORCE REMOVAL REQUESTED: {dir_path}")
+        for check in checks:
+            print(f"   - {check}")
+        
+        # In real implementation, require explicit confirmation
+        confirmed = True  # Simulated confirmation
+        
+        if confirmed:
+            try:
+                pxt.drop_dir(dir_path, force=True)
+                print(f"💥 Force removed: {dir_path}")
+                return True
+            except Exception as e:
+                print(f"❌ Force removal failed: {e}")
+                return False
+        else:
+            print("❌ Force removal cancelled")
+            return False
+
+# Usage
+manager = DirectoryManager()
+manager.safe_remove('experiments.completed_2023')
+```
+
+### Error Recovery Patterns
+
+```python
+def robust_directory_cleanup(directories_to_remove):
+    """Robust cleanup with error recovery and reporting"""
+    
+    results = {
+        'successful': [],
+        'failed_empty_check': [],
+        'failed_not_found': [],
+        'failed_other': []
+    }
+    
+    for dir_path in directories_to_remove:
+        try:
+            pxt.drop_dir(dir_path, force=False, if_not_exists='ignore')
+            results['successful'].append(dir_path)
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            if 'not empty' in error_msg:
+                results['failed_empty_check'].append(dir_path)
+            elif 'not found' in error_msg or 'does not exist' in error_msg:
+                results['failed_not_found'].append(dir_path)
+            else:
+                results['failed_other'].append((dir_path, str(e)))
+    
+    # Report results
+    print("🧹 Directory Cleanup Report:")
+    print(f"   ✅ Successfully removed: {len(results['successful'])}")
+    print(f"   📁 Not empty (manual review): {len(results['failed_empty_check'])}")
+    print(f"   🔍 Not found (already gone): {len(results['failed_not_found'])}")
+    print(f"   ❌ Other errors: {len(results['failed_other'])}")
+    
+    return results
+
+# Run robust cleanup
+cleanup_dirs = [
+    'temp.old_experiments',
+    'staging.test_data',
+    'dev.feature_prototypes',
+    'experiments.archived_2023'
+]
+
+cleanup_results = robust_directory_cleanup(cleanup_dirs)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Path errors:**
+  - Invalid directory path or directory doesn't exist and `if_not_exists='error'`
+  - Path exists but is not a directory
+  
+  **Content errors:**
+  - Directory is not empty and `force=False`
+  - Cannot remove directory due to active dependencies
+  
+  **Permission errors:**
+  - Insufficient permissions to remove directory or its contents
+  - System-level errors during removal operation
+</ResponseField>
+
+## Best Practices
+
+### Safety First
+```python
+# ✅ Safe removal patterns
+pxt.drop_dir('temp_data', force=False, if_not_exists='ignore')  # Safe default
+pxt.drop_dir('experiments.completed', force=False)             # Check if empty first
+
+# ⚠️ Use force removal very carefully
+# pxt.drop_dir('important_data', force=True)  # Only if absolutely sure!
+
+# 🛡️ Always use force with confirmation in production
+def confirmed_force_removal(dir_path):
+    # Implement confirmation logic
+    # Only proceed after explicit user confirmation
+    pass
+```
+
+### Cleanup Strategies
+```python
+# Strategy 1: Remove only empty directories (safest)
+cleanup_dirs = ['temp.*', 'scratch.*', 'debug.*']
+for pattern in cleanup_dirs:
+    # Find matching directories and remove if empty
+    pxt.drop_dir(matching_dir, force=False, if_not_exists='ignore')
+
+# Strategy 2: Staged cleanup with review
+# 1. List contents of directories to remove
+# 2. Move important data to archive
+# 3. Remove empty directories
+# 4. Force remove only confirmed temporary directories
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

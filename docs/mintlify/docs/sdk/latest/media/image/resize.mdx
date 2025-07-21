@@ -1,0 +1,191 @@
+---
+title: "image.resize"
+description: "image.resize(size) - Transform visual possibilities through intelligent dimension adaptation"
+---
+
+<Badge text="Media Processing" color="purple" size="small" />
+
+## Function Signature
+
+```python
+image.resize(size: tuple[int, int]) -> pxt.Image
+```
+
+## Description
+
+Transform visual data into new dimensional possibilities while preserving the essence of meaning. Every resize operation is more than pixel manipulation—it's an act of adaptation that preserves visual meaning across different scales and contexts.
+
+In the multimodal AI era, image dimensions are not just technical constraints but **semantic bridges** that connect visual data to model requirements, display contexts, and computational efficiency. This function embodies Pixeltable's philosophy that **data transformation should be declarative, meaningful, and effortless**.
+
+## Parameters
+
+<ParamField path="size" type="tuple[int, int]" required>
+  A tuple containing the target width and height in pixels `(width, height)`. The image will be scaled to exactly these dimensions.
+  
+  **Examples:**
+  - `(224, 224)` - Standard input for many computer vision models
+  - `(512, 512)` - Optimal for generative AI models like DALL-E
+  - `(1920, 1080)` - Full HD display dimensions
+  - `(128, 128)` - Thumbnail or icon dimensions
+</ParamField>
+
+## Returns
+
+<ResponseField name="resized_image" type="pxt.Image">
+  A new image with the specified dimensions. The original aspect ratio may be altered if the target dimensions don't match the source aspect ratio.
+</ResponseField>
+
+## Examples
+
+### Standard Computer Vision Pipeline
+
+Transform images for AI model consumption with declarative ease:
+
+```python
+import pixeltable as pxt
+
+# Create table with raw images
+images = pxt.create_table('image_processing', {
+    'id': pxt.String,
+    'raw_image': pxt.Image
+})
+
+# Add computed column that resizes all images to model-ready dimensions
+images.add_computed_column(
+    model_ready=images.raw_image.resize((224, 224))
+)
+
+# Insert image and automatically get resized version
+images.insert([
+    {'id': 'photo_001', 'raw_image': '/path/to/photo.jpg'}
+])
+
+# The model_ready column now contains perfectly sized images
+model_inputs = images.select(images.model_ready).collect()
+```
+
+### Multi-Scale Image Processing
+
+Create multiple scales simultaneously for responsive design or multi-resolution analysis:
+
+```python
+# Create different scales for different purposes
+images.add_computed_column(
+    thumbnail=images.raw_image.resize((128, 128))  # Quick previews
+)
+images.add_computed_column(
+    web_display=images.raw_image.resize((800, 600))  # Web galleries
+)
+images.add_computed_column(
+    ai_ready=images.raw_image.resize((512, 512))  # Generative AI input
+)
+
+# One insert, multiple automatically computed scales
+images.insert([
+    {'id': 'landscape_001', 'raw_image': '/path/to/landscape.jpg'}
+])
+```
+
+### Dynamic Batch Processing
+
+Process entire directories with consistent scaling:
+
+```python
+# Insert multiple images and automatically resize all
+image_files = [
+    {'id': f'img_{i}', 'raw_image': f'/photos/img_{i}.jpg'} 
+    for i in range(1, 100)
+]
+
+images.insert(image_files)
+
+# Every image automatically resized to 224x224 upon insert
+# No loops, no manual processing, just declarative transformation
+results = images.select(images.id, images.model_ready).collect()
+```
+
+### Error Handling and Validation
+
+Handle edge cases gracefully in production pipelines:
+
+```python
+try:
+    # Insert image with automatic resize
+    images.insert([
+        {'id': 'test_image', 'raw_image': '/path/to/image.jpg'}
+    ])
+    
+    # Query resized result
+    result = images.select(images.model_ready).where(
+        images.id == 'test_image'
+    ).collect()
+    
+    if result:
+        resized_img = result[0]['model_ready']
+        print(f"Successfully resized to {resized_img.size}")
+    else:
+        print("Resize operation failed")
+        
+except Exception as e:
+    print(f"Error in resize pipeline: {e}")
+```
+
+## Technical Implementation Notes
+
+### Aspect Ratio Considerations
+
+The resize operation will scale the image to exactly the specified dimensions, potentially altering the aspect ratio:
+
+```python
+# Original: 1920x1080 (16:9 aspect ratio)
+# resize((224, 224)) produces 224x224 (1:1 aspect ratio)
+# Image will be stretched to fit new dimensions
+```
+
+### Performance Characteristics
+
+- **Incremental Computation**: Resize operations are cached and only recomputed when source images change
+- **Batch Efficiency**: Multiple resize operations on the same image are optimized internally
+- **Memory Management**: Pixeltable handles memory allocation for intermediate image buffers
+
+### Integration with PIL
+
+This function leverages PIL's robust image processing capabilities while providing Pixeltable's declarative interface:
+
+```python
+# Equivalent PIL operation (manual):
+from PIL import Image
+img = Image.open('/path/to/image.jpg')
+resized = img.resize((224, 224))
+
+# Pixeltable equivalent (declarative):
+images.add_computed_column(
+    resized=images.raw_image.resize((224, 224))
+)
+```
+
+## Related Functions
+
+- **[`crop`](./crop)** - Extract rectangular regions from images
+- **[`rotate`](./rotate)** - Rotate images by specified angles  
+- **[`alpha_composite`](./alpha_composite)** - Composite images with transparency
+- **[`width`](./width)** - Get image width dimension
+- **[`height`](./height)** - Get image height dimension
+
+## Use Cases in Production
+
+### AI/ML Model Preparation
+Perfect for standardizing image inputs for machine learning models that require specific dimensions.
+
+### Content Management Systems
+Create responsive image variants for different display contexts and device types.
+
+### Computer Vision Pipelines
+Preprocess images for object detection, classification, or segmentation workflows.
+
+### Batch Image Processing
+Transform entire image collections with consistent scaling while maintaining organizational structure.
+
+---
+
+*When pixels meet purpose, transformation becomes art. This is where data processing transcends mere computation and becomes **visual possibility engineering**.*

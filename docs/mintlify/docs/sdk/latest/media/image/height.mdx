@@ -1,0 +1,477 @@
+---
+title: "image.height"
+description: "image.height() - Measure the vertical reach of visual ambitions"
+---
+
+<Badge text="Media Processing" color="purple" size="small" />
+
+## Function Signature
+
+```python
+image.height() -> int
+```
+
+## Description
+
+Discover the vertical extent of visual data, where pixels ascend toward possibility and elevation defines potential. Height measurement transcends simple counting—it's **vertical intelligence gathering** that enables dynamic scaling, proportional calculations, and intelligent layout decisions.
+
+In the architecture of computer vision and responsive design, image height is the vertical foundation of all spatial reasoning. This function embodies Pixeltable's philosophy that **dimensional awareness should be immediate and intuitive**, providing the vertical context essential for sophisticated image processing workflows.
+
+## Returns
+
+<ResponseField name="height_pixels" type="int">
+  The height of the image in pixels, representing the vertical dimension from top edge to bottom edge.
+</ResponseField>
+
+## Examples
+
+### Vertical Layout Optimization
+
+Optimize image layouts based on height constraints:
+
+```python
+import pixeltable as pxt
+
+# Create table for vertical layout optimization
+layout_optimizer = pxt.create_table('vertical_layouts', {
+    'layout_id': pxt.String,
+    'content_image': pxt.Image,
+    'layout_context': pxt.String,  # 'header', 'sidebar', 'content', 'footer'
+    'max_height_constraint': pxt.Int
+})
+
+# Get image dimensions for layout decisions
+layout_optimizer.add_computed_column(
+    image_width=layout_optimizer.content_image.width()
+)
+
+layout_optimizer.add_computed_column(
+    image_height=layout_optimizer.content_image.height()
+)
+
+# Optimize for vertical constraints
+@pxt.udf
+def optimize_for_height(image: pxt.Image, height: int, width: int,
+                       context: str, max_height: int) -> pxt.Image:
+    """Optimize image for height constraints in layout"""
+    if height <= max_height:
+        return image  # Already fits
+    
+    # Calculate new dimensions maintaining aspect ratio
+    aspect_ratio = width / height
+    new_height = max_height
+    new_width = int(new_height * aspect_ratio)
+    
+    return image.resize((new_width, new_height))
+
+layout_optimizer.add_computed_column(
+    optimized_image=optimize_for_height(
+        layout_optimizer.content_image,
+        layout_optimizer.image_height,
+        layout_optimizer.image_width,
+        layout_optimizer.layout_context,
+        layout_optimizer.max_height_constraint
+    )
+)
+
+# Process images for different layout contexts
+layout_optimizer.insert([
+    {
+        'layout_id': 'header_img_001',
+        'content_image': '/images/banner.jpg',
+        'layout_context': 'header',
+        'max_height_constraint': 300
+    },
+    {
+        'layout_id': 'sidebar_img_001',
+        'content_image': '/images/promo.jpg',
+        'layout_context': 'sidebar', 
+        'max_height_constraint': 200
+    }
+])
+```
+
+### Portrait vs Landscape Classification
+
+Classify images based on height-to-width relationships:
+
+```python
+# Classify image orientations based on dimensional analysis
+orientation_classifier = pxt.create_table('image_orientations', {
+    'classification_id': pxt.String,
+    'sample_image': pxt.Image,
+    'source_category': pxt.String
+})
+
+# Get both dimensions
+orientation_classifier.add_computed_column(
+    pixel_width=orientation_classifier.sample_image.width()
+)
+
+orientation_classifier.add_computed_column(
+    pixel_height=orientation_classifier.sample_image.height()
+)
+
+# Advanced orientation and proportion analysis
+@pxt.udf
+def classify_image_orientation(width: int, height: int) -> dict:
+    """Classify image orientation and proportional characteristics"""
+    aspect_ratio = width / height
+    height_ratio = height / width
+    
+    # Primary orientation classification
+    if width > height:
+        if aspect_ratio >= 2.0:
+            orientation = 'ultra_landscape'
+        elif aspect_ratio >= 1.5:
+            orientation = 'landscape'
+        else:
+            orientation = 'wide'
+    elif height > width:
+        if height_ratio >= 2.0:
+            orientation = 'ultra_portrait'
+        elif height_ratio >= 1.5:
+            orientation = 'portrait'
+        else:
+            orientation = 'tall'
+    else:
+        orientation = 'square'
+    
+    # Calculate proportional characteristics
+    total_pixels = width * height
+    perimeter = 2 * (width + height)
+    
+    return {
+        'orientation': orientation,
+        'aspect_ratio': round(aspect_ratio, 3),
+        'height_dominance': height > width,
+        'width_dominance': width > height,
+        'is_balanced': abs(aspect_ratio - 1.0) < 0.2,
+        'vertical_emphasis': height_ratio if height > width else 0,
+        'total_pixels': total_pixels,
+        'perimeter': perimeter,
+        'compactness': round(total_pixels / (perimeter ** 2), 4)
+    }
+
+orientation_classifier.add_computed_column(
+    orientation_analysis=classify_image_orientation(
+        orientation_classifier.pixel_width,
+        orientation_classifier.pixel_height
+    )
+)
+
+# Classify various image types
+orientation_classifier.insert([
+    {
+        'classification_id': 'photo_001',
+        'sample_image': '/photos/portrait.jpg',
+        'source_category': 'photography'
+    },
+    {
+        'classification_id': 'banner_001',
+        'sample_image': '/graphics/wide_banner.png',
+        'source_category': 'web_graphics'
+    }
+])
+```
+
+### Scroll-Aware Content Optimization
+
+Optimize content based on height for scrolling interfaces:
+
+```python
+# Optimize images for scroll-based interfaces
+scroll_optimizer = pxt.create_table('scroll_optimization', {
+    'content_id': pxt.String,
+    'original_image': pxt.Image,
+    'viewport_height': pxt.Int,
+    'interface_type': pxt.String  # 'mobile_feed', 'desktop_gallery', etc.
+})
+
+# Get image height for scroll calculations
+scroll_optimizer.add_computed_column(
+    content_height=scroll_optimizer.original_image.height()
+)
+
+scroll_optimizer.add_computed_column(
+    content_width=scroll_optimizer.original_image.width()
+)
+
+# Calculate scroll optimization strategy
+@pxt.udf
+def optimize_for_scrolling(image: pxt.Image, height: int, width: int,
+                          viewport_height: int, interface_type: str) -> dict:
+    """Optimize image for scrolling interface"""
+    viewport_ratio = height / viewport_height
+    
+    # Determine optimization strategy
+    if viewport_ratio > 2.0:
+        strategy = 'multi_viewport'
+        recommended_action = 'split_or_compress'
+        ideal_height = viewport_height * 1.5
+    elif viewport_ratio > 1.5:
+        strategy = 'oversized'
+        recommended_action = 'moderate_resize'
+        ideal_height = viewport_height * 1.2
+    elif viewport_ratio > 0.8:
+        strategy = 'optimal'
+        recommended_action = 'maintain_size'
+        ideal_height = height
+    else:
+        strategy = 'undersized'
+        recommended_action = 'consider_enlarging'
+        ideal_height = viewport_height * 0.8
+    
+    # Create optimized version if needed
+    if recommended_action in ['moderate_resize', 'split_or_compress']:
+        aspect_ratio = width / height
+        new_width = int(ideal_height * aspect_ratio)
+        optimized_image = image.resize((new_width, int(ideal_height)))
+    else:
+        optimized_image = image
+    
+    return {
+        'strategy': strategy,
+        'viewport_ratio': round(viewport_ratio, 2),
+        'recommended_action': recommended_action,
+        'ideal_height': int(ideal_height),
+        'scroll_performance': 'good' if viewport_ratio <= 1.5 else 'poor',
+        'mobile_friendly': height <= viewport_height * 1.5
+    }
+
+scroll_optimizer.add_computed_column(
+    scroll_analysis=optimize_for_scrolling(
+        scroll_optimizer.original_image,
+        scroll_optimizer.content_height,
+        scroll_optimizer.content_width,
+        scroll_optimizer.viewport_height,
+        scroll_optimizer.interface_type
+    )
+)
+
+# Optimize content for different scroll contexts
+scroll_optimizer.insert([
+    {
+        'content_id': 'mobile_post_001',
+        'original_image': '/content/long_infographic.png',
+        'viewport_height': 800,
+        'interface_type': 'mobile_feed'
+    }
+])
+```
+
+### Vertical Composition Analysis
+
+Analyze vertical composition and balance in images:
+
+```python
+# Analyze vertical composition characteristics
+composition_analyzer = pxt.create_table('vertical_composition', {
+    'analysis_id': pxt.String,
+    'artwork_image': pxt.Image,
+    'composition_type': pxt.String
+})
+
+# Get height for composition analysis
+composition_analyzer.add_computed_column(
+    composition_height=composition_analyzer.artwork_image.height()
+)
+
+composition_analyzer.add_computed_column(
+    composition_width=composition_analyzer.artwork_image.width()
+)
+
+# Analyze vertical composition characteristics
+@pxt.udf
+def analyze_vertical_composition(height: int, width: int, 
+                               comp_type: str) -> dict:
+    """Analyze vertical composition and balance characteristics"""
+    # Calculate composition zones
+    top_third = height // 3
+    middle_third = height // 3
+    bottom_third = height - (top_third + middle_third)
+    
+    # Analyze proportional relationships
+    golden_ratio_height = int(width * 1.618)
+    golden_relationship = abs(height - golden_ratio_height) / height
+    
+    # Determine composition characteristics
+    if height > width * 1.6:
+        vertical_emphasis = 'strong'
+    elif height > width * 1.2:
+        vertical_emphasis = 'moderate'
+    else:
+        vertical_emphasis = 'minimal'
+    
+    composition_balance = 'golden' if golden_relationship < 0.1 else 'standard'
+    
+    return {
+        'vertical_emphasis': vertical_emphasis,
+        'composition_balance': composition_balance,
+        'golden_ratio_alignment': round(1 - golden_relationship, 3),
+        'rule_of_thirds_height': top_third,
+        'vertical_zones': {
+            'top_third': top_third,
+            'middle_third': middle_third,
+            'bottom_third': bottom_third
+        },
+        'height_dominance_factor': round(height / width, 2),
+        'vertical_impact': 'high' if height > width * 1.4 else 'balanced',
+        'recommended_for': 'portrait_display' if height > width else 'landscape_display'
+    }
+
+composition_analyzer.add_computed_column(
+    composition_metrics=analyze_vertical_composition(
+        composition_analyzer.composition_height,
+        composition_analyzer.composition_width,
+        composition_analyzer.composition_type
+    )
+)
+
+# Analyze various compositions
+composition_analyzer.insert([
+    {
+        'analysis_id': 'portrait_001',
+        'artwork_image': '/art/portrait_painting.jpg',
+        'composition_type': 'classical_portrait'
+    }
+])
+```
+
+### Print Layout Validation
+
+Validate image heights for print production:
+
+```python
+# Validate images for print production based on height requirements
+print_validator = pxt.create_table('print_validation', {
+    'print_job_id': pxt.String,
+    'source_image': pxt.Image,
+    'print_format': pxt.String,  # 'business_card', 'poster', 'brochure'
+    'dpi_requirement': pxt.Int,
+    'physical_height_inches': pxt.Float
+})
+
+# Get pixel dimensions
+print_validator.add_computed_column(
+    pixel_height=print_validator.source_image.height()
+)
+
+print_validator.add_computed_column(
+    pixel_width=print_validator.source_image.width()
+)
+
+# Validate print quality based on height
+@pxt.udf
+def validate_print_height(pixel_height: int, pixel_width: int,
+                         dpi: int, physical_height: float,
+                         print_format: str) -> dict:
+    """Validate image height for print quality"""
+    # Calculate required pixels for desired physical height
+    required_pixel_height = int(physical_height * dpi)
+    height_ratio = pixel_height / required_pixel_height
+    
+    # Determine print quality assessment
+    if height_ratio >= 1.0:
+        quality_assessment = 'excellent'
+        print_ready = True
+    elif height_ratio >= 0.8:
+        quality_assessment = 'good'
+        print_ready = True
+    elif height_ratio >= 0.6:
+        quality_assessment = 'acceptable'
+        print_ready = True
+    else:
+        quality_assessment = 'poor'
+        print_ready = False
+    
+    # Calculate actual physical dimensions at given DPI
+    actual_height_inches = pixel_height / dpi
+    actual_width_inches = pixel_width / dpi
+    
+    return {
+        'print_ready': print_ready,
+        'quality_assessment': quality_assessment,
+        'height_ratio': round(height_ratio, 3),
+        'required_pixels': required_pixel_height,
+        'actual_pixels': pixel_height,
+        'pixel_deficit': max(0, required_pixel_height - pixel_height),
+        'actual_dimensions_inches': {
+            'height': round(actual_height_inches, 2),
+            'width': round(actual_width_inches, 2)
+        },
+        'recommendations': []
+    }
+
+print_validator.add_computed_column(
+    print_quality_check=validate_print_height(
+        print_validator.pixel_height,
+        print_validator.pixel_width,
+        print_validator.dpi_requirement,
+        print_validator.physical_height_inches,
+        print_validator.print_format
+    )
+)
+
+# Validate images for print production
+print_validator.insert([
+    {
+        'print_job_id': 'poster_001',
+        'source_image': '/print/poster_design.png',
+        'print_format': 'poster',
+        'dpi_requirement': 300,
+        'physical_height_inches': 24.0
+    }
+])
+```
+
+## Technical Implementation Notes
+
+### Metadata Access
+
+- **Header Reading**: Extracts height from image file headers
+- **No Pixel Processing**: Reads dimension data without loading full image
+- **Format Universal**: Works across all supported image formats
+
+### Performance Characteristics
+
+- **Instant Response**: Extremely fast metadata-only operation
+- **Memory Efficient**: No image data loaded into memory
+- **Batch Friendly**: Efficient for processing large image collections
+
+### Precision and Accuracy
+
+- **Exact Pixels**: Returns precise pixel count as integer
+- **No Approximation**: Direct metadata reading ensures accuracy
+- **Corruption Resilient**: Handles corrupted files gracefully
+
+## Related Functions
+
+- **[`width`](./width)** - Get image width dimension
+- **[`resize`](./resize)** - Scale images using height calculations
+- **[`crop`](./crop)** - Extract regions using height for boundary validation
+- **[`rotate`](./rotate)** - Transform images with vertical dimension awareness
+
+## Use Cases in Production
+
+### Responsive Web Applications
+Calculate optimal image heights for different screen sizes and layout constraints.
+
+### Print Production Workflows
+Validate image heights against physical dimension requirements and DPI standards.
+
+### Content Management Systems
+Organize and categorize images based on vertical characteristics and orientation.
+
+### Social Media Automation
+Ensure images meet platform-specific height requirements for optimal display.
+
+### E-learning Platforms
+Optimize educational content images for various device orientations and reading contexts.
+
+### Digital Signage Systems
+Validate content dimensions for vertical display installations and portrait monitors.
+
+---
+
+*In the realm of pixels, height reaches toward possibility—the vertical journey from foundation to aspiration. This is **elevation intelligence** in its purest form, where **every pixel ascends with purpose** and **vertical space becomes infinite potential**.*

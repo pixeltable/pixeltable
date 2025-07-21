@@ -1,0 +1,481 @@
+---
+title: "pxt.list_dirs"
+description: "List and explore directory structures in your workspace"
+---
+
+<Badge text="Directory Management" color="blue" size="small" />
+
+## Function Signature
+
+```python
+pxt.list_dirs(
+    path: str = '',
+    recursive: bool = False
+) -> list[str]
+```
+
+## Description
+
+List directories within a specified path in your Pixeltable workspace. This function helps you explore and understand your workspace organization, discover existing directory structures, and navigate complex hierarchical data layouts.
+
+Use `list_dirs` for workspace exploration, directory structure validation, automated cleanup operations, or building administrative tools that need to understand your data organization.
+
+## Parameters
+
+<ParamField path="path" type="str" default="''">
+  Name or path of the directory to list using dot notation. Empty string lists root-level directories.
+  
+  **Examples:**
+  - `''` - List root-level directories
+  - `'projects'` - List subdirectories within 'projects'
+  - `'projects.computer_vision'` - List nested subdirectories
+</ParamField>
+
+<ParamField path="recursive" type="bool" default="False">
+  Whether to list all subdirectories recursively.
+  
+  - `False`: List only direct subdirectories (one level)
+  - `True`: List all descendant directories recursively (entire tree)
+</ParamField>
+
+## Returns
+
+<ResponseField name="list[str]" type="list[str]">
+  List of directory paths in dot notation. Returns empty list if no subdirectories exist.
+</ResponseField>
+
+## Examples
+
+### Basic Directory Listing
+
+```python
+import pixeltable as pxt
+
+# List all root-level directories
+root_dirs = pxt.list_dirs()
+print("Root directories:", root_dirs)
+# Output: ['projects', 'experiments', 'production', 'archive']
+
+# List subdirectories within a specific directory
+project_dirs = pxt.list_dirs('projects')
+print("Project directories:", project_dirs)
+# Output: ['projects.computer_vision', 'projects.nlp', 'projects.audio']
+
+# List nested subdirectories
+cv_dirs = pxt.list_dirs('projects.computer_vision')
+print("CV directories:", cv_dirs)
+# Output: ['projects.computer_vision.object_detection', 'projects.computer_vision.segmentation']
+```
+
+### Recursive Directory Discovery
+
+```python
+# Get complete directory tree
+all_dirs = pxt.list_dirs('', recursive=True)
+print("All directories in workspace:")
+for dir_path in sorted(all_dirs):
+    indent = '  ' * (dir_path.count('.'))
+    dir_name = dir_path.split('.')[-1] if '.' in dir_path else dir_path
+    print(f"{indent}{dir_name}")
+
+# Get all subdirectories under a specific path
+project_tree = pxt.list_dirs('projects', recursive=True)
+print("\nComplete projects tree:")
+for dir_path in sorted(project_tree):
+    level = dir_path.count('.') - 1  # Subtract 1 for 'projects' itself
+    indent = '  ' * level
+    dir_name = dir_path.split('.')[-1]
+    print(f"{indent}{dir_name}")
+```
+
+### Workspace Analysis and Reporting
+
+```python
+def analyze_workspace_structure():
+    """Analyze and report on workspace organization"""
+    
+    all_dirs = pxt.list_dirs('', recursive=True)
+    
+    # Basic statistics
+    total_dirs = len(all_dirs)
+    root_dirs = [d for d in all_dirs if '.' not in d]
+    nested_dirs = [d for d in all_dirs if '.' in d]
+    
+    print(f"📊 Workspace Analysis:")
+    print(f"   Total directories: {total_dirs}")
+    print(f"   Root directories: {len(root_dirs)}")
+    print(f"   Nested directories: {len(nested_dirs)}")
+    
+    # Depth analysis
+    max_depth = max([d.count('.') for d in all_dirs]) if all_dirs else 0
+    print(f"   Maximum depth: {max_depth + 1}")
+    
+    # Most complex directory trees
+    dir_counts = {}
+    for dir_path in all_dirs:
+        root = dir_path.split('.')[0]
+        dir_counts[root] = dir_counts.get(root, 0) + 1
+    
+    print(f"\n📁 Directory distribution:")
+    for root, count in sorted(dir_counts.items(), key=lambda x: x[1], reverse=True):
+        print(f"   {root}: {count} directories")
+    
+    return {
+        'total': total_dirs,
+        'root_dirs': root_dirs,
+        'nested_dirs': nested_dirs,
+        'max_depth': max_depth,
+        'distribution': dir_counts
+    }
+
+# Run workspace analysis
+workspace_stats = analyze_workspace_structure()
+```
+
+### Directory Structure Validation
+
+```python
+def validate_project_structure(project_name):
+    """Validate that a project has the expected directory structure"""
+    
+    expected_structure = [
+        f'{project_name}.data.raw',
+        f'{project_name}.data.processed',
+        f'{project_name}.models.experiments',
+        f'{project_name}.models.production',
+        f'{project_name}.results.analysis'
+    ]
+    
+    try:
+        project_dirs = pxt.list_dirs(project_name, recursive=True)
+        
+        # Check for expected directories
+        missing_dirs = []
+        for expected_dir in expected_structure:
+            if expected_dir not in project_dirs:
+                missing_dirs.append(expected_dir)
+        
+        # Report validation results
+        if missing_dirs:
+            print(f"⚠️ Project '{project_name}' missing directories:")
+            for missing in missing_dirs:
+                print(f"   - {missing}")
+            return False
+        else:
+            print(f"✅ Project '{project_name}' has complete structure")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Could not validate project '{project_name}': {e}")
+        return False
+
+# Validate project structures
+projects = ['image_classification', 'sentiment_analysis', 'recommendation_engine']
+for project in projects:
+    validate_project_structure(project)
+```
+
+### Directory Tree Visualization
+
+```python
+def print_directory_tree(base_path='', max_depth=None):
+    """Print a visual tree representation of directories"""
+    
+    try:
+        all_dirs = pxt.list_dirs(base_path, recursive=True)
+        
+        # Filter by max depth if specified
+        if max_depth is not None:
+            all_dirs = [d for d in all_dirs if d.count('.') <= max_depth]
+        
+        # Sort for better tree visualization
+        all_dirs.sort()
+        
+        print(f"📂 Directory Tree{' (' + base_path + ')' if base_path else ''}:")
+        
+        for dir_path in all_dirs:
+            if base_path and not dir_path.startswith(base_path):
+                continue
+                
+            # Calculate depth and indentation
+            if base_path:
+                relative_path = dir_path[len(base_path):].lstrip('.')
+                depth = relative_path.count('.') if relative_path else 0
+            else:
+                depth = dir_path.count('.')
+            
+            # Create tree-like indentation
+            indent = '│   ' * depth
+            if depth > 0:
+                indent = indent[:-4] + '├── '
+            
+            # Get directory name
+            dir_name = dir_path.split('.')[-1]
+            print(f"{indent}{dir_name}")
+            
+    except Exception as e:
+        print(f"❌ Could not list directories: {e}")
+
+# Print workspace tree
+print_directory_tree()
+
+# Print specific subtree
+print("\n" + "="*50)
+print_directory_tree('projects', max_depth=2)
+```
+
+### Directory Discovery and Search
+
+```python
+def find_directories_by_pattern(pattern, base_path=''):
+    """Find directories matching a specific pattern"""
+    
+    try:
+        all_dirs = pxt.list_dirs(base_path, recursive=True)
+        
+        matching_dirs = []
+        for dir_path in all_dirs:
+            dir_name = dir_path.split('.')[-1]
+            
+            # Simple pattern matching (could be enhanced with regex)
+            if pattern.lower() in dir_name.lower():
+                matching_dirs.append(dir_path)
+        
+        print(f"🔍 Directories matching '{pattern}':")
+        for match in matching_dirs:
+            print(f"   {match}")
+        
+        return matching_dirs
+        
+    except Exception as e:
+        print(f"❌ Error searching directories: {e}")
+        return []
+
+# Find directories with specific patterns
+find_directories_by_pattern('temp')
+find_directories_by_pattern('experiment')
+find_directories_by_pattern('2024')
+```
+
+### Administrative Operations
+
+```python
+def workspace_maintenance_report():
+    """Generate maintenance report for workspace cleanup"""
+    
+    try:
+        all_dirs = pxt.list_dirs('', recursive=True)
+        
+        # Identify potential cleanup candidates
+        temp_dirs = [d for d in all_dirs if any(keyword in d.lower() 
+                    for keyword in ['temp', 'tmp', 'scratch', 'debug'])]
+        
+        old_dirs = [d for d in all_dirs if any(year in d 
+                   for year in ['2022', '2021', '2020'])]
+        
+        test_dirs = [d for d in all_dirs if any(keyword in d.lower() 
+                    for keyword in ['test', 'testing', 'experiment'])]
+        
+        print("🔧 Workspace Maintenance Report:")
+        print(f"\n📁 Total directories: {len(all_dirs)}")
+        
+        print(f"\n🧹 Cleanup Candidates:")
+        print(f"   Temporary directories: {len(temp_dirs)}")
+        for temp_dir in temp_dirs[:5]:  # Show first 5
+            print(f"      - {temp_dir}")
+        if len(temp_dirs) > 5:
+            print(f"      ... and {len(temp_dirs) - 5} more")
+        
+        print(f"\n📅 Old directories: {len(old_dirs)}")
+        for old_dir in old_dirs[:5]:
+            print(f"      - {old_dir}")
+        if len(old_dirs) > 5:
+            print(f"      ... and {len(old_dirs) - 5} more")
+        
+        print(f"\n🧪 Test/Experiment directories: {len(test_dirs)}")
+        for test_dir in test_dirs[:5]:
+            print(f"      - {test_dir}")
+        if len(test_dirs) > 5:
+            print(f"      ... and {len(test_dirs) - 5} more")
+        
+        return {
+            'total': len(all_dirs),
+            'temp_dirs': temp_dirs,
+            'old_dirs': old_dirs,
+            'test_dirs': test_dirs
+        }
+        
+    except Exception as e:
+        print(f"❌ Error generating maintenance report: {e}")
+        return None
+
+# Generate maintenance report
+maintenance_data = workspace_maintenance_report()
+```
+
+### Interactive Directory Explorer
+
+```python
+def explore_directories_interactively(start_path=''):
+    """Interactive directory explorer"""
+    
+    current_path = start_path
+    
+    while True:
+        try:
+            print(f"\n📍 Current location: {'root' if not current_path else current_path}")
+            
+            # List subdirectories
+            subdirs = pxt.list_dirs(current_path, recursive=False)
+            
+            if not subdirs:
+                print("   (No subdirectories)")
+            else:
+                print("   Subdirectories:")
+                for i, subdir in enumerate(subdirs, 1):
+                    dir_name = subdir.split('.')[-1]
+                    print(f"      {i}. {dir_name}")
+            
+            # Show navigation options
+            print("\n   Options:")
+            print("      'up' - Go to parent directory")
+            print("      'root' - Go to root")
+            print("      'list' - Show recursive listing")
+            print("      'quit' - Exit explorer")
+            if subdirs:
+                print("      <number> - Enter subdirectory")
+            
+            # This would be interactive in a real implementation
+            # For demo, we'll just show the concept
+            print("\n   (Interactive exploration would continue...)")
+            break  # Exit demo
+            
+        except Exception as e:
+            print(f"❌ Explorer error: {e}")
+            break
+
+# Start interactive exploration
+# explore_directories_interactively()
+```
+
+### Bulk Directory Operations
+
+```python
+def get_directories_by_level(max_level=None):
+    """Get directories organized by hierarchy level"""
+    
+    try:
+        all_dirs = pxt.list_dirs('', recursive=True)
+        
+        levels = {}
+        for dir_path in all_dirs:
+            level = dir_path.count('.')
+            
+            if max_level is None or level <= max_level:
+                if level not in levels:
+                    levels[level] = []
+                levels[level].append(dir_path)
+        
+        print("📊 Directories by Level:")
+        for level in sorted(levels.keys()):
+            print(f"\n   Level {level} ({len(levels[level])} directories):")
+            for dir_path in sorted(levels[level])[:10]:  # Show first 10
+                print(f"      {dir_path}")
+            if len(levels[level]) > 10:
+                print(f"      ... and {len(levels[level]) - 10} more")
+        
+        return levels
+        
+    except Exception as e:
+        print(f"❌ Error analyzing directory levels: {e}")
+        return {}
+
+# Analyze directory levels
+directory_levels = get_directories_by_level(max_level=3)
+```
+
+### Error Handling and Edge Cases
+
+```python
+def robust_directory_listing(path='', handle_errors=True):
+    """Robust directory listing with comprehensive error handling"""
+    
+    try:
+        # Basic listing
+        dirs = pxt.list_dirs(path, recursive=False)
+        
+        print(f"📁 Directories in '{path if path else 'root'}':")
+        if not dirs:
+            print("   (No directories found)")
+            return []
+        
+        for dir_path in sorted(dirs):
+            try:
+                # Try to access each directory to verify it's valid
+                dir_name = dir_path.split('.')[-1]
+                print(f"   ✅ {dir_name}")
+                
+            except Exception as dir_error:
+                if handle_errors:
+                    print(f"   ⚠️ {dir_path} (access error: {dir_error})")
+                else:
+                    raise
+        
+        return dirs
+        
+    except Exception as e:
+        if handle_errors:
+            print(f"❌ Could not list directories in '{path}': {e}")
+            return []
+        else:
+            raise
+
+# Robust listing with error handling
+robust_directory_listing('projects')
+robust_directory_listing('nonexistent_path')  # Graceful error handling
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Path errors:**
+  - Specified path does not exist
+  - Path exists but is not a directory
+  
+  **Permission errors:**
+  - Insufficient permissions to access directory contents
+  
+  **System errors:**
+  - System-level errors during directory traversal
+</ResponseField>
+
+## Best Practices
+
+### Efficient Directory Exploration
+```python
+# ✅ Good practices for directory listing
+dirs = pxt.list_dirs('projects', recursive=False)  # Start with non-recursive
+if need_full_tree:
+    full_tree = pxt.list_dirs('projects', recursive=True)  # Then get full tree if needed
+
+# ✅ Handle empty results gracefully
+dirs = pxt.list_dirs('some_path')
+if not dirs:
+    print("No subdirectories found")
+else:
+    process_directories(dirs)
+```
+
+### Performance Considerations
+```python
+# For large workspaces, be selective about recursive listings
+# ✅ Good: List specific subtrees
+project_dirs = pxt.list_dirs('projects', recursive=True)
+
+# ⚠️ Careful: Full workspace recursion on large installations
+# all_dirs = pxt.list_dirs('', recursive=True)  # May be slow
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

@@ -1,0 +1,290 @@
+---
+title: "table.limit"
+description: "limit(n) - Restrict DataFrame to specified number of rows"
+---
+
+<Badge text="Query Operations" color="purple" size="small" />
+
+## Function Signature
+
+```python
+def limit(self, n: int) -> DataFrame
+```
+
+## Description
+
+Limit the number of rows returned by the DataFrame to the specified count. This function is essential for controlling result set size, implementing pagination, and optimizing performance when working with large datasets. The limit is applied after all filtering, sorting, and other operations.
+
+**Key Features:**
+- **Performance optimization** - Reduces memory usage and query time
+- **Result pagination** - Essential for implementing paged results
+- **Top-N queries** - Combined with `order_by()` for top/bottom results
+- **Data sampling** - Quick way to preview large datasets
+- **Query optimization** - Database engines can optimize limited queries
+
+## Parameters
+
+<ParamField path="n" type="int" required>
+  Number of rows to return. Must be a positive integer. If `n` is larger than the actual number of rows in the DataFrame, all available rows are returned.
+</ParamField>
+
+## Returns
+
+<ResponseField name="result" type="DataFrame">
+  A new DataFrame containing at most `n` rows. The original DataFrame remains unchanged.
+</ResponseField>
+
+## Examples
+
+### Basic Row Limiting
+
+```python
+import pixeltable as pxt
+
+# Create table with sample data
+table = pxt.create_table('products', {
+    'name': pxt.String,
+    'price': pxt.Float,
+    'rating': pxt.Float,
+    'category': pxt.String
+})
+
+# Get first 10 rows
+df = table.select().limit(10)
+print(df.collect())
+# Returns at most 10 rows
+
+# Preview large dataset
+preview = table.select().limit(5)
+print("Dataset preview:")
+print(preview.collect())
+```
+
+### Top-N Queries with order_by
+
+```python
+# Get top 10 highest-priced products
+top_expensive = (table.select()
+                .order_by(table.price, asc=False)
+                .limit(10))
+print(top_expensive.collect())
+
+# Get bottom 5 lowest-rated products
+worst_rated = (table.select()
+              .order_by(table.rating)
+              .limit(5))
+print(worst_rated.collect())
+
+# Get top 3 products by value score
+top_value = (table.select()
+            .order_by(table.rating * table.price, asc=False)
+            .limit(3))
+print(top_value.collect())
+```
+
+### Pagination Implementation
+
+```python
+def get_products_page(page_number: int, page_size: int = 20):
+    """Implement pagination using limit and offset logic"""
+    
+    # Calculate offset (note: offset would need to be implemented separately)
+    # This example shows the limit portion of pagination
+    
+    # Get one page of results
+    page_data = (table.select()
+                .order_by(table.name)  # Consistent ordering for pagination
+                .limit(page_size))
+    
+    return page_data.collect()
+
+# Get first page (20 items)
+page_1 = get_products_page(1, page_size=20)
+print(f"Page 1: {len(page_1)} items")
+
+# Get smaller page
+page_small = get_products_page(1, page_size=5)
+print(f"Small page: {len(page_small)} items")
+```
+
+### Combining with Filtering
+
+```python
+# Top 10 electronics by rating
+top_electronics = (table.select()
+                  .where(table.category == 'Electronics')
+                  .order_by(table.rating, asc=False)
+                  .limit(10))
+print(top_electronics.collect())
+
+# First 5 affordable products (under $100)
+affordable = (table.select()
+             .where(table.price < 100)
+             .order_by(table.price)
+             .limit(5))
+print(affordable.collect())
+
+# Random sampling (first N after filtering)
+sample_data = (table.select()
+              .where(table.rating > 3.0)
+              .limit(50))  # Get 50 good products for analysis
+```
+
+### Performance Optimization
+
+```python
+# ✅ Efficient: Limit early in the pipeline
+quick_check = (table.select(table.name, table.price)
+              .limit(100)  # Limit early
+              .where(table.price > 50))
+
+# ✅ Efficient: Combine with ordering for top-N
+top_products = (table.select()
+               .order_by(table.rating, asc=False)
+               .limit(20))  # Database can optimize this
+
+# ⚠️ Less efficient for large datasets without filtering
+# all_data = table.select().collect()  # Loads everything
+# limited = all_data[:100]  # Python-level limiting
+```
+
+### Data Analysis and Sampling
+
+```python
+# Quick data exploration
+print("Dataset sample:")
+sample = table.select().limit(3)
+for row in sample.collect():
+    print(f"Product: {row['name']}, Price: ${row['price']}")
+
+# Statistical sampling for analysis
+analysis_sample = (table.select()
+                  .where(table.rating.is_not_null())
+                  .limit(1000))  # 1000 rows for statistical analysis
+
+# Quality assurance checks
+qa_sample = (table.select()
+            .order_by(table.created_at, asc=False)  # Most recent
+            .limit(100))  # Check last 100 entries
+```
+
+### Working with Large Media Files
+
+```python
+# For tables with large media files, limit for memory management
+media_table = pxt.create_table('media', {
+    'filename': pxt.String,
+    'image': pxt.Image,
+    'size_mb': pxt.Float
+})
+
+# Process images in batches
+batch_1 = (media_table.select()
+           .order_by(media_table.size_mb)  # Smallest first
+           .limit(10))  # Process 10 at a time
+
+# Preview without loading all images
+preview = (media_table.select(media_table.filename, media_table.size_mb)
+          .limit(20))  # Metadata only for first 20
+```
+
+### Complex Query Chains
+
+```python
+# Multi-step analysis with limits
+analysis_results = (
+    table.select(
+        table.name,
+        table.category,
+        table.price,
+        table.rating,
+        (table.price * table.rating).as_('value_score')
+    )
+    .where(table.rating >= 4.0)           # High quality only
+    .order_by('value_score', asc=False)   # Best value first
+    .limit(25)                            # Top 25 value products
+)
+
+print("Top 25 high-quality value products:")
+for row in analysis_results.collect():
+    print(f"{row['name']}: ${row['price']} (rating: {row['rating']})")
+```
+
+### Error Handling and Edge Cases
+
+```python
+try:
+    # Valid: Limit larger than dataset
+    all_data = table.select().limit(1000000)
+    actual_count = len(all_data.collect())
+    print(f"Requested 1M rows, got {actual_count}")
+    
+except Exception as e:
+    print(f"Limit error: {e}")
+
+try:
+    # Edge case: Empty dataset
+    empty_result = (table.select()
+                   .where(table.price < 0)  # Impossible condition
+                   .limit(10))
+    print(f"Empty result: {len(empty_result.collect())} rows")
+    
+except Exception as e:
+    print(f"Empty dataset error: {e}")
+
+# Validate limit parameter
+def safe_limit(df, n):
+    """Safely apply limit with validation"""
+    if not isinstance(n, int) or n <= 0:
+        raise ValueError("Limit must be a positive integer")
+    return df.limit(n)
+```
+
+### Real-World Use Cases
+
+```python
+# Dashboard queries - fast loading
+dashboard_data = {
+    'recent_orders': (orders.select()
+                     .order_by(orders.created_at, asc=False)
+                     .limit(10)),
+    
+    'top_products': (products.select()
+                    .order_by(products.sales_count, asc=False)
+                    .limit(5)),
+    
+    'active_users': (users.select()
+                    .where(users.last_active > pxt.functions.now() - pxt.functions.interval('7 days'))
+                    .limit(20))
+}
+
+# Data export with chunking
+def export_data_chunks(table, chunk_size=1000):
+    """Export large dataset in chunks"""
+    chunk_num = 1
+    
+    while True:
+        # This is conceptual - actual offset implementation would vary
+        chunk = table.select().limit(chunk_size)
+        data = chunk.collect()
+        
+        if not data:
+            break
+            
+        print(f"Exporting chunk {chunk_num}: {len(data)} rows")
+        # Process chunk...
+        chunk_num += 1
+```
+
+## Related Functions
+
+- [`table.select()`](/docs/sdk/latest/core_api/query_operations/select) - Select columns and expressions
+- [`table.where()`](/docs/sdk/latest/core_api/query_operations/where) - Filter rows  
+- [`table.order_by()`](/docs/sdk/latest/core_api/query_operations/order_by) - Sort rows
+- [`table.join()`](/docs/sdk/latest/core_api/query_operations/join) - Join with other tables
+- [`DataFrame.collect()`](/docs/sdk/latest/core_api/data_operations/collect) - Execute query and get results
+- [`DataFrame.count()`](/docs/sdk/latest/core_api/query_operations/count) - Count total rows
+
+---
+
+*This documentation was generated from the Pixeltable codebase and enhanced with practical examples.*

@@ -1,0 +1,124 @@
+---
+title: "pxt.get_table"
+description: "pxt.get_table() - Retrieve handles to existing tables, views, or snapshots"
+---
+
+<Badge text="Core API" color="blue" size="small" />
+
+Get a handle to an existing table, view, or snapshot.
+
+## Function Signature
+
+```python
+pxt.get_table(path: str) -> Table
+```
+
+## Description
+
+`get_table` provides access to existing tables, views, and snapshots in your Pixeltable workspace. This function returns a handle that allows you to interact with the specified table object, whether it's a regular table, a view, or a snapshot.
+
+The function works with both top-level tables and those stored in subdirectories, using dot notation for nested paths.
+
+## Parameters
+
+<ParamField path="path" type="str" required>
+  The path to the table, view, or snapshot. Use dot notation for subdirectories (e.g., 'subdir.my_table').
+</ParamField>
+
+## Returns
+
+<ResponseField name="Table" type="Table">
+  A handle to the specified Table object that can be used for data operations.
+</ResponseField>
+
+## Examples
+
+### Basic Table Access
+
+```python
+import pixeltable as pxt
+
+# Get handle for a table in the top-level directory
+tbl = pxt.get_table('my_table')
+
+# Now you can perform operations on the table
+print(f"Table has {tbl.count()} rows")
+```
+
+### Subdirectory Access
+
+```python
+# Get a table stored in a subdirectory
+tbl = pxt.get_table('subdir.my_table')
+
+# Access nested directories
+deep_table = pxt.get_table('project.datasets.my_table')
+```
+
+### Working with Views and Snapshots
+
+```python
+# Handles to views are retrieved the same way
+view = pxt.get_table('my_view')
+
+# Snapshots use identical syntax
+snapshot = pxt.get_table('my_snapshot')
+
+# All return the same Table interface
+for table in [tbl, view, snapshot]:
+    print(f"Table type: {type(table)}")
+```
+
+### Error Handling
+
+```python
+try:
+    tbl = pxt.get_table('nonexistent_table')
+except Exception as e:
+    print(f"Table not found: {e}")
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised if the path does not exist or does not designate a table object.
+</ResponseField>
+
+## Related Functions
+
+- [`create_table()`](./create_table) - Create a new table
+- [`drop_table()`](./drop_table) - Delete a table
+- [`list_tables()`](./list_tables) - List all tables in a directory
+- [`table_info()`](./table_info) - Get detailed table information
+
+## Usage Notes
+
+- **Path Resolution**: Table paths use dot notation to separate directory levels
+- **Object Types**: Works with tables, views, and snapshots using identical syntax
+- **Validation**: The function validates that the path exists and points to a valid table object
+- **Performance**: Getting a table handle is a lightweight operation that doesn't load table data
+
+## Common Patterns
+
+```python
+# Check if table exists before accessing
+import pixeltable as pxt
+
+def safe_get_table(path: str):
+    try:
+        return pxt.get_table(path)
+    except Exception:
+        return None
+
+# Conditional table access
+table = safe_get_table('my_table')
+if table is not None:
+    # Work with table
+    data = table.select().limit(10).collect()
+else:
+    print("Table not found")
+```
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*

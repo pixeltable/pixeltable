@@ -1,0 +1,253 @@
+---
+title: "pxt.Audio"
+description: "Audio data type for storing and processing sound content in Pixeltable"
+---
+
+<Badge text="Data Type" color="purple" size="small" />
+
+## Type Definition
+
+```python
+pxt.Audio
+```
+
+## Description
+
+The Audio data type is designed for storing and processing audio content in Pixeltable. It provides native support for audio analysis, speech recognition, sound classification, and integration with AI/ML audio processing workflows.
+
+Audio files are automatically validated, optimized for processing, and support both local and remote storage.
+
+## Schema Usage
+
+```python
+import pixeltable as pxt
+
+# Define table schema with Audio column
+schema = {
+    'audio_path': pxt.String,
+    'audio': pxt.Audio,
+    'title': pxt.String,
+    'duration': pxt.Float
+}
+
+table = pxt.create_table('audio_files', schema)
+```
+
+## Data Insertion
+
+```python
+# Insert from file path
+table.insert([{
+    'audio_path': '/path/to/audio.wav',
+    'audio': '/path/to/audio.wav',
+    'title': 'Sample Audio',
+    'duration': 45.2
+}])
+
+# Insert from URL
+table.insert([{
+    'audio_path': 'https://example.com/podcast.mp3',
+    'audio': 'https://example.com/podcast.mp3',
+    'title': 'Remote Podcast',
+    'duration': 1800.0
+}])
+```
+
+## Supported Formats
+
+| Format | Extension | Description |
+|--------|-----------|-------------|
+| **WAV** | `.wav` | Uncompressed, high quality |
+| **MP3** | `.mp3` | Compressed, widely supported |
+| **FLAC** | `.flac` | Lossless compression |
+| **AAC** | `.aac` | Advanced audio codec |
+| **OGG** | `.ogg` | Open source format |
+| **M4A** | `.m4a` | Apple audio format |
+
+## Audio Processing Operations
+
+```python
+# Extract audio from video files
+videos = pxt.create_table('videos', {'video': pxt.Video})
+videos.add_computed_column(
+    extracted_audio=pxt.functions.extract_audio(videos.video)
+)
+
+# Audio analysis (requires custom implementation)
+# audio_table.add_computed_column(
+#     metadata=pxt.functions.audio_info(audio_table.audio)
+# )
+```
+
+## AI/ML Integration
+
+```python
+# Speech-to-text processing
+audio_table = pxt.create_table('speeches', {
+    'filename': pxt.String,
+    'audio': pxt.Audio
+})
+
+# Custom audio processing with UDFs
+@pxt.udf
+def transcribe_audio(audio_file: pxt.Audio) -> str:
+    # Integration with speech recognition APIs
+    # e.g., OpenAI Whisper, Google Speech-to-Text
+    pass
+
+audio_table.add_computed_column(
+    transcript=transcribe_audio(audio_table.audio)
+)
+```
+
+## Content Analysis Workflows
+
+```python
+# Podcast analysis platform
+podcasts = pxt.create_table('podcast_episodes', {
+    'episode_id': pxt.String,
+    'audio': pxt.Audio,
+    'title': pxt.String,
+    'show_name': pxt.String
+})
+
+# Extract insights from audio content
+@pxt.udf
+def analyze_audio_sentiment(audio_file: pxt.Audio) -> dict:
+    # Audio sentiment analysis
+    pass
+
+@pxt.udf
+def detect_speakers(audio_file: pxt.Audio) -> list:
+    # Speaker diarization
+    pass
+
+podcasts.add_computed_column(
+    sentiment=analyze_audio_sentiment(podcasts.audio)
+)
+podcasts.add_computed_column(
+    speakers=detect_speakers(podcasts.audio)
+)
+```
+
+## Music and Sound Classification
+
+```python
+# Music library management
+music = pxt.create_table('music_library', {
+    'track_id': pxt.String,
+    'audio': pxt.Audio,
+    'artist': pxt.String,
+    'album': pxt.String
+})
+
+# Audio feature extraction
+@pxt.udf
+def extract_audio_features(audio_file: pxt.Audio) -> dict:
+    # Extract tempo, key, genre, etc.
+    pass
+
+@pxt.udf
+def generate_audio_embedding(audio_file: pxt.Audio) -> list:
+    # Create embeddings for similarity search
+    pass
+
+music.add_computed_column(
+    features=extract_audio_features(music.audio)
+)
+music.add_computed_column(
+    embedding=generate_audio_embedding(music.audio)
+)
+
+# Create searchable index for audio similarity
+music.add_embedding_index('embedding')
+```
+
+## Querying and Search
+
+```python
+# Find similar audio content
+similar_tracks = music.order_by(
+    music.embedding.similarity(target_embedding),
+    asc=False
+).limit(10)
+
+# Filter by audio characteristics
+upbeat_songs = music.where(
+    music.features['tempo'] > 120
+)
+```
+
+## Storage and Performance
+
+**Automatic Optimization:**
+- Audio files stored with metadata for efficient access
+- Streaming support for large audio files
+- Automatic format validation and conversion
+- Memory-efficient processing for long recordings
+
+**Storage Locations:**
+- Local filesystem paths
+- Cloud storage URLs (S3, GCS, Azure, etc.)
+- Streaming audio URLs
+- Content delivery networks (CDN)
+
+## Validation and Error Handling
+
+```python
+# Pixeltable validates audio files automatically
+try:
+    table.insert([{'audio': '/path/to/corrupted.mp3'}])
+except pxt.Error as e:
+    print(f"Audio validation failed: {e}")
+
+# Check if file is valid audio
+if pxt.functions.is_audio_type('/path/to/file.mp3'):
+    table.insert([{'audio': '/path/to/file.mp3'}])
+```
+
+## Advanced Use Cases
+
+### Speech Recognition Pipeline
+
+```python
+# Call center analysis
+calls = pxt.create_table('call_recordings', {
+    'call_id': pxt.String,
+    'audio': pxt.Audio,
+    'customer_id': pxt.String,
+    'agent_id': pxt.String
+})
+
+# Speech processing pipeline
+@pxt.udf
+def transcribe_call(audio_file: pxt.Audio) -> str:
+    # Speech-to-text conversion
+    pass
+
+@pxt.udf
+def analyze_call_sentiment(audio_file: pxt.Audio) -> dict:
+    # Sentiment analysis of conversation
+    pass
+
+@pxt.udf
+def extract_call_summary(audio_file: pxt.Audio) -> str:
+    # AI-generated call summary
+    pass
+
+calls.add_computed_column(transcript=transcribe_call(calls.audio))
+calls.add_computed_column(sentiment=analyze_call_sentiment(calls.audio))
+calls.add_computed_column(summary=extract_call_summary(calls.audio))
+```
+
+## Best Practices
+
+1. **Format selection**: Use WAV for high quality, MP3 for storage efficiency
+2. **Preprocessing**: Normalize audio levels and remove noise when possible
+3. **Chunking**: Split long audio files for efficient processing
+4. **Metadata preservation**: Store sample rate, duration, and encoding information
+5. **Streaming optimization**: Use appropriate formats for real-time applications
+
+---
+
+*This documentation represents the Audio data type capabilities in Pixeltable. For implementation details and updates, refer to the official Pixeltable documentation.*

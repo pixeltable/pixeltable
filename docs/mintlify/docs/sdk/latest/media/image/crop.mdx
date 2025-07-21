@@ -1,0 +1,317 @@
+---
+title: "image.crop"
+description: "image.crop(box) - Extract meaningful regions with surgical precision"
+---
+
+<Badge text="Media Processing" color="purple" size="small" />
+
+## Function Signature
+
+```python
+image.crop(box: tuple[int, int, int, int]) -> pxt.Image
+```
+
+## Description
+
+Extract the essence of visual meaning through precise rectangular selection. Cropping transcends simple image cutting—it's **focused attention engineering** that isolates subjects, removes distractions, and concentrates visual information where it matters most.
+
+In the age of AI-driven computer vision, cropping is often the difference between noise and signal, between scattered attention and focused recognition. This function embodies Pixeltable's philosophy that **precision should be effortless**, enabling data scientists to extract exactly what matters from visual chaos.
+
+## Parameters
+
+<ParamField path="box" type="tuple[int, int, int, int]" required>
+  A 4-tuple defining the crop region as `(left, upper, right, lower)` pixel coordinates. The coordinates specify the rectangular area to extract from the source image.
+  
+  **Coordinate System:**
+  - `left` - X-coordinate of the left edge (inclusive)
+  - `upper` - Y-coordinate of the top edge (inclusive)  
+  - `right` - X-coordinate of the right edge (exclusive)
+  - `lower` - Y-coordinate of the bottom edge (exclusive)
+  
+  **Examples:**
+  - `(0, 0, 100, 100)` - Top-left 100x100 pixel square
+  - `(50, 50, 150, 150)` - Center-offset 100x100 pixel square
+  - `(0, 0, image.width//2, image.height)` - Left half of image
+  - `(100, 200, 800, 600)` - Custom rectangular region
+</ParamField>
+
+## Returns
+
+<ResponseField name="cropped_image" type="pxt.Image">
+  A new image containing only the specified rectangular region from the source image. Dimensions will be `(right - left, lower - upper)`.
+</ResponseField>
+
+## Examples
+
+### Face Detection and Extraction
+
+Extract detected faces for focused analysis:
+
+```python
+import pixeltable as pxt
+
+# Create table with portrait photos and face detection coordinates
+portraits = pxt.create_table('face_extraction', {
+    'person_id': pxt.String,
+    'full_photo': pxt.Image,
+    'face_left': pxt.Int,
+    'face_top': pxt.Int,
+    'face_right': pxt.Int,
+    'face_bottom': pxt.Int
+})
+
+# Add computed column that extracts just the face region
+portraits.add_computed_column(
+    face_only=portraits.full_photo.crop((
+        portraits.face_left,
+        portraits.face_top, 
+        portraits.face_right,
+        portraits.face_bottom
+    ))
+)
+
+# Insert photo with detected face coordinates
+portraits.insert([{
+    'person_id': 'john_doe', 
+    'full_photo': '/photos/group_photo.jpg',
+    'face_left': 150, 'face_top': 80,
+    'face_right': 250, 'face_bottom': 180
+}])
+
+# Face is automatically extracted and ready for recognition
+faces = portraits.select(portraits.person_id, portraits.face_only).collect()
+```
+
+### Product Image Processing
+
+Extract product regions from catalog photos:
+
+```python
+# Create product catalog with precise crop regions
+products = pxt.create_table('product_crops', {
+    'sku': pxt.String,
+    'catalog_photo': pxt.Image,
+    'product_bounds': pxt.Json  # Store crop coordinates as JSON
+})
+
+# Extract clean product images from catalog photos
+@pxt.udf
+def extract_product_region(image: pxt.Image, bounds: dict) -> pxt.Image:
+    """Extract product from catalog photo using stored bounds"""
+    return image.crop((
+        bounds['left'], bounds['top'], 
+        bounds['right'], bounds['bottom']
+    ))
+
+products.add_computed_column(
+    clean_product=extract_product_region(
+        products.catalog_photo, 
+        products.product_bounds
+    )
+)
+
+# Insert catalog photo with product location
+products.insert([{
+    'sku': 'SHOE_001',
+    'catalog_photo': '/catalog/shoe_lifestyle.jpg',
+    'product_bounds': {'left': 200, 'top': 150, 'right': 600, 'bottom': 550}
+}])
+```
+
+### Document Section Extraction
+
+Extract specific sections from scanned documents:
+
+```python
+# Process scanned documents with section-specific crops
+documents = pxt.create_table('document_sections', {
+    'doc_id': pxt.String,
+    'full_scan': pxt.Image
+})
+
+# Extract different document sections
+documents.add_computed_column(
+    header=documents.full_scan.crop((0, 0, 800, 100))  # Top header section
+)
+documents.add_computed_column(
+    main_content=documents.full_scan.crop((50, 100, 750, 900))  # Main content area
+)
+documents.add_computed_column(
+    signature_area=documents.full_scan.crop((500, 900, 800, 1000))  # Bottom signature
+)
+
+# One scan becomes multiple focused sections automatically
+documents.insert([
+    {'doc_id': 'contract_001', 'full_scan': '/scans/contract.jpg'}
+])
+```
+
+### Image Grid Processing
+
+Extract individual cells from image grids or collages:
+
+```python
+# Process image grids into individual components
+grid_images = pxt.create_table('image_grids', {
+    'grid_id': pxt.String,
+    'full_grid': pxt.Image,
+    'grid_width': pxt.Int,    # Number of columns
+    'grid_height': pxt.Int,   # Number of rows
+    'cell_size': pxt.Int      # Pixels per cell
+})
+
+# Extract specific grid cells
+@pxt.udf
+def extract_grid_cell(image: pxt.Image, cell_x: int, cell_y: int, 
+                     cell_size: int) -> pxt.Image:
+    """Extract a specific cell from an image grid"""
+    left = cell_x * cell_size
+    top = cell_y * cell_size
+    right = left + cell_size
+    bottom = top + cell_size
+    return image.crop((left, top, right, bottom))
+
+# Extract top-left cell (0,0)
+grid_images.add_computed_column(
+    cell_0_0=extract_grid_cell(
+        grid_images.full_grid, 0, 0, grid_images.cell_size
+    )
+)
+
+# Extract center cell
+grid_images.add_computed_column(
+    center_cell=extract_grid_cell(
+        grid_images.full_grid, 1, 1, grid_images.cell_size
+    )
+)
+
+# Process 3x3 grid of images
+grid_images.insert([{
+    'grid_id': 'collage_001',
+    'full_grid': '/grids/3x3_collage.jpg',
+    'grid_width': 3, 'grid_height': 3, 'cell_size': 200
+}])
+```
+
+### Smart Aspect Ratio Cropping
+
+Create consistent aspect ratios for display systems:
+
+```python
+# Create consistent 16:9 crops from various source images
+media_library = pxt.create_table('aspect_crops', {
+    'media_id': pxt.String,
+    'source_image': pxt.Image
+})
+
+# Smart center crop to 16:9 aspect ratio
+@pxt.udf
+def smart_crop_16_9(image: pxt.Image) -> pxt.Image:
+    """Extract 16:9 center crop from any image"""
+    width = image.width
+    height = image.height
+    
+    # Calculate 16:9 dimensions that fit within image
+    target_aspect = 16/9
+    if width/height > target_aspect:
+        # Image is wider than 16:9, crop width
+        new_width = int(height * target_aspect)
+        left = (width - new_width) // 2
+        return image.crop((left, 0, left + new_width, height))
+    else:
+        # Image is taller than 16:9, crop height
+        new_height = int(width / target_aspect)
+        top = (height - new_height) // 2
+        return image.crop((0, top, width, top + new_height))
+
+media_library.add_computed_column(
+    widescreen=smart_crop_16_9(media_library.source_image)
+)
+
+# All images automatically become 16:9 widescreen versions
+media_library.insert([
+    {'media_id': 'landscape_001', 'source_image': '/photos/landscape.jpg'},
+    {'media_id': 'portrait_001', 'source_image': '/photos/portrait.jpg'}
+])
+```
+
+### Error Handling and Validation
+
+Robust cropping with boundary checking:
+
+```python
+try:
+    # Insert image with crop coordinates
+    portraits.insert([{
+        'person_id': 'test_crop',
+        'full_photo': '/path/to/image.jpg',
+        'face_left': 100, 'face_top': 50,
+        'face_right': 200, 'face_bottom': 150
+    }])
+    
+    # Verify crop was successful
+    result = portraits.select(portraits.face_only).where(
+        portraits.person_id == 'test_crop'
+    ).collect()
+    
+    if result:
+        cropped_img = result[0]['face_only']
+        print(f"Successfully cropped to {cropped_img.size}")
+    else:
+        print("Crop operation failed")
+        
+except Exception as e:
+    print(f"Error in crop pipeline: {e}")
+```
+
+## Technical Implementation Notes
+
+### Coordinate System
+
+Pixeltable follows the standard image coordinate system:
+- Origin (0,0) is at the top-left corner
+- X-axis increases rightward
+- Y-axis increases downward
+- Right and bottom coordinates are exclusive
+
+### Boundary Validation
+
+- Coordinates outside image bounds are automatically clipped
+- Negative coordinates are treated as 0
+- Right/bottom coordinates beyond image dimensions are clipped to image edges
+- Empty crops (right ≤ left or bottom ≤ top) return empty images
+
+### Performance Characteristics
+
+- **Incremental Computation**: Crop operations are cached and only recomputed when source images or coordinates change
+- **Memory Efficiency**: Optimized memory usage for large image processing
+- **Batch Processing**: Multiple crops from the same image are processed efficiently
+
+## Related Functions
+
+- **[`resize`](./resize)** - Scale images to new dimensions
+- **[`rotate`](./rotate)** - Rotate images by specified angles
+- **[`alpha_composite`](./alpha_composite)** - Composite images with transparency
+- **[`width`](./width)** - Get image width for crop boundary calculations
+- **[`height`](./height)** - Get image height for crop boundary calculations
+
+## Use Cases in Production
+
+### Computer Vision Preprocessing
+Extract regions of interest for focused machine learning model analysis.
+
+### Content Management Systems
+Create consistent crops for galleries, thumbnails, and responsive design layouts.
+
+### Document Processing
+Extract specific sections like headers, signatures, or form fields from scanned documents.
+
+### E-commerce Applications
+Isolate products from lifestyle photos for clean catalog imagery.
+
+### Medical Imaging
+Extract anatomical regions from larger medical scans for specialized analysis.
+
+---
+
+*In a world of visual noise, precision is clarity. This is where **surgical focus meets computational power**, transforming overwhelming imagery into **perfectly extracted meaning**.*

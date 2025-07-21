@@ -1,0 +1,354 @@
+---
+title: "video.extract_audio"
+description: "video.extract_audio(stream_idx, format, codec) - Liberate audio essence from video containers"
+---
+
+<Badge text="Media Processing" color="purple" size="small" />
+
+## Function Signature
+
+```python
+video.extract_audio(
+    stream_idx: int = 0,
+    format: str = 'wav', 
+    codec: str = None
+) -> pxt.Audio
+```
+
+## Description
+
+Liberate audio streams from their video containers, transforming multimedia content into pure sonic data ready for analysis, processing, and AI-driven understanding. Audio extraction is not merely format conversion—it's **sonic archaeology** that unearths the acoustic treasures hidden within video files.
+
+In the era of multimodal AI, audio streams carry critical information for speech recognition, sentiment analysis, music understanding, and ambient sound classification. This function embodies Pixeltable's philosophy that **multimedia boundaries should be transparent**, enabling seamless transitions between modalities with declarative elegance.
+
+## Parameters
+
+<ParamField path="stream_idx" type="int" default="0">
+  Index of the audio stream to extract from the video file. Most videos have a single audio stream at index 0, but multi-language or multi-channel videos may contain multiple audio tracks.
+  
+  **Common Values:**
+  - `0` - Primary audio track (default)
+  - `1` - Secondary audio track (alternate language, commentary)
+  - `2` - Additional audio track (director's commentary, etc.)
+</ParamField>
+
+<ParamField path="format" type="str" default="'wav'">
+  Target audio format for the extracted stream. Choose based on quality requirements, file size constraints, and downstream processing needs.
+  
+  **Supported Formats:**
+  - `'wav'` - Uncompressed, highest quality, larger files
+  - `'mp3'` - Compressed, good quality, smaller files
+  - `'flac'` - Lossless compression, excellent quality, moderate size
+</ParamField>
+
+<ParamField path="codec" type="str" default="None">
+  Specific codec to use for audio encoding. If not provided, a sensible default codec will be selected based on the chosen format.
+  
+  **Format-Specific Defaults:**
+  - WAV: PCM (uncompressed)
+  - MP3: LAME encoder
+  - FLAC: FLAC encoder
+</ParamField>
+
+## Returns
+
+<ResponseField name="extracted_audio" type="pxt.Audio">
+  A new audio object containing the extracted audio stream in the specified format. Ready for analysis, playback, or further processing.
+</ResponseField>
+
+## Examples
+
+### Podcast Processing Pipeline
+
+Extract audio from video podcasts for transcription and analysis:
+
+```python
+import pixeltable as pxt
+
+# Create table for video podcasts
+podcasts = pxt.create_table('podcast_processing', {
+    'episode_id': pxt.String,
+    'video_file': pxt.Video,
+    'episode_title': pxt.String
+})
+
+# Extract high-quality audio for transcription
+podcasts.add_computed_column(
+    audio_track=podcasts.video_file.extract_audio(format='flac')
+)
+
+# Insert video podcast episodes
+podcasts.insert([
+    {
+        'episode_id': 'ep_001',
+        'video_file': '/podcasts/episode_001.mp4',
+        'episode_title': 'The Future of AI'
+    },
+    {
+        'episode_id': 'ep_002', 
+        'video_file': '/podcasts/episode_002.mp4',
+        'episode_title': 'Machine Learning Ethics'
+    }
+])
+
+# Audio automatically extracted and ready for speech-to-text
+audio_files = podcasts.select(podcasts.episode_id, podcasts.audio_track).collect()
+```
+
+### Multi-Language Content Processing
+
+Extract different language tracks from international videos:
+
+```python
+# Process multi-language video content
+international_videos = pxt.create_table('multilingual_content', {
+    'content_id': pxt.String,
+    'video_source': pxt.Video,
+    'primary_language': pxt.String,
+    'secondary_language': pxt.String
+})
+
+# Extract primary language audio (usually stream 0)
+international_videos.add_computed_column(
+    primary_audio=international_videos.video_source.extract_audio(
+        stream_idx=0, format='mp3'
+    )
+)
+
+# Extract secondary language audio (usually stream 1)
+international_videos.add_computed_column(
+    secondary_audio=international_videos.video_source.extract_audio(
+        stream_idx=1, format='mp3'
+    )
+)
+
+# Process international film with dual audio tracks
+international_videos.insert([
+    {
+        'content_id': 'film_international_001',
+        'video_source': '/films/dubbed_film.mkv',
+        'primary_language': 'english',
+        'secondary_language': 'spanish'
+    }
+])
+```
+
+### Music Video Analysis
+
+Extract audio from music videos for acoustic analysis:
+
+```python
+# Analyze music videos by separating audio and visual components
+music_videos = pxt.create_table('music_analysis', {
+    'track_id': pxt.String,
+    'music_video': pxt.Video,
+    'artist': pxt.String,
+    'genre': pxt.String
+})
+
+# Extract uncompressed audio for detailed analysis
+music_videos.add_computed_column(
+    pure_audio=music_videos.music_video.extract_audio(format='wav')
+)
+
+# Could add AI-powered audio analysis
+@pxt.udf
+def analyze_audio_features(audio: pxt.Audio) -> dict:
+    """Extract tempo, key, energy from audio"""
+    # This would integrate with audio analysis libraries
+    return {
+        'tempo': 120,  # BPM
+        'key': 'C major',
+        'energy': 0.8,
+        'danceability': 0.7
+    }
+
+music_videos.add_computed_column(
+    audio_features=analyze_audio_features(music_videos.pure_audio)
+)
+
+# Process music video library
+music_videos.insert([
+    {
+        'track_id': 'mv_001',
+        'music_video': '/music_videos/pop_song.mp4',
+        'artist': 'Digital Dreams',
+        'genre': 'electronic'
+    }
+])
+```
+
+### Educational Content Processing
+
+Extract audio from educational videos for accessibility:
+
+```python
+# Create accessible versions of educational content
+education_videos = pxt.create_table('accessible_education', {
+    'lesson_id': pxt.String,
+    'video_lesson': pxt.Video,
+    'subject': pxt.String,
+    'instructor': pxt.String
+})
+
+# Extract compressed audio for mobile-friendly access
+education_videos.add_computed_column(
+    audio_only=education_videos.video_lesson.extract_audio(format='mp3')
+)
+
+# Could add automatic transcription
+@pxt.udf  
+def transcribe_audio(audio: pxt.Audio) -> str:
+    """Convert audio to text transcript"""
+    # Integration with speech recognition services
+    return "Lesson transcript would appear here..."
+
+education_videos.add_computed_column(
+    transcript=transcribe_audio(education_videos.audio_only)
+)
+
+# Process educational video library
+education_videos.insert([
+    {
+        'lesson_id': 'math_101_001',
+        'video_lesson': '/education/algebra_basics.mp4',
+        'subject': 'mathematics',
+        'instructor': 'Dr. Sarah Chen'
+    }
+])
+```
+
+### Surveillance and Security Analysis
+
+Extract audio from security footage for incident analysis:
+
+```python
+# Security footage audio extraction for comprehensive analysis
+security_footage = pxt.create_table('security_analysis', {
+    'incident_id': pxt.String,
+    'video_footage': pxt.Video,
+    'timestamp': pxt.Timestamp,
+    'location': pxt.String
+})
+
+# Extract audio for voice analysis and ambient sound detection
+security_footage.add_computed_column(
+    incident_audio=security_footage.video_footage.extract_audio(format='wav')
+)
+
+# Audio-based incident classification
+@pxt.udf
+def classify_audio_events(audio: pxt.Audio) -> dict:
+    """Classify audio events in security footage"""
+    return {
+        'contains_speech': True,
+        'contains_alarm': False,
+        'ambient_noise_level': 'moderate',
+        'suspicious_sounds': False
+    }
+
+security_footage.add_computed_column(
+    audio_analysis=classify_audio_events(security_footage.incident_audio)
+)
+
+# Process security incidents
+security_footage.insert([
+    {
+        'incident_id': 'sec_001',
+        'video_footage': '/security/camera_3_incident.mp4',
+        'timestamp': '2025-01-15 14:30:00',
+        'location': 'main_entrance'
+    }
+])
+```
+
+### Error Handling and Quality Control
+
+Robust audio extraction with validation:
+
+```python
+try:
+    # Insert video for audio extraction
+    podcasts.insert([
+        {
+            'episode_id': 'test_extract',
+            'video_file': '/path/to/video.mp4',
+            'episode_title': 'Test Episode'
+        }
+    ])
+    
+    # Verify extraction was successful
+    result = podcasts.select(podcasts.audio_track).where(
+        podcasts.episode_id == 'test_extract'
+    ).collect()
+    
+    if result:
+        audio = result[0]['audio_track']
+        print(f"Successfully extracted audio")
+    else:
+        print("Audio extraction failed")
+        
+except Exception as e:
+    print(f"Error in audio extraction pipeline: {e}")
+```
+
+## Technical Implementation Notes
+
+### Stream Selection
+
+- **Multi-stream Videos**: Some videos contain multiple audio streams (languages, commentary)
+- **Stream Indexing**: Streams are zero-indexed (0, 1, 2, ...)
+- **Stream Discovery**: Can inspect video metadata to identify available audio streams
+
+### Format Considerations
+
+**WAV (Uncompressed)**
+- Highest quality, no compression artifacts
+- Larger file sizes (~10MB per minute)
+- Best for analysis requiring pristine audio
+
+**MP3 (Compressed)**
+- Good quality with significant size reduction
+- Widely compatible format
+- Suitable for speech and general audio
+
+**FLAC (Lossless Compressed)**
+- Perfect quality with ~50% size reduction
+- Best balance of quality and file size
+- Ideal for archival and analysis
+
+### Performance Characteristics
+
+- **Incremental Computation**: Extraction is cached and only recomputed when source videos change
+- **Batch Processing**: Multiple extractions from the same video are optimized
+- **Memory Management**: Efficient handling of large video files during extraction
+
+## Related Functions
+
+- **[`extract_first_video_frame`](./extract_first_video_frame)** - Extract thumbnail images from videos
+- **[`video_info`](./video_info)** - Get metadata about video files
+- **Audio analysis functions** - Process extracted audio with AI models
+
+## Use Cases in Production
+
+### Content Creation Pipelines
+Extract audio tracks for editing, mixing, and post-production workflows.
+
+### Accessibility Systems
+Create audio-only versions of video content for hearing-accessible formats.
+
+### AI Training Data
+Generate audio datasets from video libraries for speech recognition and audio classification models.
+
+### Content Analysis
+Analyze audio content for sentiment, language detection, and content classification.
+
+### Security and Surveillance
+Extract audio from surveillance footage for comprehensive incident analysis.
+
+### Educational Technology
+Create audio-only study materials and transcription services for e-learning platforms.
+
+---
+
+*When video containers become sonic liberation chambers, every frame carries a symphony waiting to be discovered. This is **multimedia archaeology** at its finest—where **audio treasures emerge from digital vaults** with declarative precision.*

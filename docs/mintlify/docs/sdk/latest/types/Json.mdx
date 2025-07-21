@@ -1,0 +1,368 @@
+---
+title: "pxt.Json"
+description: "JSON data type for storing structured data and API responses in Pixeltable"
+---
+
+<Badge text="Data Type" color="purple" size="small" />
+
+## Type Definition
+
+```python
+pxt.Json
+```
+
+## Description
+
+The Json data type is designed for storing structured JSON data in Pixeltable. It provides native support for complex nested objects, API responses, configuration data, and metadata storage with built-in validation and querying capabilities.
+
+JSON data is automatically validated, indexed for efficient querying, and supports both simple and complex nested structures.
+
+## Schema Usage
+
+```python
+import pixeltable as pxt
+
+# Define table schema with Json column
+schema = {
+    'record_id': pxt.String,
+    'metadata': pxt.Json,
+    'api_response': pxt.Json,
+    'config': pxt.Json
+}
+
+table = pxt.create_table('structured_data', schema)
+```
+
+## Data Insertion
+
+```python
+# Insert structured JSON data
+table.insert([{
+    'record_id': 'user_001',
+    'metadata': {
+        'name': 'John Doe',
+        'age': 30,
+        'preferences': ['ai', 'ml', 'data'],
+        'settings': {
+            'theme': 'dark',
+            'notifications': True
+        }
+    },
+    'api_response': {
+        'status': 'success',
+        'data': {'score': 0.95, 'confidence': 0.87},
+        'timestamp': '2025-01-15T10:30:00Z'
+    },
+    'config': {
+        'model_params': {
+            'learning_rate': 0.001,
+            'batch_size': 32,
+            'epochs': 100
+        }
+    }
+}])
+
+# Insert from Python dictionaries
+import json
+api_data = {'users': [{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}]}
+table.insert([{
+    'record_id': 'api_001',
+    'metadata': {'source': 'api'},
+    'api_response': api_data,
+    'config': {}
+}])
+```
+
+## JSON Querying and Filtering
+
+```python
+# Query nested JSON fields
+users_with_ai_interest = table.where(
+    table.metadata['preferences'].contains('ai')
+)
+
+# Filter by nested values
+successful_responses = table.where(
+    table.api_response['status'] == 'success'
+)
+
+# Numeric comparisons in JSON
+high_scoring_users = table.where(
+    table.api_response['data']['score'] > 0.9
+)
+
+# Complex nested queries
+experienced_users = table.where(
+    (table.metadata['age'] > 25) & 
+    (table.metadata['settings']['notifications'] == True)
+)
+```
+
+## AI/ML Integration
+
+```python
+# Store model outputs and predictions
+predictions = pxt.create_table('ml_predictions', {
+    'model_name': pxt.String,
+    'input_data': pxt.Json,
+    'prediction': pxt.Json,
+    'metadata': pxt.Json
+})
+
+# Custom JSON processing with UDFs
+@pxt.udf
+def extract_features_from_json(data: pxt.Json) -> pxt.Array[pxt.Float]:
+    # Extract numerical features from JSON structure
+    features = []
+    if 'metrics' in data:
+        for key, value in data['metrics'].items():
+            if isinstance(value, (int, float)):
+                features.append(float(value))
+    return features
+
+predictions.add_computed_column(
+    feature_vector=extract_features_from_json(predictions.prediction)
+)
+```
+
+## Configuration Management
+
+```python
+# Application configuration storage
+configs = pxt.create_table('app_configs', {
+    'app_name': pxt.String,
+    'version': pxt.String,
+    'config': pxt.Json,
+    'created_at': pxt.Timestamp
+})
+
+# Store complex configuration hierarchies
+configs.insert([{
+    'app_name': 'ml_pipeline',
+    'version': '2.1.0',
+    'config': {
+        'database': {
+            'host': 'localhost',
+            'port': 5432,
+            'connections': 10
+        },
+        'models': {
+            'image_classifier': {
+                'type': 'resnet50',
+                'weights': 'imagenet',
+                'fine_tune': True
+            },
+            'embedder': {
+                'type': 'clip',
+                'model_id': 'openai/clip-vit-base-patch32'
+            }
+        },
+        'preprocessing': {
+            'resize': [224, 224],
+            'normalize': True,
+            'augmentation': ['flip', 'rotate']
+        }
+    }
+}])
+```
+
+## API Response Storage
+
+```python
+# Store and analyze API responses
+api_logs = pxt.create_table('api_responses', {
+    'endpoint': pxt.String,
+    'response_data': pxt.Json,
+    'status_code': pxt.Int,
+    'timestamp': pxt.Timestamp
+})
+
+# Analyze response patterns
+@pxt.udf
+def extract_error_info(response: pxt.Json) -> dict:
+    if 'error' in response:
+        return {
+            'error_type': response['error'].get('type', 'unknown'),
+            'error_message': response['error'].get('message', ''),
+            'error_code': response['error'].get('code', 0)
+        }
+    return {'error_type': None, 'error_message': '', 'error_code': 0}
+
+api_logs.add_computed_column(
+    error_analysis=extract_error_info(api_logs.response_data)
+)
+```
+
+## Complex Data Structures
+
+```python
+# Scientific data and experiments
+experiments = pxt.create_table('research_data', {
+    'experiment_id': pxt.String,
+    'parameters': pxt.Json,
+    'results': pxt.Json,
+    'analysis': pxt.Json
+})
+
+# Store hierarchical experimental data
+experiments.insert([{
+    'experiment_id': 'exp_001',
+    'parameters': {
+        'model_architecture': {
+            'layers': [
+                {'type': 'conv2d', 'filters': 32, 'kernel_size': [3, 3]},
+                {'type': 'maxpool', 'pool_size': [2, 2]},
+                {'type': 'dense', 'units': 128, 'activation': 'relu'}
+            ]
+        },
+        'training': {
+            'optimizer': 'adam',
+            'learning_rate': 0.001,
+            'batch_size': 64
+        }
+    },
+    'results': {
+        'metrics': {
+            'accuracy': 0.94,
+            'precision': 0.91,
+            'recall': 0.93,
+            'f1_score': 0.92
+        },
+        'training_history': {
+            'epochs': 50,
+            'loss_curve': [0.8, 0.6, 0.4, 0.3, 0.25],
+            'val_accuracy': [0.7, 0.8, 0.85, 0.9, 0.94]
+        }
+    }
+}])
+```
+
+## JSON Schema Validation
+
+```python
+# Validate JSON structure
+@pxt.udf
+def validate_user_profile(profile: pxt.Json) -> bool:
+    required_fields = ['name', 'email', 'preferences']
+    if not all(field in profile for field in required_fields):
+        return False
+    
+    if not isinstance(profile['preferences'], list):
+        return False
+        
+    return True
+
+# Filter valid profiles
+valid_profiles = table.where(
+    validate_user_profile(table.metadata) == True
+)
+```
+
+## Performance Optimization
+
+```python
+# Efficient JSON queries with indexing
+large_json_table = pxt.create_table('large_dataset', {
+    'id': pxt.String,
+    'data': pxt.Json
+})
+
+# Extract frequently queried fields as computed columns
+large_json_table.add_computed_column(
+    category=lambda row: row.data.get('category', 'unknown')
+)
+large_json_table.add_computed_column(
+    priority=lambda row: row.data.get('priority', 0)
+)
+
+# Query using computed columns for better performance
+high_priority_items = large_json_table.where(
+    large_json_table.priority > 5
+)
+```
+
+## Data Transformation
+
+```python
+# Transform and reshape JSON data
+@pxt.udf
+def flatten_nested_json(data: pxt.Json) -> pxt.Json:
+    """Flatten nested JSON structure"""
+    def flatten_dict(d, parent_key='', sep='_'):
+        items = []
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(flatten_dict(v, new_key, sep=sep).items())
+            else:
+                items.append((new_key, v))
+        return dict(items)
+    
+    return flatten_dict(data)
+
+# Apply transformation
+table.add_computed_column(
+    flattened_metadata=flatten_nested_json(table.metadata)
+)
+```
+
+## Integration Patterns
+
+### Log Analysis
+
+```python
+# Application log storage and analysis
+logs = pxt.create_table('application_logs', {
+    'timestamp': pxt.Timestamp,
+    'level': pxt.String,
+    'message': pxt.String,
+    'context': pxt.Json
+})
+
+# Analyze error patterns
+error_analysis = logs.where(
+    logs.level == 'ERROR'
+).select(
+    logs.message,
+    logs.context['user_id'],
+    logs.context['request_id']
+)
+```
+
+### Feature Storage for ML
+
+```python
+# Machine learning feature store
+features = pxt.create_table('feature_store', {
+    'entity_id': pxt.String,
+    'feature_set': pxt.Json,
+    'computed_at': pxt.Timestamp
+})
+
+# Extract features for training
+@pxt.udf
+def prepare_training_data(features: pxt.Json) -> pxt.Array[pxt.Float]:
+    # Convert JSON features to array format
+    return [
+        features.get('age', 0),
+        features.get('income', 0),
+        len(features.get('interests', [])),
+        1 if features.get('premium_user', False) else 0
+    ]
+
+features.add_computed_column(
+    training_vector=prepare_training_data(features.feature_set)
+)
+```
+
+## Best Practices
+
+1. **Structure consistency**: Use consistent JSON schemas within the same column
+2. **Query optimization**: Extract frequently queried fields as computed columns
+3. **Validation**: Implement JSON schema validation for data quality
+4. **Indexing**: Consider creating indexes on computed columns from JSON data
+5. **Size management**: Be mindful of JSON size for large nested structures
+
+---
+
+*This documentation represents the Json data type capabilities in Pixeltable. For implementation details and updates, refer to the official Pixeltable documentation.*

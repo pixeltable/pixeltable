@@ -1,0 +1,272 @@
+---
+title: "pxt.create_table"
+description: "pxt.create_table() - Create tables with schema or import from data sources"
+---
+
+<Badge text="Core API" color="blue" size="small" />
+
+## Function Signature
+
+```python
+pxt.create_table(
+    path: str,
+    schema: Optional[Dict[str, Any]] = None,
+    source: Optional[Any] = None,
+    source_format: Optional[str] = None,
+    schema_overrides: Optional[Dict[str, Any]] = None,
+    on_error: str = 'abort',
+    primary_key: Optional[Union[str, List[str]]] = None,
+    num_retained_versions: int = 10,
+    comment: Optional[str] = None,
+    media_validation: str = 'on_write',
+    if_exists: str = 'error',
+    extra_args: Optional[Dict[str, Any]] = None
+) -> Table
+```
+
+## Description
+
+`create_table` is the foundational function for creating new tables in Pixeltable. It supports two primary modes:
+
+**Schema-based creation**: Provide a schema to create an empty table with predefined columns and types.
+
+**Data import creation**: Provide a data source to automatically infer schema and import data in one operation.
+
+The function handles schema validation, data type inference, error management, and provides flexible options for handling existing tables.
+
+## Parameters
+
+### Required Parameters
+
+<ParamField path="path" type="str" required>
+  Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir.my_subdir.my_table'`.
+</ParamField>
+
+### Schema Creation
+
+<ParamField path="schema" type="Dict[str, Any]" default="None">
+  Schema for the new table, mapping column names to Pixeltable types. Use when creating an empty table with predefined structure.
+</ParamField>
+
+### Data Import
+
+<ParamField path="source" type="Any" default="None">
+  A data source to import from: file path, URL, DataFrame, or list of rows. Schema will be automatically inferred.
+</ParamField>
+
+<ParamField path="source_format" type="str" default="None">
+  Format hint for source data (e.g., 'csv', 'json'). If not specified, format is inferred from source.
+</ParamField>
+
+<ParamField path="schema_overrides" type="Dict[str, Any]" default="None">
+  Override inferred column types when importing from source. Maps column names to desired Pixeltable types.
+</ParamField>
+
+### Configuration Options
+
+<ParamField path="on_error" type="str" default="'abort'">
+  Error handling strategy during data import:
+  - `'abort'`: Stop on first error and raise exception
+  - `'ignore'`: Continue processing, store error info in special columns
+</ParamField>
+
+<ParamField path="primary_key" type="Union[str, List[str]]" default="None">
+  Column name(s) to use as primary key. Can be single column or list for composite keys.
+</ParamField>
+
+<ParamField path="num_retained_versions" type="int" default="10">
+  Number of table versions to retain for version control and rollback capabilities.
+</ParamField>
+
+<ParamField path="comment" type="str" default="None">
+  Optional user-defined comment describing the table's purpose.
+</ParamField>
+
+<ParamField path="media_validation" type="str" default="'on_write'">
+  When to validate media files:
+  - `'on_write'`: Validate during insert/update operations
+  - `'on_read'`: Validate during query operations
+</ParamField>
+
+<ParamField path="if_exists" type="str" default="'error'">
+  Behavior when table already exists:
+  - `'error'`: Raise exception (default)
+  - `'ignore'`: Return existing table handle
+  - `'replace'`: Replace if no views/snapshots exist
+  - `'replace_force'`: Force replace, dropping all dependent objects
+</ParamField>
+
+<ParamField path="extra_args" type="Dict[str, Any]" default="None">
+  Additional arguments passed to the data source provider for specialized import options.
+</ParamField>
+
+## Returns
+
+<ResponseField name="Table" type="Table">
+  A handle to the newly created table, or existing table when `if_exists='ignore'`.
+</ResponseField>
+
+## Examples
+
+### Create Empty Table with Schema
+
+```python
+import pixeltable as pxt
+
+# Basic table with primitive types
+tbl = pxt.create_table('users', schema={
+    'id': pxt.Int,
+    'name': pxt.String,
+    'email': pxt.String,
+    'active': pxt.Bool
+})
+
+# Table with media and complex types
+media_tbl = pxt.create_table('media_content', schema={
+    'id': pxt.Int,
+    'title': pxt.String,
+    'image': pxt.Image,
+    'video': pxt.Video,
+    'metadata': pxt.Json
+})
+```
+
+### Import Data from Sources
+
+```python
+# Create table from CSV file
+csv_table = pxt.create_table('sales_data', source='data/sales.csv')
+
+# Import with schema overrides
+typed_table = pxt.create_table(
+    'financial_data',
+    source='data/finances.csv',
+    schema_overrides={
+        'amount': pxt.Float,
+        'date': pxt.Timestamp,
+        'category': pxt.String
+    }
+)
+
+# Import from DataFrame
+import pandas as pd
+df = pd.read_csv('users.csv')
+df_table = pxt.create_table('imported_users', source=df)
+```
+
+### Advanced Configuration
+
+```python
+# Table with primary key and versioning
+pk_table = pxt.create_table(
+    'products',
+    schema={
+        'product_id': pxt.String,
+        'name': pxt.String,
+        'price': pxt.Float
+    },
+    primary_key='product_id',
+    num_retained_versions=20,
+    comment='Product catalog with pricing'
+)
+
+# Conditional table creation
+safe_table = pxt.create_table(
+    'logs',
+    schema={'timestamp': pxt.Timestamp, 'message': pxt.String},
+    if_exists='ignore'  # Don't fail if table exists
+)
+```
+
+### Error Handling Strategies
+
+```python
+# Robust import with error tolerance
+robust_table = pxt.create_table(
+    'messy_data',
+    source='data/mixed_quality.csv',
+    on_error='ignore',  # Continue despite errors
+    schema_overrides={'score': pxt.Float}
+)
+
+# Check for import errors
+if robust_table.count() > 0:
+    # Query error columns to see what failed
+    errors = robust_table.select(
+        robust_table.score.errortype,
+        robust_table.score.errormsg
+    ).where(robust_table.score.errortype.is_not_null()).collect()
+    
+    print(f"Found {len(errors)} rows with errors")
+```
+
+### Nested Directory Organization
+
+```python
+# Create tables in organized directory structure
+pxt.create_table('project.datasets.raw_data', source='raw.csv')
+pxt.create_table('project.datasets.cleaned_data', source='clean.csv')
+pxt.create_table('project.models.predictions', schema={
+    'id': pxt.Int,
+    'prediction': pxt.Float,
+    'confidence': pxt.Float
+})
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in various error conditions:
+  - Invalid table path format
+  - Table already exists and `if_exists='error'`
+  - Path exists but is not a table
+  - Schema validation failures
+  - Data import errors (when `on_error='abort'`)
+  - Insufficient permissions
+</ResponseField>
+
+## Related Functions
+
+- [`drop_table()`](./drop_table) - Remove a table and its data
+- [`get_table()`](./get_table) - Get handle to existing table
+- [`list_tables()`](./list_tables) - List all tables in workspace
+- [`insert()`](../data_operations/insert) - Add data to existing table
+
+## Best Practices
+
+### Schema Design
+
+```python
+# Use descriptive column names
+good_schema = {
+    'user_id': pxt.Int,
+    'full_name': pxt.String,
+    'registration_date': pxt.Timestamp,
+    'profile_image': pxt.Image
+}
+
+# Prefer explicit types over auto-inference for production tables
+production_table = pxt.create_table(
+    'customer_data',
+    source='customers.csv',
+    schema_overrides={
+        'customer_id': pxt.Int,  # Ensure integer, not string
+        'signup_date': pxt.Timestamp,  # Parse dates correctly
+        'revenue': pxt.Float  # Handle currency as float
+    }
+)
+```
+
+### Directory Organization
+
+```python
+# Organize tables by project and purpose
+pxt.create_table('analytics.user_behavior.sessions', schema=session_schema)
+pxt.create_table('analytics.user_behavior.events', schema=event_schema)
+pxt.create_table('ml.training_data.features', schema=feature_schema)
+pxt.create_table('ml.training_data.labels', schema=label_schema)
+```
+
+---
+
+*A table is not just storage—it's a commitment to structure in a chaotic world. Every schema is a promise that data will find its place.*

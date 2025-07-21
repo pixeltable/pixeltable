@@ -1,0 +1,132 @@
+---
+title: "clip"
+description: "clip(text, model_id) - Computes multimodal CLIP embeddings for text or images"
+---
+
+<Badge text="ML/AI" color="orange" size="small" />
+
+## Function Signature
+
+```python
+clip(text, model_id)
+```
+
+## Description
+
+Computes a CLIP embedding for the specified text or image. CLIP (Contrastive Language-Image Pre-training) is a neural network that understands both text and images in a shared semantic space, making it perfect for multimodal AI applications.
+
+The `model_id` should be a reference to a pretrained [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip) from Hugging Face.
+
+## Parameters
+
+<ParamField path="text" type="str | PIL.Image.Image" required>
+  The text string or image to embed. CLIP works seamlessly with both modalities.
+</ParamField>
+
+<ParamField path="model_id" type="str" required>
+  The pretrained CLIP model to use for the embedding (e.g., `'openai/clip-vit-base-patch32'`).
+</ParamField>
+
+## Returns
+
+<ResponseField name="embedding" type="Batch[Array[Float]]">
+  An array containing the output of the embedding model. The embedding dimension depends on the specific CLIP model used.
+</ResponseField>
+
+## Examples
+
+### Text Embeddings
+
+```python
+import pixeltable as pxt
+
+# Create a table with text data
+articles = pxt.create_table('articles', {
+    'content': pxt.String
+})
+
+# Add CLIP embeddings for text
+articles.add_computed_column(
+    text_embedding=pxt.functions.clip(
+        articles.content, 
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+```
+
+### Image Embeddings
+
+```python
+# Create a table with image data
+images = pxt.create_table('images', {
+    'image': pxt.Image
+})
+
+# Add CLIP embeddings for images
+images.add_computed_column(
+    image_embedding=pxt.functions.clip(
+        images.image, 
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+```
+
+### Multimodal Similarity Search
+
+```python
+# Create embedding index for semantic search
+images.add_embedding_index(
+    'image_embedding',
+    embedding=pxt.functions.clip(images.image, model_id='openai/clip-vit-base-patch32')
+)
+
+# Search images using text queries!
+similar_images = images.select(images.image).order_by(
+    images.image_embedding.similarity("a cat sitting on a table"),
+    asc=False
+).limit(5)
+```
+
+### Cross-Modal Applications
+
+```python
+# Find images that match text descriptions
+query_text = "sunset over mountains"
+matches = images.where(
+    images.image_embedding.similarity(query_text) > 0.8
+).select(images.image, images.image_embedding.similarity(query_text).alias('score'))
+```
+
+## Requirements
+
+Before using the CLIP function, install the required dependencies:
+
+```bash
+pip install torch transformers
+```
+
+## Popular CLIP Models
+
+| Model ID | Description | Use Case |
+|----------|-------------|----------|
+| `openai/clip-vit-base-patch32` | Base ViT model | General purpose, balanced performance |
+| `openai/clip-vit-large-patch14` | Large ViT model | Higher accuracy, more compute |
+| `openai/clip-vit-base-patch16` | Base with smaller patches | Good balance of speed and quality |
+
+## Use Cases
+
+- **Semantic Image Search**: Find images using natural language queries
+- **Content Recommendation**: Match content across text and image modalities  
+- **Zero-Shot Classification**: Classify images using text descriptions
+- **Multimodal RAG**: Build retrieval systems that work across text and images
+- **Content Moderation**: Detect inappropriate content using text descriptions
+
+## Related Functions
+
+- [`add_embedding_index`](/docs/sdk/latest/core_api/index_management/add_embedding_index) - Create searchable vector indexes
+- [`similarity`](/docs/sdk/latest/core_api/query_operations/similarity) - Perform similarity searches
+- [`yolox`](/docs/sdk/latest/ml/detection/yolox) - Object detection for images
+
+---
+
+*This documentation was automatically generated from the Pixeltable codebase. For the most up-to-date information, please refer to the official Pixeltable documentation.*

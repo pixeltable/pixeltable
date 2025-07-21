@@ -1,0 +1,281 @@
+---
+title: "pxt.get_client"
+description: "get_client() - Get or initialize AI service clients for LLMs, embeddings, and external APIs"
+---
+
+<Badge text="Configuration" color="blue" size="small" />
+
+## Function Signature
+
+```python
+pxt.get_client(name: str) -> Any
+```
+
+## Description
+
+Gets the client with the specified name, initializing it if necessary. This function provides a unified interface for accessing AI service clients like OpenAI, Ollama, Fireworks, Google, and other external services that Pixeltable integrates with.
+
+The client system enables seamless integration with various AI providers while handling authentication, configuration, and connection management automatically. Once a client is initialized, it's cached for reuse throughout your application.
+
+This is the **connection hub** for all external AI services - your gateway to the world of LLMs, embeddings, computer vision models, and specialized AI APIs.
+
+## Parameters
+
+<ParamField path="name" type="str" required>
+  The name of the client to retrieve or initialize. Common client names include:
+  
+  - `"openai"` - OpenAI API client for GPT models, embeddings, and DALL-E
+  - `"ollama"` - Ollama client for local LLM serving
+  - `"fireworks"` - Fireworks AI client for fast inference
+  - `"google"` - Google AI services (Gemini, PaLM, etc.)
+  - `"anthropic"` - Anthropic client for Claude models
+  - `"huggingface"` - Hugging Face client for models and datasets
+  - `"mistral"` - Mistral AI client for their language models
+  
+  The exact available clients depend on your Pixeltable installation and configured integrations.
+</ParamField>
+
+## Returns
+
+<ResponseField name="client" type="Any">
+  The initialized client object for the specified service. The type depends on the client name:
+  
+  - **OpenAI client**: Provides access to GPT models, embeddings, image generation
+  - **Ollama client**: Local model serving and inference  
+  - **Fireworks client**: High-performance inference API
+  - **Google client**: Google's AI services and models
+  - **Other clients**: Service-specific API wrappers
+  
+  The returned client can be used directly with the service's native API or with Pixeltable's integration functions.
+</ResponseField>
+
+## Examples
+
+### Basic Client Access
+
+```python
+import pixeltable as pxt
+
+# Get OpenAI client for GPT models
+openai_client = pxt.get_client('openai')
+
+# Get Ollama client for local models  
+ollama_client = pxt.get_client('ollama')
+
+# Get Fireworks client for fast inference
+fireworks_client = pxt.get_client('fireworks')
+```
+
+### Using with Computed Columns
+
+```python
+import pixeltable as pxt
+
+# Create table for text analysis
+t = pxt.create_table('text_analysis', {
+    'text': pxt.String,
+    'user_id': pxt.String
+})
+
+# Insert sample data
+t.insert([
+    {'text': 'Analyze this customer feedback', 'user_id': 'user123'},
+    {'text': 'Great product, love the features!', 'user_id': 'user456'}
+])
+
+# Use client in UDF for AI processing
+@pxt.udf
+def analyze_sentiment(text: str) -> str:
+    client = pxt.get_client('openai')
+    # Use client with your preferred method
+    # (Implementation depends on integration style)
+    return "positive"  # Simplified example
+
+# Add computed column using the client
+t.add_computed_column(sentiment=analyze_sentiment(t.text))
+```
+
+### Multi-Client AI Pipeline
+
+```python
+import pixeltable as pxt
+
+# Create multimodal table
+t = pxt.create_table('multimodal_analysis', {
+    'image': pxt.Image,
+    'text_prompt': pxt.String
+})
+
+@pxt.udf
+def multimodal_analysis(image: PIL.Image.Image, prompt: str) -> dict:
+    # Use multiple clients in one function
+    openai_client = pxt.get_client('openai')
+    google_client = pxt.get_client('google')
+    
+    # Process with different providers
+    # (Implementation depends on integration patterns)
+    
+    return {
+        'openai_analysis': 'detailed analysis...',
+        'google_analysis': 'alternative perspective...'
+    }
+
+# Add computed column using multiple clients
+t.add_computed_column(
+    analysis=multimodal_analysis(t.image, t.text_prompt)
+)
+```
+
+### Local vs Cloud Client Setup
+
+```python
+import pixeltable as pxt
+
+# Configure logging to see client initialization
+pxt.configure_logging(to_stdout=True, level=20)
+
+# Local AI processing with Ollama
+try:
+    ollama_client = pxt.get_client('ollama')
+    print("✅ Ollama client ready for local processing")
+except Exception as e:
+    print(f"❌ Ollama not available: {e}")
+
+# Cloud AI processing with OpenAI
+try:
+    openai_client = pxt.get_client('openai') 
+    print("✅ OpenAI client ready for cloud processing")
+except Exception as e:
+    print(f"❌ OpenAI not configured: {e}")
+```
+
+### Client Configuration Validation
+
+```python
+import pixeltable as pxt
+
+def validate_ai_setup():
+    """Validate all AI service clients are properly configured"""
+    
+    clients_to_check = ['openai', 'ollama', 'fireworks', 'google']
+    available_clients = []
+    
+    for client_name in clients_to_check:
+        try:
+            client = pxt.get_client(client_name)
+            available_clients.append(client_name)
+            print(f"✅ {client_name}: Available")
+        except Exception as e:
+            print(f"❌ {client_name}: {e}")
+    
+    print(f"\n🎯 Available AI services: {available_clients}")
+    return available_clients
+
+# Run validation
+available_services = validate_ai_setup()
+```
+
+### Production Environment Setup
+
+```python
+import pixeltable as pxt
+import os
+
+# Production client initialization with error handling
+def get_production_client(service_name: str):
+    """Safely get client with production error handling"""
+    
+    try:
+        client = pxt.get_client(service_name)
+        
+        # Log successful initialization
+        print(f"🚀 Production {service_name} client initialized")
+        
+        return client
+        
+    except Exception as e:
+        # Log error and handle gracefully
+        print(f"⚠️ Production {service_name} client failed: {e}")
+        
+        # Could fallback to alternative service
+        if service_name == 'openai':
+            try:
+                return pxt.get_client('ollama')  # Local fallback
+            except:
+                pass
+        
+        raise Exception(f"No available {service_name} client")
+
+# Use in production
+primary_client = get_production_client('openai')
+```
+
+## Authentication & Configuration
+
+Most clients require proper authentication setup:
+
+### Environment Variables
+```bash
+# OpenAI
+export OPENAI_API_KEY="your-openai-key"
+
+# Fireworks
+export FIREWORKS_API_KEY="your-fireworks-key"
+
+# Google
+export GOOGLE_API_KEY="your-google-key"
+
+# Anthropic
+export ANTHROPIC_API_KEY="your-anthropic-key"
+```
+
+### Configuration Files
+Some clients may use configuration files or other setup methods. Check the specific integration documentation for each service.
+
+## Raises
+
+- **ConnectionError**: If the client cannot connect to the service
+- **AuthenticationError**: If API keys or credentials are invalid  
+- **ConfigurationError**: If required configuration is missing
+- **ServiceUnavailableError**: If the external service is down
+- **ValueError**: If the client name is not recognized
+
+## Related Functions
+
+- [`pxt.configure_logging`](configure_logging) - Configure logging to debug client initialization
+- **Service-specific UDFs** - Many Pixeltable functions use these clients internally
+- **External service documentation** - Refer to each service's API documentation
+
+## Best Practices
+
+### Client Initialization
+```python
+# ✅ Good: Initialize once, reuse
+client = pxt.get_client('openai')
+
+# ❌ Bad: Re-initializing in loops
+for item in data:
+    client = pxt.get_client('openai')  # Inefficient!
+```
+
+### Error Handling
+```python
+# ✅ Good: Graceful error handling
+try:
+    client = pxt.get_client('premium_service')
+except Exception:
+    client = pxt.get_client('fallback_service')
+```
+
+### Environment Management
+```python
+# ✅ Good: Environment-specific setup
+if os.getenv('ENVIRONMENT') == 'production':
+    client = pxt.get_client('openai')
+else:
+    client = pxt.get_client('ollama')  # Local development
+```
+
+---
+
+*In the constellation of artificial intelligence, clients are the bridges between intention and capability. To get a client is not merely to access an API—it is to summon digital companions that extend your cognitive reach across the infinite landscape of machine learning possibilities.*

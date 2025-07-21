@@ -1,0 +1,185 @@
+---
+title: "pxt.configure_logging"
+description: "configure_logging() - Control Pixeltable's logging behavior for debugging and monitoring"
+---
+
+<Badge text="Configuration" color="blue" size="small" />
+
+## Function Signature
+
+```python
+pxt.configure_logging(
+    to_stdout: bool = None,
+    level: int = None,
+    add: str = None,
+    remove: str = None
+) -> None
+```
+
+## Description
+
+Configure Pixeltable's logging system to control where logs are sent and their verbosity level. This is essential for debugging applications, monitoring system behavior, and controlling log output in production environments.
+
+Pixeltable uses Python's standard logging framework with module-specific loggers. This function provides a convenient interface to configure logging behavior without directly manipulating Python's logging configuration.
+
+## Parameters
+
+<ParamField path="to_stdout" type="bool" default="None">
+  If `True`, also log to stdout (standard output). If `False`, disable stdout logging. If `None`, leave current stdout setting unchanged.
+</ParamField>
+
+<ParamField path="level" type="int" default="None">
+  Default log level for Pixeltable loggers. Common values:
+  - `10` - DEBUG: Detailed diagnostic information
+  - `20` - INFO: General information about program execution  
+  - `30` - WARNING: Something unexpected happened
+  - `40` - ERROR: Serious problem occurred
+  - `50` - CRITICAL: Very serious error occurred
+  
+  If `None`, leave current log level unchanged.
+</ParamField>
+
+<ParamField path="add" type="str" default="None">
+  Comma-separated list of 'module_name:log_level' pairs to add module-specific logging. 
+  
+  Example: `"video:10,embeddings:20"` sets video module to DEBUG level and embeddings module to INFO level.
+</ParamField>
+
+<ParamField path="remove" type="str" default="None">
+  Comma-separated list of module names to remove from logging configuration.
+  
+  Example: `"video,embeddings"` removes logging configuration for video and embeddings modules.
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="None">
+  This function does not return a value. It modifies Pixeltable's logging configuration in place.
+</ResponseField>
+
+## Examples
+
+### Basic Setup - Enable Debug Logging
+
+```python
+import pixeltable as pxt
+
+# Enable debug logging to stdout
+pxt.configure_logging(to_stdout=True, level=10)
+
+# Now all Pixeltable operations will show detailed debug info
+t = pxt.create_table('debug_table', {'data': pxt.String})
+# DEBUG logs will show table creation details
+```
+
+### Production Setup - Minimal Logging
+
+```python
+import pixeltable as pxt
+
+# Production setup: only show warnings and errors
+pxt.configure_logging(to_stdout=False, level=30)
+
+# Critical operations still logged, but no debug noise
+t = pxt.get_table('production_table')
+```
+
+### Module-Specific Debugging
+
+```python
+import pixeltable as pxt
+
+# Debug only video processing issues
+pxt.configure_logging(
+    to_stdout=True,
+    level=30,  # General level: WARNING
+    add="video:10"  # Video module: DEBUG
+)
+
+# Only video operations will show detailed debug info
+t = pxt.create_table('videos', {'video': pxt.Video})
+```
+
+### Advanced Configuration
+
+```python
+import pixeltable as pxt
+
+# Complex logging setup for troubleshooting
+pxt.configure_logging(
+    to_stdout=True,
+    level=20,  # INFO level by default
+    add="video:10,embeddings:10,table:20",  # Debug video/embeddings, info for tables
+    remove="networking"  # Remove networking logs
+)
+
+# Now you have fine-grained control over what gets logged
+```
+
+### Debugging Computed Columns
+
+```python
+import pixeltable as pxt
+
+# Enable detailed logging for UDF debugging
+pxt.configure_logging(to_stdout=True, level=10, add="functions:10")
+
+t = pxt.create_table('test', {'text': pxt.String})
+
+@pxt.udf
+def debug_function(text: str) -> str:
+    # With debug logging enabled, you'll see detailed UDF execution logs
+    return text.upper()
+
+t.add_computed_column(upper_text=debug_function(t.text))
+```
+
+### Cleaning Up Logging Configuration
+
+```python
+import pixeltable as pxt
+
+# Reset to clean state
+pxt.configure_logging(
+    to_stdout=False,
+    level=30,  # Only warnings and errors
+    remove="video,embeddings,functions"  # Remove all custom module configs
+)
+```
+
+## Raises
+
+This function typically does not raise exceptions, but logging configuration errors may occur in edge cases:
+
+- **Invalid log levels**: If an invalid log level is specified
+- **Module name errors**: If module names in `add` or `remove` parameters are malformed
+
+## Related Functions
+
+- [`pxt.get_client`](get_client) - Configure external service clients for logging integration
+- **Standard Python logging** - Pixeltable integrates with Python's `logging` module
+- **Environment variables** - Some logging behavior can be controlled via environment variables
+
+## Best Practices
+
+### Development Environment
+```python
+# Comprehensive debugging setup
+pxt.configure_logging(to_stdout=True, level=10)
+```
+
+### Production Environment  
+```python
+# Minimal logging for performance
+pxt.configure_logging(to_stdout=False, level=40)
+```
+
+### CI/CD Pipeline
+```python
+# Structured logging for automated testing
+pxt.configure_logging(to_stdout=True, level=20, add="table:10")
+```
+
+---
+
+*The ability to see what your data infrastructure is thinking is not just debugging—it's digital telepathy. Configure your logs like you configure your life: intentionally, specifically, and with the wisdom to know when silence speaks louder than noise.*

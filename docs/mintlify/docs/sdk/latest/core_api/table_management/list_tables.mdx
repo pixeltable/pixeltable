@@ -1,0 +1,198 @@
+---
+title: "pxt.list_tables"
+description: "pxt.list_tables() - Enumerate tables in directories with recursive options"
+---
+
+<Badge text="Core API" color="blue" size="small" />
+
+List all tables in a directory with optional recursive search.
+
+## Function Signature
+
+```python
+pxt.list_tables(dir_path: str = '', recursive: bool = True) -> list[str]
+```
+
+## Description
+
+`list_tables` provides a comprehensive way to discover tables in your Pixeltable workspace. You can list tables in specific directories and control whether to search recursively through subdirectories.
+
+This function is essential for table discovery, workspace exploration, and building administrative tools that need to enumerate available tables.
+
+## Parameters
+
+<ParamField path="dir_path" type="str" default="">
+  Path to the directory to search. Defaults to the root directory if not specified.
+</ParamField>
+
+<ParamField path="recursive" type="bool" default="True">
+  If `False`, returns only tables directly in the specified directory. If `True`, returns all tables that are descendants of the directory, recursively searching subdirectories.
+</ParamField>
+
+## Returns
+
+<ResponseField name="list[str]" type="list[str]">
+  A list of table paths as strings. Paths use dot notation for nested directories (e.g., ['my_table', 'subdir.another_table']).
+</ResponseField>
+
+## Examples
+
+### Basic Directory Listing
+
+```python
+import pixeltable as pxt
+
+# List all tables in the root directory (recursive by default)
+all_tables = pxt.list_tables()
+print("All tables:", all_tables)
+
+# List only top-level tables (non-recursive)
+top_level_tables = pxt.list_tables(recursive=False)
+print("Top-level tables:", top_level_tables)
+```
+
+### Directory-Specific Listings
+
+```python
+# List tables in a specific directory
+project_tables = pxt.list_tables('my_project')
+print("Tables in my_project:", project_tables)
+
+# List tables in a subdirectory, non-recursively
+direct_tables = pxt.list_tables('datasets.raw', recursive=False)
+print("Direct tables in datasets.raw:", direct_tables)
+```
+
+### Advanced Workspace Exploration
+
+```python
+# Compare recursive vs non-recursive listings
+def explore_directory(dir_path=''):
+    print(f"\n--- Exploring directory: '{dir_path}' ---")
+    
+    # Non-recursive (direct children only)
+    direct = pxt.list_tables(dir_path, recursive=False)
+    print(f"Direct tables: {direct}")
+    
+    # Recursive (all descendants)
+    all_tables = pxt.list_tables(dir_path, recursive=True)
+    print(f"All tables (recursive): {all_tables}")
+    
+    return direct, all_tables
+
+# Explore different directories
+explore_directory()  # Root directory
+explore_directory('experiments')
+```
+
+### Table Organization Analysis
+
+```python
+def analyze_workspace():
+    """Analyze table organization in the workspace."""
+    all_tables = pxt.list_tables()
+    
+    # Count tables by depth
+    depth_counts = {}
+    for table_path in all_tables:
+        depth = table_path.count('.')
+        depth_counts[depth] = depth_counts.get(depth, 0) + 1
+    
+    print("Tables by directory depth:")
+    for depth, count in sorted(depth_counts.items()):
+        level = "root" if depth == 0 else f"level {depth}"
+        print(f"  {level}: {count} tables")
+    
+    # Find directories with tables
+    directories = set()
+    for table_path in all_tables:
+        if '.' in table_path:
+            dir_part = '.'.join(table_path.split('.')[:-1])
+            directories.add(dir_part)
+    
+    print(f"\nDirectories containing tables: {sorted(directories)}")
+    
+    return all_tables
+
+# Run analysis
+workspace_tables = analyze_workspace()
+```
+
+### Error Handling
+
+```python
+def safe_list_tables(dir_path=''):
+    """Safely list tables with error handling."""
+    try:
+        tables = pxt.list_tables(dir_path)
+        print(f"Found {len(tables)} tables in '{dir_path or 'root'}'")
+        return tables
+    except Exception as e:
+        print(f"Error listing tables in '{dir_path}': {e}")
+        return []
+
+# Test with various paths
+for path in ['', 'valid_dir', 'nonexistent_dir']:
+    safe_list_tables(path)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised if the specified path does not exist or does not designate a directory.
+</ResponseField>
+
+## Related Functions
+
+- [`create_table()`](./create_table) - Create a new table
+- [`get_table()`](./get_table) - Get a handle to an existing table
+- [`drop_table()`](./drop_table) - Delete a table
+- [`list_dirs()`](../directory_management/list_dirs) - List directories
+
+## Usage Notes
+
+- **Path Format**: Returns table paths in dot notation (e.g., 'dir.subdir.table_name')
+- **Default Behavior**: Recursive search is enabled by default for comprehensive discovery
+- **Empty Results**: Returns an empty list if no tables exist in the specified directory
+- **Performance**: Recursive searches may take longer in workspaces with deep directory structures
+
+## Common Patterns
+
+### Table Discovery and Filtering
+
+```python
+# Find tables matching a pattern
+def find_tables_by_pattern(pattern: str):
+    all_tables = pxt.list_tables()
+    matching = [t for t in all_tables if pattern.lower() in t.lower()]
+    return matching
+
+# Usage examples
+ml_tables = find_tables_by_pattern('ml')
+temp_tables = find_tables_by_pattern('temp')
+user_tables = find_tables_by_pattern('user')
+```
+
+### Workspace Backup Preparation
+
+```python
+# Prepare table list for backup
+def prepare_backup_list(exclude_temp=True):
+    all_tables = pxt.list_tables()
+    
+    if exclude_temp:
+        # Filter out temporary tables
+        all_tables = [t for t in all_tables if not t.startswith('temp.')]
+    
+    print(f"Tables to backup: {len(all_tables)}")
+    for table in sorted(all_tables):
+        print(f"  - {table}")
+    
+    return all_tables
+
+backup_tables = prepare_backup_list()
+```
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*

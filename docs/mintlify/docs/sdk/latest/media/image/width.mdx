@@ -1,0 +1,419 @@
+---
+title: "image.width"
+description: "image.width() - Discover the horizontal dimension of visual possibilities"
+---
+
+<Badge text="Media Processing" color="purple" size="small" />
+
+## Function Signature
+
+```python
+image.width() -> int
+```
+
+## Description
+
+Reveal the horizontal extent of visual data, where pixels meet possibility and dimensions define potential. Width extraction transcends simple measurement—it's **spatial intelligence gathering** that enables dynamic image processing, aspect ratio calculations, and intelligent cropping decisions.
+
+In the realm of computer vision and responsive design, image width is the foundation of all spatial reasoning. This function embodies Pixeltable's philosophy that **dimensional awareness should be instantaneous and effortless**, providing the spatial context needed for intelligent image processing workflows.
+
+## Returns
+
+<ResponseField name="width_pixels" type="int">
+  The width of the image in pixels, representing the horizontal dimension from left edge to right edge.
+</ResponseField>
+
+## Examples
+
+### Responsive Image Processing
+
+Create responsive image variants based on width thresholds:
+
+```python
+import pixeltable as pxt
+
+# Create table for responsive image processing
+responsive_images = pxt.create_table('responsive_gallery', {
+    'image_id': pxt.String,
+    'original_image': pxt.Image,
+    'target_context': pxt.String  # 'mobile', 'tablet', 'desktop'
+})
+
+# Get image dimensions for processing decisions
+responsive_images.add_computed_column(
+    original_width=responsive_images.original_image.width()
+)
+
+responsive_images.add_computed_column(
+    original_height=responsive_images.original_image.height()
+)
+
+# Create smart responsive variants based on original width
+@pxt.udf
+def create_responsive_variant(image: pxt.Image, width: int, 
+                             target: str) -> pxt.Image:
+    """Create responsive image variant based on width"""
+    if target == 'mobile' and width > 400:
+        return image.resize((400, int(400 * image.height() / width)))
+    elif target == 'tablet' and width > 800:
+        return image.resize((800, int(800 * image.height() / width)))
+    elif target == 'desktop' and width > 1200:
+        return image.resize((1200, int(1200 * image.height() / width)))
+    else:
+        return image  # Already appropriate size
+
+responsive_images.add_computed_column(
+    responsive_variant=create_responsive_variant(
+        responsive_images.original_image,
+        responsive_images.original_width,
+        responsive_images.target_context
+    )
+)
+
+# Process images for different contexts
+responsive_images.insert([
+    {
+        'image_id': 'hero_001',
+        'original_image': '/images/hero_banner.jpg',
+        'target_context': 'mobile'
+    },
+    {
+        'image_id': 'hero_002',
+        'original_image': '/images/hero_banner.jpg', 
+        'target_context': 'desktop'
+    }
+])
+```
+
+### Aspect Ratio Analysis and Categorization
+
+Categorize images based on their dimensional characteristics:
+
+```python
+# Analyze and categorize images by aspect ratio
+image_analysis = pxt.create_table('aspect_analysis', {
+    'analysis_id': pxt.String,
+    'source_image': pxt.Image,
+    'image_category': pxt.String
+})
+
+# Get dimensional data
+image_analysis.add_computed_column(
+    pixel_width=image_analysis.source_image.width()
+)
+
+image_analysis.add_computed_column(
+    pixel_height=image_analysis.source_image.height()
+)
+
+# Calculate aspect ratio and categorize
+@pxt.udf
+def analyze_image_dimensions(width: int, height: int) -> dict:
+    """Analyze image dimensions and categorize"""
+    aspect_ratio = width / height
+    
+    # Categorize by aspect ratio
+    if aspect_ratio > 1.7:
+        orientation = 'ultra_wide'
+    elif aspect_ratio > 1.3:
+        orientation = 'landscape'
+    elif aspect_ratio > 0.8:
+        orientation = 'square'
+    elif aspect_ratio > 0.6:
+        orientation = 'portrait'
+    else:
+        orientation = 'tall_portrait'
+    
+    # Categorize by resolution
+    total_pixels = width * height
+    if total_pixels > 8000000:  # 8MP+
+        resolution_class = 'high_resolution'
+    elif total_pixels > 2000000:  # 2MP+
+        resolution_class = 'medium_resolution'
+    else:
+        resolution_class = 'low_resolution'
+    
+    return {
+        'aspect_ratio': round(aspect_ratio, 2),
+        'orientation': orientation,
+        'resolution_class': resolution_class,
+        'total_pixels': total_pixels,
+        'is_square': abs(aspect_ratio - 1.0) < 0.1,
+        'is_widescreen': aspect_ratio >= 16/9
+    }
+
+image_analysis.add_computed_column(
+    dimension_analysis=analyze_image_dimensions(
+        image_analysis.pixel_width,
+        image_analysis.pixel_height
+    )
+)
+
+# Analyze image collection
+image_analysis.insert([
+    {
+        'analysis_id': 'img_001',
+        'source_image': '/photos/landscape.jpg',
+        'image_category': 'photography'
+    },
+    {
+        'analysis_id': 'img_002',
+        'source_image': '/graphics/social_square.png',
+        'image_category': 'social_media'
+    }
+])
+```
+
+### Smart Cropping Based on Width
+
+Implement intelligent cropping that preserves important content:
+
+```python
+# Smart cropping system based on image dimensions
+smart_crop = pxt.create_table('intelligent_cropping', {
+    'crop_id': pxt.String,
+    'source_image': pxt.Image,
+    'target_aspect': pxt.String  # '16:9', '4:3', '1:1', etc.
+})
+
+# Get source dimensions for crop calculations
+smart_crop.add_computed_column(
+    source_width=smart_crop.source_image.width()
+)
+
+smart_crop.add_computed_column(
+    source_height=smart_crop.source_image.height()
+)
+
+# Calculate optimal crop based on dimensions
+@pxt.udf
+def calculate_smart_crop(image: pxt.Image, width: int, height: int, 
+                        target_aspect: str) -> pxt.Image:
+    """Calculate and apply smart crop based on target aspect ratio"""
+    # Parse target aspect ratio
+    aspect_parts = target_aspect.split(':')
+    target_ratio = float(aspect_parts[0]) / float(aspect_parts[1])
+    
+    current_ratio = width / height
+    
+    if current_ratio > target_ratio:
+        # Image is wider than target, crop width
+        new_width = int(height * target_ratio)
+        left_offset = (width - new_width) // 2
+        return image.crop((left_offset, 0, left_offset + new_width, height))
+    else:
+        # Image is taller than target, crop height
+        new_height = int(width / target_ratio)
+        top_offset = (height - new_height) // 2
+        return image.crop((0, top_offset, width, top_offset + new_height))
+
+smart_crop.add_computed_column(
+    cropped_image=calculate_smart_crop(
+        smart_crop.source_image,
+        smart_crop.source_width,
+        smart_crop.source_height,
+        smart_crop.target_aspect
+    )
+)
+
+# Apply smart cropping to various aspect ratios
+smart_crop.insert([
+    {
+        'crop_id': 'social_16_9',
+        'source_image': '/photos/original.jpg',
+        'target_aspect': '16:9'
+    },
+    {
+        'crop_id': 'instagram_1_1',
+        'source_image': '/photos/original.jpg',
+        'target_aspect': '1:1'
+    }
+])
+```
+
+### Image Resolution Validation
+
+Validate image dimensions against requirements:
+
+```python
+# Validate image dimensions for specific use cases
+resolution_validator = pxt.create_table('resolution_requirements', {
+    'validation_id': pxt.String,
+    'test_image': pxt.Image,
+    'use_case': pxt.String,  # 'thumbnail', 'banner', 'print', etc.
+    'min_width': pxt.Int,
+    'max_width': pxt.Int
+})
+
+# Get actual dimensions
+resolution_validator.add_computed_column(
+    actual_width=resolution_validator.test_image.width()
+)
+
+resolution_validator.add_computed_column(
+    actual_height=resolution_validator.test_image.height()
+)
+
+# Validate against requirements
+@pxt.udf
+def validate_dimensions(width: int, height: int, min_width: int, 
+                       max_width: int, use_case: str) -> dict:
+    """Validate image dimensions against use case requirements"""
+    validation_results = {
+        'width_valid': min_width <= width <= max_width,
+        'actual_dimensions': f"{width}x{height}",
+        'use_case': use_case,
+        'meets_requirements': False,
+        'issues': []
+    }
+    
+    if width < min_width:
+        validation_results['issues'].append(f"Width {width} below minimum {min_width}")
+    elif width > max_width:
+        validation_results['issues'].append(f"Width {width} exceeds maximum {max_width}")
+    
+    # Additional use case specific validations
+    if use_case == 'banner' and height < 200:
+        validation_results['issues'].append("Banner height should be at least 200px")
+    elif use_case == 'thumbnail' and (width > 200 or height > 200):
+        validation_results['issues'].append("Thumbnail dimensions should not exceed 200px")
+    
+    validation_results['meets_requirements'] = len(validation_results['issues']) == 0
+    
+    return validation_results
+
+resolution_validator.add_computed_column(
+    validation_result=validate_dimensions(
+        resolution_validator.actual_width,
+        resolution_validator.actual_height,
+        resolution_validator.min_width,
+        resolution_validator.max_width,
+        resolution_validator.use_case
+    )
+)
+
+# Validate images for different use cases
+resolution_validator.insert([
+    {
+        'validation_id': 'banner_test',
+        'test_image': '/uploads/banner_candidate.jpg',
+        'use_case': 'banner',
+        'min_width': 800,
+        'max_width': 1920
+    }
+])
+```
+
+### Performance Optimization Based on Width
+
+Optimize processing strategies based on image dimensions:
+
+```python
+# Optimize processing based on image dimensions
+processing_optimizer = pxt.create_table('processing_strategy', {
+    'task_id': pxt.String,
+    'input_image': pxt.Image,
+    'processing_type': pxt.String
+})
+
+# Get width for processing decisions
+processing_optimizer.add_computed_column(
+    image_width=processing_optimizer.input_image.width()
+)
+
+# Choose processing strategy based on width
+@pxt.udf
+def choose_processing_strategy(width: int, processing_type: str) -> dict:
+    """Choose optimal processing strategy based on image width"""
+    if width > 4000:
+        strategy = 'high_memory'
+        batch_size = 1
+        quality = 'maximum'
+    elif width > 2000:
+        strategy = 'standard'
+        batch_size = 4
+        quality = 'high'
+    elif width > 1000:
+        strategy = 'efficient'
+        batch_size = 8
+        quality = 'medium'
+    else:
+        strategy = 'fast'
+        batch_size = 16
+        quality = 'optimized'
+    
+    return {
+        'strategy': strategy,
+        'recommended_batch_size': batch_size,
+        'quality_setting': quality,
+        'estimated_memory_gb': round(width * width * 4 / 1024**3, 2),
+        'parallel_processing': width < 2000
+    }
+
+processing_optimizer.add_computed_column(
+    optimization_strategy=choose_processing_strategy(
+        processing_optimizer.image_width,
+        processing_optimizer.processing_type
+    )
+)
+
+# Optimize processing for various image sizes
+processing_optimizer.insert([
+    {
+        'task_id': 'batch_001',
+        'input_image': '/large_images/high_res.jpg',
+        'processing_type': 'ai_enhancement'
+    }
+])
+```
+
+## Technical Implementation Notes
+
+### Pixel Precision
+
+- **Exact Measurement**: Returns precise pixel count, not approximation
+- **Integer Type**: Always returns integer value (no fractional pixels)
+- **Performance**: Extremely fast operation, reads from image metadata
+
+### Memory Efficiency
+
+- **No Image Loading**: Accesses dimension data from image headers
+- **Instant Access**: No pixel data processing required
+- **Metadata Only**: Reads only file header information
+
+### Compatibility
+
+- **Universal Support**: Works with all image formats (JPEG, PNG, GIF, etc.)
+- **Metadata Parsing**: Leverages PIL's robust metadata parsing
+- **Error Handling**: Gracefully handles corrupted or invalid image files
+
+## Related Functions
+
+- **[`height`](./height)** - Get image height dimension
+- **[`resize`](./resize)** - Scale images using width/height calculations
+- **[`crop`](./crop)** - Extract regions using width for boundary calculations
+- **[`rotate`](./rotate)** - Transform images with dimension awareness
+
+## Use Cases in Production
+
+### Responsive Web Design
+Calculate optimal image sizes for different viewport widths and device capabilities.
+
+### Print Production
+Validate image dimensions against print resolution requirements and paper sizes.
+
+### Content Management Systems
+Categorize and organize images based on dimensional characteristics and aspect ratios.
+
+### E-commerce Platforms
+Ensure product images meet minimum width requirements for various display contexts.
+
+### Social Media Automation
+Generate properly sized variants for different social media platform requirements.
+
+### Machine Learning Preprocessing
+Filter and prepare images based on dimensional requirements for ML model training.
+
+---
+
+*In the language of pixels, width speaks of horizons—the breadth of possibility stretching from left to right. This is **spatial intelligence** at its foundation, where **every dimension tells a story** of potential, proportion, and **visual possibility**.*

@@ -1,0 +1,537 @@
+---
+title: "pxt.mcp_udfs"
+description: "mcp_udfs() - Convert multiple MCP tools into UDFs with unified management and optimization"
+---
+
+<Badge text="MCP Batch Integration" color="purple" size="small" />
+
+## Function Signature
+
+```python
+def mcp_udfs(
+    tools: Dict[str, MCPTool],
+    *,
+    namespace: Optional[str] = None,
+    batch_size: Optional[int] = None,
+    shared_session: bool = True
+) -> Dict[str, CallableFunction]
+```
+
+## Description
+
+**Mass MCP tool conversion for enterprise workflows!** `mcp_udfs` takes Pixeltable's MCP integration to the next level by enabling **bulk conversion** of multiple MCP tools into UDFs with unified management, shared resources, and optimized performance.
+
+This function is perfect for:
+- **Agent frameworks** with multiple specialized tools
+- **Enterprise integrations** requiring numerous external services
+- **Workflow orchestration** with complex tool dependencies
+- **Performance optimization** through shared sessions and batching
+
+## Parameters
+
+<ParamField path="tools" type="Dict[str, MCPTool]" required>
+  Dictionary mapping tool names to MCP tool instances. The keys become the UDF names, and values are the tools to convert.
+</ParamField>
+
+<ParamField path="namespace" type="str" default="None">
+  Optional namespace prefix for all generated UDFs. Helps organize tools by domain or purpose (e.g., "financial_", "content_", "ai_").
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="None">
+  Default batch size for all tools that support batching. Individual tools can override this setting.
+</ParamField>
+
+<ParamField path="shared_session" type="bool" default="True">
+  Whether to use shared connection sessions across tools for better performance and resource utilization.
+</ParamField>
+
+## Returns
+
+<ResponseField name="udf_dict" type="Dict[str, CallableFunction]">
+  Dictionary mapping tool names to their corresponding Pixeltable UDFs. Keys match the input tool names (with optional namespace prefix).
+</ResponseField>
+
+## Examples
+
+### Complete Agent Framework Integration
+
+```python
+import pixeltable as pxt
+from your_agent_framework import (
+    WebSearchTool, DocumentAnalyzer, SentimentAnalyzer, 
+    FactChecker, Summarizer, Translator
+)
+
+# Define comprehensive tool suite
+agent_tools = {
+    'web_search': WebSearchTool(api_key="search_key"),
+    'doc_analyzer': DocumentAnalyzer(),
+    'sentiment': SentimentAnalyzer(model="roberta-large"),
+    'fact_checker': FactChecker(api_key="fact_check_key"),
+    'summarizer': Summarizer(max_length=200),
+    'translator': Translator(api_key="translation_key")
+}
+
+# Convert all tools to UDFs with shared optimization
+research_udfs = pxt.mcp_udfs(
+    agent_tools,
+    namespace="research_",
+    batch_size=10,
+    shared_session=True
+)
+
+# Create comprehensive research pipeline
+articles = pxt.create_table('research_articles', {
+    'url': pxt.String,
+    'content': pxt.String,
+    'language': pxt.String,
+    'topic': pxt.String
+})
+
+# Build multi-tool analysis pipeline
+articles.add_computed_column(
+    sentiment_analysis=research_udfs['research_sentiment'](articles.content)
+)
+
+articles.add_computed_column(
+    fact_check_results=research_udfs['research_fact_checker'](articles.content)
+)
+
+articles.add_computed_column(
+    summary=research_udfs['research_summarizer'](articles.content)
+)
+
+articles.add_computed_column(
+    english_translation=research_udfs['research_translator'](
+        articles.content, 
+        source_lang=articles.language,
+        target_lang='en'
+    )
+)
+
+# Create unified research insight
+articles.add_computed_column(
+    research_report={
+        'sentiment': articles.sentiment_analysis['score'],
+        'credibility': articles.fact_check_results['credibility_score'],
+        'key_points': articles.summary['key_points'],
+        'translation': articles.english_translation['text']
+    }
+)
+```
+
+### Financial Analysis Suite
+
+```python
+from your_financial_tools import (
+    MarketDataTool, TechnicalAnalysis, FundamentalAnalysis,
+    RiskAssessment, NewsAnalysis, EconomicIndicators
+)
+
+# Create financial analysis toolkit
+financial_tools = {
+    'market_data': MarketDataTool(api_key="market_key"),
+    'technical': TechnicalAnalysis(),
+    'fundamental': FundamentalAnalysis(api_key="fundamental_key"),
+    'risk': RiskAssessment(),
+    'news': NewsAnalysis(api_key="news_key"),
+    'economics': EconomicIndicators(api_key="econ_key")
+}
+
+# Convert with financial namespace
+fin_udfs = pxt.mcp_udfs(
+    financial_tools,
+    namespace="fin_",
+    batch_size=20,
+    shared_session=True
+)
+
+# Create investment analysis table
+stocks = pxt.create_table('investment_analysis', {
+    'symbol': pxt.String,
+    'sector': pxt.String,
+    'market_cap': pxt.String
+})
+
+# Comprehensive financial analysis
+stocks.add_computed_column(
+    market_data=fin_udfs['fin_market_data'](stocks.symbol)
+)
+
+stocks.add_computed_column(
+    technical_analysis=fin_udfs['fin_technical'](
+        stocks.symbol,
+        stocks.market_data['price_history']
+    )
+)
+
+stocks.add_computed_column(
+    fundamental_analysis=fin_udfs['fin_fundamental'](stocks.symbol)
+)
+
+stocks.add_computed_column(
+    risk_metrics=fin_udfs['fin_risk'](
+        stocks.symbol,
+        stocks.market_data,
+        stocks.fundamental_analysis
+    )
+)
+
+stocks.add_computed_column(
+    news_sentiment=fin_udfs['fin_news'](stocks.symbol)
+)
+
+# Create investment score
+stocks.add_computed_column(
+    investment_score=(
+        stocks.technical_analysis['score'] * 0.3 +
+        stocks.fundamental_analysis['score'] * 0.4 +
+        stocks.risk_metrics['adjusted_score'] * 0.2 +
+        stocks.news_sentiment['score'] * 0.1
+    )
+)
+```
+
+### Content Processing Pipeline
+
+```python
+from your_content_tools import (
+    ImageAnalyzer, VideoProcessor, AudioTranscriber,
+    TextModerator, ContentClassifier, QualityAssessor
+)
+
+# Create content processing suite
+content_tools = {
+    'image_analysis': ImageAnalyzer(api_key="vision_key"),
+    'video_processing': VideoProcessor(),
+    'audio_transcription': AudioTranscriber(api_key="audio_key"),
+    'content_moderation': TextModerator(),
+    'classification': ContentClassifier(model="content-bert"),
+    'quality_assessment': QualityAssessor()
+}
+
+# Convert content tools
+content_udfs = pxt.mcp_udfs(
+    content_tools,
+    namespace="content_",
+    batch_size=5,  # Smaller batches for media processing
+    shared_session=True
+)
+
+# Create multimedia content table
+media_content = pxt.create_table('user_content', {
+    'content_id': pxt.String,
+    'content_type': pxt.String,  # 'image', 'video', 'audio', 'text'
+    'content_data': pxt.Json,     # Flexible content storage
+    'user_id': pxt.String,
+    'upload_timestamp': pxt.Timestamp
+})
+
+# Conditional processing based on content type
+@pxt.udf
+def process_by_type(content_type: str, content_data: dict) -> dict:
+    """Route content to appropriate processing based on type"""
+    if content_type == 'image':
+        return content_udfs['content_image_analysis'](content_data['image'])
+    elif content_type == 'video':
+        return content_udfs['content_video_processing'](content_data['video'])
+    elif content_type == 'audio':
+        return content_udfs['content_audio_transcription'](content_data['audio'])
+    elif content_type == 'text':
+        return content_udfs['content_classification'](content_data['text'])
+    else:
+        return {'status': 'unsupported_type', 'type': content_type}
+
+# Apply content-specific processing
+media_content.add_computed_column(
+    processing_results=process_by_type(
+        media_content.content_type,
+        media_content.content_data
+    )
+)
+
+# Universal content moderation
+media_content.add_computed_column(
+    moderation_results=content_udfs['content_content_moderation'](
+        media_content.processing_results['extracted_text']
+    )
+)
+
+# Quality assessment
+media_content.add_computed_column(
+    quality_score=content_udfs['content_quality_assessment'](
+        media_content.processing_results,
+        media_content.content_type
+    )
+)
+```
+
+### Multi-Language Document Processing
+
+```python
+from your_nlp_tools import (
+    LanguageDetector, Translator, SentimentAnalyzer,
+    EntityExtractor, TopicModeler, SummaryGenerator
+)
+
+# Create NLP processing suite
+nlp_tools = {
+    'language_detection': LanguageDetector(),
+    'translation': Translator(api_key="translation_key"),
+    'sentiment': SentimentAnalyzer(),
+    'entity_extraction': EntityExtractor(model="spacy-large"),
+    'topic_modeling': TopicModeler(num_topics=10),
+    'summarization': SummaryGenerator(max_length=150)
+}
+
+# Convert NLP tools
+nlp_udfs = pxt.mcp_udfs(
+    nlp_tools,
+    namespace="nlp_",
+    batch_size=15,
+    shared_session=True
+)
+
+# Create global document collection
+documents = pxt.create_table('global_documents', {
+    'doc_id': pxt.String,
+    'content': pxt.String,
+    'source': pxt.String,
+    'collection_date': pxt.Timestamp
+})
+
+# Stage 1: Language detection and translation
+documents.add_computed_column(
+    language_info=nlp_udfs['nlp_language_detection'](documents.content)
+)
+
+documents.add_computed_column(
+    english_content=nlp_udfs['nlp_translation'](
+        documents.content,
+        source_lang=documents.language_info['language'],
+        target_lang='en'
+    )
+)
+
+# Stage 2: Content analysis
+documents.add_computed_column(
+    sentiment_analysis=nlp_udfs['nlp_sentiment'](documents.english_content)
+)
+
+documents.add_computed_column(
+    entities=nlp_udfs['nlp_entity_extraction'](documents.english_content)
+)
+
+documents.add_computed_column(
+    topics=nlp_udfs['nlp_topic_modeling'](documents.english_content)
+)
+
+documents.add_computed_column(
+    summary=nlp_udfs['nlp_summarization'](documents.english_content)
+)
+
+# Create unified document insight
+documents.add_computed_column(
+    document_insight={
+        'original_language': documents.language_info['language'],
+        'sentiment': documents.sentiment_analysis['label'],
+        'key_entities': documents.entities['organizations'][:5],
+        'main_topics': documents.topics['top_topics'][:3],
+        'summary': documents.summary['text']
+    }
+)
+```
+
+## Advanced Management Patterns
+
+### Tool Performance Monitoring
+
+```python
+# Create monitoring wrapper for tool performance
+@pxt.udf
+def monitor_tool_performance(tool_name: str, input_data: str, result: dict) -> dict:
+    """Monitor tool execution and performance"""
+    import time
+    start_time = time.time()
+    
+    # Tool execution happens in computed column
+    # This UDF just logs performance data
+    
+    execution_time = time.time() - start_time
+    
+    return {
+        'tool_name': tool_name,
+        'execution_time': execution_time,
+        'input_size': len(str(input_data)),
+        'output_size': len(str(result)),
+        'success': result.get('status') == 'success',
+        'timestamp': time.time()
+    }
+
+# Apply monitoring to tool results
+data.add_computed_column(
+    tool_metrics=monitor_tool_performance(
+        'sentiment_analysis',
+        data.input_text,
+        data.sentiment_result
+    )
+)
+```
+
+### Conditional Tool Routing
+
+```python
+# Route to different tools based on data characteristics
+@pxt.udf
+def smart_tool_routing(content: str, content_type: str, language: str) -> dict:
+    """Intelligently route content to optimal processing tools"""
+    
+    # Route based on content characteristics
+    if content_type == 'news' and language == 'en':
+        return news_udfs['news_sentiment'](content)
+    elif content_type == 'social' and len(content) < 280:
+        return social_udfs['social_sentiment'](content)
+    elif language != 'en':
+        # Translate first, then analyze
+        translated = translation_udfs['translate'](content, target_lang='en')
+        return general_udfs['sentiment'](translated['text'])
+    else:
+        return general_udfs['sentiment'](content)
+
+# Apply smart routing
+content.add_computed_column(
+    optimized_analysis=smart_tool_routing(
+        content.text,
+        content.content_type,
+        content.language
+    )
+)
+```
+
+### Tool Fallback and Redundancy
+
+```python
+# Create redundant tool processing with fallbacks
+primary_tools = {
+    'primary_sentiment': PrimarySentimentTool(),
+    'primary_translation': PrimaryTranslationTool()
+}
+
+fallback_tools = {
+    'fallback_sentiment': FallbackSentimentTool(),
+    'fallback_translation': FallbackTranslationTool()
+}
+
+# Convert both sets
+primary_udfs = pxt.mcp_udfs(primary_tools, namespace="primary_")
+fallback_udfs = pxt.mcp_udfs(fallback_tools, namespace="fallback_")
+
+@pxt.udf
+def resilient_processing(text: str, process_type: str) -> dict:
+    """Process with primary tools, fallback on failure"""
+    try:
+        if process_type == 'sentiment':
+            result = primary_udfs['primary_primary_sentiment'](text)
+            if result.get('confidence', 0) > 0.7:
+                return result
+        elif process_type == 'translation':
+            result = primary_udfs['primary_primary_translation'](text)
+            if result.get('quality_score', 0) > 0.8:
+                return result
+    except Exception as e:
+        print(f"Primary tool failed: {e}")
+    
+    # Fallback to secondary tools
+    try:
+        if process_type == 'sentiment':
+            return fallback_udfs['fallback_fallback_sentiment'](text)
+        elif process_type == 'translation':
+            return fallback_udfs['fallback_fallback_translation'](text)
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+# Use resilient processing
+content.add_computed_column(
+    reliable_sentiment=resilient_processing(content.text, 'sentiment')
+)
+```
+
+## Performance Optimization
+
+### Batch Size Optimization
+
+```python
+# Different batch sizes for different tool types
+fast_tools = pxt.mcp_udfs(
+    {
+        'text_classifier': TextClassifier(),
+        'language_detector': LanguageDetector()
+    },
+    batch_size=100  # High batch size for fast tools
+)
+
+medium_tools = pxt.mcp_udfs(
+    {
+        'sentiment_analyzer': SentimentAnalyzer(),
+        'entity_extractor': EntityExtractor()
+    },
+    batch_size=25   # Medium batch size
+)
+
+slow_tools = pxt.mcp_udfs(
+    {
+        'complex_nlp': ComplexNLPTool(),
+        'ai_summarizer': AISummarizer()
+    },
+    batch_size=5    # Small batch size for complex tools
+)
+```
+
+### Shared Session Benefits
+
+```python
+# Tools sharing authentication and connections
+api_tools = pxt.mcp_udfs(
+    {
+        'search': SearchAPITool(api_key="shared_key"),
+        'analysis': AnalysisAPITool(api_key="shared_key"),
+        'enrichment': EnrichmentAPITool(api_key="shared_key")
+    },
+    shared_session=True  # Share connections and auth across tools
+)
+
+# Results in better performance and reduced API overhead
+```
+
+## Best Practices
+
+### 🏗️ Tool Organization
+
+1. **Group by Domain**: Use meaningful namespaces to organize tools by purpose
+2. **Consistent Naming**: Use clear, descriptive names for tool identification
+3. **Document Dependencies**: Clearly document tool relationships and dependencies
+4. **Version Management**: Track tool versions and compatibility
+
+### ⚡ Performance Optimization
+
+1. **Optimize Batch Sizes**: Tune batch sizes based on tool characteristics
+2. **Enable Shared Sessions**: Use shared sessions for tools from the same provider
+3. **Monitor Resource Usage**: Track memory and CPU usage across tool sets
+4. **Cache Expensive Results**: Leverage Pixeltable's incremental computation
+
+### 🔧 Error Handling
+
+1. **Implement Fallbacks**: Create backup processing paths for critical operations
+2. **Monitor Tool Health**: Track success rates and performance metrics
+3. **Graceful Degradation**: Design systems that continue working when tools fail
+4. **Logging and Alerting**: Implement comprehensive logging for debugging
+
+## Related Functions
+
+- [**pxt.mcp_tool_to_udf**](./mcp_tool_to_udf) - Convert single MCP tools
+- [**pxt.mcp_udfs_async**](./mcp_udfs_async) - Asynchronous tool conversion
+- [**pxt.udf**](./udf) - Create custom UDFs from Python functions
+
+---
+
+*Enterprise AI isn't about having one perfect tool—it's about orchestrating dozens of them like a symphony. MCP bulk conversion turns chaos into harmony.*

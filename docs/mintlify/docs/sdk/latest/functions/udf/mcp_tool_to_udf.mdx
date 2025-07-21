@@ -1,0 +1,403 @@
+---
+title: "pxt.mcp_tool_to_udf"
+description: "mcp_tool_to_udf() - Convert MCP tools into native Pixeltable UDFs for seamless AI agent integration"
+---
+
+<Badge text="MCP Integration" color="purple" size="small" />
+
+## Function Signature
+
+```python
+def mcp_tool_to_udf(
+    tool: MCPTool,
+    *,
+    tool_name: Optional[str] = None,
+    batch_size: Optional[int] = None
+) -> CallableFunction
+```
+
+## Description
+
+**The bridge between AI agents and databases!** `mcp_tool_to_udf` is Pixeltable's **revolutionary integration** with the Model Context Protocol (MCP), enabling you to seamlessly convert any MCP tool into a native Pixeltable UDF. This creates the **first-ever direct connection** between AI agent capabilities and database operations.
+
+This function represents a **paradigm shift** in AI infrastructure:
+- **Any MCP tool becomes a database function** - Weather APIs, file processors, analysis tools, everything!
+- **Native Pixeltable integration** - Full incremental computation and caching benefits
+- **Bidirectional AI-data flow** - Agents can read from and write to your tables using their tools
+- **Unified workflow** - No more context switching between agent frameworks and data processing
+
+## Parameters
+
+<ParamField path="tool" type="MCPTool" required>
+  The MCP tool object to convert. Can be any tool that follows MCP specifications - weather services, document processors, analysis tools, external APIs, etc.
+</ParamField>
+
+<ParamField path="tool_name" type="str" default="None">
+  Override the tool name. If not provided, uses the tool's built-in name. Useful for creating multiple variants of the same tool with different configurations.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="None">
+  Enable batch processing for performance optimization. When set, multiple tool calls are batched together for efficiency.
+</ParamField>
+
+## Returns
+
+<ResponseField name="udf_function" type="CallableFunction">
+  A native Pixeltable UDF that wraps the MCP tool. Can be used in computed columns, queries, and anywhere UDFs are supported. Maintains full tool functionality while gaining database integration.
+</ResponseField>
+
+## Examples
+
+### Weather Data Integration
+
+```python
+import pixeltable as pxt
+from your_mcp_client import WeatherTool
+
+# Convert weather MCP tool to UDF
+weather_tool = WeatherTool(api_key="your_key")
+weather_udf = pxt.mcp_tool_to_udf(weather_tool)
+
+# Create table with location data
+locations = pxt.create_table('city_weather', {
+    'city': pxt.String,
+    'country': pxt.String,
+    'latitude': pxt.Float,
+    'longitude': pxt.Float
+})
+
+# Insert location data
+locations.insert([
+    {'city': 'San Francisco', 'country': 'US', 'latitude': 37.7749, 'longitude': -122.4194},
+    {'city': 'London', 'country': 'UK', 'latitude': 51.5074, 'longitude': -0.1278},
+    {'city': 'Tokyo', 'country': 'JP', 'latitude': 35.6762, 'longitude': 139.6503}
+])
+
+# Add computed column using weather UDF
+locations.add_computed_column(
+    current_weather=weather_udf(locations.latitude, locations.longitude)
+)
+
+# Query results with live weather data
+results = locations.select(
+    locations.city,
+    locations.current_weather
+).collect()
+
+# Results include real-time weather from MCP tool:
+# [
+#   {'city': 'San Francisco', 'current_weather': {'temp': 18, 'condition': 'fog', 'humidity': 85}},
+#   {'city': 'London', 'current_weather': {'temp': 12, 'condition': 'rain', 'humidity': 78}},
+#   {'city': 'Tokyo', 'current_weather': {'temp': 22, 'condition': 'clear', 'humidity': 60}}
+# ]
+```
+
+### Document Analysis Pipeline
+
+```python
+from your_mcp_client import DocumentAnalyzerTool
+
+# Convert document analysis tool to UDF
+doc_analyzer = DocumentAnalyzerTool()
+analyze_udf = pxt.mcp_tool_to_udf(doc_analyzer, tool_name="document_analyzer")
+
+# Create document processing table
+documents = pxt.create_table('documents', {
+    'filename': pxt.String,
+    'content': pxt.String,
+    'document_type': pxt.String
+})
+
+# Add analysis computed column
+documents.add_computed_column(
+    analysis=analyze_udf(documents.content, documents.document_type)
+)
+
+# Add sentiment analysis from another MCP tool
+sentiment_tool = SentimentAnalyzerTool()
+sentiment_udf = pxt.mcp_tool_to_udf(sentiment_tool)
+
+documents.add_computed_column(
+    sentiment=sentiment_udf(documents.content)
+)
+
+# Query comprehensive document insights
+insights = documents.select(
+    documents.filename,
+    documents.analysis,
+    documents.sentiment
+).where(documents.sentiment['score'] > 0.8).collect()
+```
+
+### Financial Data Integration
+
+```python
+from your_mcp_client import MarketDataTool, TechnicalAnalysisTool
+
+# Convert multiple financial tools
+market_data_udf = pxt.mcp_tool_to_udf(MarketDataTool(api_key="your_key"))
+technical_analysis_udf = pxt.mcp_tool_to_udf(TechnicalAnalysisTool())
+
+# Create portfolio tracking table
+stocks = pxt.create_table('portfolio', {
+    'symbol': pxt.String,
+    'shares': pxt.Int,
+    'purchase_date': pxt.Timestamp
+})
+
+# Add real-time market data
+stocks.add_computed_column(
+    market_data=market_data_udf(stocks.symbol)
+)
+
+# Add technical analysis
+stocks.add_computed_column(
+    technical_signals=technical_analysis_udf(
+        stocks.symbol,
+        stocks.market_data['price_history']
+    )
+)
+
+# Calculate portfolio value with live data
+stocks.add_computed_column(
+    position_value=stocks.shares * stocks.market_data['current_price']
+)
+
+# Query portfolio insights
+portfolio_summary = stocks.select(
+    stocks.symbol,
+    stocks.position_value,
+    stocks.technical_signals['recommendation']
+).where(stocks.technical_signals['strength'] > 0.7).collect()
+```
+
+### Multi-Modal Content Processing
+
+```python
+from your_mcp_client import ImageAnalysisTool, TextSummaryTool, TranslationTool
+
+# Convert content processing tools
+image_analyzer_udf = pxt.mcp_tool_to_udf(ImageAnalysisTool())
+summarizer_udf = pxt.mcp_tool_to_udf(TextSummaryTool())
+translator_udf = pxt.mcp_tool_to_udf(TranslationTool())
+
+# Create multi-modal content table
+content = pxt.create_table('social_media', {
+    'post_id': pxt.String,
+    'image': pxt.Image,
+    'text': pxt.String,
+    'language': pxt.String,
+    'timestamp': pxt.Timestamp
+})
+
+# Build comprehensive analysis pipeline
+content.add_computed_column(
+    image_analysis=image_analyzer_udf(content.image)
+)
+
+content.add_computed_column(
+    text_summary=summarizer_udf(content.text, max_length=100)
+)
+
+content.add_computed_column(
+    english_translation=translator_udf(
+        content.text, 
+        source_lang=content.language, 
+        target_lang='en'
+    )
+)
+
+# Create unified content insight
+content.add_computed_column(
+    content_insight={
+        'image_tags': content.image_analysis['tags'],
+        'sentiment': content.image_analysis['sentiment'],
+        'summary': content.text_summary,
+        'translated_text': content.english_translation
+    }
+)
+```
+
+### Agent Tool Integration
+
+```python
+from your_agent_framework import SearchAgent, AnalysisAgent
+
+# Convert agent tools for database use
+search_udf = pxt.mcp_tool_to_udf(SearchAgent().search_tool)
+analysis_udf = pxt.mcp_tool_to_udf(AnalysisAgent().analysis_tool)
+
+# Create research pipeline table
+research_topics = pxt.create_table('research', {
+    'topic': pxt.String,
+    'keywords': pxt.String,
+    'priority': pxt.Int
+})
+
+# Agent-powered research pipeline
+research_topics.add_computed_column(
+    search_results=search_udf(research_topics.topic, research_topics.keywords)
+)
+
+research_topics.add_computed_column(
+    analysis=analysis_udf(
+        research_topics.search_results,
+        analysis_type='comprehensive'
+    )
+)
+
+research_topics.add_computed_column(
+    actionable_insights=analysis_udf(
+        research_topics.analysis,
+        analysis_type='action_items'
+    )
+)
+
+# Query research insights
+insights = research_topics.select(
+    research_topics.topic,
+    research_topics.actionable_insights
+).where(research_topics.priority >= 8).collect()
+```
+
+## Advanced Integration Patterns
+
+### Batch Tool Processing
+
+```python
+# Convert tool with batching for efficiency
+batch_processor_udf = pxt.mcp_tool_to_udf(
+    ProcessingTool(),
+    batch_size=25  # Process 25 items at once
+)
+
+# Apply to large datasets efficiently
+large_dataset.add_computed_column(
+    processed_data=batch_processor_udf(large_dataset.input_data)
+)
+```
+
+### Error Handling and Fallbacks
+
+```python
+# Primary tool
+primary_udf = pxt.mcp_tool_to_udf(PrimaryTool())
+
+# Fallback tool
+fallback_udf = pxt.mcp_tool_to_udf(FallbackTool())
+
+# Create robust processing with fallback
+@pxt.udf
+def robust_processing(input_data: str) -> dict:
+    try:
+        result = primary_udf(input_data)
+        if result.get('status') == 'success':
+            return result
+    except Exception as e:
+        print(f"Primary tool failed: {e}")
+    
+    # Fallback to secondary tool
+    try:
+        return fallback_udf(input_data)
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+# Use robust processing
+data.add_computed_column(
+    reliable_result=robust_processing(data.input)
+)
+```
+
+### Tool Chaining and Composition
+
+```python
+# Convert multiple tools for chaining
+extractor_udf = pxt.mcp_tool_to_udf(DataExtractorTool())
+transformer_udf = pxt.mcp_tool_to_udf(DataTransformerTool())
+analyzer_udf = pxt.mcp_tool_to_udf(DataAnalyzerTool())
+
+# Create multi-stage processing pipeline
+pipeline = pxt.create_table('processing_pipeline', {
+    'input_data': pxt.String
+})
+
+# Stage 1: Extract
+pipeline.add_computed_column(
+    extracted=extractor_udf(pipeline.input_data)
+)
+
+# Stage 2: Transform
+pipeline.add_computed_column(
+    transformed=transformer_udf(pipeline.extracted)
+)
+
+# Stage 3: Analyze
+pipeline.add_computed_column(
+    final_analysis=analyzer_udf(pipeline.transformed)
+)
+```
+
+## Performance Optimization
+
+### Tool Caching Strategies
+
+```python
+# Enable caching for expensive tools
+cached_udf = pxt.mcp_tool_to_udf(
+    ExpensiveTool(),
+    tool_name="cached_expensive_tool"
+)
+
+# Pixeltable automatically caches results based on inputs
+data.add_computed_column(
+    expensive_result=cached_udf(data.input)  # Cached automatically!
+)
+```
+
+### Batch Processing
+
+```python
+# For tools that support batch operations
+batch_udf = pxt.mcp_tool_to_udf(
+    BatchCapableTool(),
+    batch_size=50  # Process 50 items per batch
+)
+
+# Efficient batch processing
+large_table.add_computed_column(
+    batch_results=batch_udf(large_table.data)
+)
+```
+
+## Integration Best Practices
+
+### 🔧 Tool Configuration
+
+1. **Use Environment Variables**: Store API keys and sensitive configuration in env vars
+2. **Configure Timeouts**: Set appropriate timeouts for external tool calls
+3. **Handle Rate Limits**: Implement proper rate limiting and retry logic
+4. **Validate Inputs**: Ensure tool inputs match expected formats
+
+### 📊 Performance Optimization
+
+1. **Batch When Possible**: Use `batch_size` for tools that support batching
+2. **Cache Expensive Operations**: Let Pixeltable's incremental computation cache results
+3. **Monitor Tool Performance**: Track tool execution times and success rates
+4. **Optimize Tool Selection**: Choose the most efficient tool for each use case
+
+### 🛡️ Error Handling
+
+1. **Graceful Degradation**: Implement fallback strategies for tool failures
+2. **Structured Error Responses**: Return consistent error information
+3. **Logging and Monitoring**: Log tool usage and errors for debugging
+4. **Resource Management**: Properly handle tool cleanup and resource management
+
+## Related Functions
+
+- [**pxt.mcp_udfs**](./mcp_udfs) - Convert multiple MCP tools at once
+- [**pxt.udf**](./udf) - Create custom UDFs from Python functions
+- [**Table.add_computed_column**](../../core_api/column_operations/add_computed_column) - Use MCP UDFs in computed columns
+
+---
+
+*When AI agents need data, they shouldn't have to leave home. MCP UDFs bring the entire internet to your tables.*
