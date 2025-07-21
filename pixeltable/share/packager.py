@@ -369,7 +369,7 @@ class TableRestorer:
         with cat.begin_xact(for_write=True):
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
-            cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
+            cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
 
             # Now we need to load data for replica_tbl and its ancestors, except that we skip
             # replica_tbl itself if it's a pure snapshot.
