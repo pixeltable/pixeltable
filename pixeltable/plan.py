@@ -385,14 +385,7 @@ class Planner:
             TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_row_id
         )
 
-        media_input_col_info = [
-            exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
-            for col_ref in row_builder.input_exprs
-            if isinstance(col_ref, exprs.ColumnRef) and col_ref.col_type.is_media_type()
-        ]
-        if len(media_input_col_info) > 0:
-            # prefetch external files for all input column refs
-            plan = exec.CachePrefetchNode(tbl.id, media_input_col_info, input=plan)
+        plan = cls._insert_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
@@ -789,15 +782,13 @@ class Planner:
 
     @classmethod
     def _insert_prefetch_node(
-        cls, tbl_id: UUID, row_builder: exprs.RowBuilder, input_node: exec.ExecNode
+        cls, tbl_id: UUID, expr_set: Iterable[exprs.Expr], input_node: exec.ExecNode
     ) -> exec.ExecNode:
-        """Returns a CachePrefetchNode into the plan if needed, otherwise returns input"""
+        """Inserts a CachePrefetchNode into the plan if needed, otherwise returns input"""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
         # aren't explicitly captured as dependencies
-        media_col_refs = [
-            e for e in list(row_builder.unique_exprs) if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()
-        ]
+        media_col_refs = [e for e in expr_set if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()]
         if len(media_col_refs) == 0:
             return input_node
         # we need to prefetch external files for media column types
@@ -967,7 +958,7 @@ class Planner:
                 stratify_exprs=analyzer.stratify_exprs,
             )
 
-        plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder, plan)
+        plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
