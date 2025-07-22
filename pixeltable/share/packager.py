@@ -237,8 +237,7 @@ class TablePackager:
         - Videos are replaced by their first frame and resized as above
         - Documents are replaced by a thumbnail as a base64-encoded webp
         """
-        # First 8 columns
-        preview_cols = dict(itertools.islice(self.table._get_schema().items(), 0, 8))
+        preview_cols = self.table._get_schema()
         select_list = [self.table[col_name] for col_name in preview_cols]
         # First 5 rows
         rows = list(self.table.select(*select_list).head(n=5))
