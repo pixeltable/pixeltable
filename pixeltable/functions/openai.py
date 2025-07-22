@@ -126,10 +126,12 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 _header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
 
 
-def _parse_header_duration(duration_str: str) -> datetime.timedelta:
+def _parse_header_duration(duration_str: Optional[str]) -> datetime.timedelta:
+    if duration_str is None:
+        return datetime.timedelta()  # 0
     match = _header_duration_pattern.match(duration_str)
     if not match:
-        raise ValueError('Invalid duration format')
+        raise ValueError(f'Invalid duration format: {duration_str}')
 
     days = int(match.group(1) or 0)
     hours = int(match.group(2) or 0)
