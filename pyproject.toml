@@ -151,7 +151,7 @@ dev = [
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.9 ; sys_platform != 'win32'",
     "mcp>=1.9.4",
-    "pixeltable-yolox==0.4.2",
+    "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
 ]
 test = [
