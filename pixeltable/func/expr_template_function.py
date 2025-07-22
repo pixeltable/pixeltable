@@ -101,13 +101,10 @@ class ExprTemplateFunction(Function):
         return None
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        from pixeltable import exec
-
         assert not self.is_polymorphic
         expr = self.instantiate(args, kwargs)
         row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
-        row_batch = exec.DataRowBatch(row_builder=row_builder, num_rows=1)
-        row = row_batch[0]
+        row = row_builder.make_row()
         row_builder.eval(row, ctx=row_builder.default_eval_ctx)
         return row[row_builder.get_output_exprs()[0].slot_idx]
 
