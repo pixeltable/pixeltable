@@ -54,17 +54,17 @@ class MediaStore:
         return parent / f'{col.tbl.id.hex}_{col.id}_{col.tbl.version}_{id_hex}{ext or ""}'
 
     @classmethod
-    def is_tmp_url(cls, file_url: Optional[str]) -> tuple[bool, Path]:
-        """Check if the given url is a tmp file.
+    def resolve_tmp_url(cls, file_url: Optional[str]) -> Optional[Path]:
+        """Return path if the given url is a tmp file.
 
         Args:
             file_url: URL of the tmp media file to check
 
         Returns:
-            True if the file_url is a tmp file, False otherwise
+            If the file_url is a tmp file, return a Path() to the tmp file, None, otherwise
         """
         if file_url is None:
-            return False, Path()
+            return None
         assert isinstance(file_url, str), type(file_url)
         parsed = urllib.parse.urlparse(file_url)
         # We should never be passed a local file path here. The "len > 1" ensures that Windows
@@ -72,10 +72,13 @@ class MediaStore:
         assert len(parsed.scheme) > 1, file_url
         if parsed.scheme != 'file':
             # remote url
-            return False, Path()
+            return None
         src_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
         pxt_tmp_dir = str(cls._tmp_dir())
-        return src_path.startswith(pxt_tmp_dir), Path(src_path)
+        if not src_path.startswith(pxt_tmp_dir):
+            # not a tmp file
+            return None
+        return Path(src_path)
 
     @classmethod
     def relocate_local_media_file(cls, src_path: Path, col: Column) -> str:
@@ -86,7 +89,7 @@ class MediaStore:
 
     @classmethod
     def save_media_object(cls, data: bytes | PIL.Image.Image, col: Column, format: Optional[str]) -> tuple[Path, str]:
-        """Save a media binary data to a file in the MediaStore
+        """Save a media data to a file in the MediaStore
         Returns:
             dest_path: Path to the saved media file
             url: URL of the saved media file
@@ -104,7 +107,7 @@ class MediaStore:
 
     @classmethod
     def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: Optional[str]) -> Path:
-        """Save a media binary data to a file in the MediaStore"""
+        """Save a media binary data to a file in the MediaStore. format is ignored for binary data."""
         assert isinstance(file_data, bytes)
         with open(dest_path, 'wb') as f:
             f.write(file_data)
@@ -114,11 +117,9 @@ class MediaStore:
 
     @classmethod
     def _save_pil_image_file(cls, image: PIL.Image.Image, dest_path: Path, format: Optional[str]) -> Path:
-        """Save a PIL Image to a file in the MediaStore"""
-        t_path = str(dest_path)
-        if not t_path.endswith(f'.{format}'):
-            t_path += f'.{format}'
-        dest_path = Path(t_path)
+        """Save a PIL Image to a file in the MediaStore with the specified format."""
+        if dest_path.suffix != f'.{format}':
+            dest_path = dest_path.with_name(f'{dest_path.name}.{format}')
 
         with open(dest_path, 'wb') as f:
             image.save(f, format=format)

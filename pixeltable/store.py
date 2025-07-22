@@ -124,8 +124,8 @@ class StoreBase:
         """Return the name of the data store table"""
 
     def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column) -> str:
-        is_tmp, src_path = MediaStore.is_tmp_url(file_url)
-        if not is_tmp:
+        src_path = MediaStore.resolve_tmp_url(file_url)
+        if src_path is None:
             return file_url
         assert col.tbl.id == self.tbl_version.id  # Ensure the column belongs to the same table as this store
         new_file_url = MediaStore.relocate_local_media_file(src_path, col)
