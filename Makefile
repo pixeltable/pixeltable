@@ -24,17 +24,18 @@ else
     ULIMIT_CMD := ulimit -n 4000;
 endif
 
+# For uv sync
+VIRTUAL_ENV := $(CONDA_PREFIX)
+
 # Common test parameters
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
 
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
 NB_CELL_TIMEOUT := 3600
+TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
 
 # Needed for LLaMA build to work correctly on some Linux systems
 CMAKE_ARGS := -DLLAVA_BUILD=OFF
-
-# For uv sync
-VIRTUAL_ENV := $(CONDA_PREFIX)
 
 .DEFAULT_GOAL := help
 
@@ -122,7 +123,6 @@ fullpytest: install
 
 .PHONY: nbtest
 nbtest: install
-	@$(SET_ENV) TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo 'Running `pytest` on notebooks ...'
 	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
 	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
