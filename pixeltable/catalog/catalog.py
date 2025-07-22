@@ -1757,9 +1757,7 @@ class Catalog:
         stmt = (
             sql.update(schema.TableVersion)
             .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version)
-            .values(
-                md=schema.TableVersion.md.op('||')({'additional_md': {'update_status': dataclasses.asdict(status)}})
-            )
+            .values(md=schema.TableVersion.md.op('||')({'update_status': dataclasses.asdict(status)}))
         )
 
         res = conn.execute(stmt)
