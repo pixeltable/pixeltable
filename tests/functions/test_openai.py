@@ -62,13 +62,13 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
-        t.add_computed_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
+        t.add_computed_column(chat_output=chat_completions(model='gpt-4.1-nano', messages=t.input_msgs))
         # with inlined messages
-        t.add_computed_column(chat_output_2=chat_completions(model='gpt-4o-mini', messages=msgs))
+        t.add_computed_column(chat_output_2=chat_completions(model='gpt-4.1-nano', messages=msgs))
         # test a bunch of the parameters
         t.add_computed_column(
             chat_output_3=chat_completions(
-                model='gpt-4o-mini',
+                model='gpt-4.1-nano',
                 messages=msgs,
                 model_kwargs={
                     'frequency_penalty': 0.1,
@@ -88,7 +88,7 @@ class TestOpenai:
         # test with JSON output enforced
         t.add_computed_column(
             chat_output_4=chat_completions(
-                model='gpt-4o-mini', messages=msgs, model_kwargs={'response_format': {'type': 'json_object'}}
+                model='gpt-4.1-nano', messages=msgs, model_kwargs={'response_format': {'type': 'json_object'}}
             )
         )
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)

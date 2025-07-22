@@ -13,6 +13,7 @@ import platform
 import shutil
 import sys
 import threading
+import typing
 import uuid
 import warnings
 from abc import abstractmethod
@@ -605,15 +606,25 @@ class Env:
         # Construct a client, retrieving each parameter from config.
 
         init_kwargs: dict[str, str] = {}
-        for param in cl.param_names:
-            arg = Config.get().get_string_value(param, section=name)
+        for param in cl.params.values():
+            # Determine the type of the parameter for proper config parsing.
+            t = param.annotation
+            # Deference Optional[T]
+            if typing.get_origin(t) is typing.Union:
+                args = typing.get_args(t)
+                if args[0] is type(None):
+                    t = args[1]
+                elif args[1] is type(None):
+                    t = args[0]
+            assert isinstance(t, type), t
+            arg = Config.get().get_value(param.name, t, section=name)
             if arg is not None and len(arg) > 0:
-                init_kwargs[param] = arg
-            else:
+                init_kwargs[param.name] = arg
+            elif param.default is inspect.Parameter.empty:
                 raise excs.Error(
-                    f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
-                    f'To fix this, specify the `{name.upper()}_{param.upper()}` environment variable, '
-                    f'or put `{param.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
+                    f'`{name}` client not initialized: parameter `{param.name}` is not configured.\n'
+                    f'To fix this, specify the `{name.upper()}_{param.name.upper()}` environment variable, '
+                    f'or put `{param.name.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
         cl.client_obj = cl.init_fn(**init_kwargs)
@@ -832,8 +843,8 @@ def register_client(name: str) -> Callable:
 
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
-        param_names = list(sig.parameters.keys())
-        _registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
+        params = dict(sig.parameters)
+        _registered_clients[name] = ApiClient(init_fn=fn, params=params)
 
     return decorator
 
@@ -844,7 +855,7 @@ _registered_clients: dict[str, ApiClient] = {}
 @dataclass
 class ApiClient:
     init_fn: Callable
-    param_names: list[str]
+    params: dict[str, inspect.Parameter]
     client_obj: Optional[Any] = None
 
 

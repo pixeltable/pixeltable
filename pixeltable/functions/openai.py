@@ -31,13 +31,18 @@ _logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('openai')
-def _(api_key: str) -> 'openai.AsyncOpenAI':
+def _(api_key: str, base_url: Optional[str] = None, client_kwargs: Optional[dict[str, Any]] = None) -> 'openai.AsyncOpenAI':
     import openai
+
+    if client_kwargs is None:
+        client_kwargs = {}
 
     return openai.AsyncOpenAI(
         api_key=api_key,
+        base_url=base_url,
         # recommended to increase limits for async client to avoid connection errors
         http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+        **client_kwargs
     )
 
 
