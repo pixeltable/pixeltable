@@ -5,6 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
 
+[tool.uv]
+required-version = ">=0.8"
+
 [tool.uv-dynamic-versioning]
 vcs = "git"
 style = "pep440"

@@ -30,6 +30,12 @@ PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
 NB_CELL_TIMEOUT := 3600
 
+# Needed for LLaMA build to work correctly on some Linux systems
+CMAKE_ARGS := -DLLAVA_BUILD=OFF
+
+# For uv sync
+VIRTUAL_ENV := $(CONDA_PREFIX)
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -73,17 +79,15 @@ else
 	$(error Pixeltable must be installed from a conda environment)
 endif
 
-.make-install/poetry:
-	@echo 'Installing poetry ...'
+.make-install/uv:
+	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
-	@python -m pip install -q poetry==2.1.1
-	@poetry self add 'poetry-dynamic-versioning[plugin]==1.7.1'
-	@$(TOUCH) .make-install/poetry
+	@python -m pip install -q uv==0.8.0
+	@$(TOUCH) .make-install/uv
 
-.make-install/deps: poetry.lock
-	@echo 'Installing dependencies from poetry ...'
-	@$(SET_ENV) CMAKE_ARGS='-DLLAVA_BUILD=OFF'
-	@poetry install --with dev
+.make-install/deps: uv.lock
+	@echo 'Installing dependencies from uv ...'
+	@uv sync --active
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
@@ -95,7 +99,7 @@ endif
 	@$(TOUCH) .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/poetry .make-install/deps .make-install/others
+install: setup-install .make-install/uv .make-install/deps .make-install/others
 
 .PHONY: test
 test: pytest check
