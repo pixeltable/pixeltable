@@ -1,8 +1,20 @@
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.8.2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
 [project]
 name = "pixeltable"
-version = "0.0.0"
+dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
-authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com>" }]
+authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com" }]
 requires-python = ">=3.10"
 readme = "README.md"
 license = "Apache-2.0"
@@ -70,7 +82,6 @@ dependencies = [
     "pyarrow (>=13.0.0)",
     "pixeltable-pgserver (==0.3.1)",
 ]
-dynamic = ["version"]
 
 [project.urls]
 homepage = "https://pixeltable.com/"
@@ -79,10 +90,6 @@ documentation = "https://docs.pixeltable.com/"
 
 [project.entry-points."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
-
-[build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.7.0,<2.0.0"]
-build-backend = "poetry_dynamic_versioning.backend"
 
 [dependency-groups]
 dev = [
@@ -165,14 +172,6 @@ exclude = [
     "tests",
     "tool",
 ]
-
-[tool.poetry-dynamic-versioning]
-enable = true
-vcs = "git"
-dirty = true
-
-[tool.poetry-dynamic-versioning.substitution]
-files = ["pixeltable/__version__.py"]
 
 [tool.isort]
 force_single_line = false
