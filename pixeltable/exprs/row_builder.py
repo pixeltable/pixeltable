@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, NamedTuple, Optional, Sequence
 from uuid import UUID
 
 import numpy as np
@@ -34,8 +34,7 @@ class ExecProfile:
             )
 
 
-@dataclass
-class ColumnSlotIdx:
+class ColumnSlotIdx(NamedTuple):
     """Info for how to locate materialized column in DataRow
     TODO: can this be integrated into RowBuilder directly?
     """
@@ -457,8 +456,7 @@ class RowBuilder:
 
         num_excs = 0
         table_row: list[Any] = list(pk)
-        for info in self.table_columns:
-            col, slot_idx = info.col, info.slot_idx
+        for col, slot_idx in self.table_columns:
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
@@ -469,9 +467,11 @@ class RowBuilder:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
-                    # we have yet to store this image
-                    data_row.flush_img(slot_idx, col)
+                if col.col_type.is_media_type():
+                    if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
+                        # we have yet to store this image
+                        data_row.flush_img(slot_idx, col)
+                    data_row.move_tmp_media_file(slot_idx, col)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
@@ -479,7 +479,7 @@ class RowBuilder:
 
         return table_row, num_excs
 
-    def store_column_names(self) -> tuple[list[str], dict[int, catalog.Column]]:
+    def store_column_names(self) -> list[str]:
         """
         Returns the list of store column names corresponding to the table_columns of this RowBuilder.
         The second tuple element of the return value is a dictionary containing all media columns in the
@@ -487,16 +487,13 @@ class RowBuilder:
         """
         assert self.tbl is not None, self.table_columns
         store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
-        media_cols: dict[int, catalog.Column] = {}
 
         for col in self.table_columns:
-            if col.col.col_type.is_media_type():
-                media_cols[len(store_col_names)] = col.col
             store_col_names.append(col.col.store_name())
             if col.col.stores_cellmd:
                 store_col_names.append(col.col.cellmd_store_name())
 
-        return store_col_names, media_cols
+        return store_col_names
 
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""
