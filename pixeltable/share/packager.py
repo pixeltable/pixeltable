@@ -1,7 +1,6 @@
 import base64
 import datetime
 import io
-import itertools
 import json
 import logging
 import tarfile
