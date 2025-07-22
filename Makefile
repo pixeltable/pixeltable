@@ -82,7 +82,7 @@ endif
 .make-install/uv:
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
-	@python -m pip install -q uv==0.8.0
+	@python -m pip install -q uv==0.8.2
 	@$(TOUCH) .make-install/uv
 
 .make-install/deps: uv.lock

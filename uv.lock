@@ -4380,7 +4380,6 @@ dev = [
     { name = "boto3" },
     { name = "boto3-stubs" },
     { name = "botocore" },
-    { name = "coverage" },
     { name = "datasets" },
     { name = "fiftyone" },
     { name = "fireworks-ai" },
@@ -4407,9 +4406,6 @@ dev = [
     { name = "pyarrow-stubs" },
     { name = "pycocotools" },
     { name = "pyiceberg" },
-    { name = "pytest" },
-    { name = "pytest-rerunfailures" },
-    { name = "pytest-xdist", extra = ["psutil"] },
     { name = "replicate" },
     { name = "ruff" },
     { name = "sentence-transformers" },
@@ -4434,6 +4430,13 @@ dev = [
     { name = "types-toml" },
     { name = "types-tqdm" },
     { name = "whisperx", marker = "(python_full_version < '3.13' and platform_machine != 'x86_64') or (python_full_version < '3.13' and sys_platform != 'darwin')" },
+]
+test = [
+    { name = "coverage" },
+    { name = "filelock" },
+    { name = "pytest" },
+    { name = "pytest-rerunfailures" },
+    { name = "pytest-xdist", extra = ["psutil"] },
 ]
 
 [package.metadata]
@@ -4477,7 +4480,6 @@ dev = [
     { name = "boto3", specifier = "==1.36.23" },
     { name = "boto3-stubs", specifier = "==1.36.23" },
     { name = "botocore", specifier = "==1.36.23" },
-    { name = "coverage", specifier = ">=7.9" },
     { name = "datasets", specifier = ">=3.2.0" },
     { name = "fiftyone", specifier = ">=1.7" },
     { name = "fireworks-ai", specifier = ">=0.17.6" },
@@ -4504,9 +4506,6 @@ dev = [
     { name = "pyarrow-stubs", specifier = ">=10.0.1.7,<11" },
     { name = "pycocotools", specifier = ">=2.0.10" },
     { name = "pyiceberg", specifier = ">=0.6.0" },
-    { name = "pytest", specifier = ">=8.4" },
-    { name = "pytest-rerunfailures", specifier = ">=15.1" },
-    { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8" },
     { name = "replicate", specifier = ">=1.0.7,<2" },
     { name = "ruff", specifier = ">=0.9.3,<0.10" },
     { name = "sentence-transformers", specifier = "~=4.0" },
@@ -4531,6 +4530,13 @@ dev = [
     { name = "types-toml", specifier = ">=0.10" },
     { name = "types-tqdm", specifier = "~=4.64" },
     { name = "whisperx", marker = "(python_full_version < '3.13' and platform_machine != 'x86_64') or (python_full_version < '3.13' and sys_platform != 'darwin')", specifier = ">=3.3.4" },
+]
+test = [
+    { name = "coverage", specifier = ">=7.9" },
+    { name = "filelock", specifier = ">=3.13" },
+    { name = "pytest", specifier = ">=8.4" },
+    { name = "pytest-rerunfailures", specifier = ">=15.1" },
+    { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8" },
 ]
 
 [[package]]

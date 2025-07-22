@@ -23,7 +23,7 @@ on:
 env:
   PXTTEST_IN_CI: 1
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
-  UV_VERSION: 0.8.0
+  UV_VERSION: 0.8.2
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
   # We also disable Metal (GPU) support on MacOS, which doesn't seem to work properly in CI.
@@ -156,12 +156,6 @@ jobs:
         run: |
           export VIRTUAL_ENV="$CONDA_PREFIX"
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
-      - name: Ensure pytest is installed
-        # This is necessary for running the tests without --with dev
-        if: ${{ matrix.uv-options == '--no-dev' }}
-        run: |
-          export VIRTUAL_ENV="$CONDA_PREFIX"
-          uv pip install pytest pytest-xdist pytest-rerunfailures coverage filelock
       - name: Clean the uv cache
         run: uv cache clean
       - name: Run the unit tests
