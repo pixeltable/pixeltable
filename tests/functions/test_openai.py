@@ -494,11 +494,11 @@ class TestOpenai:
 
     def test_azure_openai(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        if 'AZURE_OPENAI_API_KEY' not in os.environ:
+        if not os.environ.get('AZURE_OPENAI_API_KEY'):
             pytest.skip('`AZURE_OPENAI_API_KEY` is not set.')
         Config.init(
             {
-                'openai.api_key': os.environ.get('AZURE_OPENAI_API_KEY'),
+                'openai.api_key': os.environ['AZURE_OPENAI_API_KEY'],
                 'openai.base_url': 'https://pixeltable1.openai.azure.com/openai/v1/',
                 'openai.api_version': 'preview',
             },
