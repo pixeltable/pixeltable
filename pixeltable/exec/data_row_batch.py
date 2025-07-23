@@ -24,7 +24,7 @@ class DataRowBatch:
         self.row_builder = row_builder
         self.rows = [] if rows is None else rows
 
-    def add_row(self, row: exprs.DataRow) -> exprs.DataRow:
+    def add_row(self, row: Optional[exprs.DataRow]) -> exprs.DataRow:
         if row is None:
             row = self.row_builder.make_row()
         self.rows.append(row)
