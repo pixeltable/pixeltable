@@ -82,7 +82,9 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any]) -> None:
+    def init(cls, config_overrides: dict[str, Any], reinit: bool = False) -> None:
+        if reinit:
+            cls.__instance = None
         if cls.__instance is None:
             cls.__instance = cls(config_overrides)
         elif len(config_overrides) > 0:
