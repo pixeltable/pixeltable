@@ -13,6 +13,7 @@ import platform
 import shutil
 import sys
 import threading
+import types
 import typing
 import uuid
 import warnings
@@ -605,20 +606,20 @@ class Env:
 
         # Construct a client, retrieving each parameter from config.
 
-        init_kwargs: dict[str, str] = {}
+        init_kwargs: dict[str, Any] = {}
         for param in cl.params.values():
             # Determine the type of the parameter for proper config parsing.
             t = param.annotation
             # Deference Optional[T]
-            if typing.get_origin(t) is typing.Union:
+            if typing.get_origin(t) in (typing.Union, types.UnionType):
                 args = typing.get_args(t)
                 if args[0] is type(None):
                     t = args[1]
                 elif args[1] is type(None):
                     t = args[0]
             assert isinstance(t, type), t
-            arg = Config.get().get_value(param.name, t, section=name)
-            if arg is not None and len(arg) > 0:
+            arg: Any = Config.get().get_value(param.name, t, section=name)
+            if arg is not None:
                 init_kwargs[param.name] = arg
             elif param.default is inspect.Parameter.empty:
                 raise excs.Error(

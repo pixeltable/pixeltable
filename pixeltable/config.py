@@ -136,9 +136,6 @@ class Config:
     def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
         return self.get_value(key, bool, section)
 
-    def get_dict_value(self, key: str, section: str = 'pixeltable') -> Optional[dict[str, Any]]:
-        return self.get_value(key, dict, section)
-
 
 KNOWN_CONFIG_OPTIONS = {
     'pixeltable': {
@@ -160,7 +157,11 @@ KNOWN_CONFIG_OPTIONS = {
     'groq': {'api_key': 'Groq API key'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
     'mistral': {'api_key': 'Mistral API key'},
-    'openai': {'api_key': 'OpenAI API key', 'base_url': 'OpenAI API base URL', 'api_version': 'API version if using Azure OpenAI'},
+    'openai': {
+        'api_key': 'OpenAI API key',
+        'base_url': 'OpenAI API base URL',
+        'api_version': 'API version if using Azure OpenAI',
+    },
     'replicate': {'api_token': 'Replicate API token'},
     'together': {'api_key': 'Together API key'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
