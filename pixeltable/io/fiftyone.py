@@ -9,7 +9,7 @@ import puremagic
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import exprs
-from pixeltable.env import Env
+from pixeltable.utils.media_store import TempStore
 
 
 class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
@@ -100,7 +100,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             assert isinstance(file, str)
         else:
             # Write the dynamically created image to a temp file
-            file = str(Env.get().create_tmp_path(f'.{self.__image_format}'))
+            file = TempStore.create_path(extension=f'.{self.__image_format}')
             img.save(file, format=self.__image_format)
 
         metadata = fo.ImageMetadata(

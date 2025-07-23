@@ -23,6 +23,7 @@ import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.media_store import TempStore
 
 if TYPE_CHECKING:
     import openai
@@ -210,7 +211,7 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[d
 
     content = await _openai_client().audio.speech.create(input=input, model=model, voice=voice, **model_kwargs)
     ext = model_kwargs.get('response_format', 'mp3')
-    output_filename = str(env.Env.get().create_tmp_path(f'.{ext}'))
+    output_filename = str(TempStore.create_path(extension=f'.{ext}'))
     content.write_to_file(output_filename)
     return output_filename
 

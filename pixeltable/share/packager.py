@@ -24,7 +24,7 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.media_store import MediaStore, TempStore
 
 _logger = logging.getLogger('pixeltable')
 
@@ -57,7 +57,7 @@ class TablePackager:
 
     def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
         self.table = table
-        self.tmp_dir = Path(Env.get().create_tmp_path())
+        self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
         # Load metadata
@@ -335,7 +335,7 @@ class TableRestorer:
     def __init__(self, tbl_path: str, md: Optional[dict[str, Any]] = None) -> None:
         self.tbl_path = tbl_path
         self.md = md
-        self.tmp_dir = Path(Env.get().create_tmp_path())
+        self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
     def restore(self, bundle_path: Path) -> pxt.Table:

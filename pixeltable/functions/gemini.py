@@ -14,6 +14,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs
+from pixeltable.utils.media_store import TempStore
 
 if TYPE_CHECKING:
     from google import genai
@@ -215,7 +216,7 @@ async def generate_videos(
     assert video_bytes is not None
 
     # Create a temporary file to store the video bytes
-    output_path = env.Env.get().create_tmp_path('.mp4')
+    output_path = TempStore.create_path(extension='.mp4')
     Path(output_path).write_bytes(video_bytes)
     return str(output_path)
 

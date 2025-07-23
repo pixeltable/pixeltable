@@ -15,7 +15,6 @@ import sys
 import threading
 import types
 import typing
-import uuid
 import warnings
 from abc import abstractmethod
 from contextlib import contextmanager
@@ -749,12 +748,6 @@ class Env:
                 shutil.rmtree(path)
             else:
                 os.remove(path)
-
-    def num_tmp_files(self) -> int:
-        return len(glob.glob(f'{self._tmp_dir}/*'))
-
-    def create_tmp_path(self, extension: str = '') -> Path:
-        return self._tmp_dir / f'{uuid.uuid4()}{extension}'
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
