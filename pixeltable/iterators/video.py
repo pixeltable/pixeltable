@@ -29,8 +29,19 @@ class FrameIterator(ComponentIterator):
             extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
-        all_frame_attrs: If True, then all frame attributes will be included in the output. If False, only outputs
-            frame attributes `frame_idx`, `pos_msec`, and `pos_frame`.
+        all_frame_attrs:
+            If True, outputs a `pxt.Json` column `frame_attrs` with the following attributes:
+                `{
+                    'index': int,
+                    'pts': int,
+                    'dts': int,
+                    'time': float,
+                    'is_corrupt': bool,
+                    'key_frame': bool,
+                    'pict_type': int,
+                    'interlaced_frame': bool
+                }`
+            If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
     """
 
     # Input parameters
@@ -131,22 +142,11 @@ class FrameIterator(ComponentIterator):
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        attrs: dict[str, ts.ColumnType] = {
-            'frame_idx': ts.IntType(),
-            'pos_msec': ts.FloatType(),
-            'pos_frame': ts.IntType(),
-        }
+        attrs: dict[str, ts.ColumnType]
         if kwargs.get('all_frame_attrs'):
-            attrs.update(
-                {
-                    'pts': ts.IntType(),
-                    'dts': ts.IntType(nullable=True),
-                    'time': ts.FloatType(),
-                    'key_frame': ts.BoolType(),
-                    'pict_type': ts.IntType(nullable=True),
-                    'interlaced_frame': ts.BoolType(),
-                }
-            )
+            attrs = {'frame_attrs': ts.JsonType()}
+        else:
+            attrs = {'frame_idx': ts.IntType(), 'pos_msec': ts.FloatType(), 'pos_frame': ts.IntType()}
         return {**attrs, 'frame': ts.ImageType()}, ['frame']
 
     def __next__(self) -> dict[str, Any]:
@@ -188,18 +188,21 @@ class FrameIterator(ComponentIterator):
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
             pos_msec = float(pts * self.video_time_base * 1000)
-            result = {'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx, 'frame': img}
+            result: dict[str, Any] = {'frame': img}
             if self.all_frame_attrs:
-                result.update(
-                    {
-                        'pts': frame.pts,
-                        'dts': frame.dts,
-                        'time': frame.time,
-                        'key_frame': frame.key_frame,
-                        'pict_type': frame.pict_type,
-                        'interlaced_frame': frame.interlaced_frame,
-                    }
-                )
+                attrs = {
+                    'index': video_idx,
+                    'pts': frame.pts,
+                    'dts': frame.dts,
+                    'time': frame.time,
+                    'is_corrupt': frame.is_corrupt,
+                    'key_frame': frame.key_frame,
+                    'pict_type': frame.pict_type,
+                    'interlaced_frame': frame.interlaced_frame,
+                }
+                result.update({'frame_attrs': attrs})
+            else:
+                result.update({'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx})
             self.next_pos += 1
             return result
 

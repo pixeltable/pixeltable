@@ -29,19 +29,20 @@ class TestVideo:
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
         total_num_rows = view_t.count()
-        num_key_frames = view_t.where(view_t.key_frame).count()
-        assert num_key_frames > 0
-        is_key_frame = view_t.where(view_t.pos == 0).select(view_t.key_frame).collect()[0, 0]
-        assert is_key_frame
-        result = view_t.where(view_t.frame_idx >= 5).select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
+        # TODO: uncomment when we support to_sql_expr() for JsonPathExpr
+        # num_key_frames = view_t.where(view_t.frame_attrs.key_frame.astype(pxt.Bool)).count()
+        # assert num_key_frames > 0
+        frame_attrs = view_t.where(view_t.pos == 0).select(view_t.frame_attrs).collect()[0, 0]
+        assert isinstance(frame_attrs['key_frame'], bool) and frame_attrs['key_frame']
+        result = view_t.where(view_t.frame_attrs['index'] >= 5).select(view_t.frame_attrs['index'], view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows - len(paths) * 5
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(3)
+        result = view_t.select(view_t.frame, view_t.transform).show(3)
         assert len(result) == 3
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
+        result = view_t.select(view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows
         # Try inserting a row with a `None` video; confirm that it produces no additional rows in the view
         base_t.insert(video=None)
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
+        result = view_t.select(view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows
         return base_t, view_t
 
@@ -124,11 +125,14 @@ class TestVideo:
         _ = view_t.select(view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
 
     def test_frame_attrs(self, reset_db: None) -> None:
-        _, view_t = self.create_tbls(all_frame_attrs=True)
-        all_attrs = set(view_t.get_metadata()['schema'].keys())
+        video_filepaths = get_video_files()
+        base_t, view_t = self.create_tbls(all_frame_attrs=True)
+        base_t.insert([{'video': video_filepaths[0]}])
+        all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
+        assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
         _, view_t = self.create_tbls(all_frame_attrs=False)
         default_attrs = set(view_t.get_metadata()['schema'].keys())
-        assert all_attrs > default_attrs
+        assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame'}
 
     def test_get_metadata(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
