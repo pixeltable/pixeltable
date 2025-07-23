@@ -107,16 +107,16 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 
     * Resolve merge conflicts (if any):
 
-        * If there's a merge conflict in `poetry.lock`, follow the steps below.
+        * If there's a merge conflict in `uv.lock`, follow the steps below.
         * Resolve all other merge conflicts manually.
         * When all conflicts are resolved: `git commit` to complete the process.
 
-    * To resolve a merge conflict in `poetry.lock`:
+    * To resolve a merge conflict in `uv.lock`:
 
         * First resolve merge conflicts in `pyproject.toml` (if any).
-        * `git checkout --theirs poetry.lock`
-        * `poetry lock --no-update`
-        * `git add poetry.lock`
+        * `git checkout --theirs uv.lock`
+        * `uv lock`
+        * `git add uv.lock`
 
 5. Code review
 
