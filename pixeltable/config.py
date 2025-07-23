@@ -102,7 +102,7 @@ class Config:
         env_var = f'{section.upper()}_{key.upper()}'
         if override_var in self.__config_overrides:
             return self.__config_overrides[override_var]
-        if env_var in os.environ:
+        if env_var in os.environ and len(os.environ[env_var]) > 0:
             return os.environ[env_var]
         return default
 
