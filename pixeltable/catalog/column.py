@@ -127,9 +127,9 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
 
-    def to_md(self) -> schema.ColumnMd:
+    def to_md(self, pos: int) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
         assert self.is_pk is not None
-        return schema.ColumnMd(
+        col_md = schema.ColumnMd(
             id=self.id,
             col_type=self.col_type.as_dict(),
             is_pk=self.is_pk,
@@ -138,6 +138,15 @@ class Column:
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
         )
+        if self.name is not None:
+            sch_md = schema.SchemaColumn(
+                name=self.name,
+                pos=pos,
+                media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
+            )
+        else:
+            sch_md = None
+        return col_md, sch_md
 
     @classmethod
     def from_md(
