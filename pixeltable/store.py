@@ -245,7 +245,7 @@ class StoreBase:
                     if abort_on_exc and row.has_exc():
                         exc = row.get_first_exc()
                         raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}') from exc
-                    table_row, num_row_exc = row_builder.create_table_row(row, None, row.pk)
+                    table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
                     num_excs += num_row_exc
                     batch_table_rows.append(tuple(table_row))
 
@@ -318,7 +318,7 @@ class StoreBase:
                     rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                     pk = (*rowid, v_min)
                     assert len(pk) == len(self._pk_cols)
-                    table_row, num_row_exc = row_builder.create_table_row(row, cols_with_excs, pk)
+                    table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
                     if show_progress:

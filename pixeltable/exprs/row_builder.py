@@ -126,7 +126,7 @@ class RowBuilder:
         )
 
         # if init(columns):
-        # - we are creating table rows and need to record columns for create_table_row()
+        # - we are creating table rows and need to record columns for create_store_table_row()
         # - output_exprs materialize those columns
         # - input_exprs are ColumnRefs of the non-computed columns (ie, what needs to be provided as input)
         # - media validation:
@@ -444,13 +444,14 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(
+    def create_store_table_row(
         self, data_row: DataRow, cols_with_excs: Optional[set[int]], pk: tuple[int, ...]
     ) -> tuple[list[Any], int]:
-        """Create a table row from the slots that have an output column assigned
+        """Create a store table row from the slots that have an output column assigned
 
         Return tuple[list of row values in `self.table_columns` order, # of exceptions]
             This excludes system columns.
+            Row values are converted to their store type.
         """
         from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 
