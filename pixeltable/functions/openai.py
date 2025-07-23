@@ -151,13 +151,8 @@ def _get_header_info(
         requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
         requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
         requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
-        requests_reset_str = headers.get('x-ratelimit-reset-requests')
-        reset_duration = (
-            _parse_header_duration(requests_reset_str)
-            if requests_reset_str is not None
-            else datetime.timedelta(seconds=5)
-        )
-        requests_reset_ts = now + reset_duration
+        requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
+        requests_reset_ts = now + _parse_header_duration(requests_reset_str)
         requests_info = (requests_limit, requests_remaining, requests_reset_ts)
 
     tokens_info: Optional[tuple[int, int, datetime.datetime]] = None
@@ -166,11 +161,8 @@ def _get_header_info(
         tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
         tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
         tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
-        tokens_reset_str = headers.get('x-ratelimit-reset-tokens')
-        reset_duration = (
-            _parse_header_duration(tokens_reset_str) if tokens_reset_str is not None else datetime.timedelta(seconds=5)
-        )
-        tokens_reset_ts = now + reset_duration
+        tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
+        tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
         tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
 
     return requests_info, tokens_info
