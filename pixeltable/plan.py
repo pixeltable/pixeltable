@@ -782,13 +782,13 @@ class Planner:
 
     @classmethod
     def _insert_prefetch_node(
-        cls, tbl_id: UUID, expr_set: Iterable[exprs.Expr], input_node: exec.ExecNode
+        cls, tbl_id: UUID, expressions: Iterable[exprs.Expr], input_node: exec.ExecNode
     ) -> exec.ExecNode:
         """Inserts a CachePrefetchNode into the plan if needed, otherwise returns input"""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
         # aren't explicitly captured as dependencies
-        media_col_refs = [e for e in expr_set if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()]
+        media_col_refs = [e for e in expressions if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()]
         if len(media_col_refs) == 0:
             return input_node
         # we need to prefetch external files for media column types
