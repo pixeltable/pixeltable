@@ -149,6 +149,22 @@ class TestAudio:
             assert count == file_to_chunks_from_view.get(file, 0)
         reload_tester.run_reload_test()
 
+    def test_audio_iterator_on_videos_revert_media_store(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        video_filepaths = get_video_files()
+        video_t = pxt.create_table('videos', {'video': pxt.Video})
+        video_t.insert({'video': p} for p in video_filepaths)
+
+        pre_count = MediaStore.count(video_t._id)
+        # extract audio
+        video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
+        post_count = MediaStore.count(video_t._id)
+        assert post_count > pre_count  # Some files should have been added
+
+        print(video_t.history())
+        video_t.revert()
+        final_count = MediaStore.count(video_t._id)
+        assert final_count == pre_count  # Reverting should remove the added files
+
     def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})

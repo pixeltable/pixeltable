@@ -67,8 +67,8 @@ class InMemoryDataNode(ExecNode):
                 if col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal media file, ie, a sequence of bytes; save it as a binary file and store the path
                     assert col.tbl.id == self.tbl.id
-                    path = MediaStore.save_media_file(val, col.tbl.id, col.id, col.tbl.version)
-                    self.output_rows[row_idx][col_info.slot_idx] = str(path)
+                    filepath, _ = MediaStore.save_media_object(val, col, format=None)
+                    self.output_rows[row_idx][col_info.slot_idx] = str(filepath)
                 else:
                     self.output_rows[row_idx][col_info.slot_idx] = val
 
