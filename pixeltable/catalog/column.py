@@ -127,7 +127,8 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
 
-    def to_md(self, pos: int) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
+    def to_md(self, pos: Optional[int] = None) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
+        """Returns the Column and optional SchemaColumn metadata for this Column."""
         assert self.is_pk is not None
         col_md = schema.ColumnMd(
             id=self.id,
@@ -138,14 +139,14 @@ class Column:
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
         )
-        if self.name is not None:
-            sch_md = schema.SchemaColumn(
-                name=self.name,
-                pos=pos,
-                media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
-            )
-        else:
-            sch_md = None
+        if pos is None:
+            return col_md, None
+        assert self.name is not None, 'Column name must be set for user-facing columns'
+        sch_md = schema.SchemaColumn(
+            name=self.name,
+            pos=pos,
+            media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
+        )
         return col_md, sch_md
 
     @classmethod
