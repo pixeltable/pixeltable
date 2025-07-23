@@ -1326,7 +1326,7 @@ class TableVersion:
             )
 
         # delete newly-added data
-        MediaStore.delete(self.id, version=self.version)
+        MediaStore.delete(self.id, tbl_version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions

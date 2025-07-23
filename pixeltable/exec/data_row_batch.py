@@ -17,22 +17,14 @@ class DataRowBatch:
     row_builder: exprs.RowBuilder
     rows: list[exprs.DataRow]
 
-    def __init__(
-        self, row_builder: exprs.RowBuilder, num_rows: Optional[int] = None, rows: Optional[list[exprs.DataRow]] = None
-    ):
+    def __init__(self, row_builder: exprs.RowBuilder, rows: Optional[list[exprs.DataRow]] = None):
         """
         Requires either num_rows or rows to be specified, but not both.
         """
-        assert num_rows is None or rows is None
         self.row_builder = row_builder
-        if rows is not None:
-            self.rows = rows
-        else:
-            if num_rows is None:
-                num_rows = 0
-            self.rows = [self.row_builder.make_row() for _ in range(num_rows)]
+        self.rows = [] if rows is None else rows
 
-    def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
+    def add_row(self, row: Optional[exprs.DataRow]) -> exprs.DataRow:
         if row is None:
             row = self.row_builder.make_row()
         self.rows.append(row)
