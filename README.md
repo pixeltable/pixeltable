@@ -33,7 +33,7 @@ Pixeltable is the only Python library providing incremental storage, transformat
 pip install pixeltable
 ```
 
-**Pixeltable unifies multimodal data storage, retrieval and orchestration.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup. All media  (videos, images, audio) resides in ext. files, and Pixeltable stores references to those. Files can be local/remote (e.g. S3). For the latter, PXT caches the [files locally on access](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb).
+**Pixeltable unifies multimodal data storage, retrieval and orchestration.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup. All media  (videos, images, audio) resides in ext. files, and Pixeltable stores references to those. Files can be local/remote (e.g. S3). For the latter, Pixeltable caches the [files locally on access](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb).
 
 ## Quick Start
 
