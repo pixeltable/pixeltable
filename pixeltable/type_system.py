@@ -5,6 +5,7 @@ import datetime
 import enum
 import io
 import json
+import types
 import typing
 import urllib.parse
 import urllib.request
@@ -307,7 +308,7 @@ class ColumnType:
         """
         origin = typing.get_origin(t)
         type_args = typing.get_args(t)
-        if origin is typing.Union:
+        if origin in (typing.Union, types.UnionType):
             # Check if `t` has the form Optional[T].
             if len(type_args) == 2 and type(None) in type_args:
                 # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
