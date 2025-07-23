@@ -160,7 +160,7 @@ KNOWN_CONFIG_OPTIONS = {
     'groq': {'api_key': 'Groq API key'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
     'mistral': {'api_key': 'Mistral API key'},
-    'openai': {'api_key': 'OpenAI API key', 'base_url': 'OpenAI API base URL', 'client_kwargs': 'OpenAI API client configuration kwargs'},
+    'openai': {'api_key': 'OpenAI API key', 'base_url': 'OpenAI API base URL', 'api_version': 'API version if using Azure OpenAI'},
     'replicate': {'api_token': 'Replicate API token'},
     'together': {'api_key': 'Together API key'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
