@@ -5,6 +5,8 @@
 
 <h2>Declarative Data Infrastructure for Multimodal AI Apps</h2>
 
+Pixeltable is the only Python library providing incremental storage, transformation, indexing, and orchestration of multimodal data.
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
 ![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-E5DDD4)
@@ -25,31 +27,66 @@
 
 ---
 
-Pixeltable is the only Python framework that provides incremental storage, transformation, indexing, and orchestration of your multimodal data.
-
-## 😩 Maintaining Production-Ready Multimodal AI Apps is Still Too Hard
-
-Building robust AI applications, especially [multimodal](https://docs.pixeltable.com/docs/datastore/bringing-data) ones, requires stitching together numerous tools:
-*   ETL pipelines for data loading and transformation.
-*   Vector databases for semantic search.
-*   Feature stores for ML models.
-*   Orchestrators for scheduling.
-*   Model serving infrastructure for inference.
-*   Separate systems for parallelization, caching, versioning, and lineage tracking.
-
-This complex "data plumbing" slows down development, increases costs, and makes applications brittle and hard to reproduce.
-
 ## 💾 Installation
 
 ```python
 pip install pixeltable
 ```
 
-**Pixeltable is a database.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup.
+**Pixeltable unifies multimodal data storage, retrieval and orchestration.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup. All media  (videos, images, audio) resides in ext. files, and Pixeltable stores references to those. Files can be local/remote (e.g. S3). For the latter, PXT caches the [files locally on access](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb).
 
-## ✨ What is Pixeltable?
+## Quick Start
 
-With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**. Pixeltable's engine then automatically handles:
+With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**.
+
+```python
+
+# Installation
+pip install -qU torch transformers openai pixeltable
+
+# Basic setup
+import pixeltable as pxt
+
+# Table with multimodal column types (Image, Video, Audio, Document)
+t = pxt.create_table('images', {'input_image': pxt.Image})
+
+# Computed columns: define transformation logic once, runs on all data
+from pixeltable.functions import huggingface
+
+# Object detection with automatic model management
+t.add_computed_column(
+    detections=huggingface.detr_for_object_detection(
+        t.input_image, 
+        model_id='facebook/detr-resnet-50'
+    )
+)
+
+# Extract specific fields from detection results
+t.add_computed_column(detections_text=t.detections.label_text)
+
+# OpenAI Vision API integration with built-in rate limiting and async managemennt
+from pixeltable.functions import openai         
+
+t.add_computed_column(
+    vision=openai.vision(
+        prompt="Describe what's in this image.",
+        image=t.input_image,
+        model='gpt-4o-mini'
+    )
+)
+
+# Insert data - automatically triggers computation of all computed columns
+t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
+
+# Query - All data, metadata, and computed results are persistently stored
+results = t.select(
+    t.input_image,
+    t.detections_text,
+    t.vision
+).collect()
+```
+
+## ✨ What Happened?
 
 *   **Data Ingestion & Storage:** References [files](https://docs.pixeltable.com/docs/datastore/bringing-data) (images, videos, audio, docs) in place, handles structured data.
 *   **Transformation & Processing:** Applies *any* Python function ([UDFs](https://docs.pixeltable.com/docs/datastore/custom-functions)) or built-in operations ([chunking, frame extraction](https://docs.pixeltable.com/docs/datastore/iterators)) automatically.
@@ -61,7 +98,7 @@ With Pixeltable, you define your *entire* data processing and AI workflow declar
 **Focus on your application logic, not the infrastructure.**
 
 
-## 🚀 Key Features
+## ⚖️ Key Principles
 
 * **[Unified Multimodal Interface:](https://docs.pixeltable.com/docs/datastore/tables-and-operations)** `pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
   ```python
@@ -359,12 +396,24 @@ Explore Pixeltable's capabilities interactively:
 | Object Detection | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/object-detection-in-videos.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Image/Text Search | <a target="_blank" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi">  <img src="https://img.shields.io/badge/🖥️%20App-black.svg" alt="GitHub App"/> |
 | Audio Transcription | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> | Discord Bot | <a target="_blank" href="https://github.com/pixeltable/pixeltable/blob/main/docs/sample-apps/context-aware-discord-bot"> <img src="https://img.shields.io/badge/%F0%9F%92%AC%20Bot-%235865F2.svg" alt="GitHub App"/></a> |
 
+## 🚨 Maintaining Production-Ready Multimodal AI Apps is Still Too Hard
+
+Building robust AI applications, especially [multimodal](https://docs.pixeltable.com/docs/datastore/bringing-data) ones, requires stitching together numerous tools:
+*   ETL pipelines for data loading and transformation.
+*   Vector databases for semantic search.
+*   Feature stores for ML models.
+*   Orchestrators for scheduling.
+*   Model serving infrastructure for inference.
+*   Separate systems for parallelization, caching, versioning, and lineage tracking.
+
+This complex "data plumbing" slows down development, increases costs, and makes applications brittle and hard to reproduce.
+
 ## 🔮 Roadmap (2025)
 
 ### Cloud Infrastructure and Deployment
 We're working on a hosted Pixeltable service that will:
 
-- Enable Multimodal Data Sharing of Pixeltable Tables and Views
+- Enable Multimodal Data Sharing of Pixeltable Tables and Views | [Waitlist](https://www.pixeltable.com/waitlist)
 - Provide a persistent cloud instance
 - Turn Pixeltable workflows (Tables, Queries, UDFs) into API endpoints/[MCP Servers](https://github.com/pixeltable/pixeltable-mcp-server)
 
