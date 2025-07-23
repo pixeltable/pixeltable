@@ -291,71 +291,11 @@ class TableVersion:
         comment: str,
         media_validation: MediaValidation,
     ) -> tuple[UUID, Optional[TableVersion]]:
-        user = Env.get().user
-        timestamp = time.time()
-
-        # assign ids, create metadata
-        cols_by_name: dict[str, Column] = {}
-        column_md: dict[int, schema.ColumnMd] = {}
-        schema_col_md: dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(cols):
-            col.id = pos
-            col.schema_version_add = 0
-            cols_by_name[col.name] = col
-            if col.is_computed:
-                col.check_value_expr()
-            col_md, sch_md = col.to_md(pos)
-            assert sch_md is not None
-            column_md[col.id] = col_md
-            schema_col_md[col.id] = sch_md
-
-        # create schema.Table
-        # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
-        tbl_id = uuid.uuid4()
-        tbl_id_str = str(tbl_id)
-        table_md = schema.TableMd(
-            tbl_id=tbl_id_str,
-            name=name,
-            user=user,
-            is_replica=False,
-            current_version=0,
-            current_schema_version=0,
-            next_col_id=len(cols),
-            next_idx_id=0,
-            next_row_id=0,
-            view_sn=0,
-            column_md=column_md,
-            index_md={},
-            external_stores=[],
-            view_md=None,
-            additional_md={},
-        )
-
-        # create schema.TableVersion of the initial version
-        table_version_md = schema.TableVersionMd(
-            tbl_id=tbl_id_str,
-            created_at=timestamp,
-            version=0,
-            schema_version=0,
-            user=user,
-            update_status=None,
-            additional_md={},
-        )
-
-        schema_version_md = schema.TableSchemaVersionMd(
-            tbl_id=tbl_id_str,
-            schema_version=0,
-            preceding_schema_version=None,
-            columns=schema_col_md,
-            num_retained_versions=num_retained_versions,
-            comment=comment,
-            media_validation=media_validation.name.lower(),
-            additional_md={},
-        )
-
+        inital_md = cls.create_initial_md(name, cols, num_retained_versions, comment, media_validation, view_md=None)
         cat = pxt.catalog.Catalog.get()
 
-        tbl_version = cls(tbl_id, table_md, table_version_md, None, schema_version_md, [])
+        tbl_id = UUID(hex=inital_md.tbl_md.tbl_id)
+        tbl_version = cls(tbl_id, inital_md.tbl_md, inital_md.version_md, None, inital_md.schema_version_md, [])
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
         cat._tbl_versions[tbl_id, None] = tbl_version
         tbl_version.init()
@@ -369,8 +309,8 @@ class TableVersion:
             tbl_id=tbl_id,
             dir_id=dir_id,
             tbl_md=tbl_version.tbl_md,
-            version_md=table_version_md,
-            schema_version_md=schema_version_md,
+            version_md=inital_md.version_md,
+            schema_version_md=inital_md.schema_version_md,
         )
         return tbl_id, tbl_version
 
