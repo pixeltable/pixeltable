@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
     import pixeltable.plan
     from pixeltable.globals import TableDataSource
+
 
 _logger = logging.getLogger('pixeltable')
 
@@ -483,8 +484,7 @@ class Table(SchemaObject):
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is identical to the format of the schema in a call to
-        [`create_table()`][pixeltable.globals.create_table].
+        The format of the `schema` argument is a dict mapping column names to their types.
 
         Args:
             schema: A dictionary mapping column names to types.
@@ -597,6 +597,7 @@ class Table(SchemaObject):
         self,
         *,
         stored: Optional[bool] = None,
+        destination: Optional[Union[str, Path]] = None,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
@@ -658,6 +659,9 @@ class Table(SchemaObject):
             if stored is not None:
                 col_schema['stored'] = stored
 
+            if destination is not None:
+                col_schema['destination'] = destination
+
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
                 for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
@@ -672,7 +676,7 @@ class Table(SchemaObject):
                 [col_name], IfExistsParam.validated(if_exists, 'if_exists')
             )
             # if the column to add already exists and user asked to ignore
-            # exiting column, there's nothing to do.
+            # existing column, there's nothing to do.
             result = UpdateStatus()
             if len(cols_to_ignore) != 0:
                 assert cols_to_ignore[0] == col_name
@@ -693,7 +697,7 @@ class Table(SchemaObject):
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        valid_keys = {'type', 'value', 'stored', 'media_validation'}
+        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name}: invalid key {k!r}')
@@ -717,6 +721,10 @@ class Table(SchemaObject):
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
 
+        d = spec.get('destination')
+        if d is not None and not isinstance(d, (str, Path)):
+            raise excs.Error(f'Column {name}: "destination" must be a string or path, got {d}')
+
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
         """Construct list of Columns, given schema"""
@@ -727,6 +735,7 @@ class Table(SchemaObject):
             primary_key: bool = False
             media_validation: Optional[catalog.MediaValidation] = None
             stored = True
+            destination: Optional[str] = None
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
                 col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
@@ -751,6 +760,10 @@ class Table(SchemaObject):
                 media_validation = (
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
+                if 'destination' in spec:
+                    from pixeltable.utils.media_destination import MediaDestination
+
+                    destination = MediaDestination.validate_destination(name, spec['destination'])
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -761,6 +774,7 @@ class Table(SchemaObject):
                 stored=stored,
                 is_pk=primary_key,
                 media_validation=media_validation,
+                destination=destination,
             )
             columns.append(column)
         return columns
@@ -786,14 +800,16 @@ class Table(SchemaObject):
                     f'streaming function'
                 )
             )
+        if col.destination is not None and not (col.stored and col.is_computed):
+            raise excs.Error(
+                f'Column {col.name!r}: destination={col.destination} only applies to stored computed columns'
+            )
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
         """Check integrity of user-supplied schema and set defaults"""
-        column_names: set[str] = set()
         for col in schema:
             cls._verify_column(col)
-            column_names.add(col.name)
 
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
