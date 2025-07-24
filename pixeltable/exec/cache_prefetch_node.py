@@ -138,6 +138,8 @@ class CachePrefetchNode(ExecNode):
             for f in done:
                 url = self.in_flight_requests.pop(f)
                 tmp_path, exc = f.result()
+                if exc is not None and not self.ctx.ignore_errors:
+                    raise exc
                 local_path: Optional[Path] = None
                 if tmp_path is not None:
                     # register the file with the cache for the first column in which it's missing
@@ -259,6 +261,4 @@ class CachePrefetchNode(ExecNode):
             # we want to add the file url to the exception message
             exc = excs.Error(f'Failed to download {url}: {e}')
             _logger.debug(f'Failed to download {url}: {e}', exc_info=e)
-            if not self.ctx.ignore_errors:
-                raise exc from None  # suppress original exception
             return None, exc
