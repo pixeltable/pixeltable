@@ -14,7 +14,6 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 from pixeltable import exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -223,18 +222,23 @@ class TableVersion:
         view_md: Optional[schema.ViewMd] = None,
     ) -> TableVersionMd:
         user = Env.get().user
+        timestamp = time.time()
 
-        # assign ids
+        # assign ids, create metadata
         cols_by_name: dict[str, Column] = {}
+        column_md: dict[int, schema.ColumnMd] = {}
+        schema_col_md: dict[int, schema.SchemaColumn] = {}
         for pos, col in enumerate(cols):
             col.id = pos
             col.schema_version_add = 0
             cols_by_name[col.name] = col
             if col.is_computed:
                 col.check_value_expr()
+            col_md, sch_md = col.to_md(pos)
+            assert sch_md is not None
+            column_md[col.id] = col_md
+            schema_col_md[col.id] = sch_md
 
-        timestamp = time.time()
-        column_md = cls._create_column_md(cols)
         tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
         tbl_md = schema.TableMd(
@@ -256,17 +260,14 @@ class TableVersion:
         )
 
         table_version_md = schema.TableVersionMd(
-            tbl_id=tbl_id_str, created_at=timestamp, version=0, schema_version=0, additional_md={}
+            tbl_id=tbl_id_str,
+            created_at=timestamp,
+            version=0,
+            schema_version=0,
+            user=user,
+            update_status=None,
+            additional_md={},
         )
-
-        schema_col_md: dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(cols):
-            md = schema.SchemaColumn(
-                pos=pos,
-                name=col.name,
-                media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
-            )
-            schema_col_md[col.id] = md
 
         schema_version_md = schema.TableSchemaVersionMd(
             tbl_id=tbl_id_str,
@@ -290,76 +291,11 @@ class TableVersion:
         comment: str,
         media_validation: MediaValidation,
     ) -> tuple[UUID, Optional[TableVersion]]:
-        user = Env.get().user
-
-        # assign ids
-        cols_by_name: dict[str, Column] = {}
-        for pos, col in enumerate(cols):
-            col.id = pos
-            col.schema_version_add = 0
-            cols_by_name[col.name] = col
-            if col.is_computed:
-                col.check_value_expr()
-
-        timestamp = time.time()
-        # create schema.Table
-        # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
-        column_md = cls._create_column_md(cols)
-        tbl_id = uuid.uuid4()
-        tbl_id_str = str(tbl_id)
-        table_md = schema.TableMd(
-            tbl_id=tbl_id_str,
-            name=name,
-            user=user,
-            is_replica=False,
-            current_version=0,
-            current_schema_version=0,
-            next_col_id=len(cols),
-            next_idx_id=0,
-            next_row_id=0,
-            view_sn=0,
-            column_md=column_md,
-            index_md={},
-            external_stores=[],
-            view_md=None,
-            additional_md={},
-        )
-
-        # create schema.TableVersion of the initial version
-        table_version_md = schema.TableVersionMd(
-            tbl_id=tbl_id_str,
-            created_at=timestamp,
-            version=0,
-            schema_version=0,
-            user=user,
-            update_status=None,
-            additional_md={},
-        )
-
-        # create schema.TableSchemaVersion
-        schema_col_md: dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(cols):
-            md = schema.SchemaColumn(
-                pos=pos,
-                name=col.name,
-                media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
-            )
-            schema_col_md[col.id] = md
-
-        schema_version_md = schema.TableSchemaVersionMd(
-            tbl_id=tbl_id_str,
-            schema_version=0,
-            preceding_schema_version=None,
-            columns=schema_col_md,
-            num_retained_versions=num_retained_versions,
-            comment=comment,
-            media_validation=media_validation.name.lower(),
-            additional_md={},
-        )
-
+        inital_md = cls.create_initial_md(name, cols, num_retained_versions, comment, media_validation, view_md=None)
         cat = pxt.catalog.Catalog.get()
 
-        tbl_version = cls(tbl_id, table_md, table_version_md, None, schema_version_md, [])
+        tbl_id = UUID(hex=inital_md.tbl_md.tbl_id)
+        tbl_version = cls(tbl_id, inital_md.tbl_md, inital_md.version_md, None, inital_md.schema_version_md, [])
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
         cat._tbl_versions[tbl_id, None] = tbl_version
         tbl_version.init()
@@ -373,8 +309,8 @@ class TableVersion:
             tbl_id=tbl_id,
             dir_id=dir_id,
             tbl_md=tbl_version.tbl_md,
-            version_md=table_version_md,
-            schema_version_md=schema_version_md,
+            version_md=inital_md.version_md,
+            schema_version_md=inital_md.schema_version_md,
         )
         return tbl_id, tbl_version
 
@@ -480,25 +416,7 @@ class TableVersion:
         sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
         for col_md in sorted_column_md:
             schema_col_md = self.schema_version_md.columns.get(col_md.id)
-            col_name = schema_col_md.name if schema_col_md is not None else None
-            media_val = (
-                MediaValidation[schema_col_md.media_validation.upper()]
-                if schema_col_md is not None and schema_col_md.media_validation is not None
-                else None
-            )
-            col = Column(
-                col_id=col_md.id,
-                name=col_name,
-                col_type=ts.ColumnType.from_dict(col_md.col_type),
-                is_pk=col_md.is_pk,
-                stored=col_md.stored,
-                media_validation=media_val,
-                schema_version_add=col_md.schema_version_add,
-                schema_version_drop=col_md.schema_version_drop,
-                value_expr_dict=col_md.value_expr,
-                tbl=self,
-            )
-            col.tbl = self
+            col = Column.from_md(col_md, self, schema_col_md)
             self.cols.append(col)
 
             # populate the lookup structures before Expr.from_dict()
@@ -783,31 +701,22 @@ class TableVersion:
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
+            assert col.id is not None, 'Column id must be set before adding the column'
             excs_per_col = 0
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
             # because it might be referenced by the next column's value_expr
             self.cols.append(col)
+            self.cols_by_id[col.id] = col
             if col.name is not None:
                 self.cols_by_name[col.name] = col
-            self.cols_by_id[col.id] = col
-
-            # also add to stored md
-            self._tbl_md.column_md[col.id] = schema.ColumnMd(
-                id=col.id,
-                col_type=col.col_type.as_dict(),
-                is_pk=col.is_pk,
-                schema_version_add=col.schema_version_add,
-                schema_version_drop=col.schema_version_drop,
-                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
-                stored=col.stored,
-            )
-            if col.name is not None:
-                self._schema_version_md.columns[col.id] = schema.SchemaColumn(
-                    name=col.name,
-                    pos=len(self.cols_by_name),
-                    media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
-                )
+                col_md, sch_md = col.to_md(len(self.cols_by_name))
+                assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
+                self._tbl_md.column_md[col.id] = col_md
+                self._schema_version_md.columns[col.id] = sch_md
+            else:
+                col_md, _ = col.to_md()
+                self._tbl_md.column_md[col.id] = col_md
 
             if col.is_stored:
                 self.store_tbl.add_column(col)
@@ -1627,23 +1536,6 @@ class TableVersion:
         if self.is_component_view:
             return 1 + self.base.get().num_rowid_columns()
         return 1
-
-    @classmethod
-    def _create_column_md(cls, cols: list[Column]) -> dict[int, schema.ColumnMd]:
-        column_md: dict[int, schema.ColumnMd] = {}
-        for col in cols:
-            value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
-            assert col.is_pk is not None
-            column_md[col.id] = schema.ColumnMd(
-                id=col.id,
-                col_type=col.col_type.as_dict(),
-                is_pk=col.is_pk,
-                schema_version_add=col.schema_version_add,
-                schema_version_drop=col.schema_version_drop,
-                value_expr=value_expr_dict,
-                stored=col.stored,
-            )
-        return column_md
 
     @classmethod
     def _create_stores_md(cls, stores: Iterable[pxt.io.ExternalStore]) -> list[dict[str, Any]]:
