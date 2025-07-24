@@ -23,7 +23,7 @@ on:
 env:
   PXTTEST_IN_CI: 1
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
-  POETRY_VERSION: 2.1.1
+  UV_VERSION: 0.8.2
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
   # We also disable Metal (GPU) support on MacOS, which doesn't seem to work properly in CI.
@@ -35,6 +35,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_DEFAULT_REGION: us-west-2
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -54,45 +55,45 @@ jobs:
         # On a scheduled run, also test ubuntu-x64-t4 (which costs money). ubuntu-arm64 is disabled
         # for now; it just has too many problems.
         # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
+        test-category: ["py"]
+        uv-options: [""]
         os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
                 && fromJSON('["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]')
                 || fromJSON('["ubuntu-22.04", "macos-15", "windows-2022"]') }}
         python-version: ["3.10", "3.13"]
-        test-category: ["py"]
-        poetry-options: ["--with dev"]
         # Add some additional matrix configurations that are run only on linux, to test
         # additional scenarios/compatibilities that are unlikely to be platform-sensitive.
         include:
           # Python 3.11
-          - os: ubuntu-22.04
+          - test-category: "py"
+            uv-options: ""
+            os: ubuntu-22.04
             python-version: "3.11"
-            test-category: "py"
-            poetry-options: "--with dev"
           # Python 3.12
-          - os: ubuntu-22.04
+          - test-category: "py"
+            uv-options: ""
+            os: ubuntu-22.04
             python-version: "3.12"
-            test-category: "py"
-            poetry-options: "--with dev"
-          # Minimal installation of pixeltable (without --with dev)
-          - os: ubuntu-22.04
+          # Minimal installation of pixeltable
+          - test-category: "py"
+            uv-options: "--no-dev"
+            os: ubuntu-22.04
             python-version: "3.10"
-            test-category: "py"
-            poetry-options: ""
           # Notebook tests
-          - os: ubuntu-22.04
+          - test-category: "ipynb"
+            uv-options: ""
+            os: ubuntu-22.04
             python-version: "3.10"
-            test-category: "ipynb"
-            poetry-options: "--with dev"
           # Linting, type-checking, docstrings validation, etc.
-          - os: ubuntu-22.04
+          - test-category: "lint"
+            uv-options: ""
+            os: ubuntu-22.04
             python-version: "3.10"
-            test-category: "lint"
-            poetry-options: "--with dev"
           # Random table ops
-          - os: ubuntu-22.04
+          - test-category: "random-tbl-ops"
+            uv-options: "--no-dev"
+            os: ubuntu-22.04
             python-version: "3.10"
-            test-category: "random-tbl-ops"
-            poetry-options: ""
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -127,45 +128,37 @@ jobs:
       - name: Install tools
         # cmake is needed for certain CI environments where it is not preinstalled.
         # libiconv and ffmpeg are needed by WhisperX.
-        if: ${{ matrix.poetry-options != '' }}
+        if: ${{ matrix.uv-options == '' }}
         run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv ffmpeg
       - name: Install ollama
-        if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
+        if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-22.04' }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
-      - name: Install poetry
+      - name: Install uv
         run: |
           python -m pip install --upgrade pip
-          python -m pip install poetry==$POETRY_VERSION
+          python -m pip install "uv==$UV_VERSION"
       - name: Define a venv cache
         uses: actions/cache@v4
         if: false
         with:
           # The cache is keyed to the following:
           # - Matrix parameters
-          # - poetry.lock and related .toml files and Makefile (so that if the
-          #   dependencies or poetry config change, the cache will be invalidated)
+          # - uv.lock and related .toml files and Makefile (so that if the
+          #   dependencies or uv config change, the cache will be invalidated)
           path: ${{ env.CONDA }}/envs
-          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-options }}-${{
-            hashFiles('.github/workflows/pytest.yml', 'poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
+          key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.uv-options }}-${{
+            hashFiles('.github/workflows/pytest.yml', 'uv.lock', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
         # Retry 3 times to be resilient against transient connectivity issues.
-        run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
-      - name: Install additional dependencies
         run: |
-          python -m pip install fiftyone==1.5.2
-          python -m pip install sse-starlette==2.3.6
-      - name: Ensure pytest is installed
-        # This is necessary for running the tests without --with dev
-        if: ${{ matrix.poetry-options == '' }}
-        run: pip install pytest pytest-xdist pytest-rerunfailures coverage
-      - name: Delete the pypoetry cache
-        # Delete the pypoetry cache to free up space on the runner
-        if: ${{ matrix.os == 'ubuntu-22.04' }}
-        run: rm -rf /home/runner/.cache/pypoetry
+          export VIRTUAL_ENV="$CONDA_PREFIX"
+          ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
+      - name: Clean the uv cache
+        run: uv cache clean
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
@@ -209,7 +202,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pixeltable-pytest-logs-${{ matrix.os }}-${{ matrix.python-version }}-${{
-            matrix.test-category }}${{ matrix.poetry-options }}
+            matrix.test-category }}${{ matrix.uv-options }}
           path: /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
