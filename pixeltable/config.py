@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Optional, TypeVar
 
 import toml
 
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -82,7 +82,11 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any]) -> None:
+    def init(cls, config_overrides: dict[str, Any], reinit: bool = False) -> None:
+        if reinit:
+            cls.__instance = None
+            for cl in env._registered_clients.values():
+                cl.client_obj = None
         if cls.__instance is None:
             cls.__instance = cls(config_overrides)
         elif len(config_overrides) > 0:
@@ -102,7 +106,7 @@ class Config:
         env_var = f'{section.upper()}_{key.upper()}'
         if override_var in self.__config_overrides:
             return self.__config_overrides[override_var]
-        if env_var in os.environ:
+        if env_var in os.environ and len(os.environ[env_var]) > 0:
             return os.environ[env_var]
         return default
 
@@ -157,7 +161,11 @@ KNOWN_CONFIG_OPTIONS = {
     'groq': {'api_key': 'Groq API key'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
     'mistral': {'api_key': 'Mistral API key'},
-    'openai': {'api_key': 'OpenAI API key'},
+    'openai': {
+        'api_key': 'OpenAI API key',
+        'base_url': 'OpenAI API base URL',
+        'api_version': 'API version if using Azure OpenAI',
+    },
     'replicate': {'api_token': 'Replicate API token'},
     'together': {'api_key': 'Together API key'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
