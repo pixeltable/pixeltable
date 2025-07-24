@@ -82,8 +82,8 @@ if [ -f 'Makefile' ]; then
   make clean
 fi
 
-uv build
-uv publish --token "$PYPI_API_KEY"
+uv build --wheel
+uv publish --token "$PYPI_API_KEY" dist/pixeltable-"$VERSION"-*.whl
 
 if [ $IS_PRE_RELEASE == true ]; then
   GH_OPTS="--prerelease"
