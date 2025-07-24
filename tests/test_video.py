@@ -34,7 +34,11 @@ class TestVideo:
         # assert num_key_frames > 0
         frame_attrs = view_t.where(view_t.pos == 0).select(view_t.frame_attrs).collect()[0, 0]
         assert isinstance(frame_attrs['key_frame'], bool) and frame_attrs['key_frame']
-        result = view_t.where(view_t.frame_attrs['index'] >= 5).select(view_t.frame_attrs['index'], view_t.frame, view_t.transform).collect()
+        result = (
+            view_t.where(view_t.pos >= 5)
+            .select(view_t.video, view_t.frame_attrs['index'], view_t.frame, view_t.transform)
+            .collect()
+        )
         assert len(result) == total_num_rows - len(paths) * 5
         result = view_t.select(view_t.frame, view_t.transform).show(3)
         assert len(result) == 3
@@ -132,7 +136,7 @@ class TestVideo:
         assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
         _, view_t = self.create_tbls(all_frame_attrs=False)
         default_attrs = set(view_t.get_metadata()['schema'].keys())
-        assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame'}
+        assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
     def test_get_metadata(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
