@@ -35,6 +35,8 @@ pip install pixeltable
 
 **Pixeltable unifies multimodal data storage, retrieval and orchestration.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup. All media  (videos, images, audio) resides in ext. files, and Pixeltable stores references to those. Files can be local/remote (e.g. S3). For the latter, Pixeltable caches the [files locally on access](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb).
 
+https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
+
 ## Quick Start
 
 With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**.
