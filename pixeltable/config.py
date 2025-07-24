@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Optional, TypeVar
 
 import toml
 
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -85,6 +85,8 @@ class Config:
     def init(cls, config_overrides: dict[str, Any], reinit: bool = False) -> None:
         if reinit:
             cls.__instance = None
+            for cl in env._registered_clients.values():
+                cl.client_obj = None
         if cls.__instance is None:
             cls.__instance = cls(config_overrides)
         elif len(config_overrides) > 0:
