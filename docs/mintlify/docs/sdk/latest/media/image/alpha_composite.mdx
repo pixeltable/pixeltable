@@ -1,0 +1,332 @@
+---
+title: "alpha_composite"
+description: "alpha_composite(im1, im2) - Blend visual realities through intelligent transparency"
+---
+
+<Badge text="Media Processing" color="purple" size="small" />
+
+## Function Signature
+
+```python
+alpha_composite(im1: pxt.Image, im2: pxt.Image) -> pxt.Image
+```
+
+## Description
+
+Merge visual realities through sophisticated transparency blending, where alpha channels become the bridge between separate images and unified compositions. Alpha compositing transcends simple image overlay—it's **reality fusion technology** that respects transparency, preserves detail, and creates seamless visual narratives.
+
+In the digital content creation and computer vision realm, alpha compositing is the foundation of professional image manipulation, watermarking, and augmented reality effects. This function embodies Pixeltable's philosophy that **complex visual operations should be declaratively simple**, enabling data scientists to create sophisticated compositions with elegant code.
+
+## Parameters
+
+<ParamField path="im1" type="pxt.Image" required>
+  The background image (bottom layer). This image provides the base upon which the second image will be composited. Should have RGBA channels for optimal results.
+</ParamField>
+
+<ParamField path="im2" type="pxt.Image" required>
+  The foreground image (top layer) to composite over `im1`. The alpha channel of this image determines the blending behavior—fully opaque pixels replace the background, transparent pixels reveal the background, and semi-transparent pixels blend proportionally.
+</ParamField>
+
+## Returns
+
+<ResponseField name="composited_image" type="pxt.Image">
+  A new image where `im2` has been alpha composited over `im1`, respecting the transparency information in both images. The result maintains the dimensions of the background image.
+</ResponseField>
+
+## Examples
+
+### Watermark Application Pipeline
+
+Apply transparent watermarks to image collections:
+
+```python
+import pixeltable as pxt
+
+# Create table for images needing watermarks
+photos = pxt.create_table('watermarked_photos', {
+    'photo_id': pxt.String,
+    'original_photo': pxt.Image,
+    'watermark_logo': pxt.Image  # PNG with transparency
+})
+
+# Add computed column that applies watermark via alpha compositing
+photos.add_computed_column(
+    watermarked=alpha_composite(
+        photos.original_photo,
+        photos.watermark_logo
+    )
+)
+
+# Insert photos with watermark - automatic application
+photos.insert([
+    {
+        'photo_id': 'vacation_001',
+        'original_photo': '/photos/beach.jpg',
+        'watermark_logo': '/assets/company_watermark.png'
+    }
+])
+
+# Watermark is automatically applied to all photos
+results = photos.select(photos.photo_id, photos.watermarked).collect()
+```
+
+### Logo Overlay System
+
+Create branded content with transparent logo overlays:
+
+```python
+# Brand content with logo overlays
+marketing_content = pxt.create_table('branded_content', {
+    'content_id': pxt.String,
+    'base_image': pxt.Image,
+    'brand_logo': pxt.Image,
+    'overlay_position': pxt.String  # "top-left", "bottom-right", etc.
+})
+
+# Position and composite logo based on specified position
+@pxt.udf
+def position_and_composite(base: pxt.Image, logo: pxt.Image, 
+                          position: str) -> pxt.Image:
+    """Position logo and composite it over base image"""
+    # This would include logic to position the logo
+    # For now, direct composite (positioned logos would need coordinate calc)
+    return alpha_composite(base, logo)
+
+marketing_content.add_computed_column(
+    branded=position_and_composite(
+        marketing_content.base_image,
+        marketing_content.brand_logo,
+        marketing_content.overlay_position
+    )
+)
+
+# Create branded marketing materials automatically
+marketing_content.insert([
+    {
+        'content_id': 'social_post_001',
+        'base_image': '/content/product_hero.jpg',
+        'brand_logo': '/branding/logo_transparent.png',
+        'overlay_position': 'bottom-right'
+    }
+])
+```
+
+### UI Element Composition
+
+Composite UI elements for design system generation:
+
+```python
+# Create UI component compositions
+ui_components = pxt.create_table('ui_compositions', {
+    'component_id': pxt.String,
+    'background_layer': pxt.Image,
+    'button_overlay': pxt.Image,
+    'icon_layer': pxt.Image
+})
+
+# Multi-layer composition: background + button + icon
+ui_components.add_computed_column(
+    # First composite button over background
+    bg_with_button=alpha_composite(
+        ui_components.background_layer,
+        ui_components.button_overlay
+    )
+)
+
+ui_components.add_computed_column(
+    # Then composite icon over the result
+    final_component=alpha_composite(
+        ui_components.bg_with_button,
+        ui_components.icon_layer
+    )
+)
+
+# Generate complete UI components automatically
+ui_components.insert([
+    {
+        'component_id': 'primary_button',
+        'background_layer': '/ui/button_bg.png',
+        'button_overlay': '/ui/button_style.png',
+        'icon_layer': '/ui/download_icon.png'
+    }
+])
+```
+
+### Product Mockup Generation
+
+Create product mockups by compositing products onto scenes:
+
+```python
+# Generate product mockups for e-commerce
+mockups = pxt.create_table('product_mockups', {
+    'mockup_id': pxt.String,
+    'scene_background': pxt.Image,
+    'product_cutout': pxt.Image,  # Product with transparent background
+    'lighting_overlay': pxt.Image  # Optional lighting effects
+})
+
+# Composite product onto scene
+mockups.add_computed_column(
+    product_in_scene=alpha_composite(
+        mockups.scene_background,
+        mockups.product_cutout
+    )
+)
+
+# Add lighting effects as final layer
+mockups.add_computed_column(
+    final_mockup=alpha_composite(
+        mockups.product_in_scene,
+        mockups.lighting_overlay
+    )
+)
+
+# Create professional product mockups
+mockups.insert([
+    {
+        'mockup_id': 'phone_lifestyle',
+        'scene_background': '/scenes/modern_desk.jpg',
+        'product_cutout': '/products/phone_transparent.png',
+        'lighting_overlay': '/effects/soft_lighting.png'
+    }
+])
+```
+
+### Image Augmentation for AI Training
+
+Create augmented training data through intelligent compositing:
+
+```python
+# Generate augmented training data
+training_augmentation = pxt.create_table('augmented_training', {
+    'sample_id': pxt.String,
+    'base_scene': pxt.Image,
+    'object_to_place': pxt.Image,  # Object with alpha channel
+    'augmentation_type': pxt.String
+})
+
+# Create augmented samples by compositing objects onto scenes
+training_augmentation.add_computed_column(
+    augmented_sample=alpha_composite(
+        training_augmentation.base_scene,
+        training_augmentation.object_to_place
+    )
+)
+
+# Generate training data with objects in various contexts
+training_augmentation.insert([
+    {
+        'sample_id': 'cat_kitchen_001',
+        'base_scene': '/backgrounds/kitchen.jpg',
+        'object_to_place': '/objects/cat_cutout.png',
+        'augmentation_type': 'context_variation'
+    },
+    {
+        'sample_id': 'cat_garden_001', 
+        'base_scene': '/backgrounds/garden.jpg',
+        'object_to_place': '/objects/cat_cutout.png',
+        'augmentation_type': 'context_variation'
+    }
+])
+```
+
+### Error Handling and Quality Control
+
+Robust compositing with validation:
+
+```python
+try:
+    # Insert images for compositing
+    photos.insert([
+        {
+            'photo_id': 'test_composite',
+            'original_photo': '/path/to/base.jpg',
+            'watermark_logo': '/path/to/watermark.png'
+        }
+    ])
+    
+    # Verify composite was successful
+    result = photos.select(photos.watermarked).where(
+        photos.photo_id == 'test_composite'
+    ).collect()
+    
+    if result:
+        composited = result[0]['watermarked']
+        print(f"Successfully composited image: {composited.size}")
+    else:
+        print("Alpha composite operation failed")
+        
+except Exception as e:
+    print(f"Error in compositing pipeline: {e}")
+```
+
+## Technical Implementation Notes
+
+### Alpha Channel Requirements
+
+- **RGBA Images**: Best results with images that have alpha channels (RGBA mode)
+- **RGB Images**: Treated as fully opaque (alpha = 255)
+- **Transparency Handling**: Semi-transparent pixels blend proportionally
+
+### Blending Mathematics
+
+Alpha compositing follows the standard Porter-Duff "over" operation:
+```
+result_color = foreground_alpha × foreground_color + 
+               (1 - foreground_alpha) × background_color
+```
+
+### Performance Characteristics
+
+- **Incremental Computation**: Composite operations are cached and only recomputed when source images change
+- **Memory Efficiency**: Optimized memory usage for large image compositions
+- **Batch Processing**: Multiple composites involving the same base images are processed efficiently
+
+### PIL Integration
+
+Leverages PIL's robust alpha compositing while providing Pixeltable's declarative interface:
+
+```python
+# Manual PIL approach:
+from PIL import Image
+base = Image.open('/path/to/base.jpg').convert('RGBA')
+overlay = Image.open('/path/to/overlay.png').convert('RGBA') 
+result = Image.alpha_composite(base, overlay)
+
+# Pixeltable declarative approach:
+images.add_computed_column(
+    composited=alpha_composite(images.base_image, images.overlay_image)
+)
+```
+
+## Related Functions
+
+- **[`resize`](./resize)** - Scale images to match dimensions before compositing
+- **[`rotate`](./rotate)** - Rotate overlay images for positioned compositing
+- **[`crop`](./crop)** - Extract regions for targeted compositing
+- **[`width`](./width)** - Get image dimensions for composition planning
+- **[`height`](./height)** - Get image dimensions for composition planning
+
+## Use Cases in Production
+
+### Digital Asset Management
+Automatically apply watermarks, branding, or copyright notices to image collections.
+
+### Content Creation Pipelines
+Generate branded social media content, marketing materials, and promotional imagery.
+
+### E-commerce Applications
+Create product mockups, lifestyle images, and context-rich product presentations.
+
+### UI/UX Design Systems
+Composite interface elements, generate design variations, and create interactive prototypes.
+
+### Machine Learning Data Augmentation
+Generate synthetic training data by compositing objects into diverse backgrounds and contexts.
+
+### Augmented Reality Content
+Layer digital elements over real-world imagery for AR applications and experiences.
+
+---
+
+*Where transparency meets artistry, possibilities become infinite. This is **visual reality engineering** at its finest—where every alpha channel tells a story of seamless integration and **boundless creative potential**.*
