@@ -29,12 +29,26 @@ class FrameIterator(ComponentIterator):
             extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+        all_frame_attrs:
+            If True, outputs a `pxt.Json` column `frame_attrs` with the following attributes:
+                `{
+                    'index': int,
+                    'pts': int,
+                    'dts': int,
+                    'time': float,
+                    'is_corrupt': bool,
+                    'key_frame': bool,
+                    'pict_type': int,
+                    'interlaced_frame': bool
+                }`
+            If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
     """
 
     # Input parameters
     video_path: Path
     fps: Optional[float]
     num_frames: Optional[int]
+    all_frame_attrs: bool
 
     # Video info
     container: av.container.input.InputContainer
@@ -50,7 +64,14 @@ class FrameIterator(ComponentIterator):
     # frame index in the video. Otherwise, the corresponding video index is `frames_to_extract[next_pos]`.
     next_pos: int
 
-    def __init__(self, video: str, *, fps: Optional[float] = None, num_frames: Optional[int] = None):
+    def __init__(
+        self,
+        video: str,
+        *,
+        fps: Optional[float] = None,
+        num_frames: Optional[int] = None,
+        all_frame_attrs: bool = False,
+    ):
         if fps is not None and num_frames is not None:
             raise excs.Error('At most one of `fps` or `num_frames` may be specified')
 
@@ -60,6 +81,7 @@ class FrameIterator(ComponentIterator):
         self.container = av.open(str(video_path))
         self.fps = fps
         self.num_frames = num_frames
+        self.all_frame_attrs = all_frame_attrs
 
         self.video_framerate = self.container.streams.video[0].average_rate
         self.video_time_base = self.container.streams.video[0].time_base
@@ -115,16 +137,17 @@ class FrameIterator(ComponentIterator):
             'video': ts.VideoType(nullable=False),
             'fps': ts.FloatType(nullable=True),
             'num_frames': ts.IntType(nullable=True),
+            'all_frame_attrs': ts.BoolType(nullable=False),
         }
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        return {
-            'frame_idx': ts.IntType(),
-            'pos_msec': ts.FloatType(),
-            'pos_frame': ts.IntType(),
-            'frame': ts.ImageType(),
-        }, ['frame']
+        attrs: dict[str, ts.ColumnType]
+        if kwargs.get('all_frame_attrs'):
+            attrs = {'frame_attrs': ts.JsonType()}
+        else:
+            attrs = {'frame_idx': ts.IntType(), 'pos_msec': ts.FloatType(), 'pos_frame': ts.IntType()}
+        return {**attrs, 'frame': ts.ImageType()}, ['frame']
 
     def __next__(self) -> dict[str, Any]:
         # Determine the frame index in the video corresponding to the iterator index `next_pos`;
@@ -165,7 +188,21 @@ class FrameIterator(ComponentIterator):
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
             pos_msec = float(pts * self.video_time_base * 1000)
-            result = {'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx, 'frame': img}
+            result: dict[str, Any] = {'frame': img}
+            if self.all_frame_attrs:
+                attrs = {
+                    'index': video_idx,
+                    'pts': frame.pts,
+                    'dts': frame.dts,
+                    'time': frame.time,
+                    'is_corrupt': frame.is_corrupt,
+                    'key_frame': frame.key_frame,
+                    'pict_type': frame.pict_type,
+                    'interlaced_frame': frame.interlaced_frame,
+                }
+                result.update({'frame_attrs': attrs})
+            else:
+                result.update({'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx})
             self.next_pos += 1
             return result
 
