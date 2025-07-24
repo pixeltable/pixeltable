@@ -82,8 +82,8 @@ if [ -f 'Makefile' ]; then
   make clean
 fi
 
-poetry build
-poetry publish --username __token__ --password "$PYPI_API_KEY"
+uv build
+uv publish --token "$PYPI_API_KEY"
 
 if [ $IS_PRE_RELEASE == true ]; then
   GH_OPTS="--prerelease"
