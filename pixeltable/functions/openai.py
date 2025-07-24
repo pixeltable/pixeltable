@@ -31,11 +31,15 @@ _logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('openai')
-def _(api_key: str) -> 'openai.AsyncOpenAI':
+def _(api_key: str, base_url: Optional[str] = None, api_version: Optional[str] = None) -> 'openai.AsyncOpenAI':
     import openai
+
+    default_query = None if api_version is None else {'api-version': api_version}
 
     return openai.AsyncOpenAI(
         api_key=api_key,
+        base_url=base_url,
+        default_query=default_query,
         # recommended to increase limits for async client to avoid connection errors
         http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
     )
@@ -124,7 +128,7 @@ _header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d
 def _parse_header_duration(duration_str: str) -> datetime.timedelta:
     match = _header_duration_pattern.match(duration_str)
     if not match:
-        raise ValueError('Invalid duration format')
+        raise ValueError(f'Invalid duration format: {duration_str}')
 
     days = int(match.group(1) or 0)
     hours = int(match.group(2) or 0)
@@ -147,7 +151,7 @@ def _get_header_info(
         requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
         requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
         requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
-        requests_reset_str = headers.get('x-ratelimit-reset-requests')
+        requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
         requests_reset_ts = now + _parse_header_duration(requests_reset_str)
         requests_info = (requests_limit, requests_remaining, requests_reset_ts)
 
@@ -157,7 +161,7 @@ def _get_header_info(
         tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
         tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
         tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
-        tokens_reset_str = headers.get('x-ratelimit-reset-tokens')
+        tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
         tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
         tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
 
