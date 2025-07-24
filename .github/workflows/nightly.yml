@@ -36,7 +36,6 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
-        os: [ubuntu-22.04]
         python-version: ["3.10", "3.13"]
         package-configs:
           - ""
@@ -46,24 +45,25 @@ jobs:
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
           - "label_studio_sdk"
           - "pixeltable-yolox"
+        os: [ubuntu-22.04]
         include:
-          # Test the basic pixeltable installation on other platforms.
-          - os: macos-15
-            python-version: "3.10"
-            package-configs: ""
-          - os: windows-2022
-            python-version: "3.10"
-            package-configs: ""
-          - os: ubuntu-arm64
-            python-version: "3.10"
-            package-configs: ""
-          - os: ubuntu-x64-t4
-            python-version: "3.10"
-            package-configs: ""
           # WhisperX doesn't install on 3.13; run on 3.10 only
-          - os: ubuntu-22.04
-            python-version: "3.10"
+          - python-version: "3.10"
             package-configs: "whisperx"
+            os: ubuntu-22.04
+          # Test the basic pixeltable installation on other platforms.
+          - python-version: "3.10"
+            package-configs: ""
+            os: macos-15
+          - python-version: "3.10"
+            package-configs: ""
+            os: windows-2022
+          - python-version: "3.10"
+            package-configs: ""
+            os: ubuntu-arm64
+          - python-version: "3.10"
+            package-configs: ""
+            os: ubuntu-x64-t4
 
     runs-on: ${{ matrix.os }}
     defaults:
