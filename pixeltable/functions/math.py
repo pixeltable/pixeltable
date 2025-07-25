@@ -97,7 +97,7 @@ def _(self: sql.ColumnElement, digits: Optional[sql.ColumnElement] = None) -> sq
     if digits is None:
         return sql.func.round(self)
     else:
-        return sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer))
+        return sql.func.round(self.cast(sql.Numeric), digits.cast(sql.Integer))
 
 
 @pxt.udf(is_method=True)

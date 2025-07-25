@@ -146,7 +146,7 @@ def create_table(
     if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
         raise excs.Error('`schema` must be a non-empty dictionary')
 
-    path_obj = catalog.Path(path)
+    path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: Optional[list[str]] = normalize_primary_key_parameter(primary_key)
@@ -284,7 +284,7 @@ def create_view(
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, (catalog.Table, DataFrame))
 
-    path_obj = catalog.Path(path)
+    path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 
@@ -451,8 +451,12 @@ def get_table(path: str) -> catalog.Table:
         Handles to views and snapshots are retrieved in the same way:
 
         >>> tbl = pxt.get_table('my_snapshot')
+
+        Get a handle to a specific version of a table:
+
+        >>> tbl = pxt.get_table('my_table:722')
     """
-    path_obj = catalog.Path(path)
+    path_obj = catalog.Path.parse(path, allow_versioned_path=True)
     tbl = Catalog.get().get_table(path_obj)
     return tbl
 
@@ -478,7 +482,7 @@ def move(path: str, new_path: str) -> None:
     """
     if path == new_path:
         raise excs.Error('move(): source and destination cannot be identical')
-    path_obj, new_path_obj = catalog.Path(path), catalog.Path(new_path)
+    path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
     cat = Catalog.get()
@@ -531,7 +535,7 @@ def drop_table(
         assert isinstance(table, str)
         tbl_path = table
 
-    path_obj = catalog.Path(tbl_path)
+    path_obj = catalog.Path.parse(tbl_path)
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
@@ -563,7 +567,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 
 def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
-    path_obj = catalog.Path(dir_path, empty_is_valid=True, allow_system_paths=allow_system_paths)
+    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True, allow_system_path=allow_system_paths)
     contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
@@ -615,7 +619,7 @@ def create_dir(
 
         >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
     """
-    path_obj = catalog.Path(path)
+    path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
@@ -657,7 +661,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
 
         >>> pxt.drop_dir('my_dir', force=True)
     """
-    path_obj = catalog.Path(path)  # validate format
+    path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
@@ -676,7 +680,7 @@ def ls(path: str = '') -> pd.DataFrame:
     from pixeltable.metadata import schema
 
     cat = Catalog.get()
-    path_obj = catalog.Path(path, empty_is_valid=True)
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)
     dir_entries = cat.get_dir_contents(path_obj)
 
     @retry_loop(for_write=False)
@@ -765,7 +769,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         >>> cl.list_dirs('my_dir', recursive=True)
         ['my_dir', 'my_dir.sub_dir1']
     """
-    path_obj = catalog.Path(path, empty_is_valid=True)  # validate format
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
     cat = Catalog.get()
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]

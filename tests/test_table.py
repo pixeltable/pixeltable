@@ -28,6 +28,7 @@ from .utils import (
     TESTS_DIR,
     ReloadTester,
     assert_resultset_eq,
+    assert_table_metadata_eq,
     create_table_data,
     get_audio_files,
     get_documents,
@@ -95,10 +96,12 @@ class TestTable:
         tbl = pxt.create_table('test', schema)
         _ = pxt.create_table('dir1.test', schema)
 
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: 1test'):
             pxt.create_table('1test', schema)
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: bad name'):
             pxt.create_table('bad name', {'c1': pxt.String})
+        with pytest.raises(excs.Error, match='Versioned path not allowed here: test:120'):
+            pxt.create_table('test:120', schema)
         with pytest.raises(excs.Error, match='is an existing table'):
             pxt.create_table('test', schema)
         with pytest.raises(excs.Error, match='does not exist'):
@@ -107,7 +110,7 @@ class TestTable:
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')
 
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path: 1dir'):
             pxt.list_tables('1dir')
         with pytest.raises(excs.Error, match='does not exist'):
             pxt.list_tables('dir2')
@@ -132,8 +135,10 @@ class TestTable:
             pxt.drop_table('test')
         with pytest.raises(excs.Error, match=r"Path 'dir1.test2' does not exist"):
             pxt.drop_table('dir1.test2')
-        with pytest.raises(excs.Error, match='Invalid path format'):
+        with pytest.raises(excs.Error, match=r'Invalid path: .test2'):
             pxt.drop_table('.test2')
+        with pytest.raises(excs.Error, match='Versioned path not allowed here: test2:120'):
+            pxt.drop_table('test2:120')
 
         with pytest.raises(excs.Error, match="'pos' is a reserved name in Pixeltable"):
             pxt.create_table('bad_col_name', {'pos': pxt.Int})
@@ -264,65 +269,77 @@ class TestTable:
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
 
-            assert tbl.get_metadata() == {
-                'base': None,
-                'comment': '',
-                'is_view': False,
-                'is_snapshot': False,
-                'is_replica': False,
-                'name': 'test',
-                'num_retained_versions': 10,
-                'media_validation': media_val,
-                'path': tbl_path,
-                'schema': tbl._get_schema(),
-                'schema_version': 0,
-                'version': 0,
-            }
+            assert_table_metadata_eq(
+                {
+                    'base': None,
+                    'comment': '',
+                    'is_view': False,
+                    'is_snapshot': False,
+                    'is_replica': False,
+                    'name': 'test',
+                    'num_retained_versions': 10,
+                    'media_validation': media_val,
+                    'path': tbl_path,
+                    'schema': tbl._get_schema(),
+                    'schema_version': 0,
+                    'version': 0,
+                },
+                tbl.get_metadata(),
+            )
 
-            assert view.get_metadata() == {
-                'base': tbl_path,
-                'comment': '',
-                'is_view': True,
-                'is_snapshot': False,
-                'is_replica': False,
-                'name': 'test_view',
-                'num_retained_versions': 10,
-                'media_validation': media_val,
-                'path': view_path,
-                'schema': view._get_schema(),
-                'schema_version': 0,
-                'version': 0,
-            }
+            assert_table_metadata_eq(
+                {
+                    'base': tbl_path,
+                    'comment': '',
+                    'is_view': True,
+                    'is_snapshot': False,
+                    'is_replica': False,
+                    'name': 'test_view',
+                    'num_retained_versions': 10,
+                    'media_validation': media_val,
+                    'path': view_path,
+                    'schema': view._get_schema(),
+                    'schema_version': 0,
+                    'version': 0,
+                },
+                view.get_metadata(),
+            )
 
-            assert puresnap.get_metadata() == {
-                'base': f'{tbl_path}:0',
-                'comment': '',
-                'is_view': True,
-                'is_snapshot': True,
-                'is_replica': False,
-                'name': 'test_puresnap',
-                'num_retained_versions': 10,
-                'media_validation': media_val,
-                'path': puresnap_path,
-                'schema': puresnap._get_schema(),
-                'schema_version': 0,
-                'version': 0,
-            }
+            assert_table_metadata_eq(
+                {
+                    'base': f'{tbl_path}:0',
+                    'comment': '',
+                    'is_view': True,
+                    'is_snapshot': True,
+                    'is_replica': False,
+                    'name': 'test_puresnap',
+                    'num_retained_versions': 10,
+                    'media_validation': media_val,
+                    'path': puresnap_path,
+                    'schema': puresnap._get_schema(),
+                    'schema_version': 0,
+                    'version': 0,
+                },
+                puresnap.get_metadata(),
+            )
 
-            assert snap.get_metadata() == {
-                'base': f'{tbl_path}:0',
-                'comment': '',
-                'is_view': True,
-                'is_snapshot': True,
-                'is_replica': False,
-                'name': 'test_snap',
-                'num_retained_versions': 10,
-                'media_validation': media_val,
-                'path': snap_path,
-                'schema': snap._get_schema(),
-                'schema_version': 0,
-                'version': 0,
-            }
+            assert_table_metadata_eq(
+                {
+                    'base': f'{tbl_path}:0',
+                    'comment': '',
+                    'is_view': True,
+                    'is_snapshot': True,
+                    'is_replica': False,
+                    'name': 'test_snap',
+                    'num_retained_versions': 10,
+                    'media_validation': media_val,
+                    'path': snap_path,
+                    'schema': snap._get_schema(),
+                    'schema_version': 0,
+                    'version': 0,
+                },
+                snap.get_metadata(),
+            )
 
     def test_media_validation(self, reset_db: None) -> None:
         tbl_schema = {'img': {'type': pxt.Image, 'media_validation': 'on_write'}, 'video': pxt.Video}
