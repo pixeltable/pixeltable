@@ -64,7 +64,7 @@ class DataRow:
     # - stored url of file for media in vals[i]
     # - None if vals[i] is not media type
     # - not None if file_paths[i] is not None
-    file_urls: np.ndarray  # of str
+    stored_vals: np.ndarray  # of str
 
     # file_paths:
     # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
@@ -100,7 +100,7 @@ class DataRow:
         self.missing_dependents = np.zeros(num_slots, dtype=np.int16)
         self.is_scheduled = np.zeros(num_slots, dtype=bool)
         self.pk = None
-        self.file_urls = np.full(num_slots, None, dtype=object)
+        self.stored_vals = np.full(num_slots, None, dtype=object)
         self.file_paths = np.full(num_slots, None, dtype=object)
         self.parent_row = None
         self.parent_slot_idx = None
@@ -110,7 +110,7 @@ class DataRow:
             self.has_val[idxs] = False
             self.vals[idxs] = None
             self.excs[idxs] = None
-            self.file_urls[idxs] = None
+            self.stored_vals[idxs] = None
             self.file_paths[idxs] = None
         else:
             self.init(len(self.vals))
@@ -132,7 +132,7 @@ class DataRow:
         target.has_val = self.has_val.copy()
         target.excs = self.excs.copy()
         target.pk = self.pk
-        target.file_urls = self.file_urls.copy()
+        target.stored_vals = self.stored_vals.copy()
         target.file_paths = self.file_paths.copy()
 
     def set_pk(self, pk: tuple[int, ...]) -> None:
@@ -169,7 +169,7 @@ class DataRow:
         self.has_val[slot_idx] = True
         self.vals[slot_idx] = None
         self.file_paths[slot_idx] = None
-        self.file_urls[slot_idx] = None
+        self.stored_vals[slot_idx] = None
 
     def __getitem__(self, index: int) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
@@ -179,7 +179,7 @@ class DataRow:
             # even if python is running with -O.
             raise AssertionError(index)
 
-        if self.file_urls[index] is not None and index in self.img_slot_idxs:
+        if self.stored_vals[index] is not None and index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally
             # TODO this fails if the url was instantiated dynamically using astype()
             assert self.file_paths[index] is not None
@@ -197,9 +197,9 @@ class DataRow:
             pass
         assert self.has_val[index]
 
-        if self.file_urls[index] is not None and (index in self.img_slot_idxs or index in self.media_slot_idxs):
+        if self.stored_vals[index] is not None:
             # if this is an image or other media type we want to store, we should have a url
-            return self.file_urls[index]
+            return self.stored_vals[index]
 
         if self.vals[index] is not None and index in self.array_slot_idxs:
             assert isinstance(self.vals[index], np.ndarray)
@@ -235,27 +235,33 @@ class DataRow:
             # by urllib as a URL with scheme equal to the drive letter.)
             if len(parsed.scheme) <= 1 or parsed.scheme == 'file':
                 # local file path
-                assert self.file_urls[idx] is None and self.file_paths[idx] is None
+                assert self.stored_vals[idx] is None and self.file_paths[idx] is None
                 if len(parsed.scheme) <= 1:
                     path = str(Path(val).absolute())  # Ensure we're using an absolute pathname.
-                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(path))
+                    self.stored_vals[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(path))
                     self.file_paths[idx] = path
                 else:  # file:// URL
-                    self.file_urls[idx] = val
+                    self.stored_vals[idx] = val
                     # Wrap the path in a url2pathname() call to ensure proper handling on Windows.
                     self.file_paths[idx] = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
             else:
                 # URL
-                assert self.file_urls[idx] is None
-                self.file_urls[idx] = val
+                assert self.stored_vals[idx] is None
+                self.stored_vals[idx] = val
 
             if idx in self.media_slot_idxs:
-                self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
+                self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.stored_vals[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
+
+    def flush_media(self, index: int, col: Optional[catalog.Column] = None) -> None:
+        if col.col_type.is_image_type():
+            self.flush_img(index, col)
+        if col.col_type.is_json_type():
+            self.flush_json(index, col)
 
     def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
         """Save or discard the in-memory value (required to be a PIL.Image.Image)"""
@@ -272,7 +278,7 @@ class DataRow:
                     format = 'webp' if image.has_transparency_data else 'jpeg'
                 filepath, url = MediaStore.save_media_object(image, col, format=format)
                 self.file_paths[index] = str(filepath)
-                self.file_urls[index] = url
+                self.stored_vals[index] = url
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False
@@ -280,6 +286,9 @@ class DataRow:
             # we already have a file for this image, nothing left to do
             pass
         self.vals[index] = None
+
+    def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
+        assert False
 
     @property
     def rowid(self) -> tuple[int, ...]:

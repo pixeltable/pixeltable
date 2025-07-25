@@ -266,7 +266,7 @@ class ColumnRef(Expr):
             unvalidated_slot_idx = self.components[0].slot_idx
             if data_row.file_paths[unvalidated_slot_idx] is None:
                 # no media file to validate, we still need to replicate the value
-                assert data_row.file_urls[unvalidated_slot_idx] is None
+                assert data_row.stored_vals[unvalidated_slot_idx] is None
                 val = data_row.vals[unvalidated_slot_idx]
                 data_row.vals[self.slot_idx] = val
                 data_row.has_val[self.slot_idx] = True
@@ -280,7 +280,7 @@ class ColumnRef(Expr):
                 data_row.has_val[self.slot_idx] = True
                 # make sure that the validated slot points to the same file as the unvalidated slot
                 data_row.file_paths[self.slot_idx] = data_row.file_paths[unvalidated_slot_idx]
-                data_row.file_urls[self.slot_idx] = data_row.file_urls[unvalidated_slot_idx]
+                data_row.stored_vals[self.slot_idx] = data_row.stored_vals[unvalidated_slot_idx]
                 return
             except excs.Error as exc:
                 # propagate the exception, but ignore it otherwise;

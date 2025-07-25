@@ -50,9 +50,9 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                row.flush_img(info.slot_idx, info.col)
+                row.flush_media(info.slot_idx, info.col)
             for slot_idx in flushed_img_slots:
-                row.flush_img(slot_idx)
+                row.flush_media(slot_idx)
 
     def __iter__(self) -> Iterator[exprs.DataRow]:
         return iter(self.rows)
