@@ -9,7 +9,7 @@ import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
 
 
-class TestTimestamp:
+class TestMath:
     TEST_FLOATS = (0.0, 1.6, -19.274, 1.32e57, math.inf, -math.inf, math.nan)
     TEST_INTS = (0, 1, -19, 4171780)
 

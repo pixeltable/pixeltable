@@ -1,5 +1,6 @@
 import re
 import typing
+import warnings
 from datetime import datetime
 from textwrap import dedent
 from typing import Optional
@@ -814,25 +815,35 @@ class TestFunction:
                 fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
             )
 
-        def reload_and_validate_table(validation_error: Optional[str] = None) -> None:
+        def reload_and_validate_table(validation_error: Optional[str] = None, has_result_column: bool = True) -> None:
             reload_catalog()
 
+            t: pxt.Table
             # Ensure a warning is generated when the table is accessed, if appropriate
             if validation_error is None:
-                t = pxt.get_table('test')
+                with warnings.catch_warnings():  # Ensure no warning is displayed
+                    warnings.simplefilter('error', pxt.PixeltableWarning)
+                    t = pxt.get_table('test')
             else:
                 with pytest.warns(pxt.PixeltableWarning, match=warning_regex(validation_error)):
                     t = pxt.get_table('test')
-                _ = pxt.get_table('test')  # Ensure the warning is only displayed once
+                with warnings.catch_warnings():  # Ensure the warning is only displayed once
+                    warnings.simplefilter('error', pxt.PixeltableWarning)
+                    _ = pxt.get_table('test')
 
             # Ensure the table can be queried even if there are invalid columns
-            assert list(t.head()) == [{'c1': 'xyz', 'result': None}]
+            if has_result_column:
+                assert list(t.head()) == [{'c1': 'xyz', 'result': None}]
+            else:
+                assert list(t.head()) == [{'c1': 'xyz'}]
 
             # Ensure that inserting or updating raises an error if there is an invalid column
             if validation_error is None:
-                t.insert(c1='abc')
-                t.where(t.c1 == 'abc').update({'c1': 'def'})
-                t.where(t.c1 == 'def').delete()
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error', pxt.PixeltableWarning)
+                    t.insert(c1='abc')
+                    t.where(t.c1 == 'abc').update({'c1': 'def'})
+                    t.where(t.c1 == 'def').delete()
             else:
                 with pytest.raises(excs.Error, match=insert_error_regex(validation_error)):
                     t.insert(c1='abc')
@@ -986,6 +997,10 @@ class TestFunction:
             "the symbol 'tests.test_function.evolving_udf' no longer exists. (Was the UDF moved or renamed?)"
         )
         reload_and_validate_table(validation_error=validation_error)
+
+        # Now drop the column that references the invalid UDF
+        t.drop_column('result')
+        reload_and_validate_table(has_result_column=False)
 
     def test_tool_errors(self) -> None:
         with pytest.raises(excs.Error) as exc_info:
