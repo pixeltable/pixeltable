@@ -213,8 +213,9 @@ class StoreBase:
 
     def ensure_columns_exist(self, cols: Iterable[catalog.Column]) -> None:
         conn = Env.get().conn
-        sql_text = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
-        result = conn.execute(sql.text(sql_text))
+        # Use parameterized query to prevent potential SQL injection
+        sql_text = 'SELECT column_name FROM information_schema.columns WHERE table_name = :table_name'
+        result = conn.execute(sql.text(sql_text), {'table_name': self._storage_name()})
         existing_cols = {row[0] for row in result}
         for col in cols:
             if col.store_name() not in existing_cols:
