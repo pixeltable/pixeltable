@@ -30,17 +30,20 @@ class FrameIterator(ComponentIterator):
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
         all_frame_attrs:
-            If True, outputs a `pxt.Json` column `frame_attrs` with the following attributes:
-                `{
-                    'index': int,
-                    'pts': int,
-                    'dts': int,
-                    'time': float,
-                    'is_corrupt': bool,
-                    'key_frame': bool,
-                    'pict_type': int,
-                    'interlaced_frame': bool
-                }`
+            If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes
+            (for more information, see `pyav`'s documentation on
+            [VideoFrame](https://pyav.org/docs/develop/api/video.html#module-av.video.frame) and
+            [Frame](https://pyav.org/docs/develop/api/frame.html)):
+
+            * `index` (`int`)
+            * `pts` (`Optional[int]`)
+            * `dts` (`Optional[int]`)
+            * `time` (`Optional[float]`)
+            * `is_corrupt` (`bool`)
+            * `key_frame` (`bool`)
+            * `pict_type` (`int`)
+            * `interlaced_frame` (`bool`)
+
             If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
     """
 
@@ -187,7 +190,7 @@ class FrameIterator(ComponentIterator):
                 raise excs.Error(f'Frame {next_video_idx} is missing from the video (video file is corrupt)')
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
-            pos_msec = float(pts * self.video_time_base * 1000)
+            pts_msec = float(pts * self.video_time_base * 1000)
             result: dict[str, Any] = {'frame': img}
             if self.all_frame_attrs:
                 attrs = {
@@ -202,7 +205,7 @@ class FrameIterator(ComponentIterator):
                 }
                 result.update({'frame_attrs': attrs})
             else:
-                result.update({'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx})
+                result.update({'frame_idx': self.next_pos, 'pos_msec': pts_msec, 'pos_frame': video_idx})
             self.next_pos += 1
             return result
 
