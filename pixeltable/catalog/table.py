@@ -122,6 +122,8 @@ class Table(SchemaObject):
         md['comment'] = self._get_comment()
         md['num_retained_versions'] = self._get_num_retained_versions()
         md['media_validation'] = self._get_media_validation().name.lower()
+        md['detailed_schema'] = self._get_detailed_schema()
+        md['additional_md'] = self._tbl_version_path.tbl_version.get().tbl_md.additional_md
         return md
 
     def _get_version(self) -> int:
@@ -285,6 +287,28 @@ class Table(SchemaObject):
     def _get_schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
+
+    def _get_detailed_schema(self) -> dict[str, Any]:
+        """Return the Comprehensive schema for columns of this table."""
+        column_indices: dict[str, Any] = dict()
+        for idx, row in self._index_descriptor().iterrows():
+            row['Column'] = {
+                'index_name': row['Index Name'],
+                'metric':  row['Metric'],
+                'embedding': row['Embedding']
+            }
+        full_schema: dict[str, Any] = dict()
+        for col in self._tbl_version_path.columns():
+            full_schema[col.name] = {
+                'type': col.col_type._to_str(as_schema=True),
+                'stored': col.is_stored,
+                'is_primary': col.is_pk,
+                'media_validation': str(col.media_validation),
+                'is_computed': col.is_computed,
+                'computed_with': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
+                'index' : column_indices.get(col.name, None),
+            }
+        return full_schema
 
     def get_base_table(self) -> Optional['Table']:
         return self._get_base_table()

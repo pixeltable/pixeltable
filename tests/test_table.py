@@ -283,6 +283,8 @@ class TestTable:
                     'schema': tbl._get_schema(),
                     'schema_version': 0,
                     'version': 0,
+                    'detailed_schema': tbl._get_detailed_schema(),
+                    'additional_md': {}
                 },
                 tbl.get_metadata(),
             )
@@ -301,6 +303,8 @@ class TestTable:
                     'schema': view._get_schema(),
                     'schema_version': 0,
                     'version': 0,
+                    'detailed_schema': view._get_detailed_schema(),
+                    'additional_md': {}
                 },
                 view.get_metadata(),
             )
@@ -319,6 +323,8 @@ class TestTable:
                     'schema': puresnap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
+                    'detailed_schema': puresnap._get_detailed_schema(),
+                    'additional_md': {}
                 },
                 puresnap.get_metadata(),
             )
@@ -337,6 +343,8 @@ class TestTable:
                     'schema': snap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
+                    'detailed_schema': snap._get_detailed_schema(),
+                    'additional_md': {}
                 },
                 snap.get_metadata(),
             )

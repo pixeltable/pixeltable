@@ -901,6 +901,8 @@ class TestView:
                     'schema': expected_schema,
                     'schema_version': expected_schema_version,
                     'version': i,
+                    'detailed_schema': ver[i]._get_detailed_schema(),
+                    'additional_md': {}
                 },
                 vmd,
             )
@@ -1004,6 +1006,8 @@ class TestView:
                     'schema': expected_schema,
                     'schema_version': expected_schema_version,
                     'version': i,
+                    'detailed_schema': ver[i]._get_detailed_schema(),
+                    'additional_md': {}
                 },
                 vmd,
             )
@@ -1071,6 +1075,8 @@ class TestView:
                     'schema': expected_schema,
                     'schema_version': expected_schema_version,
                     'version': i,
+                    'detailed_schema': ver[i]._get_detailed_schema(),
+                    'additional_md': {}
                 },
                 vmd,
             )

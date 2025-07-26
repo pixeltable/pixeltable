@@ -332,3 +332,4 @@ class Column:
         assert self.tbl is not None
         assert other.tbl is not None
         return self.tbl.id == other.tbl.id and self.id == other.id
+
