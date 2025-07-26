@@ -6,12 +6,12 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 
 from ..conftest import DO_RERUN
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import SAMPLE_IMAGE_URL, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status, get_video_files
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
-@pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+#@pytest.mark.remote_api
+#@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db: None) -> None:
@@ -281,6 +281,20 @@ class TestOpenai:
         validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()['response_2'][0]
         assert len(result) > 0
+
+    def test_vision_limit(self, reset_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import chat_completions, vision
+        from pixeltable.functions.string import format
+
+        t = pxt.create_table('test_tbl', {'video': pxt.Video})
+        from pixeltable.iterators import FrameIterator
+        frames = pxt.create_view('frames', t, iterator=FrameIterator.create(video=t.video, fps=10))
+        frames.add_computed_column(response=vision(prompt="What's in this image?", image=frames.frame, model='gpt-4o-mini'))
+        video_filepaths = get_video_files()
+        status = t.insert({'video': p} for p in video_filepaths)
+        print(status)
 
     def test_embeddings(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
