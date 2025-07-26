@@ -114,6 +114,7 @@ class Table(SchemaObject):
         md = super()._get_metadata()
         md['schema'] = self._get_schema()
         md['is_replica'] = self._tbl_version_path.is_replica()
+        md['id'] = str(self._id)
         md['version'] = self._get_version()
         md['version_created'] = datetime.datetime.fromtimestamp(
             self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc

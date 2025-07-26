@@ -271,6 +271,7 @@ class TestTable:
 
             assert_table_metadata_eq(
                 {
+                    'id': str(tbl._id),
                     'base': None,
                     'comment': '',
                     'is_view': False,
@@ -291,6 +292,7 @@ class TestTable:
 
             assert_table_metadata_eq(
                 {
+                    'id': str(view._id),
                     'base': tbl_path,
                     'comment': '',
                     'is_view': True,
@@ -311,6 +313,7 @@ class TestTable:
 
             assert_table_metadata_eq(
                 {
+                    'id': str(puresnap._id),
                     'base': f'{tbl_path}:0',
                     'comment': '',
                     'is_view': True,
@@ -331,6 +334,7 @@ class TestTable:
 
             assert_table_metadata_eq(
                 {
+                    'id': str(snap._id),
                     'base': f'{tbl_path}:0',
                     'comment': '',
                     'is_view': True,

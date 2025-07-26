@@ -889,6 +889,7 @@ class TestView:
                 expected_schema_version = 6
             assert_table_metadata_eq(
                 {
+                    'id': str(ver[i]._id),
                     'base': None,
                     'comment': '',
                     'is_replica': False,
@@ -994,6 +995,7 @@ class TestView:
 
             assert_table_metadata_eq(
                 {
+                    'id': str(ver[i]._id),
                     'base': f'dir.test_tbl:{expected_base_version}',
                     'comment': '',
                     'is_replica': False,
@@ -1063,6 +1065,7 @@ class TestView:
                 expected_base_version = 5
             assert_table_metadata_eq(
                 {
+                    'id': str(ver[i]._id),
                     'base': f'dir.test_view:{expected_base_version}',
                     'comment': '',
                     'is_replica': False,
