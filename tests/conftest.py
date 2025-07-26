@@ -7,13 +7,14 @@ from typing import Callable, Iterator
 import pytest
 import requests
 import tenacity
-from _pytest.config import Config, argparsing
+from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
 from sqlalchemy import orm
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs, func
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
@@ -39,7 +40,7 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
 
 
-def pytest_configure(config: Config) -> None:
+def pytest_configure(config: PytestConfig) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
 
@@ -95,6 +96,7 @@ def reset_db(init_env: None) -> None:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
+    Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
     # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
