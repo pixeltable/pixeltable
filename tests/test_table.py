@@ -1212,6 +1212,21 @@ class TestTable:
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
+    def test_insert_media_json(self, reset_db: None) -> None:
+        t = pxt.create_table('test', {'col': pxt.Json})
+        imgs = [PIL.Image.open(file) for file in get_image_files()[:10]]
+        val = {
+            'some_text': 'This is a string',
+            'some_number': 4171780,
+            'some_image': imgs[0],
+            'another_image': imgs[1],
+            'list_of_images': imgs[2:5],
+            'nested_image': {'image': imgs[5], 'nested_list': [imgs[6], imgs[7]]},
+        }
+        t.insert(col=val)
+        res = t.head()['col'][0]
+        assert val == res
+
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']

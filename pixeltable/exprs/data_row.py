@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import io
+import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -258,6 +259,9 @@ class DataRow:
         self.has_val[idx] = True
 
     def flush_media(self, index: int, col: Optional[catalog.Column] = None) -> None:
+        if self.vals[index] is None:
+            return
+        assert self.excs[index] is None
         if col.col_type.is_image_type():
             self.flush_img(index, col)
         if col.col_type.is_json_type():
@@ -265,9 +269,6 @@ class DataRow:
 
     def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
         """Save or discard the in-memory value (required to be a PIL.Image.Image)"""
-        if self.vals[index] is None:
-            return
-        assert self.excs[index] is None
         if self.file_paths[index] is None:
             if col is not None:
                 image = self.vals[index]
@@ -288,7 +289,50 @@ class DataRow:
         self.vals[index] = None
 
     def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
-        assert False
+        element = self.vals[index]
+        if self.__has_media(element):
+            path = env.Env.get().create_tmp_path('.tar')
+            with tarfile.open(path, 'w') as tf:
+                self.vals[index] = self.__rewrite_json(element, tf)
+            url = MediaStore.relocate_local_media_file(path, col)
+            self.__update_json(self.vals[index], url)
+
+    @classmethod
+    def __has_media(cls, element: Any) -> bool:
+        if isinstance(element, list):
+            return any(cls.__has_media(v) for v in element)
+        if isinstance(element, dict):
+            return any(cls.__has_media(v) for v in element.values())
+        return isinstance(element, (np.ndarray, PIL.Image.Image))
+
+    @classmethod
+    def __rewrite_json(cls, element: Any, tf: tarfile.TarFile) -> Any:
+        if isinstance(element, list):
+            return [cls.__rewrite_json(v, tf) for v in element]
+        if isinstance(element, dict):
+            return {k: cls.__rewrite_json(v, tf) for k, v in element.items()}
+        if isinstance(element, np.ndarray):
+            assert False
+        if isinstance(element, PIL.Image.Image):
+            format = 'webp' if element.has_transparency_data else 'jpeg'
+            img_path = env.Env.get().create_tmp_path(f'.{format}')
+            element.save(img_path, format=format)
+            arcname = f'content/{img_path.name}'
+            tf.add(img_path, arcname=arcname)
+            return {'__pxtref__': arcname}
+        return element
+
+    @classmethod
+    def __update_json(cls, element: Any, url: str) -> None:
+        if isinstance(element, list):
+            for v in element:
+                cls.__update_json(v, url)
+        if isinstance(element, dict):
+            if '__pxtref__' in element:
+                element['__pxturl__'] = url
+            else:
+                for v in element.values():
+                    cls.__update_json(v, url)
 
     @property
     def rowid(self) -> tuple[int, ...]:
