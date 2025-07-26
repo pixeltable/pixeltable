@@ -42,13 +42,15 @@ jobs:
         run: |
           conda install -y python=3.10 pip=25.0
           conda info
-      - name: Install poetry
+      - name: Install uv
         run: |
           python -m pip install --upgrade pip
-          python -m pip install poetry==2.1.1
+          python -m pip install "uv==0.8.2"
       - name: Install the project dependencies
         # Retry 3 times to be resilient against transient connectivity issues.
-        run: ./scripts/retry.sh 3 60 poetry install
+        run: |
+          export VIRTUAL_ENV="$CONDA_PREFIX"
+          ./scripts/retry.sh 3 60 uv sync --active --no-dev
       - name: Run the stress tests
         run: python tool/worker_harness.py 12 18000 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops.log
       - name: Check for errors

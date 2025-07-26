@@ -1,9 +1,12 @@
+import os
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable.config import Config
 
 from ..conftest import DO_RERUN
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status, get_video_files
@@ -502,3 +505,24 @@ class TestOpenai:
         r2 = manager.select(manager.answer).collect()
         assert len(r2) == 2
         assert any('Apple' in answer for answer in r2['answer'])
+
+    def test_azure_openai(self, reset_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        if not os.environ.get('AZURE_OPENAI_API_KEY'):
+            pytest.skip('`AZURE_OPENAI_API_KEY` is not set.')
+        Config.init(
+            {
+                'openai.api_key': os.environ['AZURE_OPENAI_API_KEY'],
+                'openai.base_url': 'https://pixeltable1.openai.azure.com/openai/v1/',
+                'openai.api_version': 'preview',
+            },
+            reinit=True,
+        )
+        from pixeltable.functions.openai import chat_completions
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
+        t.add_computed_column(chat_output=chat_completions(model='gpt-4.1-nano-pxt', messages=msgs))
+        validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
+        result = t.collect()
+        assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
