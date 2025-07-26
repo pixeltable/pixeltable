@@ -212,7 +212,14 @@ class FileCache:
         self.cache[key] = entry
         self.total_size += entry.size
         new_path = entry.path
-        os.rename(str(path), str(new_path))
+        try:
+            os.rename(str(path), str(new_path))
+        except OSError as e:
+            # Handle case where target file already exists or other OS errors
+            # Remove target if it exists and retry
+            if new_path.exists():
+                new_path.unlink()
+            os.rename(str(path), str(new_path))
         new_path.touch(exist_ok=True)
         _logger.debug(f'FileCache: cached url {url} with file name {new_path}')
         return new_path
