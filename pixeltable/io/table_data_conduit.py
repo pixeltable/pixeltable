@@ -561,7 +561,7 @@ class ParquetTableDataConduit(TableDataConduit):
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
-            for fragment in self.pq_ds.fragments:
+            for fragment in self.pq_ds.fragments:  # type: ignore[attr-defined]
                 for batch in fragment.to_batches():
                     dict_batch = list(iter_tuples2(batch, self.source_column_map, self.pxt_schema))
                     self.total_rows += len(dict_batch)
