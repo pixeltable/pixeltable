@@ -2,7 +2,7 @@
 
 from .__version__ import __version__, __version_tuple__
 from .catalog import Column, ColumnMetadata, IndexMetadata, InsertableTable, Table, TableMetadata, UpdateStatus, View
-from .dataframe import DataFrame
+from .dataframe import DataFrame, DataFrameResultSet
 from .exceptions import Error, ExprEvalError, PixeltableWarning
 from .func import Aggregator, Function, Tool, ToolChoice, Tools, expr_udf, mcp_udfs, query, retrieval_udf, uda, udf
 from .globals import (

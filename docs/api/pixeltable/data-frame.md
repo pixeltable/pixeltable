@@ -6,6 +6,10 @@ Pixeltable dataframes do not hold data or allow you to update data
 for that purpose).
 Another difference to pandas is that query execution needs to be initiated explicitly in order to return results.
 
+Query execution methods like [`collect`][pixeltable.DataFrame.collect], [`show`][pixeltable.DataFrame.show], 
+[`head`][pixeltable.DataFrame.head], and [`tail`][pixeltable.DataFrame.tail] return a 
+[`DataFrameResultSet`][pixeltable.DataFrameResultSet] which provides methods to access and export the results.
+
 ## Overview
 
 | Query Construction                          |                                                       |
@@ -19,12 +23,12 @@ Another difference to pandas is that query execution needs to be initiated expli
 | [`distinct`][pixeltable.DataFrame.distinct] | Remove duplicate rows                                 |
 | [`sample`][pixeltable.DataFrame.sample]     | Select shuffled sample of rows                        |
 
-| Query Execution                           |                                     |
-|-------------------------------------------|-------------------------------------|
-| [`collect`][pixeltable.DataFrame.collect] | Return all output rows              |
-| [`show`][pixeltable.DataFrame.show]       | Return a number of output rows      |
-| [`head`][pixeltable.DataFrame.head]       | Return the oldest rows              |
-| [`tail`][pixeltable.DataFrame.tail]       | Return the most recently added rows |
+| Query Execution                           |                                                  |
+|-------------------------------------------|--------------------------------------------------|
+| [`collect`][pixeltable.DataFrame.collect] | Return all output rows as DataFrameResultSet     |
+| [`show`][pixeltable.DataFrame.show]       | Return a number of output rows as DataFrameResultSet |
+| [`head`][pixeltable.DataFrame.head]       | Return the oldest rows as DataFrameResultSet     |
+| [`tail`][pixeltable.DataFrame.tail]       | Return the most recently added rows as DataFrameResultSet |
 
 | Data Export                                                     |                                                                                                                                      |
 |-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|

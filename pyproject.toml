@@ -154,6 +154,7 @@ dev = [
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
     "lancedb>=0.20",
+    "polars>=1.14.0,<1.32.0",
 ]
 test = [
     "pytest>=8.4",

@@ -728,6 +728,7 @@ class Env:
         self.__register_package('ollama')
         self.__register_package('openai')
         self.__register_package('openpyxl')
+        self.__register_package('polars')
         self.__register_package('pyarrow')
         self.__register_package('pydantic')
         self.__register_package('replicate')
