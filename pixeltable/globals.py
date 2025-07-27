@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
 
 import pandas as pd
+import polars as pl
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share, type_system as ts
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
         RowData,  # list of dictionaries
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
+        pl.DataFrame,  # polars DataFrame
         'datasets.Dataset',
         'datasets.DatasetDict',  # Huggingface datasets
     ]

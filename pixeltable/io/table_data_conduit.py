@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
 
 import pandas as pd
+import polars as pl
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
+from pixeltable.io.polars import _pl_check_primary_key_values, _pl_row_to_pxt_row, pl_infer_schema
 from pixeltable.utils import parse_local_file_path
 
 from .utils import normalize_schema_names
@@ -280,6 +282,62 @@ class PandasTableDataConduit(TableDataConduit):
             yield self.valid_rows
 
 
+class PolarsTableDataConduit(TableDataConduit):
+    pl_df: 'pl.DataFrame' = None
+    batch_count: int = 0
+
+    @classmethod
+    def from_tds(cls, tds: TableDataConduit) -> 'PolarsTableDataConduit':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+        t = cls(**kwargs)
+        assert isinstance(tds.source, pl.DataFrame)
+        t.pl_df = tds.source
+        t.batch_count = 0
+        return t
+
+    def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        """Return inferred schema, inferred primary key, and source column map"""
+        if self.source_column_map is None:
+            if self.src_schema_overrides is None:
+                self.src_schema_overrides = {}
+            self.src_schema = pl_infer_schema(self.pl_df, self.src_schema_overrides, self.src_pk)
+            inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
+                self.src_schema, self.src_pk, self.src_schema_overrides, False
+            )
+            return inferred_schema, inferred_pk
+        else:
+            raise NotImplementedError()
+
+    def infer_schema(self) -> dict[str, ts.ColumnType]:
+        self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
+        self.normalize_pxt_schema_types()
+        _pl_check_primary_key_values(self.pl_df, self.src_pk)
+        self.prepare_insert()
+        return self.pxt_schema
+
+    def prepare_for_insert_into_table(self) -> None:
+        _, inferred_pk = self.infer_schema_part1()
+        assert len(inferred_pk) == 0
+        self.prepare_insert()
+
+    def prepare_insert(self) -> None:
+        if self.source_column_map is None:
+            self.source_column_map = {}
+        self.check_source_columns_are_insertable(self.pl_df.columns)
+        # Convert all rows to insertable format
+        self.valid_rows = [
+            _pl_row_to_pxt_row(row, self.src_schema, self.source_column_map) 
+            for row in self.pl_df.to_dicts()
+        ]
+        self.batch_count = 1
+
+    def valid_row_batch(self) -> Iterator[RowData]:
+        if self.batch_count > 0:
+            self.batch_count -= 1
+            yield self.valid_rows
+
+
 class CSVTableDataConduit(TableDataConduit):
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
@@ -521,6 +579,8 @@ class UnkTableDataConduit(TableDataConduit):
             return DFTableDataConduit.from_tds(self)
         if isinstance(self.source, pd.DataFrame):
             return PandasTableDataConduit.from_tds(self)
+        if isinstance(self.source, pl.DataFrame):
+            return PolarsTableDataConduit.from_tds(self)
         if HFTableDataConduit.is_applicable(self):
             return HFTableDataConduit.from_tds(self)
         if self.source_format == 'csv' or (isinstance(self.source, str) and '.csv' in self.source.lower()):

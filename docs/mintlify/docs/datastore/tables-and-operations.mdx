@@ -188,12 +188,31 @@ Column casting helps maintain data consistency and prevents type errors when pro
     })
     table = pxt.create_table('europe_population', source=df)
     
+    # Or create from a polars DataFrame
+    import polars as pl
+    df = pl.DataFrame({
+        'cca3': ['FRA', 'DEU', 'ITA'],
+        'country': ['France', 'Germany', 'Italy'],
+        'continent': ['Europe', 'Europe', 'Europe'],
+        'pop_2023': [68_000_000, 83_000_000, 59_000_000]
+    })
+    table = pxt.create_table('europe_population_polars', source=df)
+    
     # Insert data from a pandas DataFrame into an existing table
     new_df = pd.DataFrame({
         'cca3': ['ESP', 'GBR', 'POL'],
         'country': ['Spain', 'United Kingdom', 'Poland'],
         'continent': ['Europe', 'Europe', 'Europe'],
         'pop_2023': [47_000_000, 67_000_000, 38_000_000]
+    })
+    table.insert(new_df)
+    
+    # Or insert from a polars DataFrame
+    new_df = pl.DataFrame({
+        'cca3': ['NOR', 'SWE', 'DNK'],
+        'country': ['Norway', 'Sweden', 'Denmark'],
+        'continent': ['Europe', 'Europe', 'Europe'],
+        'pop_2023': [5_400_000, 10_400_000, 5_800_000]
     })
     table.insert(new_df)
     ```
@@ -204,6 +223,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
     - Parquet files (`.parquet`, `.pq`, `.parq`)
     - JSON files (`.json`)
     - Pandas DataFrames
+    - Polars DataFrames
     - Pixeltable DataFrames
     - Hugging Face datasets
   </Card>

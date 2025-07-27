@@ -160,13 +160,23 @@ If you have a framework that you want us to integrate with, please reach out and
 
 ## Data Wrangling
 
-<Card
-  title="Pandas"
-  icon="table"
-  href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"
->
-  Import and Export from and to Pandas DataFrames if needed
-</Card>
+<CardGroup cols={2}>
+  <Card
+    title="Pandas"
+    icon="table"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"
+  >
+    Import and Export from and to Pandas DataFrames if needed
+  </Card>
+  
+  <Card
+    title="Polars"
+    icon="database"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"
+  >
+    High-performance DataFrame operations with Polars integration
+  </Card>
+</CardGroup>
 
 ## Usage Examples
 
@@ -213,6 +223,21 @@ If you have a framework that you want us to integrate with, please reach out and
             model='whisper-1'
         )
     )
+    ```
+  </Accordion>
+
+  <Accordion title="Data Import">
+    ```python
+    import pandas as pd
+    import polars as pl
+    
+    # Import from pandas DataFrame
+    pandas_df = pd.DataFrame({'text': ['hello', 'world'], 'score': [0.9, 0.8]})
+    table = pxt.create_table('from_pandas', source=pandas_df)
+    
+    # Import from polars DataFrame (faster for large datasets)
+    polars_df = pl.DataFrame({'text': ['hello', 'world'], 'score': [0.9, 0.8]})
+    table = pxt.create_table('from_polars', source=polars_df)
     ```
   </Accordion>
 </AccordionGroup>
