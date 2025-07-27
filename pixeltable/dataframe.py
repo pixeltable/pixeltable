@@ -48,12 +48,13 @@ _logger = logging.getLogger('pixeltable')
 class DataFrameResultSet:
     """
     Result set returned by DataFrame query execution methods.
-    
-    This class holds query results and provides methods to convert the data 
+
+    This class holds query results and provides methods to convert the data
     to various formats (Pandas, Polars, Pydantic models) or access the schema.
-    
+
     The result set is typically obtained by calling `.collect()` on a DataFrame query.
     """
+
     _rows: list[list[Any]]
     _col_names: list[str]
     __schema: dict[str, ColumnType]

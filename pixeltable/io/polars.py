@@ -111,7 +111,7 @@ def import_polars_csv(
     """
     # Use Polars to read CSV, then create table from resulting DataFrame
     df = pl.read_csv(source, **kwargs)
-    
+
     # Normalize empty column names to be consistent with Pandas CSV reading
     # Polars reads empty columns as '', Pandas reads them as 'Unnamed: X' where X is the column index
     # To ensure CSV insertion compatibility, rename empty columns to match Pandas convention
@@ -122,11 +122,11 @@ def import_polars_csv(
             new_columns.append(f'Unnamed: {i}')
         else:
             new_columns.append(col)
-    
+
     # Rename columns if any changes were made
     if new_columns != df.columns:
         df = df.rename(dict(zip(df.columns, new_columns)))
-    
+
     return import_polars(
         tbl_name,
         df,

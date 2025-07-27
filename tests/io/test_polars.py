@@ -51,10 +51,14 @@ class TestPolars:
             'dt_col': ts.TimestampType(nullable=True),
             'aware_dt_col': ts.TimestampType(nullable=True),
             'date_col': ts.DateType(nullable=True),
-            'json_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),  # Polars infers consistent-length int lists as Arrays
+            'json_col_1': ts.ArrayType(
+                shape=(None, 2), dtype=ts.IntType(), nullable=True
+            ),  # Polars infers consistent-length int lists as Arrays
             'json_col_2': ts.JsonType(nullable=True),  # Struct becomes JSON
             'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, 3), dtype=ts.IntType(), nullable=True),  # Fixed: actual length is 3
+            'array_col_2': ts.ArrayType(
+                shape=(None, 3), dtype=ts.IntType(), nullable=True
+            ),  # Fixed: actual length is 3
         }
 
         actual_schema = t._get_schema()
@@ -203,7 +207,7 @@ class TestPolars:
                 'list_of_lists': data['list_of_lists'],
                 'mixed_list': data['mixed_list'],
             },
-            strict=False  # Allow mixed types in lists
+            strict=False,  # Allow mixed types in lists
         )
 
         t = pxt.io.import_polars('test_complex', df)
@@ -318,7 +322,7 @@ class TestPolars:
         # Create Polars DataFrame with various casting operations
         df = pl.DataFrame(complex_data)
 
-        # Add categorical column properly  
+        # Add categorical column properly
         categorical_data = pl.DataFrame({'categorical_col': ['category_A', 'category_B', 'category_A']})
         categorical_data = categorical_data.with_columns([pl.col('categorical_col').cast(pl.Categorical)])
         df = df.with_columns([categorical_data['categorical_col']])
@@ -362,7 +366,7 @@ class TestPolars:
         # Lists of integers with consistent length should become ArrayType
         assert schema['list_int_col'] == ts.ArrayType(shape=(None, 3), dtype=ts.IntType(), nullable=True)
 
-        # Lists of mixed length - shape inferred from first element  
+        # Lists of mixed length - shape inferred from first element
         assert schema['list_mixed_length'] == ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True)
 
         # Structs should become JsonType
