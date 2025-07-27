@@ -39,11 +39,7 @@ def _(api_key: str, site_url: Optional[str] = None, app_name: Optional[str] = No
     if app_name:
         default_headers['X-Title'] = app_name
 
-    return openai.AsyncOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-        default_headers=default_headers
-    )
+    return openai.AsyncOpenAI(base_url='https://openrouter.ai/api/v1', api_key=api_key, default_headers=default_headers)
 
 
 def _openrouter_client() -> 'openai.AsyncOpenAI':
@@ -139,10 +135,7 @@ async def chat_completions(
 
     # Make the API call
     result = await _openrouter_client().chat.completions.create(
-        messages=messages,
-        model=model,
-        extra_body=extra_body if extra_body else None,
-        **model_kwargs,
+        messages=messages, model=model, extra_body=extra_body if extra_body else None, **model_kwargs
     )
     return result.model_dump()
 
@@ -176,13 +169,13 @@ async def models() -> list[dict]:
     Env.get().require_package('openai')
 
     import httpx
+
     client = _openrouter_client()
 
     # OpenRouter's models endpoint
     async with httpx.AsyncClient() as http_client:
         response = await http_client.get(
-            "https://openrouter.ai/api/v1/models",
-            headers={"Authorization": f"Bearer {client.api_key}"}
+            'https://openrouter.ai/api/v1/models', headers={'Authorization': f'Bearer {client.api_key}'}
         )
         response.raise_for_status()
         data = response.json()

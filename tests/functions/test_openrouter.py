@@ -1,4 +1,3 @@
-
 import pytest
 
 import pixeltable as pxt
@@ -19,32 +18,30 @@ class TestOpenRouter:
 
         # Test basic chat completion
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=chat_completions(
-            messages=msgs,
-            model='openai/gpt-3.5-turbo'  # Use a widely available model
-        ))
+        t.add_computed_column(
+            output=chat_completions(
+                messages=msgs,
+                model='openai/gpt-3.5-turbo',  # Use a widely available model
+            )
+        )
 
         # Test with model kwargs
-        t.add_computed_column(output2=chat_completions(
-            messages=msgs,
-            model='anthropic/claude-3-haiku-20240307',
-            model_kwargs={
-                'temperature': 0.8,
-                'max_tokens': 300
-            }
-        ))
+        t.add_computed_column(
+            output2=chat_completions(
+                messages=msgs,
+                model='anthropic/claude-3-haiku-20240307',
+                model_kwargs={'temperature': 0.8, 'max_tokens': 300},
+            )
+        )
 
         # Test with provider routing
-        t.add_computed_column(output3=chat_completions(
-            messages=msgs,
-            model='openai/gpt-3.5-turbo',
-            provider={'order': ['OpenAI'], 'allow_fallbacks': True}
-        ))
-
-        validate_update_status(
-            t.insert(input='What is the capital of France?'),
-            1
+        t.add_computed_column(
+            output3=chat_completions(
+                messages=msgs, model='openai/gpt-3.5-turbo', provider={'order': ['OpenAI'], 'allow_fallbacks': True}
+            )
         )
+
+        validate_update_status(t.insert(input='What is the capital of France?'), 1)
         results = t.collect()
 
         # Check that all outputs contain responses
@@ -90,7 +87,7 @@ class TestOpenRouter:
                     messages=[{'role': 'user', 'content': t.input}],
                     model='openai/gpt-4-turbo',
                     tools=tools,
-                    tool_choice=tool_choice
+                    tool_choice=tool_choice,
                 )
             )
             t.add_computed_column(tool_result=invoke_tools(tools, t.llm_response))
@@ -99,10 +96,7 @@ class TestOpenRouter:
         # Test 1: Tool invocation using existing stock_price tool
         tools = pxt.tools(stock_price)
         t = make_table(tools, tools.choice(auto=True))
-        validate_update_status(
-            t.insert(input='What is the stock price of NVDA?'),
-            1
-        )
+        validate_update_status(t.insert(input='What is the stock price of NVDA?'), 1)
 
         results = t.collect()
         tool_result = results['tool_result'][0]
@@ -124,16 +118,15 @@ class TestOpenRouter:
             summary=chat_completions(
                 messages=[{'role': 'user', 'content': f'Summarize: {t.text}'}],
                 model='openai/gpt-3.5-turbo',
-                transforms=['middle-out']
-            ).choices[0].message.content
+                transforms=['middle-out'],
+            )
+            .choices[0]
+            .message.content
         )
 
         # Insert a long text
         long_text = ' '.join([f'Sentence {i}.' for i in range(100)])
-        validate_update_status(
-            t.insert(text=long_text),
-            1
-        )
+        validate_update_status(t.insert(text=long_text), 1)
 
         results = t.collect()
         summary = results['summary'][0]
