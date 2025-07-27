@@ -30,6 +30,7 @@ nav:
       - FrameIterator: pixeltable/iterators/frame-iterator.md
       - TileIterator: pixeltable/iterators/tile-iterator.md
     - DataFrame: pixeltable/data-frame.md
+    - DataFrameResultSet: pixeltable/data-frame-result-set.md
     - Table: pixeltable/table.md
     - UpdateStatus: pixeltable/update-status.md
   - Built-in Functions and Operators:

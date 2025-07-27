@@ -327,8 +327,7 @@ class PolarsTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pl_df.columns)
         # Convert all rows to insertable format
         self.valid_rows = [
-            _pl_row_to_pxt_row(row, self.src_schema, self.source_column_map) 
-            for row in self.pl_df.to_dicts()
+            _pl_row_to_pxt_row(row, self.src_schema, self.source_column_map) for row in self.pl_df.to_dicts()
         ]
         self.batch_count = 1
 
@@ -561,7 +560,7 @@ class ParquetTableDataConduit(TableDataConduit):
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
-            for fragment in self.pq_ds.fragments:  # type: ignore[attr-defined]
+            for fragment in self.pq_ds.fragments:
                 for batch in fragment.to_batches():
                     dict_batch = list(iter_tuples2(batch, self.source_column_map, self.pxt_schema))
                     self.total_rows += len(dict_batch)

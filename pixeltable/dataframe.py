@@ -23,6 +23,7 @@ from typing import (
 )
 
 import pandas as pd
+import polars as pl
 import pydantic
 import sqlalchemy as sql
 
@@ -82,7 +83,24 @@ class DataFrameResultSet:
         self._rows.reverse()
 
     def to_pandas(self) -> pd.DataFrame:
+        """
+        Convert the DataFrameResultSet to a Pandas DataFrame.
+
+        Returns:
+            A Pandas DataFrame containing the result set data.
+        """
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
+
+    def to_polars(self) -> pl.DataFrame:
+        """
+        Convert the DataFrameResultSet to a Polars DataFrame.
+
+        Returns:
+            A Polars DataFrame containing the result set data.
+        """
+        return pl.DataFrame(
+            dict(zip(self._col_names, zip(*self._rows))) if self._rows else {col: [] for col in self._col_names}
+        )
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
