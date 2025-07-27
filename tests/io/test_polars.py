@@ -114,7 +114,7 @@ class TestPolars:
 
     def test_import_polars_parquet(self, reset_db: None) -> None:
         # First create a test parquet file using Polars
-        test_data = {
+        test_data: dict[str, Any] = {
             'id': [1, 2, 3, 4],
             'name': ['Alice', 'Bob', 'Charlie', 'Diana'],
             'score': [95.5, 87.2, 92.1, 88.8],

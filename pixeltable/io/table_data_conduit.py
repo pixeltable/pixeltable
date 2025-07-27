@@ -564,10 +564,12 @@ class ParquetTableDataConduit(TableDataConduit):
         pq_ds = self.pq_ds  # Create local variable for mypy
         try:
             for fragment in pq_ds.fragments:
-                for batch in fragment.to_batches():
-                    dict_batch = list(iter_tuples2(batch, self.source_column_map, self.pxt_schema))
-                    self.total_rows += len(dict_batch)
-                    yield dict_batch
+                batches = fragment.to_batches()
+                if batches is not None:  # Type guard for mypy
+                    for batch in batches:
+                        dict_batch = list(iter_tuples2(batch, self.source_column_map, self.pxt_schema))
+                        self.total_rows += len(dict_batch)
+                        yield dict_batch
         except Exception as e:
             _logger.error(f'Error after inserting {self.total_rows} rows from Parquet file into table: {e}')
             raise e
