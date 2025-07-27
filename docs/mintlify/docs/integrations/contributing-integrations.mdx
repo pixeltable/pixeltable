@@ -71,7 +71,7 @@ def _provider_client() -> 'provider_sdk.AsyncClient':
 
 @pxt.udf(resource_pool='request-rate:provider')
 async def chat_completions(
-    messages: list[dict[str, str]],
+    messages: list,
     *,
     model: str,
     model_kwargs: Optional[dict[str, Any]] = None,
@@ -121,13 +121,17 @@ async def chat_completions(
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
         
     if tool_choice is not None:
-        # Implement tool choice logic based on provider's API
-        pass
+        model_kwargs['tool_choice'] = tool_choice
+    
+    # Prepare provider-specific parameters if needed
+    extra_body: dict[str, Any] = {}
+    # Add any provider-specific parameters to extra_body
     
     # Make the API call
     result = await _provider_client().chat.completions.create(
         messages=messages,
         model=model,
+        extra_body=extra_body if extra_body else None,
         **model_kwargs,
     )
     return result.model_dump()
@@ -361,6 +365,42 @@ class TestProvider:
         results = t.collect()
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert 'Paris' in results['output'][0]['choices'][0]['message']['content']
+
+    def test_tool_invocations(self, reset_db: None) -> None:
+        skip_test_if_not_installed('provider_sdk')
+        skip_test_if_no_client('provider')
+        from pixeltable.functions.provider import chat_completions, invoke_tools
+        from tests.functions.tool_utils import stock_price
+
+        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tool_calls', {'input': pxt.String})
+            
+            t.add_computed_column(
+                llm_response=chat_completions(
+                    messages=[{'role': 'user', 'content': t.input}],
+                    model='model-name',
+                    tools=tools,
+                    tool_choice=tool_choice
+                )
+            )
+            t.add_computed_column(tool_result=invoke_tools(tools, t.llm_response))
+            return t
+
+        # Test using existing stock_price tool
+        tools = pxt.tools(stock_price)
+        t = make_table(tools, tools.choice(auto=True))
+        validate_update_status(
+            t.insert(input='What is the stock price of NVDA?'),
+            1
+        )
+
+        results = t.collect()
+        tool_result = results['tool_result'][0]
+
+        # Check that tool was called
+        assert 'stock_price' in tool_result
+        price_result = tool_result['stock_price']
+        assert price_result == 131.17  # Expected value from tool_utils
 ```
 
 ### 10. Advanced Features
@@ -408,11 +448,51 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
     return tools._invoke(_provider_response_to_pxt_tool_calls(response))
 ```
 
+## Common Issues and Solutions
+
+### Type Checking with mypy
+
+1. **Message Parameter**: Use `messages: list` instead of `messages: list[dict[str, Any]]` to avoid OpenAI client type compatibility issues
+2. **Dictionary Types**: Add explicit type annotations for dictionaries that will be modified:
+   ```python
+   extra_body: dict[str, Any] = {}
+   ```
+3. **Run Type Checking**: Always run `mypy` on your files before submitting:
+   ```bash
+   python -m mypy pixeltable/functions/provider.py tests/functions/test_provider.py
+   ```
+
+### Testing Best Practices
+
+1. **Use Existing Tools**: For tool calling tests, use existing tools like `stock_price` or `weather` from `tests.functions.tool_utils` instead of creating new ones:
+   ```python
+   from tests.functions.tool_utils import stock_price
+   
+   def test_tool_invocations(self, reset_db: None) -> None:
+       tools = pxt.tools(stock_price)
+       # Test with "What is the stock price of NVDA?" -> expects 131.17
+   ```
+
+2. **Flaky Tests**: The `@pytest.mark.flaky` decorator helps with flaky API tests but may have version compatibility issues. If tests fail due to the flaky plugin, the underlying functionality should still work.
+
+### Code Formatting
+
+Run these linters before submitting:
+```bash
+# Fix formatting issues
+python -m ruff check --fix pixeltable/functions/provider.py tests/functions/test_provider.py
+
+# Check types
+python -m mypy pixeltable/functions/provider.py tests/functions/test_provider.py --no-error-summary
+```
+
 ## Best Practices
 
 1. **Consistent Naming**: Use lowercase for file names and function names (e.g., `provider.py`, `chat_completions`)
 
 2. **Type Hints**: Always use proper type hints, especially with `TYPE_CHECKING` imports
+   - Use `list` for messages parameter to avoid OpenAI client compatibility issues
+   - Add explicit type annotations for dictionaries that will be modified
 
 3. **Documentation**: Include comprehensive docstrings with:
    - Brief description
@@ -425,10 +505,12 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 5. **Testing**: Include tests for:
    - Basic functionality
    - Model parameters
-   - Tool calling (if supported)
+   - Tool calling (if supported) - use existing tools from `tool_utils`
    - Error cases
 
 6. **Configuration**: Use Pixeltable's configuration system for API keys and settings
+
+7. **Code Quality**: Run linting and type checking before submitting
 
 ## Checklist
 
@@ -442,8 +524,12 @@ Before submitting your PR, ensure you have:
 - [ ] Updated `mkdocs.yml`
 - [ ] Added dependencies to `pyproject.toml` and run `poetry lock`
 - [ ] Added API key to CI configuration
-- [ ] Written comprehensive tests
-- [ ] Tested locally with `pytest tests/functions/test_provider.py`
+- [ ] Written comprehensive tests (use existing tools from `tool_utils` for tool calling tests)
+- [ ] **Code Quality Checks**:
+  - [ ] Run `python -m ruff check --fix` on your files
+  - [ ] Run `python -m mypy` on your files (should pass with no errors)
+  - [ ] Run `python -m py_compile` to verify syntax
+- [ ] Tested locally with `pytest tests/functions/test_provider.py -m remote_api`
 - [ ] Verified the notebook runs without errors
 
 ## Getting Help
