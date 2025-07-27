@@ -293,9 +293,10 @@ class DataRow:
         if self.__has_media(element):
             path = env.Env.get().create_tmp_path('.tar')
             with tarfile.open(path, 'w') as tf:
-                self.vals[index] = self.__rewrite_json(element, tf)
+                self.stored_vals[index] = self.__rewrite_json(element, tf)
             url = MediaStore.relocate_local_media_file(path, col)
-            self.__update_json(self.vals[index], url)
+            self.__update_json(self.stored_vals[index], url)
+            self.vals[index] = None
 
     @classmethod
     def __has_media(cls, element: Any) -> bool:
@@ -333,6 +334,55 @@ class DataRow:
             else:
                 for v in element.values():
                     cls.__update_json(v, url)
+
+    @classmethod
+    def unpack_json(cls, element: Any) -> Any:
+        url = cls.__find_pxturl(element)
+        if url is None:
+            return element
+        parsed = urllib.parse.urlparse(url)
+        assert parsed.scheme == 'file'
+        path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        with tarfile.open(path, 'r') as tf:
+            return cls.__unpack_json(element, tf)
+
+    @classmethod
+    def __find_pxturl(cls, element: Any) -> Optional[str]:
+        if isinstance(element, list):
+            for v in element:
+                url = cls.__find_pxturl(v)
+                if url is not None:
+                    return url
+        elif isinstance(element, dict):
+            if '__pxturl__' in element:
+                return element['__pxturl__']
+            for v in element.values():
+                url = cls.__find_pxturl(v)
+                if url is not None:
+                    return url
+        else:
+            return None
+
+    @classmethod
+    def __unpack_json(cls, element: Any, tf: tarfile.TarFile) -> Any:
+        if isinstance(element, list):
+            return [cls.__unpack_json(v, tf) for v in element]
+        if isinstance(element, dict):
+            if '__pxtref__' in element:
+                arcname = element['__pxtref__']
+                assert isinstance(arcname, str)
+                with tf.extractfile(arcname) as f:
+                    if arcname.endswith('.npy'):
+                        return np.load(f, allow_pickle=False)
+                    elif arcname.endswith('.webp') or arcname.endswith('.jpeg'):
+                        img = PIL.Image.open(f)
+                        img.load()
+                        return img
+                    else:
+                        raise AssertionError()
+            else:
+                return {k: cls.__unpack_json(v, tf) for k, v in element.items()}
+        return element
 
     @property
     def rowid(self) -> tuple[int, ...]:

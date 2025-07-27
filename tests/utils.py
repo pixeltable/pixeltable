@@ -431,9 +431,26 @@ def __equality_comparer(x: Any, y: Any) -> bool:
     return x == y
 
 
+def __json_comparer(x: Any, y: Any) -> bool:
+    if type(x) is not type(y):
+        return False
+    if isinstance(x, dict):
+        return set(x.keys()) == set(y.keys()) and all(
+            __json_comparer(x[k], y[k]) for k in x.keys()
+        )
+    if isinstance(x, list):
+        return len(x) == len(y) and all(__json_comparer(a, b) for a, b in zip(x, y))
+    if isinstance(x, float):
+        return __float_comparer(x, y)
+    if isinstance(x, np.ndarray):
+        return __array_comparer(x, y)
+    return x == y
+
+
 __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.FLOAT: __float_comparer,
     ts.ColumnType.Type.ARRAY: __array_comparer,
+    ts.ColumnType.Type.JSON: __json_comparer,
     ts.ColumnType.Type.VIDEO: __file_comparer,
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,

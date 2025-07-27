@@ -337,6 +337,8 @@ class SqlNode(ExecNode):
                         output_row[slot_idx] = float(sql_row[i])
                     else:
                         raise RuntimeError(f'Unexpected Decimal value for {e}')
+                elif e.col_type.is_json_type():
+                    output_row[slot_idx] = exprs.DataRow.unpack_json(sql_row[i])
                 else:
                     output_row[slot_idx] = sql_row[i]
 

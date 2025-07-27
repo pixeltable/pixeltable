@@ -1213,8 +1213,12 @@ class TestTable:
             assert tup['c1'] == 'this is a python string'
 
     def test_insert_media_json(self, reset_db: None) -> None:
-        t = pxt.create_table('test', {'col': pxt.Json})
+        """
+        Test that images and numpy arrays embedded in JSON structures properly survive a round trip to the database.
+        """
         imgs = [PIL.Image.open(file) for file in get_image_files()[:10]]
+
+        t = pxt.create_table('test', {'col': pxt.Json})
         val = {
             'some_text': 'This is a string',
             'some_number': 4171780,
@@ -1224,8 +1228,25 @@ class TestTable:
             'nested_image': {'image': imgs[5], 'nested_list': [imgs[6], imgs[7]]},
         }
         t.insert(col=val)
-        res = t.head()['col'][0]
-        assert val == res
+
+        # We cannot expect the images to be a bytewise exact match, due to the approximate nature of jpeg encoding.
+        # However, it should be the case that if we do a direct round trip via insertion into an image column, then
+        # we should get an identical result as if the image were embedded in a JSON structure. The following logic
+        # uses this principle to construct an expected result.
+        tmp_tbl = pxt.create_table('tmp', {'col': pxt.Image})
+        tmp_tbl.insert({'col': img} for img in imgs)
+        expected_imgs = tmp_tbl.head()['col']
+        expected_val = {
+            'some_text': 'This is a string',
+            'some_number': 4171780,
+            'some_image': expected_imgs[0],
+            'another_image': expected_imgs[1],
+            'list_of_images': expected_imgs[2:5],
+            'nested_image': {'image': expected_imgs[5], 'nested_list': [expected_imgs[6], expected_imgs[7]]},
+        }
+        expected = pxt.dataframe.DataFrameResultSet([[expected_val]], t._get_schema())
+
+        assert_resultset_eq(expected, t.head())
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
