@@ -19,6 +19,7 @@ from . import (
     mistralai,
     ollama,
     openai,
+    openrouter,
     replicate,
     string,
     timestamp,

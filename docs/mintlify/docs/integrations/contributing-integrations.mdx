@@ -1,0 +1,454 @@
+---
+title: Contributing to LLMs Support
+description: Step-by-step guide for adding new LLM provider integrations to Pixeltable
+icon: 'plus'
+---
+
+This guide walks you through adding a new LLM provider integration to Pixeltable. We'll use the structure established by existing integrations like OpenAI, Anthropic, and Groq.
+
+## Overview
+
+Adding a new LLM provider integration requires creating/modifying the following files:
+
+```
+pixeltable/
+├── .github/workflows/pytest.yml          # CI/CD configuration
+├── docs/
+│   ├── api/pixeltable/functions/
+│   │   └── provider.md                   # API documentation
+│   └── notebooks/integrations/
+│       └── working-with-provider.ipynb   # Tutorial notebook
+├── mkdocs.yml                            # Documentation navigation
+├── pixeltable/
+│   ├── env.py                            # Package registration
+│   └── functions/
+│       ├── __init__.py                   # Module exports
+│       └── provider.py                   # Main implementation
+├── poetry.lock                           # Dependency lock file
+├── pyproject.toml                        # Dependency specification
+└── tests/functions/
+    └── test_provider.py                  # Integration tests
+```
+
+## Step-by-Step Guide
+
+### 1. Core Implementation (`pixeltable/functions/provider.py`)
+
+Create the main implementation file with the following structure:
+
+```python
+"""
+Pixeltable UDFs that wrap various endpoints from the [Provider] API.
+In order to use them, you must first `pip install provider-sdk` and 
+configure your credentials, as described in the Working with [Provider] tutorial.
+"""
+
+from typing import TYPE_CHECKING, Any, Optional
+
+import pixeltable as pxt
+from pixeltable import exprs
+from pixeltable.env import Env, register_client
+from pixeltable.utils.code import local_public_names
+
+# Import for tool support if using OpenAI-compatible format
+from .openai import _openai_response_to_pxt_tool_calls
+
+if TYPE_CHECKING:
+    import provider_sdk
+
+
+@register_client('provider')
+def _(api_key: str) -> 'provider_sdk.AsyncClient':
+    """Register the provider client with Pixeltable's configuration system."""
+    import provider_sdk
+    return provider_sdk.AsyncClient(api_key=api_key)
+
+
+def _provider_client() -> 'provider_sdk.AsyncClient':
+    """Get the registered provider client."""
+    return Env.get().get_client('provider')
+
+
+@pxt.udf(resource_pool='request-rate:provider')
+async def chat_completions(
+    messages: list[dict[str, str]],
+    *,
+    model: str,
+    model_kwargs: Optional[dict[str, Any]] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, Any]] = None,
+) -> dict:
+    """
+    Chat Completion API.
+    
+    Equivalent to the [Provider] `chat/completions` API endpoint.
+    For additional details, see: <https://docs.provider.com/api-reference>
+    
+    Request throttling:
+    Applies the rate limit set in the config (section `provider`, key `rate_limit`).
+    If no rate limit is configured, uses a default of 600 RPM.
+    
+    __Requirements:__
+    
+    - `pip install provider-sdk`
+    
+    Args:
+        messages: A list of messages comprising the conversation so far.
+        model: ID of the model to use.
+        model_kwargs: Additional keyword args for the API.
+        tools: List of tools available to the model.
+        tool_choice: Controls which (if any) tool is called by the model.
+        
+    Returns:
+        A dictionary containing the response and other metadata.
+        
+    Examples:
+        Add a computed column that applies the model to an existing 
+        Pixeltable column `tbl.prompt`:
+        
+        >>> messages = [{'role': 'user', 'content': tbl.prompt}]
+        ... tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='provider-model-name')
+        ... )
+    """
+    if model_kwargs is None:
+        model_kwargs = {}
+        
+    Env.get().require_package('provider_sdk')
+    
+    # Handle tools if supported by the provider
+    if tools is not None:
+        model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
+        
+    if tool_choice is not None:
+        # Implement tool choice logic based on provider's API
+        pass
+    
+    # Make the API call
+    result = await _provider_client().chat.completions.create(
+        messages=messages,
+        model=model,
+        **model_kwargs,
+    )
+    return result.model_dump()
+
+
+# Add tool invocation support if provider uses OpenAI-compatible format
+def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts provider response to Pixeltable tool invocation format."""
+    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__() -> list[str]:
+    return __all__
+```
+
+### 2. Register the Module (`pixeltable/functions/__init__.py`)
+
+Add your provider to the imports list in alphabetical order:
+
+```python
+from . import (
+    anthropic,
+    audio,
+    bedrock,
+    # ...
+    provider,  # Add your provider here in alphabetical order
+    # ...
+    whisper,
+)
+```
+
+### 3. Package Registration (`pixeltable/env.py`)
+
+Register your provider's package in the `__register_packages` method:
+
+```python
+def __register_packages(self) -> None:
+    # ... existing registrations ...
+    self.__register_package('provider_sdk', library_name='provider-sdk')
+    # ... more registrations ...
+```
+
+Note: Use the actual import name as the first parameter and the pip package name as `library_name` if they differ.
+
+### 4. API Documentation (`docs/api/pixeltable/functions/provider.md`)
+
+Create a minimal documentation file:
+
+```markdown
+## ::: pixeltable.functions.provider
+```
+
+### 5. Tutorial Notebook (`docs/notebooks/integrations/working-with-provider.ipynb`)
+
+Create a Jupyter notebook demonstrating your integration:
+
+```python
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-provider.ipynb)&nbsp;&nbsp;\n",
+    "[![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-provider.ipynb)&nbsp;&nbsp;\n",
+    "\n",
+    "# Working with [Provider] in Pixeltable\n",
+    "\n",
+    "Pixeltable's [Provider] integration enables you to access models via the [Provider] API.\n",
+    "\n",
+    "### Prerequisites\n",
+    "- A [Provider] account with an API key (https://provider.com/docs)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%pip install -qU pixeltable provider-sdk"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "import getpass\n",
+    "if 'PROVIDER_API_KEY' not in os.environ:\n",
+    "    os.environ['PROVIDER_API_KEY'] = getpass.getpass('Enter your Provider API key:')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pixeltable as pxt\n",
+    "from pixeltable.functions import provider\n",
+    "\n",
+    "# Create a directory and table\n",
+    "pxt.drop_dir('provider_demo', force=True)\n",
+    "pxt.create_dir('provider_demo')\n",
+    "\n",
+    "t = pxt.create_table('provider_demo.chat', {'input': pxt.String})\n",
+    "\n",
+    "# Add computed column with provider chat completions\n",
+    "messages = [{'role': 'user', 'content': t.input}]\n",
+    "t.add_computed_column(output=provider.chat_completions(\n",
+    "    messages=messages,\n",
+    "    model='model-name-here',\n",
+    "    model_kwargs={\n",
+    "        'temperature': 0.7,\n",
+    "        'max_tokens': 300\n",
+    "    }\n",
+    "))\n",
+    "\n",
+    "# Parse the response\n",
+    "t.add_computed_column(response=t.output.choices[0].message.content)\n",
+    "\n",
+    "# Insert data and view results\n",
+    "t.insert(input='What is the capital of France?')\n",
+    "t.select(t.input, t.response).head()"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
+```
+
+### 6. Update Documentation Navigation (`mkdocs.yml`)
+
+Add your provider to the API documentation navigation:
+
+```yaml
+nav:
+  # ...
+  - Model and Inference Functions:
+    # ... other providers ...
+    - provider: pixeltable/functions/provider.md
+    # ... more providers ...
+```
+
+### 7. Add Dependencies
+
+Update `pyproject.toml` to include your provider's SDK as an optional dependency:
+
+```toml
+[tool.poetry.dependencies]
+# ... existing dependencies ...
+provider-sdk = {version = "^1.0.0", optional = true}
+
+[tool.poetry.extras]
+# ... existing extras ...
+provider = ["provider-sdk"]
+```
+
+Then run:
+```bash
+poetry lock
+```
+
+### 8. CI/CD Configuration (`.github/workflows/pytest.yml`)
+
+Add your provider's API key to the CI environment:
+
+```yaml
+env:
+  # ... existing env vars ...
+  PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
+  # ... more env vars ...
+```
+
+### 9. Write Tests (`tests/functions/test_provider.py`)
+
+Create comprehensive tests for your integration:
+
+```python
+import pytest
+
+import pixeltable as pxt
+
+from ..conftest import DO_RERUN
+from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+
+
+@pytest.mark.remote_api
+@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+class TestProvider:
+    def test_chat_completions(self, reset_db: None) -> None:
+        skip_test_if_not_installed('provider_sdk')
+        skip_test_if_no_client('provider')
+        from pixeltable.functions.provider import chat_completions
+        
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'user', 'content': t.input}]
+        t.add_computed_column(output=chat_completions(
+            messages=msgs, 
+            model='model-name'
+        ))
+        
+        # Test with model kwargs
+        t.add_computed_column(output2=chat_completions(
+            messages=msgs,
+            model='model-name',
+            model_kwargs={
+                'temperature': 0.8,
+                'max_tokens': 300
+            }
+        ))
+        
+        validate_update_status(
+            t.insert(input='What is the capital of France?'), 
+            1
+        )
+        results = t.collect()
+        assert len(results['output'][0]['choices'][0]['message']['content']) > 0
+        assert 'Paris' in results['output'][0]['choices'][0]['message']['content']
+```
+
+### 10. Advanced Features
+
+#### Rate Limiting
+
+If your provider requires rate limiting, implement a custom `RateLimitsInfo` class:
+
+```python
+class ProviderRateLimitsInfo(env.RateLimitsInfo):
+    def __init__(self) -> None:
+        super().__init__(get_request_resources=self._get_request_resources)
+        
+    def _get_request_resources(self, messages: dict, max_tokens: int) -> dict[str, int]:
+        # Calculate tokens based on provider's counting method
+        return {'requests': 1, 'tokens': estimated_tokens}
+        
+    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+        # Parse rate limit errors and return retry delay
+        if hasattr(exc, 'response'):
+            # Extract retry-after header or calculate delay
+            return delay_seconds
+        return None
+```
+
+#### Tool Calling Support
+
+If your provider supports tool calling with a different format than OpenAI:
+
+```python
+@pxt.udf
+def _provider_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    """Convert provider's tool call format to Pixeltable's format."""
+    # Implement conversion logic
+    tool_calls = []
+    for call in response.get('tool_calls', []):
+        tool_calls.append({
+            'tool_name': call['function']['name'],
+            'parameters': call['function']['arguments']
+        })
+    return {'tool_calls': tool_calls} if tool_calls else None
+
+def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Support tool invocation for provider."""
+    return tools._invoke(_provider_response_to_pxt_tool_calls(response))
+```
+
+## Best Practices
+
+1. **Consistent Naming**: Use lowercase for file names and function names (e.g., `provider.py`, `chat_completions`)
+
+2. **Type Hints**: Always use proper type hints, especially with `TYPE_CHECKING` imports
+
+3. **Documentation**: Include comprehensive docstrings with:
+   - Brief description
+   - Requirements section
+   - Args/Returns documentation
+   - Usage examples
+
+4. **Error Handling**: Let exceptions propagate naturally; Pixeltable's framework handles retries
+
+5. **Testing**: Include tests for:
+   - Basic functionality
+   - Model parameters
+   - Tool calling (if supported)
+   - Error cases
+
+6. **Configuration**: Use Pixeltable's configuration system for API keys and settings
+
+## Checklist
+
+Before submitting your PR, ensure you have:
+
+- [ ] Created the main implementation file with proper imports and decorators
+- [ ] Added the provider to `functions/__init__.py`
+- [ ] Registered the package in `env.py`
+- [ ] Created API documentation
+- [ ] Written a comprehensive tutorial notebook
+- [ ] Updated `mkdocs.yml`
+- [ ] Added dependencies to `pyproject.toml` and run `poetry lock`
+- [ ] Added API key to CI configuration
+- [ ] Written comprehensive tests
+- [ ] Tested locally with `pytest tests/functions/test_provider.py`
+- [ ] Verified the notebook runs without errors
+
+## Getting Help
+
+If you need assistance:
+- Check existing integrations for examples
+- Ask questions in [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions)
+- Join our [Discord community](https://discord.gg/QPyqFYx2UN)
