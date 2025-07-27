@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # Import Polars for testing
@@ -14,7 +15,7 @@ pytest_plugins: list[str] = []
 
 
 class TestPolars:
-    def make_src_data(self) -> dict[str, object]:
+    def make_src_data(self) -> dict[str, Any]:
         src_data = {
             'int_col': [1, 2],
             'float_col': [1.0, 2.0],
@@ -50,10 +51,10 @@ class TestPolars:
             'dt_col': ts.TimestampType(nullable=True),
             'aware_dt_col': ts.TimestampType(nullable=True),
             'date_col': ts.DateType(nullable=True),
-            'json_col_1': ts.JsonType(nullable=True),  # Lists become JSON in Polars
-            'json_col_2': ts.JsonType(nullable=True),
+            'json_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),  # Polars infers consistent-length int lists as Arrays
+            'json_col_2': ts.JsonType(nullable=True),  # Struct becomes JSON
             'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=True),
+            'array_col_2': ts.ArrayType(shape=(None, 3), dtype=ts.IntType(), nullable=True),  # Fixed: actual length is 3
         }
 
         actual_schema = t._get_schema()
@@ -258,7 +259,7 @@ class TestPolars:
         from datetime import date, datetime, timezone
 
         # Create the most comprehensive Polars DataFrame possible
-        complex_data = {
+        complex_data: dict[str, Any] = {
             # Basic types
             'int8_col': pl.Series([1, 2, 3], dtype=pl.Int8),
             'int16_col': pl.Series([100, 200, 300], dtype=pl.Int16),
@@ -314,7 +315,7 @@ class TestPolars:
         # Create Polars DataFrame with various casting operations
         df = pl.DataFrame(complex_data)
 
-        # Add categorical column properly
+        # Add categorical column properly  
         categorical_data = pl.DataFrame({'categorical_col': ['category_A', 'category_B', 'category_A']})
         categorical_data = categorical_data.with_columns([pl.col('categorical_col').cast(pl.Categorical)])
         df = df.with_columns([categorical_data['categorical_col']])
@@ -427,7 +428,7 @@ class TestPolars:
         assert pk_schema['string_col'] == ts.StringType(nullable=True)
 
         # Test 6: Insert additional data into the table
-        additional_data = {
+        additional_data: dict[str, Any] = {
             'int8_col': pl.Series([4, 5], dtype=pl.Int8),
             'int16_col': pl.Series([400, 500], dtype=pl.Int16),
             'int32_col': pl.Series([4000, 5000], dtype=pl.Int32),

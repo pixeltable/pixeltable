@@ -553,12 +553,14 @@ class ParquetTableDataConduit(TableDataConduit):
     def prepare_insert(self) -> None:
         if self.source_column_map is None:
             self.source_column_map = {}
+        assert self.pq_ds is not None
         self.check_source_columns_are_insertable(self.pq_ds.schema.names)
         self.total_rows = 0
 
     def valid_row_batch(self) -> Iterator[RowData]:
         from pixeltable.utils.arrow import iter_tuples2
 
+        assert self.pq_ds is not None  # Type guard for mypy
         try:
             for fragment in self.pq_ds.fragments:
                 for batch in fragment.to_batches():
