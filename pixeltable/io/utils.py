@@ -11,15 +11,8 @@ def normalize_pxt_col_name(name: str) -> str:
     Normalizes an arbitrary DataFrame column name into a valid Pixeltable identifier by:
     - replacing any non-ascii or non-alphanumeric characters with an underscore _
     - prefixing the result with the letter 'c' if it starts with an underscore or a number
-    - handling empty strings by creating a default name
     """
-    if not name:
-        return "c_unnamed"
-        
     id = ''.join(ch if ch.isascii() and ch.isalnum() else '_' for ch in name)
-    if not id:  # All characters were non-alphanumeric
-        return "c_unnamed"
-        
     if id[0].isnumeric():
         id = f'c_{id}'
     elif id[0] == '_':
