@@ -199,27 +199,34 @@ class DataRow:
         assert self.has_val[index]
 
         if self.stored_vals[index] is not None:
-            # if this is an image or other media type we want to store, we should have a url
+            # This respresents a value that has been flushed to storage outside the Postgres DB. When this happens,
+            # the alternative ("surrogate") DB value is registered in self.stored_vals[index]. Examples:
+            # - An image that has been flushed to the media store; self.stored_vals[index] holds its URL
+            # - A JSON structure containing media data that have been flushed to a tarball in the media store;
+            #   self.stored_vals[index] holds the modified structure whose media data have been stubbed out
             return self.stored_vals[index]
 
-        if self.vals[index] is not None and index in self.array_slot_idxs:
-            assert isinstance(self.vals[index], np.ndarray)
-            np_array = self.vals[index]
-            if sa_col_type is not None and isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
-                return np_array
+        return self.__as_stored_val(self.vals[index], sa_col_type)
+
+    @classmethod
+    def __as_stored_val(cls, val: Any, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
+        if isinstance(val, np.ndarray):
+            if isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
+                return val
             buffer = io.BytesIO()
-            np.save(buffer, np_array)
+            np.save(buffer, val, allow_pickle=False)
             return buffer.getvalue()
 
         # for JSON columns, we need to store None as an explicit NULL, otherwise it stores a json 'null'
-        if self.vals[index] is None and sa_col_type is not None and isinstance(sa_col_type, sql.JSON):
+        if val is None and isinstance(sa_col_type, sql.JSON):
             return sql.sql.null()
 
-        if isinstance(self.vals[index], datetime.datetime) and self.vals[index].tzinfo is None:
+        if isinstance(val, datetime.datetime) and val.tzinfo is None:
             # if the datetime is naive, cast it to the default time zone
-            return self.vals[index].replace(tzinfo=env.Env.get().default_time_zone)
+            return val.replace(tzinfo=env.Env.get().default_time_zone)
 
-        return self.vals[index]
+        # for anything else, just return val itself
+        return val
 
     def __setitem__(self, idx: int, val: Any) -> None:
         """Assign in-memory cell value
@@ -313,7 +320,11 @@ class DataRow:
         if isinstance(element, dict):
             return {k: cls.__rewrite_json(v, tf) for k, v in element.items()}
         if isinstance(element, np.ndarray):
-            assert False
+            npy_path = env.Env.get().create_tmp_path('.npy')
+            np.save(npy_path, element, allow_pickle=False)
+            arcname = f'content/{npy_path.name}'
+            tf.add(npy_path, arcname=arcname)
+            return {'__pxtref__': arcname}
         if isinstance(element, PIL.Image.Image):
             format = 'webp' if element.has_transparency_data else 'jpeg'
             img_path = env.Env.get().create_tmp_path(f'.{format}')
@@ -373,7 +384,7 @@ class DataRow:
                 assert isinstance(arcname, str)
                 with tf.extractfile(arcname) as f:
                     if arcname.endswith('.npy'):
-                        return np.load(f, allow_pickle=False)
+                        return np.load(io.BytesIO(f.read()), allow_pickle=False)
                     elif arcname.endswith('.webp') or arcname.endswith('.jpeg'):
                         img = PIL.Image.open(f)
                         img.load()

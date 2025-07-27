@@ -1217,6 +1217,10 @@ class TestTable:
         Test that images and numpy arrays embedded in JSON structures properly survive a round trip to the database.
         """
         imgs = [PIL.Image.open(file) for file in get_image_files()[:10]]
+        arrays = [
+            np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64),
+            np.array(['abc', 'def'], dtype=np.str_),
+        ]
 
         t = pxt.create_table('test', {'col': pxt.Json})
         val = {
@@ -1226,6 +1230,7 @@ class TestTable:
             'another_image': imgs[1],
             'list_of_images': imgs[2:5],
             'nested_image': {'image': imgs[5], 'nested_list': [imgs[6], imgs[7]]},
+            'list_of_arrays': arrays,
         }
         t.insert(col=val)
 
@@ -1243,6 +1248,7 @@ class TestTable:
             'another_image': expected_imgs[1],
             'list_of_images': expected_imgs[2:5],
             'nested_image': {'image': expected_imgs[5], 'nested_list': [expected_imgs[6], expected_imgs[7]]},
+            'list_of_arrays': arrays,
         }
         expected = pxt.dataframe.DataFrameResultSet([[expected_val]], t._get_schema())
 

@@ -747,7 +747,7 @@ class JsonType(ColumnType):
 
     @classmethod
     def __is_valid_json(cls, val: Any) -> bool:
-        if val is None or isinstance(val, (str, int, float, bool, PIL.Image.Image)):
+        if val is None or isinstance(val, (str, int, float, bool, np.ndarray, PIL.Image.Image)):
             return True
         if isinstance(val, (list, tuple)):
             return all(cls.__is_valid_json(v) for v in val)
