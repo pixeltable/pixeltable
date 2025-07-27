@@ -1,14 +1,10 @@
 ---
 title: Contributing to LLMs Support
-description: Step-by-step guide for adding new LLM provider integrations to Pixeltable
+description: Technical guide for adding new LLM provider integrations to Pixeltable
 icon: 'plus'
 ---
 
-This guide walks you through adding a new LLM provider integration to Pixeltable. We'll use the structure established by existing integrations like OpenAI, Anthropic, and Groq.
-
-## Overview
-
-Adding a new LLM provider integration requires creating/modifying the following files:
+## Required Files
 
 ```
 pixeltable/
@@ -30,11 +26,9 @@ pixeltable/
     └── test_provider.py                  # Integration tests
 ```
 
-## Step-by-Step Guide
+## Implementation
 
-### 1. Core Implementation (`pixeltable/functions/provider.py`)
-
-Create the main implementation file with the following structure:
+### 1. Core Function (`pixeltable/functions/provider.py`)
 
 ```python
 """
@@ -150,254 +144,93 @@ def __dir__() -> list[str]:
     return __all__
 ```
 
-### 2. Register the Module (`pixeltable/functions/__init__.py`)
+### 2. Registration
 
-Add your provider to the imports list in alphabetical order:
-
+**Module** (`pixeltable/functions/__init__.py`):
 ```python
-from . import (
-    anthropic,
-    audio,
-    bedrock,
-    # ...
-    provider,  # Add your provider here in alphabetical order
-    # ...
-    whisper,
-)
+from . import provider  # Add in alphabetical order
 ```
 
-### 3. Package Registration (`pixeltable/env.py`)
-
-Register your provider's package in the `__register_packages` method:
-
+**Package** (`pixeltable/env.py`):
 ```python
-def __register_packages(self) -> None:
-    # ... existing registrations ...
-    self.__register_package('provider_sdk', library_name='provider-sdk')
-    # ... more registrations ...
+self.__register_package('provider_sdk', library_name='provider-sdk')
 ```
 
-Note: Use the actual import name as the first parameter and the pip package name as `library_name` if they differ.
-
-### 4. API Documentation (`docs/api/pixeltable/functions/provider.md`)
-
-Create a minimal documentation file:
-
+**API Docs** (`docs/api/pixeltable/functions/provider.md`):
 ```markdown
 ## ::: pixeltable.functions.provider
 ```
 
-### 5. Tutorial Notebook (`docs/notebooks/integrations/working-with-provider.ipynb`)
-
-**Important**: Follow the exact structure of existing notebooks (especially `working-with-openai.ipynb`) to ensure consistency.
-
-#### Required Notebook Structure:
-
-1. **Header Cell (Markdown)**:
-```markdown
-[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-provider.ipynb)&nbsp;&nbsp;
-[![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-provider.ipynb)&nbsp;&nbsp;
-<a href="https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/notebooks/integrations/working-with-provider.ipynb" download><img src="https://img.shields.io/badge/%E2%AC%87-Download%20Notebook-blue" alt="Download Notebook"></a>
-
-# Working with [Provider] in Pixeltable
-
-Pixeltable's [Provider] integration enables you to access models via the [Provider] API.
-
-### Prerequisites
-- A [Provider] account with an API key (https://provider.com/docs)
-
-### Important Notes
-
-- [Provider] usage may incur costs based on your plan.
-- Be mindful of sensitive data and consider security measures when integrating with external services.
-```
-
-2. **Setup Instructions (Markdown)**:
-```markdown
-First you'll need to install required libraries and enter your [Provider] API key.
-```
-
-3. **Installation Cell (Code)**:
-```python
-%pip install -qU pixeltable provider-sdk
-```
-
-4. **API Key Setup Cell (Code)**:
-```python
-import os
-import getpass
-if 'PROVIDER_API_KEY' not in os.environ:
-    os.environ['PROVIDER_API_KEY'] = getpass.getpass('Enter your Provider API key:')
-```
-
-5. **Directory Setup Instructions (Markdown)**:
-```markdown
-Now let's create a Pixeltable directory to hold the tables for our demo.
-```
-
-6. **Directory Creation Cell (Code)**:
-```python
-import pixeltable as pxt
-
-# Remove the 'provider_demo' directory and its contents, if it exists
-pxt.drop_dir('provider_demo', force=True)
-pxt.create_dir('provider_demo')
-```
-
-7. **Chat Completions Section (Markdown)**:
-```markdown
-## Chat Completions
-
-Create a Table: In Pixeltable, create a table with columns to represent your input data and the columns where you want to store the results from [Provider].
-```
-
-8. **Basic Implementation (Code)**:
-```python
-from pixeltable.functions import provider
-
-# Create a table in Pixeltable and add a computed column that calls [Provider]
-
-t = pxt.create_table('provider_demo.chat', {'input': pxt.String})
-
-messages = [{'role': 'user', 'content': t.input}]
-t.add_computed_column(output=provider.chat_completions(
-    messages=messages,
-    model='model-name',
-    model_kwargs={
-        # Optional dict with parameters for the API
-        'max_tokens': 300,
-        'top_p': 0.9,
-        'temperature': 0.7
-    }
-))
-```
-
-9. **Response Parsing (Code)**:
-```python
-# Parse the response into a new column
-t.add_computed_column(response=t.output.choices[0].message.content)
-```
-
-10. **Demo Usage (Code)**:
-```python
-# Start a conversation
-t.insert(input="How many islands are in the Aleutian island chain?")
-t.select(t.input, t.response).head()
-```
-
-11. **Provider-Specific Features** (if applicable):
-Add additional sections showcasing unique features your provider offers.
-
-12. **Closing Section (Markdown)**:
-```markdown
-### Learn More
-
-To learn more about advanced techniques like RAG operations in Pixeltable, check out the [RAG Operations in Pixeltable](https://pixeltable.readme.io/docs/rag-operations-in-pixeltable) tutorial.
-
-If you have any questions, don't hesitate to reach out.
-```
-
-#### Creating the Notebook:
-
-**Method 1: Using edit_notebook tool** (recommended for new notebooks):
-```python
-# Use edit_notebook tool in cursor to create cells systematically
-# This ensures proper notebook structure and JSON formatting
-```
-
-**Method 2: Copy and modify existing notebook**:
-```bash
-# Copy an existing notebook as template
-cp docs/notebooks/integrations/working-with-openai.ipynb docs/notebooks/integrations/working-with-provider.ipynb
-# Then modify content using edit_notebook tool
-```
-
-#### Testing Your Notebook:
-
-**Critical**: Always test your notebook from start to finish before submitting.
-
-1. **Structure Validation**:
-   - Ensure the notebook follows the exact cell structure above
-   - Check that all markdown cells render correctly
-   - Verify all code cells have proper syntax
-
-2. **Execution Testing**:
-   ```bash
-   # Test notebook execution (if you have jupyter installed)
-   jupyter nbconvert --to notebook --execute docs/notebooks/integrations/working-with-provider.ipynb
-   ```
-
-3. **Common Notebook Issues**:
-   - **Empty notebook**: If your notebook shows as empty, the JSON structure may be corrupted
-   - **Cell ordering**: Ensure cells are in the correct logical order
-   - **Missing imports**: Each code cell should be runnable in sequence
-   - **Broken links**: Verify all badge URLs point to the correct notebook path
-
-4. **Notebook Size**: Check notebook file size - it should be several KB, not just 130B (which indicates an empty notebook)
-
-**Troubleshooting Empty Notebooks**:
-If your notebook appears empty (130B file size):
-```bash
-# Delete and recreate
-rm docs/notebooks/integrations/working-with-provider.ipynb
-# Then recreate using edit_notebook tool systematically
-```
-
-### 6. Update Documentation Navigation (`mkdocs.yml`)
-
-Add your provider to the API documentation navigation:
-
+**Navigation** (`mkdocs.yml`):
 ```yaml
-nav:
-  # ...
-  - Model and Inference Functions:
-    # ... other providers ...
-    - provider: pixeltable/functions/provider.md
-    # ... more providers ...
+- provider: pixeltable/functions/provider.md
 ```
 
-### 7. Add Dependencies
+### 3. Tutorial Notebook (`docs/notebooks/integrations/working-with-provider.ipynb`)
 
-Update `pyproject.toml` to include your provider's SDK as an optional dependency:
+**Cell Structure** (follow `working-with-openai.ipynb` exactly):
 
+| Cell | Type | Content |
+|------|------|---------|
+| 0 | Markdown | Header with badges, title, prerequisites, notes |
+| 1 | Markdown | `First you'll need to install...` |
+| 2 | Code | `%pip install -qU pixeltable provider-sdk` |
+| 3 | Code | API key setup with `getpass` |
+| 4 | Markdown | `Now let's create a Pixeltable directory...` |
+| 5 | Code | `pxt.drop_dir()` and `pxt.create_dir()` |
+| 6 | Markdown | `## Chat Completions` section |
+| 7 | Code | Import, create table, add computed column |
+| 8 | Code | Parse response: `t.add_computed_column(response=...)` |
+| 9 | Code | Insert demo data and display results |
+| 10+ | - | Additional provider-specific features |
+| Final | Markdown | `### Learn More` with RAG tutorial link |
+
+**Creation Methods**:
+```bash
+# Copy existing notebook
+cp docs/notebooks/integrations/working-with-openai.ipynb docs/notebooks/integrations/working-with-provider.ipynb
+
+# Or use edit_notebook tool in cursor
+```
+
+**Validation**:
+```bash
+# Check file size (should be >1KB, not 130B)
+ls -la docs/notebooks/integrations/working-with-provider.ipynb
+
+# Test execution
+jupyter nbconvert --to notebook --execute docs/notebooks/integrations/working-with-provider.ipynb
+```
+
+### 4. Dependencies & CI
+
+**Dependencies** (`pyproject.toml`):
 ```toml
 [tool.poetry.dependencies]
-# ... existing dependencies ...
 provider-sdk = {version = "^1.0.0", optional = true}
 
 [tool.poetry.extras]
-# ... existing extras ...
 provider = ["provider-sdk"]
 ```
 
-Then run:
+**CI Environment** (`.github/workflows/pytest.yml`):
+```yaml
+env:
+  PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
+```
+
+**Lock dependencies**:
 ```bash
 poetry lock
 ```
 
-### 8. CI/CD Configuration (`.github/workflows/pytest.yml`)
-
-Add your provider's API key to the CI environment:
-
-```yaml
-env:
-  # ... existing env vars ...
-  PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
-  # ... more env vars ...
-```
-
-### 9. Write Tests (`tests/functions/test_provider.py`)
-
-Create comprehensive tests for your integration:
+### 5. Tests (`tests/functions/test_provider.py`)
 
 ```python
 import pytest
-
 import pixeltable as pxt
-
 from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
-
 
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
@@ -409,275 +242,58 @@ class TestProvider:
         
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=chat_completions(
-            messages=msgs, 
-            model='model-name'
-        ))
+        t.add_computed_column(output=chat_completions(messages=msgs, model='model-name'))
         
-        # Test with model kwargs
-        t.add_computed_column(output2=chat_completions(
-            messages=msgs,
-            model='model-name',
-            model_kwargs={
-                'temperature': 0.8,
-                'max_tokens': 300
-            }
-        ))
-        
-        validate_update_status(
-            t.insert(input='What is the capital of France?'), 
-            1
-        )
+        validate_update_status(t.insert(input='What is the capital of France?'), 1)
         results = t.collect()
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert 'Paris' in results['output'][0]['choices'][0]['message']['content']
 
     def test_tool_invocations(self, reset_db: None) -> None:
-        skip_test_if_not_installed('provider_sdk')
-        skip_test_if_no_client('provider')
-        from pixeltable.functions.provider import chat_completions, invoke_tools
+        # Use existing stock_price tool from tool_utils
         from tests.functions.tool_utils import stock_price
-
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('test_tool_calls', {'input': pxt.String})
-            
-            t.add_computed_column(
-                llm_response=chat_completions(
-                    messages=[{'role': 'user', 'content': t.input}],
-                    model='model-name',
-                    tools=tools,
-                    tool_choice=tool_choice
-                )
-            )
-            t.add_computed_column(tool_result=invoke_tools(tools, t.llm_response))
-            return t
-
-        # Test using existing stock_price tool
         tools = pxt.tools(stock_price)
-        t = make_table(tools, tools.choice(auto=True))
-        validate_update_status(
-            t.insert(input='What is the stock price of NVDA?'),
-            1
-        )
-
-        results = t.collect()
-        tool_result = results['tool_result'][0]
-
-        # Check that tool was called
-        assert 'stock_price' in tool_result
-        price_result = tool_result['stock_price']
-        assert price_result == 131.17  # Expected value from tool_utils
+        # Test with "What is the stock price of NVDA?" -> expects 131.17
 ```
 
-### 10. Advanced Features
 
-#### Rate Limiting
 
-If your provider requires rate limiting, implement a custom `RateLimitsInfo` class:
+## Validation & Testing
 
-```python
-class ProviderRateLimitsInfo(env.RateLimitsInfo):
-    def __init__(self) -> None:
-        super().__init__(get_request_resources=self._get_request_resources)
-        
-    def _get_request_resources(self, messages: dict, max_tokens: int) -> dict[str, int]:
-        # Calculate tokens based on provider's counting method
-        return {'requests': 1, 'tokens': estimated_tokens}
-        
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
-        # Parse rate limit errors and return retry delay
-        if hasattr(exc, 'response'):
-            # Extract retry-after header or calculate delay
-            return delay_seconds
-        return None
-```
-
-#### Tool Calling Support
-
-If your provider supports tool calling with a different format than OpenAI:
-
-```python
-@pxt.udf
-def _provider_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
-    """Convert provider's tool call format to Pixeltable's format."""
-    # Implement conversion logic
-    tool_calls = []
-    for call in response.get('tool_calls', []):
-        tool_calls.append({
-            'tool_name': call['function']['name'],
-            'parameters': call['function']['arguments']
-        })
-    return {'tool_calls': tool_calls} if tool_calls else None
-
-def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:
-    """Support tool invocation for provider."""
-    return tools._invoke(_provider_response_to_pxt_tool_calls(response))
-```
-
-## Common Issues and Solutions
-
-### Type Checking with mypy
-
-1. **Message Parameter**: Use `messages: list` instead of `messages: list[dict[str, Any]]` to avoid OpenAI client type compatibility issues
-2. **Dictionary Types**: Add explicit type annotations for dictionaries that will be modified:
-   ```python
-   extra_body: dict[str, Any] = {}
-   ```
-3. **Run Type Checking**: Always run `mypy` on your files before submitting:
-   ```bash
-   python -m mypy pixeltable/functions/provider.py tests/functions/test_provider.py
-   ```
-
-### Testing Best Practices
-
-1. **Use Existing Tools**: For tool calling tests, use existing tools like `stock_price` or `weather` from `tests.functions.tool_utils` instead of creating new ones:
-   ```python
-   from tests.functions.tool_utils import stock_price
-   
-   def test_tool_invocations(self, reset_db: None) -> None:
-       tools = pxt.tools(stock_price)
-       # Test with "What is the stock price of NVDA?" -> expects 131.17
-   ```
-
-2. **Flaky Tests**: The `@pytest.mark.flaky` decorator helps with flaky API tests but may have version compatibility issues. If tests fail due to the flaky plugin, the underlying functionality should still work.
-
-### Code Formatting and CI Checks
-
-The CI pipeline runs several checks that must pass. Run these locally before submitting:
-
-#### 1. Code Formatting
+**Pre-submission checks**:
 ```bash
-# Format code (fixes most issues automatically)
-ruff format pixeltable/functions/provider.py tests/functions/test_provider.py
-
-# Verify formatting is correct
-ruff format --check pixeltable/functions/provider.py tests/functions/test_provider.py
-```
-
-#### 2. Import Sorting
-```bash
-# Check import organization
-ruff check --select I pixeltable/functions/provider.py tests/functions/test_provider.py
-```
-
-#### 3. Linting
-```bash
-# Check for style and quality issues  
-ruff check pixeltable/functions/provider.py tests/functions/test_provider.py
-
-# Auto-fix what can be fixed
-ruff check --fix pixeltable/functions/provider.py tests/functions/test_provider.py
-```
-
-#### 4. Type Checking
-```bash
-# Install mypy if not available
-pip install mypy
-
-# Check types (should pass with no errors)
-python -m mypy pixeltable/functions/provider.py tests/functions/test_provider.py --no-error-summary
-```
-
-#### 5. Syntax Verification
-```bash
-# Ensure files compile correctly
-python -m py_compile pixeltable/functions/provider.py tests/functions/test_provider.py
-```
-
-#### Complete CI Check Script
-
-Run this complete script to verify all CI checks will pass:
-
-```bash
-#!/bin/bash
-# Complete pre-submission check script
-
 FILES="pixeltable/functions/provider.py tests/functions/test_provider.py"
 
-echo "🔧 Formatting code..."
-ruff format $FILES
-
-echo "✅ Checking formatting..."
-ruff format --check $FILES
-
-echo "📋 Checking imports..."
-ruff check --select I $FILES
-
-echo "🔍 Running linter..."
-ruff check $FILES
-
-echo "🔎 Type checking..."
-python -m mypy $FILES --no-error-summary
-
-echo "⚙️  Syntax check..."
-python -m py_compile $FILES
-
-echo "✨ All checks passed!"
+ruff format $FILES                    # Format code
+ruff format --check $FILES            # Verify formatting
+ruff check --select I $FILES          # Check imports
+ruff check $FILES                     # Lint
+python -m mypy $FILES --no-error-summary  # Type check
+python -m py_compile $FILES           # Syntax check
+pytest tests/functions/test_provider.py -m remote_api  # Test
 ```
 
-Save this script as `check-integration.sh`, make it executable (`chmod +x check-integration.sh`), and run it before submitting your PR.
-
-**Common CI Failures:**
-- **"Would reformat"**: Run `ruff format` on the files
-- **Import sorting issues**: Imports are not organized correctly  
-- **Type errors**: Usually `messages: list[dict[str, Any]]` should be `messages: list`
-- **Syntax errors**: Check for missing imports or typos
-
-**Pro Tip**: Run the complete check script after every significant change to catch issues early.
-
-## Best Practices
-
-1. **Consistent Naming**: Use lowercase for file names and function names (e.g., `provider.py`, `chat_completions`)
-
-2. **Type Hints**: Always use proper type hints, especially with `TYPE_CHECKING` imports
-   - Use `list` for messages parameter to avoid OpenAI client compatibility issues
-   - Add explicit type annotations for dictionaries that will be modified
-
-3. **Documentation**: Include comprehensive docstrings with:
-   - Brief description
-   - Requirements section
-   - Args/Returns documentation
-   - Usage examples
-
-4. **Error Handling**: Let exceptions propagate naturally; Pixeltable's framework handles retries
-
-5. **Testing**: Include tests for:
-   - Basic functionality
-   - Model parameters
-   - Tool calling (if supported) - use existing tools from `tool_utils`
-   - Error cases
-
-6. **Configuration**: Use Pixeltable's configuration system for API keys and settings
-
-7. **Code Quality**: Run linting and type checking before submitting
+**Common fixes**:
+- Use `messages: list` not `messages: list[dict[str, Any]]`
+- Add type annotations: `extra_body: dict[str, Any] = {}`
+- Use existing tools from `tool_utils` for testing
 
 ## Checklist
 
-Before submitting your PR, ensure you have:
+**Core Files**:
+- [ ] `pixeltable/functions/provider.py` - main implementation
+- [ ] `pixeltable/functions/__init__.py` - add import
+- [ ] `pixeltable/env.py` - register package
+- [ ] `docs/api/pixeltable/functions/provider.md` - API docs
+- [ ] `docs/notebooks/integrations/working-with-provider.ipynb` - tutorial
+- [ ] `mkdocs.yml` - navigation entry
+- [ ] `pyproject.toml` - dependencies + `poetry lock`
+- [ ] `.github/workflows/pytest.yml` - API key
 
-- [ ] Created the main implementation file with proper imports and decorators
-- [ ] Added the provider to `functions/__init__.py`
-- [ ] Registered the package in `env.py`
-- [ ] Created API documentation
-- [ ] Written a comprehensive tutorial notebook
-- [ ] Updated `mkdocs.yml`
-- [ ] Added dependencies to `pyproject.toml` and run `poetry lock`
-- [ ] Added API key to CI configuration
-- [ ] Written comprehensive tests (use existing tools from `tool_utils` for tool calling tests)
-- [ ] **Code Quality Checks** (all must pass):
-  - [ ] Run `ruff format` on your files
-  - [ ] Verify `ruff format --check` passes
-  - [ ] Verify `ruff check --select I` passes (import sorting)
-  - [ ] Verify `ruff check` passes (linting)
-  - [ ] Verify `python -m mypy` passes with no errors (type checking)
-  - [ ] Verify `python -m py_compile` passes (syntax check)
-- [ ] **Testing**:
-  - [ ] Run `pytest tests/functions/test_provider.py -m remote_api` locally
-  - [ ] Verify notebook runs without errors from start to finish
+**Validation**:
+- [ ] All pre-submission checks pass (format, lint, type, syntax, test)
+- [ ] Notebook executable start-to-finish
+- [ ] Uses `messages: list` (not `list[dict[str, Any]]`)
+- [ ] Tests use existing tools from `tool_utils`
 
-## Getting Help
-
-If you need assistance:
-- Check existing integrations for examples
-- Ask questions in [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions)
-- Join our [Discord community](https://discord.gg/QPyqFYx2UN)
+**Need Help?** Check existing integrations, [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions), or [Discord](https://discord.gg/QPyqFYx2UN).
