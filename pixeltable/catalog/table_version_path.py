@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pixeltable.env import Env
@@ -221,6 +221,10 @@ class TableVersionPath:
             return self.base.has_column(col)
         else:
             return False
+
+    def additional_md(self) -> dict[str, Any]:
+        """Return additional metadata from TableMd"""
+        return self.tbl_version.get().tbl_md.additional_md
 
     def as_dict(self) -> dict:
         return {

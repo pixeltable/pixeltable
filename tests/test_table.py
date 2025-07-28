@@ -285,7 +285,7 @@ class TestTable:
                     'schema_version': 0,
                     'version': 0,
                     'detailed_schema': tbl._get_detailed_schema(),
-                    'additional_md': {}
+                    'additional_md': {},
                 },
                 tbl.get_metadata(),
             )
@@ -306,7 +306,7 @@ class TestTable:
                     'schema_version': 0,
                     'version': 0,
                     'detailed_schema': view._get_detailed_schema(),
-                    'additional_md': {}
+                    'additional_md': {},
                 },
                 view.get_metadata(),
             )
@@ -327,7 +327,7 @@ class TestTable:
                     'schema_version': 0,
                     'version': 0,
                     'detailed_schema': puresnap._get_detailed_schema(),
-                    'additional_md': {}
+                    'additional_md': {},
                 },
                 puresnap.get_metadata(),
             )
@@ -348,7 +348,7 @@ class TestTable:
                     'schema_version': 0,
                     'version': 0,
                     'detailed_schema': snap._get_detailed_schema(),
-                    'additional_md': {}
+                    'additional_md': {},
                 },
                 snap.get_metadata(),
             )
@@ -2546,3 +2546,27 @@ class TestTable:
                 assert np.array_equal(a1, a2)
 
         reload_tester.run_reload_test()
+
+    def test_update_md(self, reset_db: None) -> None:
+        tbl_schema = {'img': {'type': pxt.Image, 'media_validation': 'on_write'}, 'video': pxt.Video}
+        pxt.create_table('test', tbl_schema, media_validation='on_read')
+
+        table = pxt.get_table('test')
+        with catalog.Catalog.get().begin_xact(tbl=table._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            s_md = catalog.Catalog.get().load_tbl_md(table._id, None)
+            s_md.tbl_md.additional_md['is_public'] = True
+            # Update only the table_md
+            catalog.Catalog.get().store_tbl_md(
+                tbl_id=table._id,
+                dir_id=None,
+                tbl_md=s_md.tbl_md,
+                version_md=None,
+                schema_version_md=None,
+                pending_ops=None,
+            )
+            assert s_md.tbl_md.additional_md['is_public'] is True
+        catalog.Catalog.get().remove_tbl_version(table._tbl_version_path.tbl_version.get())
+        table = pxt.get_table('test')
+        table_metadata: dict[str, Any] = table.get_metadata()
+        additional_md: dict[str, Any] = table_metadata.get('additional_md')
+        assert additional_md['is_public'] is True

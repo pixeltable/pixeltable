@@ -837,7 +837,7 @@ class Env:
             cls.__initializing = False
 
         except Exception as e:
-            _logger.error(f"Error during Env destruction: {e}")
+            _logger.error(f'Error during Env destruction: {e}')
             # Force reset even if cleanup fails
             cls._instance = None
             cls.__initializing = False
@@ -853,14 +853,14 @@ class Env:
             try:
                 self._current_session.close()
             except Exception as e:
-                _logger.error(f"Error closing session: {e}")
+                _logger.error(f'Error closing session: {e}')
             self._current_session = None
 
         if self._current_conn is not None:
             try:
                 self._current_conn.close()
             except Exception as e:
-                _logger.error(f"Error closing connection: {e}")
+                _logger.error(f'Error closing connection: {e}')
             self._current_conn = None
 
         # Stop HTTP server
@@ -869,7 +869,7 @@ class Env:
                 self._httpd.shutdown()
                 self._httpd.server_close()
             except Exception as e:
-                _logger.error(f"Error stopping HTTP server: {e}")
+                _logger.error(f'Error stopping HTTP server: {e}')
             self._httpd = None
 
         # Stop database server (for local environment)
@@ -889,11 +889,11 @@ class Env:
                             conn.execute(sql.text(stmt))
                             _logger.info(f"Terminated all connections to database '{self._db_name}'")
                     except Exception as e:
-                        _logger.warning(f"Error terminating database connections: {e}")
+                        _logger.warning(f'Error terminating database connections: {e}')
                     finally:
                         temp_engine.dispose()
             except Exception as e:
-                _logger.error(f"Error stopping database server: {e}")
+                _logger.error(f'Error stopping database server: {e}')
             self._db_server = None
 
         # Dispose of SQLAlchemy engine (after stopping db server)
@@ -901,7 +901,7 @@ class Env:
             try:
                 self._sa_engine.dispose()
             except Exception as e:
-                _logger.error(f"Error disposing engine: {e}")
+                _logger.error(f'Error disposing engine: {e}')
             self._sa_engine = None
 
         # Close event loop
@@ -911,7 +911,7 @@ class Env:
                     self._event_loop.stop()
                 self._event_loop.close()
             except Exception as e:
-                _logger.error(f"Error closing event loop: {e}")
+                _logger.error(f'Error closing event loop: {e}')
             self._event_loop = None
 
         # Remove logging handlers
@@ -920,13 +920,13 @@ class Env:
                 handler.close()
                 self._logger.removeHandler(handler)
             except Exception as e:
-                _logger.error(f"Error removing handler: {e}")
+                _logger.error(f'Error removing handler: {e}')
 
         # Clear temporary directory
         try:
             self.clear_tmp_dir()
         except Exception as e:
-            _logger.error(f"Error clearing tmp directory: {e}")
+            _logger.error(f'Error clearing tmp directory: {e}')
 
         # Reset all instance variables to None
         self._reset_fields()
@@ -977,6 +977,7 @@ class Env:
         self._resource_pool_info = {}
         self.__optional_packages = {}
         self._initialized = False
+
 
 def register_client(name: str) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.

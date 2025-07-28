@@ -4,16 +4,17 @@ Compatible with pytest and PyCharm debugger.
 """
 
 import os
-import tempfile
 import shutil
+import tempfile
+
 import pytest
 
 import pixeltable as pxt
-from pixeltable.env import Env
 from pixeltable.catalog import Catalog
+from pixeltable.env import Env
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope='function')
 def test_setup():
     """Create test environment directories."""
     test_dir = tempfile.mkdtemp(prefix='pxt_test_env')
@@ -23,17 +24,14 @@ def test_setup():
     os.makedirs(env1_home)
     os.makedirs(env2_home)
 
-    yield {
-        'env1_home': env1_home,
-        'env2_home': env2_home,
-        'test_dir': test_dir
-    }
+    yield {'env1_home': env1_home, 'env2_home': env2_home, 'test_dir': test_dir}
 
     # Cleanup
     if os.path.exists(test_dir):
         shutil.rmtree(test_dir)
 
-@pytest.mark.skip(reason="AH FIXME individual test pass but not all when ran one after other")
+
+@pytest.mark.skip(reason='AH FIXME individual test pass but not all when ran one after other')
 class TestEnvReset:
     """Simplified tests for Env.Simple() functionality."""
 
@@ -123,17 +121,9 @@ class TestEnvReset:
         pxt.create_dir('analytics.reports')
 
         # Create tables with different features
-        t1 = pxt.create_table('users', {
-            'user_id': pxt.Int,
-            'username': pxt.String,
-            'active': pxt.Bool
-        })
+        t1 = pxt.create_table('users', {'user_id': pxt.Int, 'username': pxt.String, 'active': pxt.Bool})
 
-        t2 = pxt.create_table('analytics.reports.sales', {
-            'sale_id': pxt.Int,
-            'amount': pxt.Float,
-        })
-
+        t2 = pxt.create_table('analytics.reports.sales', {'sale_id': pxt.Int, 'amount': pxt.Float})
 
         # Add computed column
         t2.add_computed_column(amount_doubled=t2.amount * 2)
@@ -142,16 +132,11 @@ class TestEnvReset:
         v1 = pxt.create_view('analytics.high_sales', t2.where(t2.amount > 100.0))
 
         # Insert data
-        t1.insert([
-            {'user_id': 1, 'username': 'alice', 'active': True},
-            {'user_id': 2, 'username': 'bob', 'active': False}
-        ])
+        t1.insert(
+            [{'user_id': 1, 'username': 'alice', 'active': True}, {'user_id': 2, 'username': 'bob', 'active': False}]
+        )
 
-        t2.insert([
-            {'sale_id': 1, 'amount': 150.0},
-            {'sale_id': 2, 'amount': 50.0}
-        ])
-
+        t2.insert([{'sale_id': 1, 'amount': 150.0}, {'sale_id': 2, 'amount': 50.0}])
 
         # Record metadata
         dirs_before = set(pxt.list_dirs())
@@ -236,15 +221,17 @@ class TestEnvReset:
             expected_dirs = set(expected_state['dirs'])
             expected_tables = set(expected_state['tables'])
 
-            assert actual_dirs == expected_dirs, f"Dirs mismatch: expected {expected_dirs}, got {actual_dirs}"
-            assert actual_tables == expected_tables, f"Tables mismatch: expected {expected_tables}, got {actual_tables}"
+            assert actual_dirs == expected_dirs, f'Dirs mismatch: expected {expected_dirs}, got {actual_dirs}'
+            assert actual_tables == expected_tables, f'Tables mismatch: expected {expected_tables}, got {actual_tables}'
 
             # Validate each table's data
             for table_name, expected_count in expected_state['counts'].items():
                 if table_name in actual_tables:
                     t = pxt.get_table(table_name)
                     actual_count = t.count()
-                    assert actual_count == expected_count, f"{table_name}: expected {expected_count} rows, got {actual_count}"
+                    assert actual_count == expected_count, (
+                        f'{table_name}: expected {expected_count} rows, got {actual_count}'
+                    )
 
             # Validate specific data integrity checks if provided
             if 'data_checks' in expected_state:
@@ -252,19 +239,9 @@ class TestEnvReset:
                     check_fn()
 
         # Track metadata state for each environment
-        env1_state = {
-            'dirs': set(),
-            'tables': set(),
-            'counts': {},
-            'data_checks': {}
-        }
+        env1_state = {'dirs': set(), 'tables': set(), 'counts': {}, 'data_checks': {}}
 
-        env2_state = {
-            'dirs': set(),
-            'tables': set(),
-            'counts': {},
-            'data_checks': {}
-        }
+        env2_state = {'dirs': set(), 'tables': set(), 'counts': {}, 'data_checks': {}}
 
         # Step 1: Initialize env1 and create first directory
         env1 = switch_to_env(test_setup['env1_home'], 'incremental_db1')
@@ -285,11 +262,9 @@ class TestEnvReset:
         # Step 3: Back to env1 - validate previous state, then create table
         switch_to_env(test_setup['env1_home'], 'incremental_db1', env1_state)
 
-        t1 = pxt.create_table('data.events', {
-            'event_id': pxt.Int,
-            'event_type': pxt.String,
-            'timestamp': pxt.Timestamp
-        })
+        t1 = pxt.create_table(
+            'data.events', {'event_id': pxt.Int, 'event_type': pxt.String, 'timestamp': pxt.Timestamp}
+        )
         env1_state['tables'].add('data.events')
         env1_state['counts']['data.events'] = 0
         validate_metadata(env1_state)
@@ -297,11 +272,7 @@ class TestEnvReset:
         # Step 4: To env2 - validate previous state, then create table
         switch_to_env(test_setup['env2_home'], 'incremental_db2', env2_state)
 
-        t2 = pxt.create_table('models.predictions', {
-            'pred_id': pxt.Int,
-            'model_name': pxt.String,
-            'score': pxt.Float
-        })
+        t2 = pxt.create_table('models.predictions', {'pred_id': pxt.Int, 'model_name': pxt.String, 'score': pxt.Float})
         env2_state['tables'].add('models.predictions')
         env2_state['counts']['models.predictions'] = 0
         validate_metadata(env2_state)
@@ -311,11 +282,13 @@ class TestEnvReset:
 
         # Insert data
         t1 = pxt.get_table('data.events')
-        t1.insert([
-            {'event_id': 1, 'event_type': 'login', 'timestamp': '2024-01-01 10:00:00'},
-            {'event_id': 2, 'event_type': 'purchase', 'timestamp': '2024-01-01 11:00:00'},
-            {'event_id': 3, 'event_type': 'logout', 'timestamp': '2024-01-01 12:00:00'}
-        ])
+        t1.insert(
+            [
+                {'event_id': 1, 'event_type': 'login', 'timestamp': '2024-01-01 10:00:00'},
+                {'event_id': 2, 'event_type': 'purchase', 'timestamp': '2024-01-01 11:00:00'},
+                {'event_id': 3, 'event_type': 'logout', 'timestamp': '2024-01-01 12:00:00'},
+            ]
+        )
         env1_state['counts']['data.events'] = 3
 
         # Create view
@@ -336,10 +309,12 @@ class TestEnvReset:
         switch_to_env(test_setup['env2_home'], 'incremental_db2', env2_state)
 
         t2 = pxt.get_table('models.predictions')
-        t2.insert([
-            {'pred_id': 1, 'model_name': 'model_v1', 'score': 0.85},
-            {'pred_id': 2, 'model_name': 'model_v2', 'score': 0.92}
-        ])
+        t2.insert(
+            [
+                {'pred_id': 1, 'model_name': 'model_v1', 'score': 0.85},
+                {'pred_id': 2, 'model_name': 'model_v2', 'score': 0.92},
+            ]
+        )
         env2_state['counts']['models.predictions'] = 2
 
         # Add computed column
@@ -349,7 +324,7 @@ class TestEnvReset:
         def check_env2_scores():
             t = pxt.get_table('models.predictions')
             high_scores = t.where(t.is_high_score == True).count()
-            assert high_scores == 1, f"Expected 1 high score, got {high_scores}"
+            assert high_scores == 1, f'Expected 1 high score, got {high_scores}'
 
         env2_state['data_checks']['high_scores'] = check_env2_scores
         validate_metadata(env2_state)
@@ -360,11 +335,9 @@ class TestEnvReset:
         pxt.create_dir('data.processed')
         env1_state['dirs'].add('data.processed')
 
-        t3 = pxt.create_table('data.processed.summary', {
-            'summary_id': pxt.Int,
-            'event_count': pxt.Int,
-            'date': pxt.String
-        })
+        t3 = pxt.create_table(
+            'data.processed.summary', {'summary_id': pxt.Int, 'event_count': pxt.Int, 'date': pxt.String}
+        )
         env1_state['tables'].add('data.processed.summary')
         env1_state['counts']['data.processed.summary'] = 0
         validate_metadata(env1_state)
@@ -398,10 +371,12 @@ class TestEnvReset:
         switch_to_env(test_setup['env2_home'], 'incremental_db2', env2_state)
 
         t2 = pxt.get_table('models.predictions')
-        t2.insert([
-            {'pred_id': 3, 'model_name': 'model_v3', 'score': 0.78},
-            {'pred_id': 4, 'model_name': 'model_v4', 'score': 0.95}
-        ])
+        t2.insert(
+            [
+                {'pred_id': 3, 'model_name': 'model_v3', 'score': 0.78},
+                {'pred_id': 4, 'model_name': 'model_v4', 'score': 0.95},
+            ]
+        )
         env2_state['counts']['models.predictions'] = 4
         env2_state['counts']['models.high_scores'] = 2  # Now 2 high scores
 
@@ -411,16 +386,12 @@ class TestEnvReset:
         def check_env2_scores_updated():
             t = pxt.get_table('models.predictions')
             high_scores = t.where(t.is_high_score == True).count()
-            assert high_scores == 2, f"Expected 2 high scores, got {high_scores}"
+            assert high_scores == 2, f'Expected 2 high scores, got {high_scores}'
 
         env2_state['data_checks']['high_scores'] = check_env2_scores_updated
 
         # Create metrics table
-        t4 = pxt.create_table('models.metrics', {
-            'metric_id': pxt.Int,
-            'metric_name': pxt.String,
-            'value': pxt.Float
-        })
+        t4 = pxt.create_table('models.metrics', {'metric_id': pxt.Int, 'metric_name': pxt.String, 'value': pxt.Float})
         env2_state['tables'].add('models.metrics')
         env2_state['counts']['models.metrics'] = 0
         validate_metadata(env2_state)
@@ -432,9 +403,7 @@ class TestEnvReset:
         t3 = pxt.get_table('data.processed.summary')
 
         # Insert summary data
-        t3.insert([
-            {'summary_id': 1, 'event_count': 3, 'date': '2024-01-01'}
-        ])
+        t3.insert([{'summary_id': 1, 'event_count': 3, 'date': '2024-01-01'}])
         env1_state['counts']['data.processed.summary'] = 1
 
         # Create view with computed column
@@ -447,24 +416,24 @@ class TestEnvReset:
         def check_login_events():
             v = pxt.get_table('data.event_analysis')
             login_count = v.where(v.is_login == True).count()
-            assert login_count == 1, f"Expected 1 login event, got {login_count}"
+            assert login_count == 1, f'Expected 1 login event, got {login_count}'
             # Also check the computed column values
             results = v.select(v.event_type, v.is_login).order_by(v.event_id).collect()
             expected = [
                 {'event_type': 'login', 'is_login': True},
                 {'event_type': 'purchase', 'is_login': False},
-                {'event_type': 'logout', 'is_login': False}
+                {'event_type': 'logout', 'is_login': False},
             ]
             for i, (result, exp) in enumerate(zip(results, expected)):
-                assert result['event_type'] == exp['event_type'], f"Row {i}: event_type mismatch"
-                assert result['is_login'] == exp['is_login'], f"Row {i}: is_login mismatch"
+                assert result['event_type'] == exp['event_type'], f'Row {i}: event_type mismatch'
+                assert result['is_login'] == exp['is_login'], f'Row {i}: is_login mismatch'
 
         # Update login event check to handle new rows
         def check_login_events_updated():
             v = pxt.get_table('data.event_analysis')
             # Check only original login event
             login_count = v.where((v.is_login == True) & (v.event_id <= 3)).count()
-            assert login_count == 1, f"Expected 1 original login event, got {login_count}"
+            assert login_count == 1, f'Expected 1 original login event, got {login_count}'
             # Check total count matches
             assert v.count() == env1_state['counts']['data.event_analysis']
 
@@ -501,11 +470,7 @@ class TestEnvReset:
 
             # Add a row to verify we can still modify
             t1 = pxt.get_table('data.events')
-            t1.insert([{
-                'event_id': 100 + i,
-                'event_type': f'test_{i}',
-                'timestamp': f'2024-01-02 {10 + i}:00:00'
-            }])
+            t1.insert([{'event_id': 100 + i, 'event_type': f'test_{i}', 'timestamp': f'2024-01-02 {10 + i}:00:00'}])
             env1_state['counts']['data.events'] += 1
             env1_state['counts']['data.event_analysis'] += 1
 
@@ -518,7 +483,7 @@ class TestEnvReset:
                 original_events = t.where(t.event_id <= 3).select(t.event_type).order_by(t.event_id).collect()
                 assert [e['event_type'] for e in original_events] == ['login', 'purchase', 'logout']
                 # Check total count
-                assert t.count() == expected, f"Expected {expected} events, got {t.count()}"
+                assert t.count() == expected, f'Expected {expected} events, got {t.count()}'
 
             env1_state['data_checks']['event_types'] = check_env1_events_current
 
@@ -548,10 +513,7 @@ class TestEnvReset:
         switch_to_env(test_setup['env2_home'], 'incremental_db2', env2_state)
 
         # Create same-named table that was deleted to verify isolation
-        t5 = pxt.create_table('models.predictions', {
-            'id': pxt.Int,
-            'value': pxt.String
-        })
+        t5 = pxt.create_table('models.predictions', {'id': pxt.Int, 'value': pxt.String})
         env2_state['tables'].add('models.predictions')
         env2_state['counts']['models.predictions'] = 0
 
