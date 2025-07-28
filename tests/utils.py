@@ -636,7 +636,7 @@ class ReloadTester:
             self.clear()
 
 
-def rerun(**kwargs) -> Callable:
+def rerun(**kwargs: Any) -> Callable:
     if 'condition' in kwargs:
         kwargs['condition'] = DO_RERUN and kwargs['condition']
     else:
