@@ -5,6 +5,63 @@ that wrap various models from the Hugging Face `transformers` package.
 These UDFs will cause Pixeltable to invoke the relevant models locally. In order to use them, you must
 first `pip install transformers` (or in some cases, `sentence-transformers`, as noted in the specific
 UDFs).
+
+## Function Architecture Patterns
+
+This module implements two distinct architectural patterns for HuggingFace model integration:
+
+### Architecture-Specific Functions
+Functions targeting specific model architectures with dedicated implementations:
+
+```python
+# Direct model class instantiation
+model = DetrForObjectDetection.from_pretrained(model_id, revision=revision)
+processor = DetrImageProcessor.from_pretrained(model_id, revision=revision)
+
+# Architecture-specific post-processing
+results = processor.post_process_object_detection(outputs, threshold=threshold, target_sizes=sizes)
+```
+
+**Examples:** `detr_for_object_detection()`, `vit_for_image_classification()`, `speech2text_for_conditional_generation()`
+
+**Implementation characteristics:**
+- Direct instantiation of specific model classes (`DetrForObjectDetection`, `ViTForImageClassification`)
+- Dedicated processors with architecture-aware pre/post-processing
+- Model-specific parameters (e.g., `revision`, `threshold`, `forced_bos_token_id`)
+- Structured output formats (COCO annotations, classification probabilities)
+- Explicit error handling for known failure modes
+
+### Generic Auto-Model Functions  
+Functions using HuggingFace's Auto* classes and pipeline abstractions:
+
+```python
+# Auto-model pattern
+model = AutoModelForCausalLM.from_pretrained(model_id)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# Pipeline abstraction
+pipeline = pipeline('automatic-speech-recognition', model=model_id, device=device)
+```
+
+**Examples:** `text_generation()`, `automatic_speech_recognition()`, `text_to_image()`
+
+**Implementation characteristics:**
+- Auto-model class resolution (`AutoModelForCausalLM`, `AutoTokenizer`)
+- Pipeline abstractions for cross-architecture compatibility
+- Generic parameters applicable across model families
+- Fallback error handling with model recommendations
+- Minimal assumptions about model internals
+
+### Technical Trade-offs
+
+| **Aspect** | **Architecture-Specific** | **Generic Auto-Model** |
+|------------|---------------------------|------------------------|
+| **Model Loading** | `SpecificModel.from_pretrained()` | `AutoModel.from_pretrained()` |
+| **Processor** | Architecture-aware | Generic tokenizer/processor |
+| **Parameters** | Model-specific (`revision`, `threshold`) | Cross-architecture (`max_length`, `temperature`) |
+| **Output** | Structured domain objects | Raw model outputs |
+| **Error Handling** | Known failure mode handling | Generic exception catching |
+| **Compatibility** | Narrow but deep | Broad but shallow |
 """
 
 from typing import Any, Callable, Optional, TypeVar
@@ -18,6 +75,109 @@ from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
+
+
+T = TypeVar('T')
+
+
+def _create_text2img_pipeline(model_id: str, device: str) -> Any:
+    """Helper function for text_to_image pipeline creation"""
+    from diffusers import AutoPipelineForText2Image
+    import torch
+    
+    pipeline = AutoPipelineForText2Image.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+        device_map='auto' if device == 'cuda' else None
+    )
+    if device == 'cuda':
+        pipeline.enable_model_cpu_offload()
+    return pipeline
+
+
+def _create_img2img_pipeline(model_id: str, device: str) -> Any:
+    """Helper function for image_to_image pipeline creation"""
+    from diffusers import StableDiffusionImg2ImgPipeline
+    import torch
+    
+    pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+        safety_checker=None,
+        requires_safety_checker=False
+    )
+    pipeline = pipeline.to(device)
+    if hasattr(pipeline, 'enable_memory_efficient_attention'):
+        pipeline.enable_memory_efficient_attention()
+    return pipeline
+
+
+def _create_img2vid_pipeline(model_id: str, device: str) -> Any:
+    """Helper function for image_to_video pipeline creation"""  
+    from diffusers import StableVideoDiffusionPipeline
+    import torch
+    
+    pipeline = StableVideoDiffusionPipeline.from_pretrained(
+        model_id,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+        variant="fp16" if device == 'cuda' else None
+    )
+    pipeline = pipeline.to(device)
+    if hasattr(pipeline, 'enable_memory_efficient_attention'):
+        pipeline.enable_memory_efficient_attention()
+    return pipeline
+
+
+def _create_tts_model(model_id: str, device: str, speaker_id: Optional[int] = None) -> dict:
+    """Helper function for text_to_speech model creation"""
+    import torch
+    
+    # Handle SpeechT5 models (Microsoft TTS)
+    if 'speecht5' in model_id.lower():
+        from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
+        from datasets import load_dataset
+        
+        processor = SpeechT5Processor.from_pretrained(model_id)
+        model = SpeechT5ForTextToSpeech.from_pretrained(model_id).to(device)
+        vocoder_model = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(device)
+        
+        # Load speaker embeddings
+        embeddings_dataset = load_dataset("Matthijs/cmu-arctic-xvectors", split="validation")
+        speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]["xvector"]).unsqueeze(0).to(device)
+        
+        return {
+            'type': 'speecht5',
+            'processor': processor,
+            'model': model,
+            'vocoder': vocoder_model,
+            'speaker_embeddings': speaker_embeddings
+        }
+        
+    # Handle Bark models
+    elif 'bark' in model_id.lower():
+        from transformers import AutoProcessor, BarkModel
+        
+        processor = AutoProcessor.from_pretrained(model_id)
+        model = BarkModel.from_pretrained(model_id).to(device)
+        return {
+            'type': 'bark',
+            'processor': processor,
+            'model': model
+        }
+        
+    else:
+        # Generic pipeline approach
+        from transformers import pipeline
+        
+        tts_pipeline = pipeline(
+            'text-to-speech',
+            model=model_id,
+            device=0 if device == 'cuda' else -1
+        )
+        return {
+            'type': 'pipeline',
+            'pipeline': tts_pipeline
+        }
 
 
 @pxt.udf(batch_size=32)
@@ -707,20 +867,18 @@ def named_entity_recognition(
     import torch
     from transformers import AutoModelForTokenClassification, AutoTokenizer, pipeline
 
-    # For NER, we use the pipeline for easier entity aggregation
-    if not hasattr(named_entity_recognition, '_pipeline_cache'):
-        named_entity_recognition._pipeline_cache = {}
-    
-    if model_id not in named_entity_recognition._pipeline_cache:
-        named_entity_recognition._pipeline_cache[model_id] = pipeline(
+    # Use centralized caching pattern like other functions
+    ner_pipeline = _lookup_model(
+        model_id, 
+        lambda x: pipeline(
             'ner',
-            model=model_id,
-            tokenizer=model_id,
+            model=x,
+            tokenizer=x,
             aggregation_strategy=aggregation_strategy,
             device=0 if device == 'cuda' else -1
-        )
-    
-    ner_pipeline = named_entity_recognition._pipeline_cache[model_id]
+        ), 
+        device=device
+    )
     results = []
     
     for txt in text:
@@ -888,9 +1046,18 @@ def text_to_image(
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
     pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as Stable Diffusion or FLUX.
 
+    This is a **generic function** that works with diffusers-compatible models. For production use or
+    specific API integrations, consider specialized functions like `openai.image_generations()`.
+
     __Requirements:__
 
     - `pip install torch transformers diffusers accelerate`
+
+    __Recommended Models:__
+
+    - **Stable Diffusion 1.5**: `runwayml/stable-diffusion-v1-5` (balanced quality/speed)
+    - **Stable Diffusion 2.1**: `stabilityai/stable-diffusion-2-1` (improved quality)
+    - **SDXL**: `stabilityai/stable-diffusion-xl-base-1.0` (highest quality, requires more memory)
 
     Args:
         prompt: The text prompt describing the desired image.
@@ -909,7 +1076,7 @@ def text_to_image(
 
         >>> tbl.add_computed_column(generated_image=text_to_image(
         ...     tbl.prompt,
-        ...     model_id='runwayml/stable-diffusion-v1-5',
+        ...     model_id='runwayml/stable-diffusion-v1-5',  # Recommended
         ...     height=512,
         ...     width=512,
         ...     num_inference_steps=25
@@ -923,20 +1090,8 @@ def text_to_image(
     from diffusers import AutoPipelineForText2Image
     import random
 
-    # Cache the pipeline to avoid reloading
-    if not hasattr(text_to_image, '_pipeline_cache'):
-        text_to_image._pipeline_cache = {}
-    
-    if model_id not in text_to_image._pipeline_cache:
-        text_to_image._pipeline_cache[model_id] = AutoPipelineForText2Image.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-            device_map='auto' if device == 'cuda' else None
-        )
-        if device == 'cuda':
-            text_to_image._pipeline_cache[model_id].enable_model_cpu_offload()
-    
-    pipeline = text_to_image._pipeline_cache[model_id]
+    # Use centralized caching pattern like other functions
+    pipeline = _lookup_model(model_id, lambda x: _create_text2img_pipeline(x, device), device=device)
     results = []
     
     # Set seed for reproducibility if provided
@@ -962,7 +1117,6 @@ def text_to_image(
             import PIL.Image
             blank_image = PIL.Image.new('RGB', (width, height), (128, 128, 128))
             results.append(blank_image)
-            print(f"Warning: Text-to-image generation failed for prompt '{prompt_text}': {e}")
     
     return results
 
@@ -971,14 +1125,14 @@ def text_to_image(
 def text_to_speech(
     text: Batch[str], *, model_id: str, speaker_id: Optional[int] = None, 
     vocoder: Optional[str] = None
-) -> Batch[bytes]:
+) -> Batch[pxt.Audio]:
     """
     Converts text to speech using a pretrained TTS model. `model_id` should be a reference to a
     pretrained [text-to-speech model](https://huggingface.co/models?pipeline_tag=text-to-speech).
 
     __Requirements:__
 
-    - `pip install torch transformers datasets soundfile librosa`
+    - `pip install torch transformers datasets soundfile`
 
     Args:
         text: The text to convert to speech.
@@ -987,7 +1141,7 @@ def text_to_speech(
         vocoder: Optional vocoder model for higher quality audio.
 
     Returns:
-        The generated audio as bytes (WAV format).
+        The generated audio file.
 
     Examples:
         Add a computed column that converts text to speech:
@@ -1003,44 +1157,410 @@ def text_to_speech(
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import pipeline
+    import numpy as np
     import soundfile as sf
-    import io
 
-    # Cache the pipeline to avoid reloading
-    if not hasattr(text_to_speech, '_pipeline_cache'):
-        text_to_speech._pipeline_cache = {}
-    
-    if model_id not in text_to_speech._pipeline_cache:
-        text_to_speech._pipeline_cache[model_id] = pipeline(
-            'text-to-speech',
-            model=model_id,
-            device=0 if device == 'cuda' else -1
-        )
-    
-    tts_pipeline = text_to_speech._pipeline_cache[model_id]
+    # Use centralized caching pattern like other functions
+    cached_model = _lookup_model(model_id, lambda x: _create_tts_model(x, device, speaker_id), device=device)
     results = []
     
     for text_input in text:
         try:
-            # Generate speech
-            speech_output = tts_pipeline(text_input)
+            # Handle SpeechT5 models (Microsoft TTS)
+            if cached_model['type'] == 'speecht5':
+                processor = cached_model['processor']
+                model = cached_model['model']
+                vocoder_model = cached_model['vocoder']
+                speaker_embeddings = cached_model['speaker_embeddings']
+                
+                # Generate speech
+                inputs = processor(text=text_input, return_tensors="pt").to(device)
+                
+                with torch.no_grad():
+                    speech = model.generate_speech(inputs["input_ids"], speaker_embeddings, vocoder=vocoder_model)
+                
+                # Convert to numpy and normalize
+                audio_np = speech.cpu().numpy()
+                
+                # Ensure audio is in the right range and format
+                if audio_np.dtype != np.float32:
+                    audio_np = audio_np.astype(np.float32)
+                
+                # Normalize audio to prevent clipping
+                if np.max(np.abs(audio_np)) > 0:
+                    audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
+                
+                # Create temporary WAV file
+                output_filename = str(env.Env.get().create_tmp_path('.wav'))
+                sf.write(output_filename, audio_np, 16000, format='WAV', subtype='PCM_16')
+                results.append(output_filename)
+                
+            # Handle Bark models
+            elif cached_model['type'] == 'bark':
+                processor = cached_model['processor']
+                model = cached_model['model']
+                
+                # Generate speech
+                inputs = processor(text_input, return_tensors="pt").to(device)
+                
+                with torch.no_grad():
+                    audio_array = model.generate(**inputs)
+                
+                # Convert to numpy
+                audio_np = audio_array.cpu().numpy().squeeze()
+                
+                # Ensure proper format
+                if audio_np.dtype != np.float32:
+                    audio_np = audio_np.astype(np.float32)
+                
+                # Normalize audio
+                if np.max(np.abs(audio_np)) > 0:
+                    audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
+                
+                # Bark typically uses 24kHz sample rate
+                sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
+                
+                # Create temporary WAV file
+                output_filename = str(env.Env.get().create_tmp_path('.wav'))
+                sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
+                results.append(output_filename)
+                
+            else:
+                # Generic pipeline approach
+                tts_pipeline = cached_model['pipeline']
+                
+                # Generate speech
+                speech_output = tts_pipeline(text_input)
+                
+                # Extract audio data
+                audio_data = speech_output['audio']
+                sample_rate = speech_output['sampling_rate']
+                
+                # Ensure numpy array
+                if not isinstance(audio_data, np.ndarray):
+                    audio_data = np.array(audio_data)
+                
+                # Ensure proper format
+                if audio_data.dtype != np.float32:
+                    audio_data = audio_data.astype(np.float32)
+                
+                # Create temporary WAV file
+                output_filename = str(env.Env.get().create_tmp_path('.wav'))
+                sf.write(output_filename, audio_data, sample_rate, format='WAV', subtype='PCM_16')
+                results.append(output_filename)
+                
+        except Exception as e:
+            # Return None on error
+            results.append(None)
+    
+    return results
+
+
+@pxt.udf(batch_size=2)
+def image_to_image(
+    image: Batch[PIL.Image.Image], prompt: Batch[str], *, model_id: str, 
+    strength: float = 0.75, guidance_scale: float = 7.5, num_inference_steps: int = 20, 
+    seed: Optional[int] = None
+) -> Batch[PIL.Image.Image]:
+    """
+    Transforms input images based on text prompts using a pretrained image-to-image model. 
+    `model_id` should be a reference to a pretrained 
+    [image-to-image model](https://huggingface.co/models?pipeline_tag=image-to-image).
+
+    __Requirements:__
+
+    - `pip install torch transformers diffusers accelerate`
+
+    Args:
+        image: The input image to transform.
+        prompt: The text prompt describing the desired transformation.
+        model_id: The pretrained image-to-image model to use.
+        strength: How much to transform the input image (0.0 = no change, 1.0 = complete transformation).
+        guidance_scale: How closely to follow the text prompt (higher = more adherence).
+        num_inference_steps: Number of denoising steps (more steps = higher quality, slower).
+        seed: Random seed for reproducibility.
+
+    Returns:
+        The transformed image.
+
+    Examples:
+        Add a computed column that transforms images based on prompts:
+
+        >>> tbl.add_computed_column(transformed=image_to_image(
+        ...     tbl.source_image,
+        ...     tbl.transformation_prompt,
+        ...     model_id='runwayml/stable-diffusion-v1-5'
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    env.Env.get().require_package('diffusers')
+    env.Env.get().require_package('accelerate')
+    device = resolve_torch_device('auto')
+    import torch
+    from diffusers import StableDiffusionImg2ImgPipeline
+    
+    # Use centralized caching pattern like other functions
+    pipe = _lookup_model(model_id, lambda x: _create_img2img_pipeline(x, device), device=device)
+    
+    # Set random seed if provided
+    generator = None
+    if seed is not None:
+        generator = torch.Generator(device=device).manual_seed(seed)
+    
+    results = []
+    for input_image, prompt_text in zip(image, prompt):
+        try:
+            if input_image is None:
+                results.append(None)
+                continue
+                
+            # Ensure image is in RGB mode
+            if input_image.mode != 'RGB':
+                input_image = input_image.convert('RGB')
             
-            # Convert to bytes (WAV format)
-            audio_data = speech_output['audio']
-            sample_rate = speech_output['sampling_rate']
+            # Transform image
+            with torch.no_grad():
+                result = pipe(
+                    prompt=prompt_text,
+                    image=input_image,
+                    strength=strength,
+                    guidance_scale=guidance_scale,
+                    num_inference_steps=num_inference_steps,
+                    generator=generator
+                )
+                transformed_image = result.images[0]
+                results.append(transformed_image)
+        except Exception as e:
+            results.append(None)
+    
+    return results
+
+
+@pxt.udf(batch_size=4)
+def automatic_speech_recognition(
+    audio: Batch[pxt.Audio], *, model_id: str, language: Optional[str] = None, 
+    chunk_length_s: Optional[int] = None, return_timestamps: bool = False
+) -> Batch[str]:
+    """
+    Transcribes speech to text using a pretrained ASR model. `model_id` should be a reference to a
+    pretrained [automatic-speech-recognition model](https://huggingface.co/models?pipeline_tag=automatic-speech-recognition).
+
+    This is a **generic function** that works with many ASR model families. For production use with
+    specific models, consider specialized functions like `whisper.transcribe()` or 
+    `speech2text_for_conditional_generation()`.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    __Recommended Models:__
+
+    - **OpenAI Whisper**: `openai/whisper-tiny.en`, `openai/whisper-small`, `openai/whisper-base`
+    - **Facebook Wav2Vec2**: `facebook/wav2vec2-base-960h`, `facebook/wav2vec2-large-960h-lv60-self`  
+    - **Microsoft SpeechT5**: `microsoft/speecht5_asr`
+    - **Meta MMS (Multilingual)**: `facebook/mms-1b-all`
+
+    Args:
+        audio: The audio file(s) to transcribe.
+        model_id: The pretrained ASR model to use.
+        language: Language code for multilingual models (e.g., 'en', 'es', 'fr').
+        chunk_length_s: Maximum length of audio chunks in seconds for long audio processing.
+        return_timestamps: Whether to return word-level timestamps (model dependent).
+
+    Returns:
+        The transcribed text.
+
+    Examples:
+        Add a computed column that transcribes audio files:
+
+        >>> tbl.add_computed_column(transcription=automatic_speech_recognition(
+        ...     tbl.audio_file,
+        ...     model_id='openai/whisper-tiny.en'  # Recommended
+        ... ))
+
+        Transcribe with language specification:
+
+        >>> tbl.add_computed_column(transcription=automatic_speech_recognition(
+        ...     tbl.audio_file,
+        ...     model_id='facebook/mms-1b-all',
+        ...     language='en'
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    from transformers import pipeline
+    
+    # Use centralized caching pattern like other functions
+    def create_asr_pipeline_fn(x: str) -> Any:
+        try:
+            pipeline_kwargs = {
+                'task': 'automatic-speech-recognition',
+                'model': x,
+                'device': 0 if device == 'cuda' else -1
+            }
             
-            # Convert to WAV bytes
-            buffer = io.BytesIO()
-            sf.write(buffer, audio_data, sample_rate, format='WAV')
-            audio_bytes = buffer.getvalue()
+            # Add language if specified
+            if language:
+                pipeline_kwargs['model_kwargs'] = {'language': language}
             
-            results.append(audio_bytes)
+            return pipeline(**pipeline_kwargs)
+        except Exception as e:
+            raise excs.Error(
+                f'Error loading ASR model {x}: {e}\n'
+                f'Try these recommended models instead:\n'
+                f'  - openai/whisper-tiny.en (lightweight)\n'  
+                f'  - facebook/wav2vec2-base-960h (English)\n'
+                f'  - facebook/mms-1b-all (multilingual)'
+            )
+    
+    # Create cache key that includes language for proper caching
+    cache_key_suffix = f"_{language}" if language else ""
+    cache_model_id = f"{model_id}{cache_key_suffix}"
+    asr_pipeline = _lookup_model(cache_model_id, create_asr_pipeline_fn, device=device)
+    
+    results = []
+    for audio_file in audio:
+        try:
+            if audio_file is None:
+                results.append(None)
+                continue
+            
+            # Prepare pipeline arguments
+            pipeline_args = {}
+            if chunk_length_s is not None:
+                pipeline_args['chunk_length_s'] = chunk_length_s
+            if return_timestamps:
+                pipeline_args['return_timestamps'] = return_timestamps
+            
+            # Transcribe audio
+            result = asr_pipeline(audio_file, **pipeline_args)
+            
+            # Extract text from result
+            if isinstance(result, dict):
+                transcription = result.get('text', '')
+            elif isinstance(result, str):
+                transcription = result
+            else:
+                transcription = str(result)
+            
+            results.append(transcription.strip())
             
         except Exception as e:
-            # Return empty bytes on error
-            results.append(b'')
-            print(f"Warning: Text-to-speech generation failed for text '{text_input[:50]}...': {e}")
+            results.append(None)
+    
+    return results
+
+
+@pxt.udf(batch_size=1)
+def image_to_video(
+    image: Batch[PIL.Image.Image], *, model_id: str, num_frames: int = 25, 
+    fps: int = 7, num_inference_steps: int = 25, motion_scale: float = 1.3,
+    seed: Optional[int] = None
+) -> Batch[pxt.Video]:
+    """
+    Generates videos from input images using a pretrained image-to-video model. 
+    `model_id` should be a reference to a pretrained 
+    [image-to-video model](https://huggingface.co/models?pipeline_tag=image-to-video).
+
+    __Requirements:__
+
+    - `pip install torch transformers diffusers accelerate av`
+
+    Args:
+        image: The input image to animate into a video.
+        model_id: The pretrained image-to-video model to use.
+        num_frames: Number of video frames to generate.
+        fps: Frames per second for the output video.
+        num_inference_steps: Number of denoising steps (more steps = higher quality, slower).
+        motion_scale: How much motion/animation to add (higher = more movement).
+        seed: Random seed for reproducibility.
+
+    Returns:
+        The generated video file.
+
+    Examples:
+        Add a computed column that creates videos from images:
+
+        >>> tbl.add_computed_column(video=image_to_video(
+        ...     tbl.input_image,
+        ...     model_id='stabilityai/stable-video-diffusion-img2vid-xt',
+        ...     num_frames=25,
+        ...     fps=7
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    env.Env.get().require_package('diffusers')
+    env.Env.get().require_package('accelerate')
+    device = resolve_torch_device('auto')
+    import torch
+    import av
+    import numpy as np
+    from diffusers import StableVideoDiffusionPipeline
+    
+    # Use centralized caching pattern like other functions
+    pipe = _lookup_model(model_id, lambda x: _create_img2vid_pipeline(x, device), device=device)
+    
+    # Set random seed if provided
+    generator = None
+    if seed is not None:
+        generator = torch.Generator(device=device).manual_seed(seed)
+    
+    results = []
+    for input_image in image:
+        try:
+            if input_image is None:
+                results.append(None)
+                continue
+            
+            # Ensure image is in RGB mode and proper size
+            if input_image.mode != 'RGB':
+                input_image = input_image.convert('RGB')
+            
+            # Resize image to model requirements (using smaller resolution to save memory)
+            width, height = input_image.size
+            # Use smaller resolution for better memory efficiency
+            target_width, target_height = 512, 320  # Reduced from 1024x576
+            input_image = input_image.resize((target_width, target_height), PIL.Image.Resampling.LANCZOS)
+            
+            # Generate video frames
+            with torch.no_grad():
+                frames = pipe(
+                    image=input_image,
+                    decode_chunk_size=8,
+                    generator=generator,
+                    motion_bucket_id=int(motion_scale * 100),  # Controls motion intensity (0-255)
+                    noise_aug_strength=0.02,
+                    num_inference_steps=num_inference_steps,
+                    num_frames=min(num_frames, 25)  # SVD typically supports up to 25 frames
+                ).frames[0]
+            
+            # Create output video file
+            output_path = str(env.Env.get().create_tmp_path('.mp4'))
+            
+            # Write frames to video using av
+            with av.open(output_path, mode='w') as container:
+                stream = container.add_stream('h264', rate=fps)
+                stream.width = target_width
+                stream.height = target_height  
+                stream.pix_fmt = 'yuv420p'
+                
+                for frame_pil in frames:
+                    # Convert PIL to numpy array
+                    frame_array = np.array(frame_pil)
+                    # Create av VideoFrame
+                    av_frame = av.VideoFrame.from_ndarray(frame_array, format='rgb24')
+                    # Encode and mux
+                    for packet in stream.encode(av_frame):
+                        container.mux(packet)
+                
+                # Flush encoder
+                for packet in stream.encode():
+                    container.mux(packet)
+            
+            results.append(output_path)
+            
+        except Exception as e:
+            results.append(None)
     
     return results
 
