@@ -12,7 +12,7 @@ import pixeltable as pxt
 from pixeltable import env
 from pixeltable.utils.code import local_public_names
 
-_format_defaults = {  # format -> (codec, ext)
+_format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
     'wav': ('pcm_s16le', 'wav'),
     'mp3': ('libmp3lame', 'mp3'),
     'flac': ('flac', 'flac'),
@@ -47,10 +47,11 @@ class make_video(pxt.Aggregator):
     
     Args:
         fps: Frames per second for the output video. Default is 25. This is set when the aggregator is created.
-        
-    Returns:
-        The created video file path.
-        
+    
+    __Returns:__
+    
+    - A `pxt.Video` containing the created video file path.
+    
     Requirements:
         - Must be used with `group_by` (typically the base table containing videos)
         - First parameter must specify frame ordering (typically frame position)  
