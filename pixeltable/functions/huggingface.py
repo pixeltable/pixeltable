@@ -5,63 +5,6 @@ that wrap various models from the Hugging Face `transformers` package.
 These UDFs will cause Pixeltable to invoke the relevant models locally. In order to use them, you must
 first `pip install transformers` (or in some cases, `sentence-transformers`, as noted in the specific
 UDFs).
-
-## Function Architecture Patterns
-
-This module implements two distinct architectural patterns for HuggingFace model integration:
-
-### Architecture-Specific Functions
-Functions targeting specific model architectures with dedicated implementations:
-
-```python
-# Direct model class instantiation
-model = DetrForObjectDetection.from_pretrained(model_id, revision=revision)
-processor = DetrImageProcessor.from_pretrained(model_id, revision=revision)
-
-# Architecture-specific post-processing
-results = processor.post_process_object_detection(outputs, threshold=threshold, target_sizes=sizes)
-```
-
-**Examples:** `detr_for_object_detection()`, `vit_for_image_classification()`, `speech2text_for_conditional_generation()`
-
-**Implementation characteristics:**
-- Direct instantiation of specific model classes (`DetrForObjectDetection`, `ViTForImageClassification`)
-- Dedicated processors with architecture-aware pre/post-processing
-- Model-specific parameters (e.g., `revision`, `threshold`, `forced_bos_token_id`)
-- Structured output formats (COCO annotations, classification probabilities)
-- Explicit error handling for known failure modes
-
-### Generic Auto-Model Functions  
-Functions using HuggingFace's Auto* classes and pipeline abstractions:
-
-```python
-# Auto-model pattern
-model = AutoModelForCausalLM.from_pretrained(model_id)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-# Pipeline abstraction
-pipeline = pipeline('automatic-speech-recognition', model=model_id, device=device)
-```
-
-**Examples:** `text_generation()`, `automatic_speech_recognition()`, `text_to_image()`
-
-**Implementation characteristics:**
-- Auto-model class resolution (`AutoModelForCausalLM`, `AutoTokenizer`)
-- Pipeline abstractions for cross-architecture compatibility
-- Generic parameters applicable across model families
-- Fallback error handling with model recommendations
-- Minimal assumptions about model internals
-
-### Technical Trade-offs
-
-| **Aspect** | **Architecture-Specific** | **Generic Auto-Model** |
-|------------|---------------------------|------------------------|
-| **Model Loading** | `SpecificModel.from_pretrained()` | `AutoModel.from_pretrained()` |
-| **Processor** | Architecture-aware | Generic tokenizer/processor |
-| **Parameters** | Model-specific (`revision`, `threshold`) | Cross-architecture (`max_length`, `temperature`) |
-| **Output** | Structured domain objects | Raw model outputs |
-| **Error Handling** | Known failure mode handling | Generic exception catching |
-| **Compatibility** | Narrow but deep | Broad but shallow |
 """
 
 from typing import Any, Callable, Optional, TypeVar
@@ -76,108 +19,7 @@ from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
 
-
 T = TypeVar('T')
-
-
-def _create_text2img_pipeline(model_id: str, device: str) -> Any:
-    """Helper function for text_to_image pipeline creation"""
-    from diffusers import AutoPipelineForText2Image
-    import torch
-    
-    pipeline = AutoPipelineForText2Image.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-        device_map='auto' if device == 'cuda' else None
-    )
-    if device == 'cuda':
-        pipeline.enable_model_cpu_offload()
-    return pipeline
-
-
-def _create_img2img_pipeline(model_id: str, device: str) -> Any:
-    """Helper function for image_to_image pipeline creation"""
-    from diffusers import StableDiffusionImg2ImgPipeline
-    import torch
-    
-    pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-        safety_checker=None,
-        requires_safety_checker=False
-    )
-    pipeline = pipeline.to(device)
-    if hasattr(pipeline, 'enable_memory_efficient_attention'):
-        pipeline.enable_memory_efficient_attention()
-    return pipeline
-
-
-def _create_img2vid_pipeline(model_id: str, device: str) -> Any:
-    """Helper function for image_to_video pipeline creation"""  
-    from diffusers import StableVideoDiffusionPipeline
-    import torch
-    
-    pipeline = StableVideoDiffusionPipeline.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-        variant="fp16" if device == 'cuda' else None
-    )
-    pipeline = pipeline.to(device)
-    if hasattr(pipeline, 'enable_memory_efficient_attention'):
-        pipeline.enable_memory_efficient_attention()
-    return pipeline
-
-
-def _create_tts_model(model_id: str, device: str, speaker_id: Optional[int] = None) -> dict:
-    """Helper function for text_to_speech model creation"""
-    import torch
-    
-    # Handle SpeechT5 models (Microsoft TTS)
-    if 'speecht5' in model_id.lower():
-        from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
-        from datasets import load_dataset
-        
-        processor = SpeechT5Processor.from_pretrained(model_id)
-        model = SpeechT5ForTextToSpeech.from_pretrained(model_id).to(device)
-        vocoder_model = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan").to(device)
-        
-        # Load speaker embeddings
-        embeddings_dataset = load_dataset("Matthijs/cmu-arctic-xvectors", split="validation")
-        speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]["xvector"]).unsqueeze(0).to(device)
-        
-        return {
-            'type': 'speecht5',
-            'processor': processor,
-            'model': model,
-            'vocoder': vocoder_model,
-            'speaker_embeddings': speaker_embeddings
-        }
-        
-    # Handle Bark models
-    elif 'bark' in model_id.lower():
-        from transformers import AutoProcessor, BarkModel
-        
-        processor = AutoProcessor.from_pretrained(model_id)
-        model = BarkModel.from_pretrained(model_id).to(device)
-        return {
-            'type': 'bark',
-            'processor': processor,
-            'model': model
-        }
-        
-    else:
-        # Generic pipeline approach
-        from transformers import pipeline
-        
-        tts_pipeline = pipeline(
-            'text-to-speech',
-            model=model_id,
-            device=0 if device == 'cuda' else -1
-        )
-        return {
-            'type': 'pipeline',
-            'pipeline': tts_pipeline
-        }
 
 
 @pxt.udf(batch_size=32)
@@ -554,7 +396,7 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
     env.Env.get().require_package('sentencepiece')
     device = resolve_torch_device('auto', allow_mps=False)  # Doesn't seem to work on 'mps'; use 'cpu' instead
     import torch
-    import torchaudio  # type: ignore[import-untyped]
+    import torchaudio  # type: ignore[import-not-found]
     from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor, Speech2TextTokenizer
 
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
@@ -620,6 +462,9 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
     return {'image': {'width': image.width, 'height': image.height}, 'annotations': annotations}
 
 
+# Now refactor all the new functions to follow sentence_transformer pattern exactly
+
+
 @pxt.udf(batch_size=8)
 def text_generation(
     text: Batch[str], *, model_id: str, max_length: int = 100, temperature: float = 0.7, do_sample: bool = True
@@ -658,7 +503,7 @@ def text_generation(
 
     model = _lookup_model(model_id, AutoModelForCausalLM.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
-    
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -669,25 +514,24 @@ def text_generation(
             max_length=max_length,
             temperature=temperature,
             do_sample=do_sample,
-            pad_token_id=tokenizer.eos_token_id
+            pad_token_id=tokenizer.eos_token_id,
         )
-        
+
     results = []
     for i, output in enumerate(outputs):
         input_length = len(inputs['input_ids'][i])
         generated_text = tokenizer.decode(output[input_length:], skip_special_tokens=True)
         results.append(generated_text)
-    
+
     return results
 
 
 @pxt.udf(batch_size=16)
-def text_classification(
-    text: Batch[str], *, model_id: str, top_k: int = 5
-) -> Batch[dict[str, Any]]:
+def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> Batch[dict[str, Any]]:
     """
     Classifies text using a pretrained classification model. `model_id` should be a reference to a pretrained
-    [text classification model](https://huggingface.co/models?pipeline_tag=text-classification) such as BERT, RoBERTa, or DistilBERT.
+    [text classification model](https://huggingface.co/models?pipeline_tag=text-classification) such as BERT,
+    RoBERTa, or DistilBERT.
 
     __Requirements:__
 
@@ -727,22 +571,25 @@ def text_classification(
 
     results = []
     for i in range(len(text)):
-        results.append({
-            'scores': [top_k_probs[i, k].item() for k in range(top_k_probs.shape[1])],
-            'labels': [top_k_indices[i, k].item() for k in range(top_k_indices.shape[1])],
-            'label_text': [model.config.id2label[top_k_indices[i, k].item()] for k in range(top_k_indices.shape[1])],
-        })
-    
+        results.append(
+            {
+                'scores': [top_k_probs[i, k].item() for k in range(top_k_probs.shape[1])],
+                'labels': [top_k_indices[i, k].item() for k in range(top_k_indices.shape[1])],
+                'label_text': [
+                    model.config.id2label[top_k_indices[i, k].item()] for k in range(top_k_indices.shape[1])
+                ],
+            }
+        )
+
     return results
 
 
 @pxt.udf(batch_size=4)
-def image_captioning(
-    image: Batch[PIL.Image.Image], *, model_id: str, max_length: int = 50
-) -> Batch[str]:
+def image_captioning(image: Batch[PIL.Image.Image], *, model_id: str, max_length: int = 50) -> Batch[str]:
     """
     Generates captions for images using a pretrained image captioning model. `model_id` should be a reference to a
-    pretrained [image-to-text model](https://huggingface.co/models?pipeline_tag=image-to-text) such as BLIP or Git.
+    pretrained [image-to-text model](https://huggingface.co/models?pipeline_tag=image-to-text) such as BLIP,
+    Git, or LLaVA.
 
     __Requirements:__
 
@@ -767,24 +614,22 @@ def image_captioning(
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import BlipForConditionalGeneration, BlipProcessor
+    from transformers import AutoModelForVision2Seq, AutoProcessor
 
-    model = _lookup_model(model_id, BlipForConditionalGeneration.from_pretrained, device=device)
-    processor = _lookup_processor(model_id, BlipProcessor.from_pretrained)
+    model = _lookup_model(model_id, AutoModelForVision2Seq.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
         inputs = processor(images=normalized_images, return_tensors='pt')
         outputs = model.generate(**inputs.to(device), max_length=max_length)
-        
+
     captions = processor.batch_decode(outputs, skip_special_tokens=True)
     return captions
 
 
 @pxt.udf(batch_size=8)
-def text_summarization(
-    text: Batch[str], *, model_id: str, max_length: int = 150, min_length: int = 30
-) -> Batch[str]:
+def text_summarization(text: Batch[str], *, model_id: str, max_length: int = 150, min_length: int = 30) -> Batch[str]:
     """
     Summarizes text using a pretrained summarization model. `model_id` should be a reference to a pretrained
     [summarization model](https://huggingface.co/models?pipeline_tag=summarization) such as BART, T5, or Pegasus.
@@ -807,7 +652,7 @@ def text_summarization(
 
         >>> tbl.add_computed_column(summary=text_summarization(
         ...     tbl.document_text,
-        ...     model_id='facebook/bart-base-cnn',
+        ...     model_id='facebook/bart-large-cnn',
         ...     max_length=100
         ... ))
     """
@@ -816,20 +661,43 @@ def text_summarization(
     import torch
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-    model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
-    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+    # Parameter validation - following best practices pattern
+    if max_length <= min_length:
+        raise excs.Error(f'max_length ({max_length}) must be greater than min_length ({min_length})')
+
+    if min_length < 1:
+        raise excs.Error(f'min_length must be at least 1, got {min_length}')
+
+    try:
+        model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
+        tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+    except Exception as e:
+        raise excs.Error(
+            f'Error loading summarization model {model_id}: {e}\n'
+            f'Try these recommended models instead:\n'
+            f'  - facebook/bart-large-cnn (CNN/DailyMail trained)\n'
+            f'  - t5-small (lightweight)\n'
+            f'  - google/pegasus-xsum (XSum trained)'
+        ) from e
 
     with torch.no_grad():
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=1024)
-        outputs = model.generate(
-            **inputs.to(device),
-            max_length=max_length,
-            min_length=min_length,
-            length_penalty=2.0,
-            num_beams=4,
-            early_stopping=True
-        )
-        
+
+        try:
+            outputs = model.generate(
+                **inputs.to(device),
+                max_length=max_length,
+                min_length=min_length,
+                length_penalty=2.0,
+                num_beams=4,
+                early_stopping=True,
+            )
+        except Exception as e:
+            raise excs.Error(
+                f'Error during text summarization with model {model_id}: {e}\n'
+                f'This may be due to input text being too long or model-specific issues.'
+            ) from e
+
     summaries = tokenizer.batch_decode(outputs, skip_special_tokens=True)
     return summaries
 
@@ -865,65 +733,126 @@ def named_entity_recognition(
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import AutoModelForTokenClassification, AutoTokenizer, pipeline
+    from transformers import AutoModelForTokenClassification, AutoTokenizer
 
-    # Use centralized caching pattern like other functions
-    ner_pipeline = _lookup_model(
-        model_id, 
-        lambda x: pipeline(
-            'ner',
-            model=x,
-            tokenizer=x,
-            aggregation_strategy=aggregation_strategy,
-            device=0 if device == 'cuda' else -1
-        ), 
-        device=device
-    )
+    # Follow direct model loading pattern like other best practice functions
+    model = _lookup_model(model_id, AutoModelForTokenClassification.from_pretrained, device=device)
+    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+
+    # Validate aggregation strategy
+    valid_strategies = {'simple', 'first', 'average', 'max'}
+    if aggregation_strategy not in valid_strategies:
+        raise excs.Error(
+            f"Invalid aggregation_strategy '{aggregation_strategy}'. Must be one of: {', '.join(valid_strategies)}"
+        )
+
     results = []
-    
-    for txt in text:
-        entities = ner_pipeline(txt)
-        # Convert to consistent format
-        formatted_entities = []
-        for entity in entities:
-            # Convert numpy types to Python types for JSON serialization
-            confidence = entity.get('score', 0.0)
-            if hasattr(confidence, 'item'):  # numpy scalar
-                confidence = confidence.item()
-            else:
-                confidence = float(confidence)
-            
-            start = entity.get('start', 0)
-            if hasattr(start, 'item'):  # numpy scalar
-                start = start.item()
-            else:
-                start = int(start)
-                
-            end = entity.get('end', 0)
-            if hasattr(end, 'item'):  # numpy scalar
-                end = end.item()
-            else:
-                end = int(end)
-            
-            formatted_entities.append({
-                'text': str(entity.get('word', '')),
-                'label': str(entity.get('entity_group', entity.get('entity', ''))),
-                'confidence': confidence,
-                'start': start,
-                'end': end
-            })
-        results.append(formatted_entities)
-    
+
+    with torch.no_grad():
+        for txt in text:
+            # Tokenize with special tokens and return offsets for entity extraction
+            inputs = tokenizer(
+                txt,
+                return_tensors='pt',
+                truncation=True,
+                max_length=512,
+                return_offsets_mapping=True,
+                add_special_tokens=True,
+            )
+
+            # Get model predictions
+            outputs = model(**{k: v.to(device) for k, v in inputs.items() if k != 'offset_mapping'})
+            predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+
+            # Get the predicted labels and confidence scores
+            predicted_token_classes = predictions.argmax(dim=-1).squeeze().tolist()
+            confidence_scores = predictions.max(dim=-1).values.squeeze().tolist()
+
+            # Handle single token case
+            if not isinstance(predicted_token_classes, list):
+                predicted_token_classes = [predicted_token_classes]
+                confidence_scores = [confidence_scores]
+
+            # Extract entities from predictions
+            entities = []
+            offset_mapping = inputs['offset_mapping'][0].tolist()
+
+            current_entity = None
+
+            for _i, (token_class, confidence, (start_offset, end_offset)) in enumerate(
+                zip(predicted_token_classes, confidence_scores, offset_mapping)
+            ):
+                # Skip special tokens (offset is (0, 0))
+                if start_offset == 0 and end_offset == 0:
+                    continue
+
+                label = model.config.id2label[token_class]
+
+                # Skip 'O' (outside) labels
+                if label == 'O':
+                    if current_entity:
+                        entities.append(current_entity)
+                        current_entity = None
+                    continue
+
+                # Parse BIO/BILOU tags
+                if label.startswith('B-') or (label.startswith('I-') and current_entity is None):
+                    # Begin new entity
+                    if current_entity:
+                        entities.append(current_entity)
+
+                    entity_type = label[2:] if label.startswith(('B-', 'I-')) else label
+                    current_entity = {
+                        'text': txt[start_offset:end_offset],
+                        'label': entity_type,
+                        'confidence': float(confidence),
+                        'start': start_offset,
+                        'end': end_offset,
+                    }
+
+                elif label.startswith('I-') and current_entity:
+                    # Continue current entity
+                    entity_type = label[2:]
+                    if current_entity['label'] == entity_type:
+                        # Extend the current entity
+                        current_entity['text'] = txt[current_entity['start'] : end_offset]
+                        current_entity['end'] = end_offset
+
+                        # Update confidence based on aggregation strategy
+                        if aggregation_strategy == 'average':
+                            # Simple average (could be improved with token count weighting)
+                            current_entity['confidence'] = (current_entity['confidence'] + float(confidence)) / 2
+                        elif aggregation_strategy == 'max':
+                            current_entity['confidence'] = max(current_entity['confidence'], float(confidence))
+                        elif aggregation_strategy == 'first':
+                            pass  # Keep first confidence
+                        # 'simple' uses the same logic as 'first'
+                    else:
+                        # Different entity type, start new entity
+                        entities.append(current_entity)
+                        current_entity = {
+                            'text': txt[start_offset:end_offset],
+                            'label': entity_type,
+                            'confidence': float(confidence),
+                            'start': start_offset,
+                            'end': end_offset,
+                        }
+
+            # Don't forget the last entity
+            if current_entity:
+                entities.append(current_entity)
+
+            results.append(entities)
+
     return results
 
 
 @pxt.udf(batch_size=8)
-def question_answering(
-    context: Batch[str], question: Batch[str], *, model_id: str
-) -> Batch[dict[str, Any]]:
+def question_answering(context: Batch[str], question: Batch[str], *, model_id: str) -> Batch[dict[str, Any]]:
     """
     Answers questions based on provided context using a pretrained QA model. `model_id` should be a reference to a
-    pretrained [question answering model](https://huggingface.co/models?pipeline_tag=question-answering) such as BERT or RoBERTa.
+    pretrained [question answering model](https://huggingface.co/models?pipeline_tag=question-answering) such as
+    BERT or RoBERTa.
 
     __Requirements:__
 
@@ -954,35 +883,38 @@ def question_answering(
     model = _lookup_model(model_id, AutoModelForQuestionAnswering.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
 
-    results = []
-    
     with torch.no_grad():
-        for ctx, q in zip(context, question):
-            inputs = tokenizer(q, ctx, return_tensors='pt', truncation=True, max_length=512)
-            outputs = model(**inputs.to(device))
-            
-            start_logits = outputs.start_logits
-            end_logits = outputs.end_logits
-            
-            start_idx = torch.argmax(start_logits)
-            end_idx = torch.argmax(end_logits)
-            
-            if end_idx >= start_idx:
-                answer_tokens = inputs['input_ids'][0][start_idx:end_idx+1]
+        # Process entire batch at once - following sentence_transformer pattern
+        inputs = tokenizer(question, context, return_tensors='pt', padding=True, truncation=True, max_length=512)
+        outputs = model(**inputs.to(device))
+
+        start_logits = outputs.start_logits
+        end_logits = outputs.end_logits
+
+        # Get best start/end positions for each item in batch
+        start_indices = torch.argmax(start_logits, dim=-1)
+        end_indices = torch.argmax(end_logits, dim=-1)
+
+        results = []
+        for i in range(len(context)):
+            start_idx = int(start_indices[i].item())
+            end_idx = int(end_indices[i].item())
+
+            if end_idx >= start_idx and start_idx < len(inputs['input_ids'][i]):
+                # Extract answer tokens
+                answer_tokens = inputs['input_ids'][i][start_idx : end_idx + 1]
                 answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
-                confidence = float(torch.softmax(start_logits, dim=-1)[0][start_idx] * 
-                                 torch.softmax(end_logits, dim=-1)[0][end_idx])
+
+                # Calculate confidence as product of start and end probabilities
+                start_probs = torch.softmax(start_logits[i], dim=-1)
+                end_probs = torch.softmax(end_logits[i], dim=-1)
+                confidence = float(start_probs[start_idx] * end_probs[end_idx])
             else:
-                answer = ""
+                answer = ''
                 confidence = 0.0
-            
-            results.append({
-                'answer': answer,
-                'confidence': confidence,
-                'start': int(start_idx),
-                'end': int(end_idx)
-            })
-    
+
+            results.append({'answer': answer.strip(), 'confidence': confidence, 'start': start_idx, 'end': end_idx})
+
     return results
 
 
@@ -1025,26 +957,51 @@ def translation(
     model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
 
-    results = []
-    
+    # Language validation - following speech2text_for_conditional_generation pattern
+    if src_lang is not None and hasattr(tokenizer, 'lang_code_to_id') and src_lang not in tokenizer.lang_code_to_id:
+        raise excs.Error(
+            f"Source language code '{src_lang}' is not supported by the model '{model_id}'. "
+            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
+        )
+
+    if tgt_lang is not None and hasattr(tokenizer, 'lang_code_to_id') and tgt_lang not in tokenizer.lang_code_to_id:
+        raise excs.Error(
+            f"Target language code '{tgt_lang}' is not supported by the model '{model_id}'. "
+            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
+        )
+
     with torch.no_grad():
-        for txt in text:
-            inputs = tokenizer(txt, return_tensors='pt', truncation=True, max_length=512)
-            outputs = model.generate(**inputs.to(device), max_length=512, num_beams=4, early_stopping=True)
-            translated = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            results.append(translated)
-    
-    return results
+        # Process entire batch at once - following sentence_transformer pattern
+        inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=512)
+
+        # Set forced_bos_token_id for target language if supported (like speech2text pattern)
+        generate_kwargs = {'max_length': 512, 'num_beams': 4, 'early_stopping': True}
+
+        if tgt_lang is not None and hasattr(tokenizer, 'lang_code_to_id'):
+            generate_kwargs['forced_bos_token_id'] = tokenizer.lang_code_to_id.get(tgt_lang)
+
+        outputs = model.generate(**inputs.to(device), **generate_kwargs)
+
+    # Decode all outputs at once
+    translations = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+    return translations
 
 
 @pxt.udf(batch_size=2)
 def text_to_image(
-    prompt: Batch[str], *, model_id: str, height: int = 512, width: int = 512, 
-    num_inference_steps: int = 20, guidance_scale: float = 7.5, seed: Optional[int] = None
+    prompt: Batch[str],
+    *,
+    model_id: str,
+    height: int = 512,
+    width: int = 512,
+    num_inference_steps: int = 20,
+    guidance_scale: float = 7.5,
+    seed: Optional[int] = None,
 ) -> Batch[PIL.Image.Image]:
     """
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
-    pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as Stable Diffusion or FLUX.
+    pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as
+    Stable Diffusion or FLUX.
 
     This is a **generic function** that works with diffusers-compatible models. For production use or
     specific API integrations, consider specialized functions like `openai.image_generations()`.
@@ -1086,45 +1043,99 @@ def text_to_image(
     env.Env.get().require_package('diffusers')
     env.Env.get().require_package('accelerate')
     device = resolve_torch_device('auto')
+
     import torch
     from diffusers import AutoPipelineForText2Image
-    import random
 
-    # Use centralized caching pattern like other functions
-    pipeline = _lookup_model(model_id, lambda x: _create_text2img_pipeline(x, device), device=device)
-    results = []
-    
-    # Set seed for reproducibility if provided
+    # Parameter validation - following best practices pattern
+    if height <= 0 or width <= 0:
+        raise excs.Error(f'Height ({height}) and width ({width}) must be positive integers')
+
+    if height % 8 != 0 or width % 8 != 0:
+        raise excs.Error(f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models')
+
+    if num_inference_steps < 1:
+        raise excs.Error(f'num_inference_steps must be at least 1, got {num_inference_steps}')
+
+    if guidance_scale < 0:
+        raise excs.Error(f'guidance_scale must be non-negative, got {guidance_scale}')
+
+    # Model loading with error handling - following best practices pattern
+    try:
+        pipeline = _lookup_model(
+            model_id,
+            lambda x: AutoPipelineForText2Image.from_pretrained(
+                x,
+                torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+                device_map='auto' if device == 'cuda' else None,
+                safety_checker=None,  # Disable safety checker for performance
+                requires_safety_checker=False,
+            ),
+            device=device,
+        )
+    except Exception as e:
+        raise excs.Error(
+            f'Error loading text-to-image model {model_id}: {e}\n'
+            f'Try these recommended models instead:\n'
+            f'  - runwayml/stable-diffusion-v1-5 (balanced quality/speed)\n'
+            f'  - stabilityai/stable-diffusion-2-1 (improved quality)\n'
+            f'  - CompVis/stable-diffusion-v1-4 (classic)'
+        ) from e
+
+    # Enable optimizations once - following best practices
+    try:
+        if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
+            pipeline.enable_model_cpu_offload()
+        if hasattr(pipeline, 'enable_memory_efficient_attention'):
+            pipeline.enable_memory_efficient_attention()
+    except Exception:
+        pass  # Ignore optimization failures
+
+    # Set global random seed if provided - following best practices pattern
+    generator = None
     if seed is not None:
-        torch.manual_seed(seed)
-        random.seed(seed)
-    
+        generator = torch.Generator(device=device).manual_seed(seed)
+
+    results = []
+
     for prompt_text in prompt:
         try:
-            # Generate image
-            image = pipeline(
-                prompt_text,
-                height=height,
-                width=width,
-                num_inference_steps=num_inference_steps,
-                guidance_scale=guidance_scale
-            ).images[0]
-            
-            results.append(image)
-            
-        except Exception as e:
-            # Return a blank image on error to maintain batch consistency
-            import PIL.Image
-            blank_image = PIL.Image.new('RGB', (width, height), (128, 128, 128))
-            results.append(blank_image)
-    
+            # Input validation per prompt
+            if not prompt_text or not prompt_text.strip():
+                # Return a minimal default image for empty prompts
+                import PIL.Image
+
+                default_image = PIL.Image.new('RGB', (width, height), (240, 240, 240))
+                results.append(default_image)
+                continue
+
+            # Generate image with proper error handling
+            with torch.no_grad():
+                result = pipeline(
+                    prompt_text.strip(),
+                    height=height,
+                    width=width,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                )
+
+                if hasattr(result, 'images') and len(result.images) > 0:
+                    image = result.images[0]
+                    results.append(image)
+                else:
+                    raise excs.Error('Pipeline returned no images')
+
+        except Exception:
+            # Better error handling - return None instead of blank image
+            results.append(None)
+
     return results
 
 
 @pxt.udf(batch_size=4)
 def text_to_speech(
-    text: Batch[str], *, model_id: str, speaker_id: Optional[int] = None, 
-    vocoder: Optional[str] = None
+    text: Batch[str], *, model_id: str, speaker_id: Optional[int] = None, vocoder: Optional[str] = None
 ) -> Batch[pxt.Audio]:
     """
     Converts text to speech using a pretrained TTS model. `model_id` should be a reference to a
@@ -1156,115 +1167,124 @@ def text_to_speech(
     env.Env.get().require_package('datasets')
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
-    import torch
     import numpy as np
     import soundfile as sf
+    import torch
 
-    # Use centralized caching pattern like other functions
-    cached_model = _lookup_model(model_id, lambda x: _create_tts_model(x, device, speaker_id), device=device)
-    results = []
-    
-    for text_input in text:
+    # Model loading with error handling - following best practices pattern
+    try:
+        if 'speecht5' in model_id.lower():
+            from transformers import SpeechT5ForTextToSpeech, SpeechT5HifiGan, SpeechT5Processor
+
+            model = _lookup_model(model_id, SpeechT5ForTextToSpeech.from_pretrained, device=device)
+            processor = _lookup_processor(model_id, SpeechT5Processor.from_pretrained)
+            vocoder_model = _lookup_model('microsoft/speecht5_hifigan', SpeechT5HifiGan.from_pretrained, device=device)
+
+        elif 'bark' in model_id.lower():
+            from transformers import AutoProcessor, BarkModel
+
+            model = _lookup_model(model_id, BarkModel.from_pretrained, device=device)
+            processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+            vocoder_model = None
+
+        else:
+            # Generic fallback using Auto classes - following best practices
+            from transformers import AutoModelForTextToWaveform, AutoProcessor
+
+            try:
+                model = _lookup_model(model_id, AutoModelForTextToWaveform.from_pretrained, device=device)
+                processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+                vocoder_model = None
+            except Exception:
+                raise excs.Error(
+                    f'TTS model {model_id} not supported. Try these recommended models:\n'
+                    f'  - microsoft/speecht5_tts (high quality)\n'
+                    f'  - suno/bark (expressive)\n'
+                    f'  - facebook/mms-tts (multilingual)'
+                ) from None
+
+    except Exception as e:
+        raise excs.Error(
+            f'Error loading TTS model {model_id}: {e}\n'
+            f'Try these recommended models instead:\n'
+            f'  - microsoft/speecht5_tts (high quality)\n'
+            f'  - suno/bark (expressive)\n'
+            f'  - facebook/mms-tts (multilingual)'
+        ) from e
+
+    # Load speaker embeddings once for SpeechT5 (following speech2text pattern)
+    speaker_embeddings = None
+    if 'speecht5' in model_id.lower():
         try:
-            # Handle SpeechT5 models (Microsoft TTS)
-            if cached_model['type'] == 'speecht5':
-                processor = cached_model['processor']
-                model = cached_model['model']
-                vocoder_model = cached_model['vocoder']
-                speaker_embeddings = cached_model['speaker_embeddings']
-                
-                # Generate speech
-                inputs = processor(text=text_input, return_tensors="pt").to(device)
-                
-                with torch.no_grad():
-                    speech = model.generate_speech(inputs["input_ids"], speaker_embeddings, vocoder=vocoder_model)
-                
-                # Convert to numpy and normalize
-                audio_np = speech.cpu().numpy()
-                
-                # Ensure audio is in the right range and format
-                if audio_np.dtype != np.float32:
-                    audio_np = audio_np.astype(np.float32)
-                
-                # Normalize audio to prevent clipping
-                if np.max(np.abs(audio_np)) > 0:
-                    audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
-                
-                # Create temporary WAV file
-                output_filename = str(env.Env.get().create_tmp_path('.wav'))
-                sf.write(output_filename, audio_np, 16000, format='WAV', subtype='PCM_16')
-                results.append(output_filename)
-                
-            # Handle Bark models
-            elif cached_model['type'] == 'bark':
-                processor = cached_model['processor']
-                model = cached_model['model']
-                
-                # Generate speech
-                inputs = processor(text_input, return_tensors="pt").to(device)
-                
-                with torch.no_grad():
+            from datasets import load_dataset
+
+            embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
+            speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
+        except Exception as e:
+            raise excs.Error(f'Error loading speaker embeddings for SpeechT5: {e}') from e
+
+    results: list[pxt.Audio] = []
+
+    # Process each text input - following pattern from other functions
+    with torch.no_grad():
+        for text_input in text:
+            try:
+                if not text_input or not text_input.strip():
+                    results.append(None)
+                    continue
+
+                # Generate speech based on model type
+                if 'speecht5' in model_id.lower():
+                    inputs = processor(text=text_input, return_tensors='pt').to(device)
+                    speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)
+                    audio_np = speech.cpu().numpy()
+                    sample_rate = 16000
+
+                elif 'bark' in model_id.lower():
+                    inputs = processor(text_input, return_tensors='pt').to(device)
                     audio_array = model.generate(**inputs)
-                
-                # Convert to numpy
-                audio_np = audio_array.cpu().numpy().squeeze()
-                
-                # Ensure proper format
+                    audio_np = audio_array.cpu().numpy().squeeze()
+                    sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
+
+                else:
+                    # Generic approach for other TTS models
+                    inputs = processor(text_input, return_tensors='pt').to(device)
+                    audio_output = model(**inputs)
+                    audio_np = audio_output.waveform.cpu().numpy().squeeze()
+                    sample_rate = getattr(model.config, 'sample_rate', 22050)
+
+                # Normalize audio - following consistent pattern
                 if audio_np.dtype != np.float32:
                     audio_np = audio_np.astype(np.float32)
-                
-                # Normalize audio
+
                 if np.max(np.abs(audio_np)) > 0:
                     audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
-                
-                # Bark typically uses 24kHz sample rate
-                sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
-                
-                # Create temporary WAV file
+
+                # Create output file
                 output_filename = str(env.Env.get().create_tmp_path('.wav'))
                 sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
                 results.append(output_filename)
-                
-            else:
-                # Generic pipeline approach
-                tts_pipeline = cached_model['pipeline']
-                
-                # Generate speech
-                speech_output = tts_pipeline(text_input)
-                
-                # Extract audio data
-                audio_data = speech_output['audio']
-                sample_rate = speech_output['sampling_rate']
-                
-                # Ensure numpy array
-                if not isinstance(audio_data, np.ndarray):
-                    audio_data = np.array(audio_data)
-                
-                # Ensure proper format
-                if audio_data.dtype != np.float32:
-                    audio_data = audio_data.astype(np.float32)
-                
-                # Create temporary WAV file
-                output_filename = str(env.Env.get().create_tmp_path('.wav'))
-                sf.write(output_filename, audio_data, sample_rate, format='WAV', subtype='PCM_16')
-                results.append(output_filename)
-                
-        except Exception as e:
-            # Return None on error
-            results.append(None)
-    
+
+            except Exception:
+                results.append(None)
+
     return results
 
 
 @pxt.udf(batch_size=2)
 def image_to_image(
-    image: Batch[PIL.Image.Image], prompt: Batch[str], *, model_id: str, 
-    strength: float = 0.75, guidance_scale: float = 7.5, num_inference_steps: int = 20, 
-    seed: Optional[int] = None
+    image: Batch[PIL.Image.Image],
+    prompt: Batch[str],
+    *,
+    model_id: str,
+    strength: float = 0.75,
+    guidance_scale: float = 7.5,
+    num_inference_steps: int = 20,
+    seed: Optional[int] = None,
 ) -> Batch[PIL.Image.Image]:
     """
-    Transforms input images based on text prompts using a pretrained image-to-image model. 
-    `model_id` should be a reference to a pretrained 
+    Transforms input images based on text prompts using a pretrained image-to-image model.
+    `model_id` should be a reference to a pretrained
     [image-to-image model](https://huggingface.co/models?pipeline_tag=image-to-image).
 
     __Requirements:__
@@ -1298,65 +1318,117 @@ def image_to_image(
     device = resolve_torch_device('auto')
     import torch
     from diffusers import StableDiffusionImg2ImgPipeline
-    
-    # Use centralized caching pattern like other functions
-    pipe = _lookup_model(model_id, lambda x: _create_img2img_pipeline(x, device), device=device)
-    
-    # Set random seed if provided
+
+    # Parameter validation - following best practices pattern
+    if not (0.0 <= strength <= 1.0):
+        raise excs.Error(f'strength must be between 0.0 and 1.0, got {strength}')
+
+    if guidance_scale < 0:
+        raise excs.Error(f'guidance_scale must be non-negative, got {guidance_scale}')
+
+    if num_inference_steps < 1:
+        raise excs.Error(f'num_inference_steps must be at least 1, got {num_inference_steps}')
+
+    # Model loading with error handling - following best practices pattern
+    try:
+        pipe = _lookup_model(
+            model_id,
+            lambda x: StableDiffusionImg2ImgPipeline.from_pretrained(
+                x,
+                torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+                safety_checker=None,
+                requires_safety_checker=False,
+            ),
+            device=device,
+        )
+    except Exception as e:
+        raise excs.Error(
+            f'Error loading image-to-image model {model_id}: {e}\n'
+            f'Try these recommended models instead:\n'
+            f'  - runwayml/stable-diffusion-v1-5 (general purpose)\n'
+            f'  - stabilityai/stable-diffusion-2-1 (improved quality)\n'
+            f'  - CompVis/stable-diffusion-v1-4 (classic)'
+        ) from e
+
+    # Apply optimizations with error handling - following best practices
+    try:
+        if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
+            pipe.enable_model_cpu_offload()
+        if hasattr(pipe, 'enable_memory_efficient_attention'):
+            pipe.enable_memory_efficient_attention()
+    except Exception:
+        pass  # Ignore optimization failures
+
+    # Set random seed if provided - following best practices pattern
     generator = None
     if seed is not None:
         generator = torch.Generator(device=device).manual_seed(seed)
-    
-    results = []
+
+    results: list[PIL.Image.Image | None] = []
     for input_image, prompt_text in zip(image, prompt):
         try:
+            # Input validation per item
             if input_image is None:
                 results.append(None)
                 continue
-                
+
+            if not prompt_text or not prompt_text.strip():
+                # For empty prompts, return original image
+                results.append(input_image)
+                continue
+
             # Ensure image is in RGB mode
             if input_image.mode != 'RGB':
                 input_image = input_image.convert('RGB')
-            
-            # Transform image
+
+            # Transform image with proper error handling
             with torch.no_grad():
                 result = pipe(
-                    prompt=prompt_text,
+                    prompt=prompt_text.strip(),
                     image=input_image,
                     strength=strength,
                     guidance_scale=guidance_scale,
                     num_inference_steps=num_inference_steps,
-                    generator=generator
+                    generator=generator,
                 )
-                transformed_image = result.images[0]
-                results.append(transformed_image)
-        except Exception as e:
+
+                if hasattr(result, 'images') and len(result.images) > 0:
+                    transformed_image = result.images[0]
+                    results.append(transformed_image)
+                else:
+                    raise excs.Error('Pipeline returned no images')
+
+        except Exception:
             results.append(None)
-    
+
     return results
 
 
 @pxt.udf(batch_size=4)
 def automatic_speech_recognition(
-    audio: Batch[pxt.Audio], *, model_id: str, language: Optional[str] = None, 
-    chunk_length_s: Optional[int] = None, return_timestamps: bool = False
+    audio: Batch[pxt.Audio],
+    *,
+    model_id: str,
+    language: Optional[str] = None,
+    chunk_length_s: Optional[int] = None,
+    return_timestamps: bool = False,
 ) -> Batch[str]:
     """
     Transcribes speech to text using a pretrained ASR model. `model_id` should be a reference to a
     pretrained [automatic-speech-recognition model](https://huggingface.co/models?pipeline_tag=automatic-speech-recognition).
 
     This is a **generic function** that works with many ASR model families. For production use with
-    specific models, consider specialized functions like `whisper.transcribe()` or 
+    specific models, consider specialized functions like `whisper.transcribe()` or
     `speech2text_for_conditional_generation()`.
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch transformers torchaudio`
 
     __Recommended Models:__
 
     - **OpenAI Whisper**: `openai/whisper-tiny.en`, `openai/whisper-small`, `openai/whisper-base`
-    - **Facebook Wav2Vec2**: `facebook/wav2vec2-base-960h`, `facebook/wav2vec2-large-960h-lv60-self`  
+    - **Facebook Wav2Vec2**: `facebook/wav2vec2-base-960h`, `facebook/wav2vec2-large-960h-lv60-self`
     - **Microsoft SpeechT5**: `microsoft/speecht5_asr`
     - **Meta MMS (Multilingual)**: `facebook/mms-1b-all`
 
@@ -1387,79 +1459,140 @@ def automatic_speech_recognition(
         ... ))
     """
     env.Env.get().require_package('transformers')
-    device = resolve_torch_device('auto')
-    from transformers import pipeline
-    
-    # Use centralized caching pattern like other functions
-    def create_asr_pipeline_fn(x: str) -> Any:
-        try:
-            pipeline_kwargs = {
-                'task': 'automatic-speech-recognition',
-                'model': x,
-                'device': 0 if device == 'cuda' else -1
-            }
-            
-            # Add language if specified
-            if language:
-                pipeline_kwargs['model_kwargs'] = {'language': language}
-            
-            return pipeline(**pipeline_kwargs)
-        except Exception as e:
-            raise excs.Error(
-                f'Error loading ASR model {x}: {e}\n'
-                f'Try these recommended models instead:\n'
-                f'  - openai/whisper-tiny.en (lightweight)\n'  
-                f'  - facebook/wav2vec2-base-960h (English)\n'
-                f'  - facebook/mms-1b-all (multilingual)'
-            )
-    
-    # Create cache key that includes language for proper caching
-    cache_key_suffix = f"_{language}" if language else ""
-    cache_model_id = f"{model_id}{cache_key_suffix}"
-    asr_pipeline = _lookup_model(cache_model_id, create_asr_pipeline_fn, device=device)
-    
+    env.Env.get().require_package('torchaudio')
+    device = resolve_torch_device('auto', allow_mps=False)  # Following speech2text pattern
+    import torch
+    import torchaudio
+
+    # Try to load model and processor using direct model loading - following speech2text pattern
+    try:
+        # Handle different ASR model types
+        if 'whisper' in model_id.lower():
+            from transformers import WhisperForConditionalGeneration, WhisperProcessor
+
+            model = _lookup_model(model_id, WhisperForConditionalGeneration.from_pretrained, device=device)
+            processor = _lookup_processor(model_id, WhisperProcessor.from_pretrained)
+
+            # Language validation for Whisper - following speech2text pattern
+            if language is not None and hasattr(processor.tokenizer, 'get_decoder_prompt_ids'):
+                try:
+                    # Test if language is supported
+                    _ = processor.tokenizer.get_decoder_prompt_ids(language=language)
+                except Exception:
+                    raise excs.Error(
+                        f"Language code '{language}' is not supported by Whisper model '{model_id}'. "
+                        f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'."
+                    ) from None
+
+        elif 'wav2vec2' in model_id.lower():
+            from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+            model = _lookup_model(model_id, Wav2Vec2ForCTC.from_pretrained, device=device)
+            processor = _lookup_processor(model_id, Wav2Vec2Processor.from_pretrained)
+
+        elif 'speech_to_text' in model_id.lower() or 's2t' in model_id.lower():
+            # Use the existing speech2text function for these models
+            from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
+
+            model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
+            processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
+
+        else:
+            # Generic fallback using Auto classes
+            from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+
+            try:
+                model = _lookup_model(model_id, AutoModelForSpeechSeq2Seq.from_pretrained, device=device)
+                processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+            except Exception:
+                # Fallback to CTC models
+                from transformers import AutoModelForCTC
+
+                model = _lookup_model(model_id, AutoModelForCTC.from_pretrained, device=device)
+                processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+
+    except Exception as e:
+        raise excs.Error(
+            f'Error loading ASR model {model_id}: {e}\n'
+            f'Try these recommended models instead:\n'
+            f'  - openai/whisper-tiny.en (lightweight)\n'
+            f'  - facebook/wav2vec2-base-960h (English)\n'
+            f'  - facebook/mms-1b-all (multilingual)'
+        ) from e
+
     results = []
+
+    # Get model's expected sampling rate - following speech2text pattern
+    model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
+
     for audio_file in audio:
         try:
             if audio_file is None:
-                results.append(None)
+                results.append('')
                 continue
-            
-            # Prepare pipeline arguments
-            pipeline_args = {}
-            if chunk_length_s is not None:
-                pipeline_args['chunk_length_s'] = chunk_length_s
-            if return_timestamps:
-                pipeline_args['return_timestamps'] = return_timestamps
-            
-            # Transcribe audio
-            result = asr_pipeline(audio_file, **pipeline_args)
-            
-            # Extract text from result
-            if isinstance(result, dict):
-                transcription = result.get('text', '')
-            elif isinstance(result, str):
-                transcription = result
-            else:
-                transcription = str(result)
-            
+
+            # Load and preprocess audio - following speech2text pattern
+            waveform, sampling_rate = torchaudio.load(audio_file)
+
+            # Resample if necessary
+            if sampling_rate != model_sampling_rate:
+                waveform = torchaudio.transforms.Resample(sampling_rate, model_sampling_rate)(waveform)
+
+            # Convert to mono if stereo
+            if waveform.dim() == 2:
+                waveform = torch.mean(waveform, dim=0)
+            assert waveform.dim() == 1
+
+            with torch.no_grad():
+                # Process audio with the model
+                inputs = processor(waveform, sampling_rate=model_sampling_rate, return_tensors='pt')
+
+                # Handle different model types for generation
+                if 'whisper' in model_id.lower():
+                    # Whisper-specific generation
+                    generate_kwargs = {}
+                    if language is not None:
+                        generate_kwargs['language'] = language
+                    if return_timestamps:
+                        generate_kwargs['return_timestamps'] = 'word' if return_timestamps else None
+
+                    generated_ids = model.generate(**inputs.to(device), **generate_kwargs)
+                    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+                elif hasattr(model, 'generate'):
+                    # Seq2Seq models (Speech2Text, etc.)
+                    generated_ids = model.generate(**inputs.to(device))
+                    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+                else:
+                    # CTC models (Wav2Vec2, etc.)
+                    logits = model(**inputs.to(device)).logits
+                    predicted_ids = torch.argmax(logits, dim=-1)
+                    transcription = processor.batch_decode(predicted_ids)[0]
+
             results.append(transcription.strip())
-            
-        except Exception as e:
-            results.append(None)
-    
+
+        except Exception:
+            # Follow speech2text pattern - append empty string on error rather than None
+            results.append('')
+
     return results
 
 
 @pxt.udf(batch_size=1)
 def image_to_video(
-    image: Batch[PIL.Image.Image], *, model_id: str, num_frames: int = 25, 
-    fps: int = 7, num_inference_steps: int = 25, motion_scale: float = 1.3,
-    seed: Optional[int] = None
+    image: Batch[PIL.Image.Image],
+    *,
+    model_id: str,
+    num_frames: int = 25,
+    fps: int = 7,
+    num_inference_steps: int = 25,
+    motion_scale: float = 1.3,
+    seed: Optional[int] = None,
 ) -> Batch[pxt.Video]:
     """
-    Generates videos from input images using a pretrained image-to-video model. 
-    `model_id` should be a reference to a pretrained 
+    Generates videos from input images using a pretrained image-to-video model.
+    `model_id` should be a reference to a pretrained
     [image-to-video model](https://huggingface.co/models?pipeline_tag=image-to-video).
 
     __Requirements:__
@@ -1492,80 +1625,143 @@ def image_to_video(
     env.Env.get().require_package('diffusers')
     env.Env.get().require_package('accelerate')
     device = resolve_torch_device('auto')
-    import torch
-    import av
     import numpy as np
+    import torch
+
+    # Check for av package separately since it's more specialized
+    try:
+        import av
+    except ImportError:
+        raise excs.Error(
+            'The "av" package is required for video generation. Install it with:\npip install av'
+        ) from None
+
     from diffusers import StableVideoDiffusionPipeline
-    
-    # Use centralized caching pattern like other functions
-    pipe = _lookup_model(model_id, lambda x: _create_img2vid_pipeline(x, device), device=device)
-    
-    # Set random seed if provided
+
+    # Parameter validation - following best practices pattern
+    if num_frames < 1:
+        raise excs.Error(f'num_frames must be at least 1, got {num_frames}')
+
+    if num_frames > 25:
+        raise excs.Error(f'num_frames cannot exceed 25 for most video diffusion models, got {num_frames}')
+
+    if fps < 1:
+        raise excs.Error(f'fps must be at least 1, got {fps}')
+
+    if fps > 60:
+        raise excs.Error(f'fps should not exceed 60 for reasonable video generation, got {fps}')
+
+    if num_inference_steps < 1:
+        raise excs.Error(f'num_inference_steps must be at least 1, got {num_inference_steps}')
+
+    if not (0.0 <= motion_scale <= 10.0):
+        raise excs.Error(f'motion_scale should be between 0.0 and 10.0, got {motion_scale}')
+
+    # Model loading with error handling - following best practices pattern
+    try:
+        pipe = _lookup_model(
+            model_id,
+            lambda x: StableVideoDiffusionPipeline.from_pretrained(
+                x,
+                torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+                variant='fp16' if device == 'cuda' else None,
+            ),
+            device=device,
+        )
+    except Exception as e:
+        raise excs.Error(
+            f'Error loading image-to-video model {model_id}: {e}\n'
+            f'Try these recommended models instead:\n'
+            f'  - stabilityai/stable-video-diffusion-img2vid-xt (recommended)\n'
+            f'  - stabilityai/stable-video-diffusion-img2vid (lightweight)\n'
+            f'Note: Image-to-video models require significant GPU memory'
+        ) from e
+
+    # Apply optimizations with error handling - following best practices
+    try:
+        if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
+            pipe.enable_model_cpu_offload()
+        if hasattr(pipe, 'enable_memory_efficient_attention'):
+            pipe.enable_memory_efficient_attention()
+    except Exception:
+        pass  # Ignore optimization failures
+
+    # Set random seed if provided - following best practices pattern
     generator = None
     if seed is not None:
         generator = torch.Generator(device=device).manual_seed(seed)
-    
-    results = []
+
+    results: list[pxt.Video | None] = []
     for input_image in image:
         try:
+            # Input validation per item
             if input_image is None:
                 results.append(None)
                 continue
-            
+
             # Ensure image is in RGB mode and proper size
             if input_image.mode != 'RGB':
                 input_image = input_image.convert('RGB')
-            
+
             # Resize image to model requirements (using smaller resolution to save memory)
-            width, height = input_image.size
+            _width, _height = input_image.size
             # Use smaller resolution for better memory efficiency
             target_width, target_height = 512, 320  # Reduced from 1024x576
             input_image = input_image.resize((target_width, target_height), PIL.Image.Resampling.LANCZOS)
-            
-            # Generate video frames
+
+            # Generate video frames with proper error handling
             with torch.no_grad():
-                frames = pipe(
+                result = pipe(
                     image=input_image,
                     decode_chunk_size=8,
                     generator=generator,
                     motion_bucket_id=int(motion_scale * 100),  # Controls motion intensity (0-255)
                     noise_aug_strength=0.02,
                     num_inference_steps=num_inference_steps,
-                    num_frames=min(num_frames, 25)  # SVD typically supports up to 25 frames
-                ).frames[0]
-            
+                    num_frames=num_frames,
+                )
+
+                if hasattr(result, 'frames') and len(result.frames) > 0:
+                    frames = result.frames[0]
+                else:
+                    raise excs.Error('Pipeline returned no frames')
+
             # Create output video file
             output_path = str(env.Env.get().create_tmp_path('.mp4'))
-            
-            # Write frames to video using av
-            with av.open(output_path, mode='w') as container:
-                stream = container.add_stream('h264', rate=fps)
-                stream.width = target_width
-                stream.height = target_height  
-                stream.pix_fmt = 'yuv420p'
-                
-                for frame_pil in frames:
-                    # Convert PIL to numpy array
-                    frame_array = np.array(frame_pil)
-                    # Create av VideoFrame
-                    av_frame = av.VideoFrame.from_ndarray(frame_array, format='rgb24')
-                    # Encode and mux
-                    for packet in stream.encode(av_frame):
+
+            # Write frames to video using av with better error handling
+            try:
+                with av.open(output_path, mode='w') as container:
+                    stream = container.add_stream('h264', rate=fps)
+                    stream.width = target_width
+                    stream.height = target_height
+                    stream.pix_fmt = 'yuv420p'
+
+                    # Set codec options for better compatibility
+                    stream.codec_context.options = {'crf': '23', 'preset': 'medium'}
+
+                    for frame_pil in frames:
+                        # Convert PIL to numpy array
+                        frame_array = np.array(frame_pil)
+                        # Create av VideoFrame
+                        av_frame = av.VideoFrame.from_ndarray(frame_array, format='rgb24')
+                        # Encode and mux
+                        for packet in stream.encode(av_frame):
+                            container.mux(packet)
+
+                    # Flush encoder
+                    for packet in stream.encode():
                         container.mux(packet)
-                
-                # Flush encoder
-                for packet in stream.encode():
-                    container.mux(packet)
-            
+
+            except Exception as video_error:
+                raise excs.Error(f'Error creating video file: {video_error}') from video_error
+
             results.append(output_path)
-            
-        except Exception as e:
+
+        except Exception:
             results.append(None)
-    
+
     return results
-
-
-T = TypeVar('T')
 
 
 def _lookup_model(
