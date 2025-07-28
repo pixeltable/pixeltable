@@ -80,6 +80,7 @@
       "group": "Welcome to Pixeltable",
       "pages": [
         "docs/overview/pixeltable",
+        "docs/overview/understanding-pixeltable",
         "docs/overview/installation",
         "docs/overview/configuration",
         "docs/overview/quick-start",

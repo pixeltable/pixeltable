@@ -460,6 +460,591 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
     return {'image': {'width': image.width, 'height': image.height}, 'annotations': annotations}
 
 
+@pxt.udf(batch_size=8)
+def text_generation(
+    text: Batch[str], *, model_id: str, max_length: int = 100, temperature: float = 0.7, do_sample: bool = True
+) -> Batch[str]:
+    """
+    Generates text using a pretrained language model. `model_id` should be a reference to a pretrained
+    [text generation model](https://huggingface.co/models?pipeline_tag=text-generation) such as GPT-2, GPT-J, or T5.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        text: The input text to continue/complete.
+        model_id: The pretrained model to use for text generation.
+        max_length: Maximum length of the generated text.
+        temperature: Controls randomness in generation (lower = more deterministic).
+        do_sample: Whether to use sampling for generation.
+
+    Returns:
+        The generated text completion.
+
+    Examples:
+        Add a computed column that generates text completions using GPT-2:
+
+        >>> tbl.add_computed_column(completion=text_generation(
+        ...     tbl.prompt,
+        ...     model_id='gpt2-medium',
+        ...     max_length=150
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    model = _lookup_model(model_id, AutoModelForCausalLM.from_pretrained, device=device)
+    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+    
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    with torch.no_grad():
+        inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+        outputs = model.generate(
+            **inputs.to(device),
+            max_length=max_length,
+            temperature=temperature,
+            do_sample=do_sample,
+            pad_token_id=tokenizer.eos_token_id
+        )
+        
+    results = []
+    for i, output in enumerate(outputs):
+        input_length = len(inputs['input_ids'][i])
+        generated_text = tokenizer.decode(output[input_length:], skip_special_tokens=True)
+        results.append(generated_text)
+    
+    return results
+
+
+@pxt.udf(batch_size=16)
+def text_classification(
+    text: Batch[str], *, model_id: str, top_k: int = 5
+) -> Batch[dict[str, Any]]:
+    """
+    Classifies text using a pretrained classification model. `model_id` should be a reference to a pretrained
+    [text classification model](https://huggingface.co/models?pipeline_tag=text-classification) such as BERT, RoBERTa, or DistilBERT.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        text: The text to classify.
+        model_id: The pretrained model to use for classification.
+        top_k: The number of top predictions to return.
+
+    Returns:
+        A dictionary containing classification results with scores, labels, and label text.
+
+    Examples:
+        Add a computed column for sentiment analysis:
+
+        >>> tbl.add_computed_column(sentiment=text_classification(
+        ...     tbl.review_text,
+        ...     model_id='cardiffnlp/twitter-roberta-base-sentiment-latest'
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    model = _lookup_model(model_id, AutoModelForSequenceClassification.from_pretrained, device=device)
+    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+
+    with torch.no_grad():
+        inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=512)
+        outputs = model(**inputs.to(device))
+        logits = outputs.logits
+
+    probs = torch.softmax(logits, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, logits.shape[-1]), dim=-1)
+
+    results = []
+    for i in range(len(text)):
+        results.append({
+            'scores': [top_k_probs[i, k].item() for k in range(top_k_probs.shape[1])],
+            'labels': [top_k_indices[i, k].item() for k in range(top_k_indices.shape[1])],
+            'label_text': [model.config.id2label[top_k_indices[i, k].item()] for k in range(top_k_indices.shape[1])],
+        })
+    
+    return results
+
+
+@pxt.udf(batch_size=4)
+def image_captioning(
+    image: Batch[PIL.Image.Image], *, model_id: str, max_length: int = 50
+) -> Batch[str]:
+    """
+    Generates captions for images using a pretrained image captioning model. `model_id` should be a reference to a
+    pretrained [image-to-text model](https://huggingface.co/models?pipeline_tag=image-to-text) such as BLIP or Git.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        image: The image to caption.
+        model_id: The pretrained model to use for captioning.
+        max_length: Maximum length of the generated caption.
+
+    Returns:
+        The generated caption text.
+
+    Examples:
+        Add a computed column that generates captions for images:
+
+        >>> tbl.add_computed_column(caption=image_captioning(
+        ...     tbl.image,
+        ...     model_id='Salesforce/blip-image-captioning-base'
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import BlipForConditionalGeneration, BlipProcessor
+
+    model = _lookup_model(model_id, BlipForConditionalGeneration.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, BlipProcessor.from_pretrained)
+    normalized_images = [normalize_image_mode(img) for img in image]
+
+    with torch.no_grad():
+        inputs = processor(images=normalized_images, return_tensors='pt')
+        outputs = model.generate(**inputs.to(device), max_length=max_length)
+        
+    captions = processor.batch_decode(outputs, skip_special_tokens=True)
+    return captions
+
+
+@pxt.udf(batch_size=8)
+def text_summarization(
+    text: Batch[str], *, model_id: str, max_length: int = 150, min_length: int = 30
+) -> Batch[str]:
+    """
+    Summarizes text using a pretrained summarization model. `model_id` should be a reference to a pretrained
+    [summarization model](https://huggingface.co/models?pipeline_tag=summarization) such as BART, T5, or Pegasus.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        text: The text to summarize.
+        model_id: The pretrained model to use for summarization.
+        max_length: Maximum length of the summary.
+        min_length: Minimum length of the summary.
+
+    Returns:
+        The generated summary text.
+
+    Examples:
+        Add a computed column that summarizes documents:
+
+        >>> tbl.add_computed_column(summary=text_summarization(
+        ...     tbl.document_text,
+        ...     model_id='facebook/bart-base-cnn',
+        ...     max_length=100
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
+    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+
+    with torch.no_grad():
+        inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=1024)
+        outputs = model.generate(
+            **inputs.to(device),
+            max_length=max_length,
+            min_length=min_length,
+            length_penalty=2.0,
+            num_beams=4,
+            early_stopping=True
+        )
+        
+    summaries = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+    return summaries
+
+
+@pxt.udf(batch_size=16)
+def named_entity_recognition(
+    text: Batch[str], *, model_id: str, aggregation_strategy: str = 'simple'
+) -> Batch[list[dict[str, Any]]]:
+    """
+    Extracts named entities from text using a pretrained NER model. `model_id` should be a reference to a pretrained
+    [token classification model](https://huggingface.co/models?pipeline_tag=token-classification) for NER.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        text: The text to analyze for named entities.
+        model_id: The pretrained NER model to use.
+        aggregation_strategy: How to aggregate tokens ('simple', 'first', 'average', 'max').
+
+    Returns:
+        A list of dictionaries containing entity information (text, label, confidence, start, end).
+
+    Examples:
+        Add a computed column that extracts named entities:
+
+        >>> tbl.add_computed_column(entities=named_entity_recognition(
+        ...     tbl.text,
+        ...     model_id='dbmdz/bert-large-cased-finetuned-conll03-english'
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import AutoModelForTokenClassification, AutoTokenizer, pipeline
+
+    # For NER, we use the pipeline for easier entity aggregation
+    if not hasattr(named_entity_recognition, '_pipeline_cache'):
+        named_entity_recognition._pipeline_cache = {}
+    
+    if model_id not in named_entity_recognition._pipeline_cache:
+        named_entity_recognition._pipeline_cache[model_id] = pipeline(
+            'ner',
+            model=model_id,
+            tokenizer=model_id,
+            aggregation_strategy=aggregation_strategy,
+            device=0 if device == 'cuda' else -1
+        )
+    
+    ner_pipeline = named_entity_recognition._pipeline_cache[model_id]
+    results = []
+    
+    for txt in text:
+        entities = ner_pipeline(txt)
+        # Convert to consistent format
+        formatted_entities = []
+        for entity in entities:
+            # Convert numpy types to Python types for JSON serialization
+            confidence = entity.get('score', 0.0)
+            if hasattr(confidence, 'item'):  # numpy scalar
+                confidence = confidence.item()
+            else:
+                confidence = float(confidence)
+            
+            start = entity.get('start', 0)
+            if hasattr(start, 'item'):  # numpy scalar
+                start = start.item()
+            else:
+                start = int(start)
+                
+            end = entity.get('end', 0)
+            if hasattr(end, 'item'):  # numpy scalar
+                end = end.item()
+            else:
+                end = int(end)
+            
+            formatted_entities.append({
+                'text': str(entity.get('word', '')),
+                'label': str(entity.get('entity_group', entity.get('entity', ''))),
+                'confidence': confidence,
+                'start': start,
+                'end': end
+            })
+        results.append(formatted_entities)
+    
+    return results
+
+
+@pxt.udf(batch_size=8)
+def question_answering(
+    context: Batch[str], question: Batch[str], *, model_id: str
+) -> Batch[dict[str, Any]]:
+    """
+    Answers questions based on provided context using a pretrained QA model. `model_id` should be a reference to a
+    pretrained [question answering model](https://huggingface.co/models?pipeline_tag=question-answering) such as BERT or RoBERTa.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        context: The context text containing the answer.
+        question: The question to answer.
+        model_id: The pretrained QA model to use.
+
+    Returns:
+        A dictionary containing the answer, confidence score, and start/end positions.
+
+    Examples:
+        Add a computed column that answers questions based on document context:
+
+        >>> tbl.add_computed_column(answer=question_answering(
+        ...     tbl.document_text,
+        ...     tbl.question,
+        ...     model_id='deepset/roberta-base-squad2'
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+
+    model = _lookup_model(model_id, AutoModelForQuestionAnswering.from_pretrained, device=device)
+    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+
+    results = []
+    
+    with torch.no_grad():
+        for ctx, q in zip(context, question):
+            inputs = tokenizer(q, ctx, return_tensors='pt', truncation=True, max_length=512)
+            outputs = model(**inputs.to(device))
+            
+            start_logits = outputs.start_logits
+            end_logits = outputs.end_logits
+            
+            start_idx = torch.argmax(start_logits)
+            end_idx = torch.argmax(end_logits)
+            
+            if end_idx >= start_idx:
+                answer_tokens = inputs['input_ids'][0][start_idx:end_idx+1]
+                answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
+                confidence = float(torch.softmax(start_logits, dim=-1)[0][start_idx] * 
+                                 torch.softmax(end_logits, dim=-1)[0][end_idx])
+            else:
+                answer = ""
+                confidence = 0.0
+            
+            results.append({
+                'answer': answer,
+                'confidence': confidence,
+                'start': int(start_idx),
+                'end': int(end_idx)
+            })
+    
+    return results
+
+
+@pxt.udf(batch_size=8)
+def translation(
+    text: Batch[str], *, model_id: str, src_lang: Optional[str] = None, tgt_lang: Optional[str] = None
+) -> Batch[str]:
+    """
+    Translates text using a pretrained translation model. `model_id` should be a reference to a pretrained
+    [translation model](https://huggingface.co/models?pipeline_tag=translation) such as MarianMT or T5.
+
+    __Requirements:__
+
+    - `pip install torch transformers sentencepiece`
+
+    Args:
+        text: The text to translate.
+        model_id: The pretrained translation model to use.
+        src_lang: Source language code (optional, can be inferred from model).
+        tgt_lang: Target language code (optional, can be inferred from model).
+
+    Returns:
+        The translated text.
+
+    Examples:
+        Add a computed column that translates text:
+
+        >>> tbl.add_computed_column(french_text=translation(
+        ...     tbl.english_text,
+        ...     model_id='Helsinki-NLP/opus-mt-en-fr',
+        ...     src_lang='en',
+        ...     tgt_lang='fr'
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
+    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+
+    results = []
+    
+    with torch.no_grad():
+        for txt in text:
+            inputs = tokenizer(txt, return_tensors='pt', truncation=True, max_length=512)
+            outputs = model.generate(**inputs.to(device), max_length=512, num_beams=4, early_stopping=True)
+            translated = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            results.append(translated)
+    
+    return results
+
+
+@pxt.udf(batch_size=2)
+def text_to_image(
+    prompt: Batch[str], *, model_id: str, height: int = 512, width: int = 512, 
+    num_inference_steps: int = 20, guidance_scale: float = 7.5, seed: Optional[int] = None
+) -> Batch[PIL.Image.Image]:
+    """
+    Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
+    pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as Stable Diffusion or FLUX.
+
+    __Requirements:__
+
+    - `pip install torch transformers diffusers accelerate`
+
+    Args:
+        prompt: The text prompt describing the desired image.
+        model_id: The pretrained text-to-image model to use.
+        height: Height of the generated image in pixels.
+        width: Width of the generated image in pixels.
+        num_inference_steps: Number of denoising steps (more steps = higher quality, slower).
+        guidance_scale: How closely to follow the prompt (higher = more adherence).
+        seed: Random seed for reproducible generation.
+
+    Returns:
+        The generated PIL Image.
+
+    Examples:
+        Add a computed column that generates images from text prompts:
+
+        >>> tbl.add_computed_column(generated_image=text_to_image(
+        ...     tbl.prompt,
+        ...     model_id='runwayml/stable-diffusion-v1-5',
+        ...     height=512,
+        ...     width=512,
+        ...     num_inference_steps=25
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    env.Env.get().require_package('diffusers')
+    env.Env.get().require_package('accelerate')
+    device = resolve_torch_device('auto')
+    import torch
+    from diffusers import AutoPipelineForText2Image
+    import random
+
+    # Cache the pipeline to avoid reloading
+    if not hasattr(text_to_image, '_pipeline_cache'):
+        text_to_image._pipeline_cache = {}
+    
+    if model_id not in text_to_image._pipeline_cache:
+        text_to_image._pipeline_cache[model_id] = AutoPipelineForText2Image.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+            device_map='auto' if device == 'cuda' else None
+        )
+        if device == 'cuda':
+            text_to_image._pipeline_cache[model_id].enable_model_cpu_offload()
+    
+    pipeline = text_to_image._pipeline_cache[model_id]
+    results = []
+    
+    # Set seed for reproducibility if provided
+    if seed is not None:
+        torch.manual_seed(seed)
+        random.seed(seed)
+    
+    for prompt_text in prompt:
+        try:
+            # Generate image
+            image = pipeline(
+                prompt_text,
+                height=height,
+                width=width,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale
+            ).images[0]
+            
+            results.append(image)
+            
+        except Exception as e:
+            # Return a blank image on error to maintain batch consistency
+            import PIL.Image
+            blank_image = PIL.Image.new('RGB', (width, height), (128, 128, 128))
+            results.append(blank_image)
+            print(f"Warning: Text-to-image generation failed for prompt '{prompt_text}': {e}")
+    
+    return results
+
+
+@pxt.udf(batch_size=4)
+def text_to_speech(
+    text: Batch[str], *, model_id: str, speaker_id: Optional[int] = None, 
+    vocoder: Optional[str] = None
+) -> Batch[bytes]:
+    """
+    Converts text to speech using a pretrained TTS model. `model_id` should be a reference to a
+    pretrained [text-to-speech model](https://huggingface.co/models?pipeline_tag=text-to-speech).
+
+    __Requirements:__
+
+    - `pip install torch transformers datasets soundfile librosa`
+
+    Args:
+        text: The text to convert to speech.
+        model_id: The pretrained TTS model to use.
+        speaker_id: Speaker ID for multi-speaker models.
+        vocoder: Optional vocoder model for higher quality audio.
+
+    Returns:
+        The generated audio as bytes (WAV format).
+
+    Examples:
+        Add a computed column that converts text to speech:
+
+        >>> tbl.add_computed_column(audio=text_to_speech(
+        ...     tbl.text_content,
+        ...     model_id='microsoft/speecht5_tts',
+        ...     speaker_id=0
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    env.Env.get().require_package('datasets')
+    env.Env.get().require_package('soundfile')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import pipeline
+    import soundfile as sf
+    import io
+
+    # Cache the pipeline to avoid reloading
+    if not hasattr(text_to_speech, '_pipeline_cache'):
+        text_to_speech._pipeline_cache = {}
+    
+    if model_id not in text_to_speech._pipeline_cache:
+        text_to_speech._pipeline_cache[model_id] = pipeline(
+            'text-to-speech',
+            model=model_id,
+            device=0 if device == 'cuda' else -1
+        )
+    
+    tts_pipeline = text_to_speech._pipeline_cache[model_id]
+    results = []
+    
+    for text_input in text:
+        try:
+            # Generate speech
+            speech_output = tts_pipeline(text_input)
+            
+            # Convert to bytes (WAV format)
+            audio_data = speech_output['audio']
+            sample_rate = speech_output['sampling_rate']
+            
+            # Convert to WAV bytes
+            buffer = io.BytesIO()
+            sf.write(buffer, audio_data, sample_rate, format='WAV')
+            audio_bytes = buffer.getvalue()
+            
+            results.append(audio_bytes)
+            
+        except Exception as e:
+            # Return empty bytes on error
+            results.append(b'')
+            print(f"Warning: Text-to-speech generation failed for text '{text_input[:50]}...': {e}")
+    
+    return results
+
+
 T = TypeVar('T')
 
 

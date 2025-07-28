@@ -55,5 +55,5 @@ def run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = 
     except Exception as e:
         logging.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e}')
         if raise_error:
-            raise e
+            raise
     return None
