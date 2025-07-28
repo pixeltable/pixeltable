@@ -20,7 +20,7 @@ class TestSnapshot:
     def run_basic_test(
         self,
         tbl: pxt.Table,
-        orig_query: Union[pxt.Table, pxt.DataFrame],
+        orig_query: pxt.Table | pxt.DataFrame,
         snap: pxt.Table,
         extra_items: dict[str, Any],
         reload_md: bool,
@@ -97,7 +97,7 @@ class TestSnapshot:
                         else {}
                     )
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
-                    query: Union[pxt.Table, pxt.DataFrame] = tbl.where(tbl.c2 < 10) if has_filter else tbl
+                    query: pxt.Table | pxt.DataFrame = tbl.where(tbl.c2 < 10) if has_filter else tbl
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
                     self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 

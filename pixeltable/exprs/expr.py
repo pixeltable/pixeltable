@@ -646,7 +646,7 @@ class Expr(abc.ABC):
 
     def _make_comparison(self, op: ComparisonOperator, other: object) -> 'exprs.Comparison':
         """
-        other: Union[Expr, LiteralPythonTypes]
+        other: Expr | LiteralPythonTypes
         """
         # TODO: check for compatibility
         from .comparison import Comparison
@@ -661,7 +661,7 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringOp]:
+    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
         if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
@@ -733,7 +733,7 @@ class Expr(abc.ABC):
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
-        other: Union[Expr, LiteralPythonTypes]
+        other: Expr | LiteralPythonTypes
         """
         # TODO: check for compatibility
         from .arithmetic_expr import ArithmeticExpr

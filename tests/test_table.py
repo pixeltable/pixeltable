@@ -2092,7 +2092,7 @@ class TestTable:
         with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
             v.i1.recompute()
 
-    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
+    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
         # invalid if_not_exists parameter is rejected
         with pytest.raises(excs.Error) as exc_info:

@@ -311,7 +311,7 @@ class ColumnType:
         if origin in (typing.Union, types.UnionType):
             # Check if `t` has the form Optional[T].
             if len(type_args) == 2 and type(None) in type_args:
-                # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
+                # `t` is a type of the form Optional[T] (equivalently, T | None or None | T).
                 # We treat it as the underlying type but with nullable=True.
                 underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
                 underlying = cls.from_python_type(underlying_py_type, allow_builtin_types=allow_builtin_types)

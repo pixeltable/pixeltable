@@ -774,7 +774,7 @@ class Table(SchemaObject):
             cls._verify_column(col)
             column_names.add(col.name)
 
-    def drop_column(self, column: Union[str, ColumnRef], if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+    def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
 
         Args:
@@ -896,7 +896,7 @@ class Table(SchemaObject):
 
     def add_embedding_index(
         self,
-        column: Union[str, ColumnRef],
+        column: str | ColumnRef,
         *,
         idx_name: Optional[str] = None,
         embedding: Optional[pxt.Function] = None,
@@ -1023,7 +1023,7 @@ class Table(SchemaObject):
     def drop_embedding_index(
         self,
         *,
-        column: Union[str, ColumnRef, None] = None,
+        column: str | ColumnRef | None = None,
         idx_name: Optional[str] = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
@@ -1083,7 +1083,7 @@ class Table(SchemaObject):
 
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
 
-    def _resolve_column_parameter(self, column: Union[str, ColumnRef]) -> Column:
+    def _resolve_column_parameter(self, column: str | ColumnRef) -> Column:
         """Resolve a column parameter to a Column object"""
         col: Column = None
         if isinstance(column, str):
@@ -1102,7 +1102,7 @@ class Table(SchemaObject):
     def drop_index(
         self,
         *,
-        column: Union[str, ColumnRef, None] = None,
+        column: str | ColumnRef | None = None,
         idx_name: Optional[str] = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
@@ -1421,7 +1421,7 @@ class Table(SchemaObject):
             return result
 
     def recompute_columns(
-        self, *columns: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
+        self, *columns: str | ColumnRef, errors_only: bool = False, cascade: bool = True
     ) -> UpdateStatus:
         """Recompute the values in one or more computed columns of this table.
 

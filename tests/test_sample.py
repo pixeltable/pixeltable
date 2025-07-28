@@ -150,11 +150,11 @@ class TestSample:
             self._check_sample_count(fract * count, k)
 
     @classmethod
-    def _check_sample_count(cls, expected: Union[int, float], actual: int) -> None:
+    def _check_sample_count(cls, expected: int | float, actual: int) -> None:
         assert abs(expected - actual) / actual < 0.25
 
     @classmethod
-    def _check_sample(cls, df: pxt.DataFrame, expected: Union[int, float]) -> None:
+    def _check_sample(cls, df: pxt.DataFrame, expected: int | float) -> None:
         r = df.collect()
         print(r)
         cls._check_sample_count(expected, len(r))

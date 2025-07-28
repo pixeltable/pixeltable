@@ -4,7 +4,7 @@ from typing import Union
 from pyiceberg.catalog.sql import SqlCatalog
 
 
-def sqlite_catalog(warehouse_path: Union[str, Path], name: str = 'pixeltable') -> SqlCatalog:
+def sqlite_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> SqlCatalog:
     """
     Instantiate a sqlite Iceberg catalog at the specified path. If no catalog exists, one will be created.
     """

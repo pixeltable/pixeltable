@@ -427,7 +427,7 @@ class StoreBase:
         base_versions_clause = (
             sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
         )
-        set_clause: dict[sql.Column, Union[int, sql.Column]] = {self.v_max_col: current_version}
+        set_clause: dict[sql.Column, int | sql.Column] = {self.v_max_col: current_version}
         for index_info in self.tbl_version.get().idxs_by_name.values():
             # copy value column to undo column
             set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col

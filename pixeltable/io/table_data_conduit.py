@@ -325,7 +325,7 @@ class JsonTableDataConduit(TableDataConduit):
 
 
 class HFTableDataConduit(TableDataConduit):
-    hf_ds: Optional[Union[datasets.Dataset, datasets.DatasetDict]] = None
+    hf_ds: Optional[datasets.Dataset | datasets.DatasetDict] = None
     column_name_for_split: Optional[str] = None
     categorical_features: dict[str, dict[int, str]]
     dataset_dict: dict[str, datasets.Dataset] = None

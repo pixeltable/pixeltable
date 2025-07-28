@@ -197,7 +197,7 @@ def create_table(
 
 def create_view(
     path: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     is_snapshot: bool = False,
@@ -317,7 +317,7 @@ def create_view(
 
 def create_snapshot(
     path_str: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
@@ -396,7 +396,7 @@ def create_snapshot(
     )
 
 
-def create_replica(destination: str, source: Union[str, catalog.Table]) -> Optional[catalog.Table]:
+def create_replica(destination: str, source: str | catalog.Table) -> Optional[catalog.Table]:
     """
     Create a replica of a table. Can be used either to create a remote replica of a local table, or to create a local
     replica of a remote table. A given table can have at most one replica per Pixeltable instance.
@@ -484,7 +484,7 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(
-    table: Union[str, catalog.Table], force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
+    table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
     """Drop a table, view, or snapshot.
 
@@ -798,7 +798,7 @@ def list_functions() -> Styler:
     return pd_df.hide(axis='index')
 
 
-def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
+def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     """
     Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as an input into an
     LLM tool-calling API. To use one or more UDFs as tools, wrap them in a `pxt.tools` call and pass the return value

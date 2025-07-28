@@ -129,7 +129,7 @@ def retrieval_udf(
     table: catalog.Table,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    parameters: Optional[Iterable[Union[str, exprs.ColumnRef]]] = None,
+    parameters: Optional[Iterable[str | exprs.ColumnRef]] = None,
     limit: Optional[int] = 10,
 ) -> func.QueryTemplateFunction:
     """

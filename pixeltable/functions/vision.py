@@ -352,7 +352,7 @@ def draw_bounding_boxes(
     from PIL import ImageColor, ImageDraw, ImageFont
 
     # set default font if not provided
-    txt_font: Union[ImageFont.ImageFont, ImageFont.FreeTypeFont] = (
+    txt_font: ImageFont.ImageFont | ImageFont.FreeTypeFont = (
         ImageFont.load_default() if font is None else ImageFont.truetype(font=font, size=font_size or 10)
     )
 

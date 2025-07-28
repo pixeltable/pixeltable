@@ -15,7 +15,7 @@ logger = griffe.get_logger(__name__)  # type: ignore[attr-defined]
 class PxtGriffeExtension(Extension):
     """Implementation of a Pixeltable custom griffe extension."""
 
-    def on_instance(self, node: Union[ast.AST, ObjectNode], obj: Object) -> None:
+    def on_instance(self, node: ast.AST | ObjectNode, obj: Object) -> None:
         if obj.docstring is None:
             # Skip over entities without a docstring
             return

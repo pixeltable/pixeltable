@@ -42,7 +42,7 @@ def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: 
 
 
 def export_parquet(
-    table_or_df: Union[pxt.Table, pxt.DataFrame],
+    table_or_df: pxt.Table | pxt.DataFrame,
     parquet_path: Path,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,

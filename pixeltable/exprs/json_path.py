@@ -18,7 +18,7 @@ from .sql_element_cache import SqlElementCache
 
 class JsonPath(Expr):
     def __init__(
-        self, anchor: Optional[Expr], path_elements: Optional[list[Union[str, int, slice]]] = None, scope_idx: int = 0
+        self, anchor: Optional[Expr], path_elements: Optional[list[str | int | slice]] = None, scope_idx: int = 0
     ) -> None:
         """
         anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
@@ -30,7 +30,7 @@ class JsonPath(Expr):
         super().__init__(ts.JsonType(nullable=True))  # JsonPath expressions are always nullable
         if anchor is not None:
             self.components = [anchor]
-        self.path_elements: list[Union[str, int, slice]] = path_elements
+        self.path_elements: list[str | int | slice] = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         self.scope_idx = scope_idx
         # NOTE: the _create_id() result will change if set_anchor() gets called;
