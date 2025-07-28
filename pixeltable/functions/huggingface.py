@@ -172,7 +172,7 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import CLIPModel, CLIPProcessor
+    from transformers import CLIPModel, CLIPProcessor  # type: ignore[import-untyped]
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
@@ -571,15 +571,14 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
 
     results = []
     for i in range(len(text)):
-        results.append(
-            {
-                'scores': [top_k_probs[i, k].item() for k in range(top_k_probs.shape[1])],
-                'labels': [top_k_indices[i, k].item() for k in range(top_k_indices.shape[1])],
-                'label_text': [
-                    model.config.id2label[top_k_indices[i, k].item()] for k in range(top_k_indices.shape[1])
-                ],
-            }
-        )
+        # Return as list of individual classification items for HuggingFace compatibility
+        classification_items = []
+        for k in range(top_k_probs.shape[1]):
+            classification_items.append({
+                'label': model.config.id2label[top_k_indices[i, k].item()],
+                'score': top_k_probs[i, k].item()
+            })
+        results.append(classification_items)
 
     return results
 
@@ -803,9 +802,9 @@ def named_entity_recognition(
 
                     entity_type = label[2:] if label.startswith(('B-', 'I-')) else label
                     current_entity = {
-                        'text': txt[start_offset:end_offset],
-                        'label': entity_type,
-                        'confidence': float(confidence),
+                        'word': txt[start_offset:end_offset],
+                        'entity_group': entity_type,
+                        'score': float(confidence),
                         'start': start_offset,
                         'end': end_offset,
                     }
@@ -813,17 +812,17 @@ def named_entity_recognition(
                 elif label.startswith('I-') and current_entity:
                     # Continue current entity
                     entity_type = label[2:]
-                    if current_entity['label'] == entity_type:
+                    if current_entity['entity_group'] == entity_type:
                         # Extend the current entity
-                        current_entity['text'] = txt[current_entity['start'] : end_offset]
+                        current_entity['word'] = txt[current_entity['start'] : end_offset]
                         current_entity['end'] = end_offset
 
                         # Update confidence based on aggregation strategy
                         if aggregation_strategy == 'average':
                             # Simple average (could be improved with token count weighting)
-                            current_entity['confidence'] = (current_entity['confidence'] + float(confidence)) / 2
+                            current_entity['score'] = (current_entity['score'] + float(confidence)) / 2
                         elif aggregation_strategy == 'max':
-                            current_entity['confidence'] = max(current_entity['confidence'], float(confidence))
+                            current_entity['score'] = max(current_entity['score'], float(confidence))
                         elif aggregation_strategy == 'first':
                             pass  # Keep first confidence
                         # 'simple' uses the same logic as 'first'
@@ -831,9 +830,9 @@ def named_entity_recognition(
                         # Different entity type, start new entity
                         entities.append(current_entity)
                         current_entity = {
-                            'text': txt[start_offset:end_offset],
-                            'label': entity_type,
-                            'confidence': float(confidence),
+                            'word': txt[start_offset:end_offset],
+                            'entity_group': entity_type,
+                            'score': float(confidence),
                             'start': start_offset,
                             'end': end_offset,
                         }
@@ -913,7 +912,7 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
                 answer = ''
                 confidence = 0.0
 
-            results.append({'answer': answer.strip(), 'confidence': confidence, 'start': start_idx, 'end': end_idx})
+            results.append({'answer': answer.strip(), 'score': confidence, 'start': start_idx, 'end': end_idx})
 
     return results
 
@@ -1168,7 +1167,7 @@ def text_to_speech(
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
     import numpy as np
-    import soundfile as sf
+    import soundfile as sf  # type: ignore[import-untyped]
     import torch
 
     # Model loading with error handling - following best practices pattern
@@ -1178,7 +1177,8 @@ def text_to_speech(
 
             model = _lookup_model(model_id, SpeechT5ForTextToSpeech.from_pretrained, device=device)
             processor = _lookup_processor(model_id, SpeechT5Processor.from_pretrained)
-            vocoder_model = _lookup_model('microsoft/speecht5_hifigan', SpeechT5HifiGan.from_pretrained, device=device)
+            vocoder_model_id = vocoder or 'microsoft/speecht5_hifigan'
+            vocoder_model = _lookup_model(vocoder_model_id, SpeechT5HifiGan.from_pretrained, device=device)
 
         elif 'bark' in model_id.lower():
             from transformers import AutoProcessor, BarkModel
@@ -1216,7 +1216,7 @@ def text_to_speech(
     speaker_embeddings = None
     if 'speecht5' in model_id.lower():
         try:
-            from datasets import load_dataset
+            from datasets import load_dataset  # type: ignore[import-untyped]
 
             embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
             speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
