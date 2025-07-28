@@ -396,7 +396,7 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
     env.Env.get().require_package('sentencepiece')
     device = resolve_torch_device('auto', allow_mps=False)  # Doesn't seem to work on 'mps'; use 'cpu' instead
     import torch
-    import torchaudio  # type: ignore[import-not-found]
+    import torchaudio  # type: ignore[import-untyped]
     from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor, Speech2TextTokenizer
 
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
@@ -1378,14 +1378,13 @@ def image_to_image(
                 continue
 
             # Ensure image is in RGB mode
-            if input_image.mode != 'RGB':
-                input_image = input_image.convert('RGB')
+            processed_image = input_image.convert('RGB') if input_image.mode != 'RGB' else input_image
 
             # Transform image with proper error handling
             with torch.no_grad():
                 result = pipe(
                     prompt=prompt_text.strip(),
-                    image=input_image,
+                    image=processed_image,
                     strength=strength,
                     guidance_scale=guidance_scale,
                     num_inference_steps=num_inference_steps,
@@ -1700,19 +1699,18 @@ def image_to_video(
                 continue
 
             # Ensure image is in RGB mode and proper size
-            if input_image.mode != 'RGB':
-                input_image = input_image.convert('RGB')
+            processed_image = input_image.convert('RGB') if input_image.mode != 'RGB' else input_image
 
             # Resize image to model requirements (using smaller resolution to save memory)
-            _width, _height = input_image.size
+            _width, _height = processed_image.size
             # Use smaller resolution for better memory efficiency
             target_width, target_height = 512, 320  # Reduced from 1024x576
-            input_image = input_image.resize((target_width, target_height), PIL.Image.Resampling.LANCZOS)
+            processed_image = processed_image.resize((target_width, target_height), PIL.Image.Resampling.LANCZOS)
 
             # Generate video frames with proper error handling
             with torch.no_grad():
                 result = pipe(
-                    image=input_image,
+                    image=processed_image,
                     decode_chunk_size=8,
                     generator=generator,
                     motion_bucket_id=int(motion_scale * 100),  # Controls motion intensity (0-255)
