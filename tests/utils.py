@@ -23,6 +23,8 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 
+from .conftest import DO_RERUN
+
 TESTS_DIR = Path(os.path.dirname(__file__))
 
 
@@ -635,7 +637,6 @@ class ReloadTester:
 
 
 def rerun(**kwargs) -> Callable:
-    from .conftest import DO_RERUN
     if 'condition' in kwargs:
         kwargs['condition'] = DO_RERUN and kwargs['condition']
     else:

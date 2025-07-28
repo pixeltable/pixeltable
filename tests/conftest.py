@@ -8,7 +8,6 @@ import pytest
 import requests
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
-from _pytest.python import Function as PytestFunction
 from filelock import FileLock
 from sqlalchemy import orm
 
