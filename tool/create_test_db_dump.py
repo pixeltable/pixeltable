@@ -65,14 +65,7 @@ class Dumper:
             if pg_dump_process.poll() != 0:
                 raise RuntimeError(f'pg_dump failed with return code {pg_dump_process.returncode}')
         info_file = self.output_dir / f'pixeltable-v{md_version:03d}-test-info.toml'
-        try:
-            git_sha = subprocess.check_output(('git', 'rev-parse', 'HEAD')).decode('ascii').strip()
-        except subprocess.CalledProcessError as e:
-            print(f'Warning: Failed to get git SHA: {e}')
-            git_sha = 'unknown'
-        except Exception as e:
-            print(f'Warning: Error getting git SHA: {e}')
-            git_sha = 'unknown'
+        git_sha = subprocess.check_output(('git', 'rev-parse', 'HEAD')).decode('ascii').strip()
         user = os.environ.get('USER', os.environ.get('USERNAME'))
         info_dict = {
             'pixeltable-dump': {

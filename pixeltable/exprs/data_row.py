@@ -158,11 +158,7 @@ class DataRow:
         mask = self.excs != None
         if not mask.any():
             return None
-        # Fix: Add bounds checking for masked array access
-        masked_excs = self.excs[mask]
-        if len(masked_excs) == 0:
-            return None
-        return masked_excs[0]
+        return self.excs[mask][0]
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
         assert self.excs[slot_idx] is None

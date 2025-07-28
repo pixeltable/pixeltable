@@ -132,9 +132,6 @@ class DataFrameResultSet:
             col_idx = self._col_names.index(index)
             return [row[col_idx] for row in self._rows]
         if isinstance(index, int):
-            # Add bounds checking for row index access
-            if index < 0 or index >= len(self._rows):
-                raise excs.Error(f'Row index {index} out of range [0, {len(self._rows) - 1}]')
             return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
             if not isinstance(index[0], int) or not isinstance(index[1], (str, int)):
@@ -142,12 +139,6 @@ class DataFrameResultSet:
             if isinstance(index[1], str) and index[1] not in self._col_names:
                 raise excs.Error(f'Invalid column name: {index[1]}')
             col_idx = self._col_names.index(index[1]) if isinstance(index[1], str) else index[1]
-            # Add bounds checking for integer column indices
-            if isinstance(index[1], int) and (col_idx < 0 or col_idx >= len(self._col_names)):
-                raise excs.Error(f'Column index {col_idx} out of range [0, {len(self._col_names) - 1}]')
-            # Add bounds checking for row index access
-            if index[0] < 0 or index[0] >= len(self._rows):
-                raise excs.Error(f'Row index {index[0]} out of range [0, {len(self._rows) - 1}]')
             return self._rows[index[0]][col_idx]
         raise excs.Error(f'Bad index: {index}')
 
