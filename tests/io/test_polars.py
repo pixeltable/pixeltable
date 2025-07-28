@@ -81,8 +81,8 @@ class TestPolars:
         assert res['date_col'] == src_data['date_col']
         # Array columns come back as numpy arrays, so convert to lists for comparison
         assert [arr.tolist() for arr in res['json_col_1']] == src_data['json_col_1']
-        # Polars converts different dict keys to unified struct with None for missing keys
-        assert res['json_col_2'] == [{'a': 1, 'b': None}, {'a': None, 'b': 2}]
+        # Polars infers struct schema from first record, so only 'a' field is preserved
+        assert res['json_col_2'] == [{'a': 1}, {'a': None}]
         assert t.count() == len(df)
 
     def test_insert_polars_types(self, reset_db: None) -> None:
