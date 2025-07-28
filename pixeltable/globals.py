@@ -19,17 +19,17 @@ if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
     RowData = list[dict[str, Any]]
-    TableDataSource = (
-        str
-        | os.PathLike
-        | Path  # OS paths, filenames, URLs
-        | Iterator[dict[str, Any]]  # iterator producing dictionaries of values
-        | RowData  # list of dictionaries
-        | DataFrame  # Pixeltable DataFrame
-        | pd.DataFrame  # pandas DataFrame
-        | 'datasets.Dataset'
-        | 'datasets.DatasetDict'  # Huggingface datasets
-    )
+    TableDataSource = Union[
+        str,
+        os.PathLike,
+        Path,  # OS paths, filenames, URLs
+        Iterator[dict[str, Any]],  # iterator producing dictionaries of values
+        RowData,  # list of dictionaries
+        DataFrame,  # Pixeltable DataFrame
+        pd.DataFrame,  # pandas DataFrame
+        datasets.Dataset,
+        datasets.DatasetDict,  # Huggingface datasets
+    ]
 
 
 _logger = logging.getLogger('pixeltable')

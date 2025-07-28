@@ -2,7 +2,7 @@ import math
 import tempfile
 from fractions import Fraction
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 import av
 import PIL.Image

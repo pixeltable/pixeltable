@@ -4,7 +4,7 @@ import inspect
 import logging
 import sys
 from textwrap import dedent
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Optional, Sequence
 
 import sqlalchemy as sql
 

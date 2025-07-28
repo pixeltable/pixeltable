@@ -4,7 +4,7 @@ import abc
 import logging
 import sys
 import warnings
-from typing import Any, Iterable, Iterator, Optional, Union
+from typing import Any, Iterable, Iterator, Optional
 
 import more_itertools
 import psycopg

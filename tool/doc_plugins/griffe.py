@@ -1,7 +1,6 @@
 import ast
 import inspect
 import warnings
-from typing import Union
 
 import griffe.expressions
 from griffe import Extension, Function, Object, ObjectNode, dynamic_import  # type: ignore[attr-defined]

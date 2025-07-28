@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, cast
 
 import pandas as pd
 from pyarrow.parquet import ParquetDataset

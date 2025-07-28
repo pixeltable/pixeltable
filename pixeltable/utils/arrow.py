@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional
 
 import numpy as np
 import pyarrow as pa

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime
 import enum
-from typing import Union
 
 # Python types corresponding to our literal types
 LiteralPythonTypes = str | int | float | bool | datetime.datetime | datetime.date

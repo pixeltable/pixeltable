@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 
 import pydantic
 

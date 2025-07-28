@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, overload
 from uuid import UUID
 
 import numpy as np

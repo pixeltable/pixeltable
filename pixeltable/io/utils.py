@@ -1,5 +1,5 @@
 from keyword import iskeyword as is_python_keyword
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, Optional
 
 import pixeltable as pxt
 import pixeltable.type_system as ts

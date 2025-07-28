@@ -2,7 +2,7 @@ import datetime
 import random
 import string
 import sys
-from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image

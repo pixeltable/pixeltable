@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, ClassVar, Iterable, Iterator, Optional, Union
+from typing import Any, ClassVar, Iterable, Iterator, Optional
 
 import ftfy
 

@@ -7,7 +7,7 @@ import logging
 import typing
 from collections import deque
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import numpy as np
 import PIL.Image

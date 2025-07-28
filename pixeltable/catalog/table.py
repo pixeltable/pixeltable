@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
