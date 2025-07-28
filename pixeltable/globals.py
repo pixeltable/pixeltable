@@ -20,15 +20,15 @@ if TYPE_CHECKING:
 
     RowData = list[dict[str, Any]]
     TableDataSource = (
-        str |
-        os.PathLike |
-        Path |  # OS paths, filenames, URLs
-        Iterator[dict[str, Any]] |  # iterator producing dictionaries of values
-        RowData |  # list of dictionaries
-        DataFrame |  # Pixeltable DataFrame
-        pd.DataFrame |  # pandas DataFrame
-        'datasets.Dataset' |
-        'datasets.DatasetDict'  # Huggingface datasets
+        str
+        | os.PathLike
+        | Path  # OS paths, filenames, URLs
+        | Iterator[dict[str, Any]]  # iterator producing dictionaries of values
+        | RowData  # list of dictionaries
+        | DataFrame  # Pixeltable DataFrame
+        | pd.DataFrame  # pandas DataFrame
+        | 'datasets.Dataset'
+        | 'datasets.DatasetDict'  # Huggingface datasets
     )
 
 

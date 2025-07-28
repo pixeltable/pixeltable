@@ -361,10 +361,7 @@ class ColumnType:
 
     @classmethod
     def normalize_type(
-        cls,
-        t: ColumnType | type | _AnnotatedAlias,
-        nullable_default: bool = False,
-        allow_builtin_types: bool = True,
+        cls, t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True
     ) -> ColumnType:
         """
         Convert any type recognizable by Pixeltable to its corresponding ColumnType.
