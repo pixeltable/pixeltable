@@ -562,7 +562,7 @@ class Expr(abc.ABC):
         return TypeCast(self, col_type)
 
     def apply(
-        self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None
+        self, fn: Callable, *, col_type: ts.ColumnType | type | _AnnotatedAlias | None = None
     ) -> 'exprs.FunctionCall':
         if col_type is not None:
             col_type = ts.ColumnType.normalize_type(col_type)

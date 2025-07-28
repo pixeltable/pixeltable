@@ -36,7 +36,7 @@ class FunctionCall(Expr):
     # - a component index, if the parameter is a non-variadic parameter
     # - a list of component indices, if the parameter is a variadic positional parameter
     # - a dict mapping keyword names to component indices, if the parameter is a variadic keyword parameter
-    bound_idxs: dict[str, Union[int, list[int], dict[str, int]]]
+    bound_idxs: dict[str, int | list[int] | dict[str, int]]
 
     return_type: ts.ColumnType
     group_by_start_idx: int

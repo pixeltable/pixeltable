@@ -529,7 +529,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr],
+        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.

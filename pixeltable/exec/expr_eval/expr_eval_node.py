@@ -49,7 +49,7 @@ class ExprEvalNode(ExecNode):
     # execution state
     tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
     exc_event: asyncio.Event  # set if an exception needs to be propagated
-    error: Optional[Union[Exception]]  # exception that needs to be propagated
+    error: Optional[Exception]  # exception that needs to be propagated
     completed_rows: asyncio.Queue[exprs.DataRow]  # rows that have completed evaluation
     completed_event: asyncio.Event  # set when completed_rows is non-empty
     input_iter: AsyncIterator[DataRowBatch]

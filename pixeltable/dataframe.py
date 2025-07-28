@@ -766,7 +766,7 @@ class DataFrame:
         )
 
     def _create_join_predicate(
-        self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
+        self, other: catalog.TableVersionPath, on: exprs.Expr | Sequence[exprs.ColumnRef]
     ) -> exprs.Expr:
         """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
@@ -829,7 +829,7 @@ class DataFrame:
     def join(
         self,
         other: catalog.Table,
-        on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
+        on: Optional[exprs.Expr | Sequence[exprs.ColumnRef]] = None,
         how: plan.JoinType.LiteralType = 'inner',
     ) -> DataFrame:
         """
