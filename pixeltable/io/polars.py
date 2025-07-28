@@ -236,15 +236,46 @@ def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullab
                 first_non_null = None
                 for val in data_col:
                     if val is not None:
-                        first_non_null = val
+                        # Polars returns Series objects for list elements
+                        if hasattr(val, 'to_list'):
+                            first_non_null = val.to_list()
+                        elif isinstance(val, list):
+                            first_non_null = val
+                        else:
+                            first_non_null = val
                         break
 
-                if first_non_null is not None and hasattr(first_non_null, '__len__') and len(first_non_null) > 0:
+                if (first_non_null is not None and 
+                    hasattr(first_non_null, '__len__') and 
+                    len(first_non_null) > 0):
                     return ts.ArrayType(shape=(None, len(first_non_null)), dtype=ts.IntType(), nullable=nullable)
 
             return ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=nullable)
         elif isinstance(inner_type, (pl_types.Float32, pl_types.Float64)):
+            # Try to infer array shape from actual data for float arrays too
+            if len(data_col) > 0:
+                first_non_null = None
+                for val in data_col:
+                    if val is not None:
+                        # Polars returns Series objects for list elements
+                        if hasattr(val, 'to_list'):
+                            first_non_null = val.to_list()
+                        elif isinstance(val, list):
+                            first_non_null = val
+                        else:
+                            first_non_null = val
+                        break
+
+                if (first_non_null is not None and 
+                    hasattr(first_non_null, '__len__') and 
+                    len(first_non_null) > 0):
+                    return ts.ArrayType(shape=(None, len(first_non_null)), dtype=ts.FloatType(), nullable=nullable)
+
             return ts.ArrayType(shape=(None, None), dtype=ts.FloatType(), nullable=nullable)
+        elif isinstance(inner_type, (pl_types.Utf8, pl_types.String)):
+            # Handle List(String) - could be string arrays or mixed type converted to strings
+            # Use JSON for flexibility since string arrays can have variable lengths
+            return ts.JsonType(nullable=nullable)
         else:
             # For complex list types, use JSON
             return ts.JsonType(nullable=nullable)
@@ -334,6 +365,11 @@ def _pl_row_to_pxt_row(
                 import numpy as np
 
                 nval = np.array(val)
+            elif hasattr(val, 'to_list'):
+                # Handle Polars Series objects from list columns
+                import numpy as np
+
+                nval = np.array(val.to_list())
             else:
                 nval = val
         else:
