@@ -107,9 +107,26 @@ class DataFrameResultSet:
         Returns:
             A Polars DataFrame containing the result set data.
         """
-        return pl.DataFrame(
-            dict(zip(self._col_names, zip(*self._rows))) if self._rows else {col: [] for col in self._col_names}
-        )
+        if not self._rows:
+            return pl.DataFrame({col: [] for col in self._col_names})
+        
+        # Create the data dictionary, handling None values properly for Polars
+        data_dict = {}
+        for col_name, col_data in zip(self._col_names, zip(*self._rows)):
+            # Convert numpy arrays to lists for Polars compatibility
+            processed_data = []
+            for val in col_data:
+                if val is None:
+                    processed_data.append(None)
+                elif hasattr(val, 'tolist'):
+                    # Handle numpy arrays
+                    processed_data.append(val.tolist())
+                else:
+                    processed_data.append(val)
+            data_dict[col_name] = processed_data
+        
+        # Use strict=False to allow mixed types and None values
+        return pl.DataFrame(data_dict, strict=False)
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
