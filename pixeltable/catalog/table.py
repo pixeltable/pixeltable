@@ -291,10 +291,10 @@ class Table(SchemaObject):
 
     def _get_detailed_schema(self) -> dict[str, Any]:
         """Return the Comprehensive schema for columns of this table."""
-        column_indices: dict[str, Any] = dict()
-        for idx, row in self._index_descriptor().iterrows():
+        column_indices: dict[str, Any] = {}
+        for _, row in self._index_descriptor().iterrows():
             row['Column'] = {'index_name': row['Index Name'], 'metric': row['Metric'], 'embedding': row['Embedding']}
-        full_schema: dict[str, Any] = dict()
+        full_schema: dict[str, Any] = {}
         for col in self._tbl_version_path.columns():
             full_schema[col.name] = {
                 'type': col.col_type._to_str(as_schema=True),

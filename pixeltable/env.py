@@ -102,6 +102,8 @@ class Env:
     def _init_env(cls, reinit_db: bool = False) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
+        if cls._instance is not None:
+            cls._instance._cleanup()
         cls._instance = None
         env = Env()
         env._set_up(reinit_db=reinit_db)
@@ -489,6 +491,10 @@ class Env:
                 raise excs.Error(error)
             self._logger.info(f'Using database at: {self.db_url}')
         else:
+            print('AH TODO PIXELTABLE_DB', os.environ.get('PIXELTABLE_DB'))
+            print('AH TODO PIXELTABLE_PGDATA', os.environ.get('PIXELTABLE_PGDATA'))
+            print('AH TODO Config.get().home', {Config.get().home})
+
             self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             # cleanup_mode=None will leave the postgres process running after Python exits
@@ -819,30 +825,6 @@ class Env:
         except Exception as exc:
             raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
-    @classmethod
-    def clear(cls) -> None:
-        """
-        Completely destroy the singleton instance and reset all state.
-        This method ensures proper cleanup of all resources before destruction.
-        """
-        if cls._instance is None:
-            return
-
-        try:
-            # Clean up the instance
-            cls._instance._cleanup()
-
-            # Reset the singleton instance
-            cls._instance = None
-            cls.__initializing = False
-
-        except Exception as e:
-            _logger.error(f'Error during Env destruction: {e}')
-            # Force reset even if cleanup fails
-            cls._instance = None
-            cls.__initializing = False
-            raise
-
     def _cleanup(self) -> None:
         """
         Internal cleanup method that properly closes all resources and resets state.
@@ -927,56 +909,6 @@ class Env:
             self.clear_tmp_dir()
         except Exception as e:
             _logger.error(f'Error clearing tmp directory: {e}')
-
-        # Reset all instance variables to None
-        self._reset_fields()
-
-        # Set initialized flag to False
-        self._initialized = False
-
-    def _reset_fields(self) -> None:
-        """Reset all instance fields to their initial None/empty state."""
-        # Directory paths
-        self._media_dir = None
-        self._file_cache_dir = None
-        self._dataset_cache_dir = None
-        self._log_dir = None
-        self._tmp_dir = None
-
-        # Database related
-        self._sa_engine = None
-        self._pgdata_dir = None
-        self._db_name = None
-        self._db_server = None
-        self._db_url = None
-        self._dbms = None
-        self._default_time_zone = None
-
-        # Connection/session state
-        self._current_conn = None
-        self._current_session = None
-        self._current_isolation_level = None
-
-        # Services
-        self._spacy_nlp = None
-        self._httpd = None
-        self._http_address = None
-        self._event_loop = None
-
-        # Configuration
-        self._file_cache_size_g = None
-        self._pxt_api_key = None
-
-        # Logging state
-        self._logfilename = None
-        self._log_to_stdout = False
-        self._module_log_level = {}
-        self._default_log_level = logging.INFO
-
-        # Other state
-        self._resource_pool_info = {}
-        self.__optional_packages = {}
-        self._initialized = False
 
 
 def register_client(name: str) -> Callable:

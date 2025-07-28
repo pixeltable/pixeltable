@@ -17,7 +17,7 @@ from .packager import TablePackager, TableRestorer
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
 
-PIXELTABLE_API_URL = 'https://dev-internal-api.pixeltable.com'
+PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
 def push_replica(
