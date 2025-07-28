@@ -40,35 +40,35 @@ _format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
 class make_video(pxt.Aggregator):
     """
     Aggregator that creates a video from a sequence of images.
-    
-    Creates an H.264 encoded MP4 video from a sequence of PIL Image frames. This aggregator requires the input 
-    frames to be ordered (typically by frame position) and is commonly used with `FrameIterator` views to 
+
+    Creates an H.264 encoded MP4 video from a sequence of PIL Image frames. This aggregator requires the input
+    frames to be ordered (typically by frame position) and is commonly used with `FrameIterator` views to
     reconstruct videos from processed frames.
-    
+
     Args:
         fps: Frames per second for the output video. Default is 25. This is set when the aggregator is created.
-    
+
     __Returns:__
-    
+
     - A `pxt.Video` containing the created video file path.
-    
+
     Requirements:
         - Must be used with `group_by` (typically the base table containing videos)
-        - First parameter must specify frame ordering (typically frame position)  
+        - First parameter must specify frame ordering (typically frame position)
         - Second parameter must be PIL.Image.Image objects
         - Cannot be used with window functions
-        
+
     Examples:
         Create a video from frames extracted using FrameIterator:
-        
+
         >>> import pixeltable as pxt
         >>> from pixeltable.functions.video import make_video
         >>> from pixeltable.iterators import FrameIterator
-        >>> 
+        >>>
         >>> # Create base table for videos
         >>> videos_table = pxt.create_table('videos', {'video': pxt.Video})
-        >>> 
-        >>> # Create view to extract frames  
+        >>>
+        >>> # Create view to extract frames
         >>> frames_view = pxt.create_view(
         ...     'video_frames',
         ...     videos_table,
@@ -79,22 +79,22 @@ class make_video(pxt.Aggregator):
         >>> frames_view.group_by(videos_table).select(
         ...     make_video(frames_view.pos, frames_view.frame)
         ... ).show()
-        
+
         Apply transformations to frames before creating a video:
-        
+
         >>> # Add computed column with transformed frames
         >>> frames_view.add_computed_column(
-        ...     rotated_frame=frames_view.frame.rotate(30), 
+        ...     rotated_frame=frames_view.frame.rotate(30),
         ...     stored=True
         ... )
         >>>
-        >>> # Create video from transformed frames  
+        >>> # Create video from transformed frames
         >>> frames_view.group_by(videos_table).select(
         ...     make_video(frames_view.pos, frames_view.rotated_frame)
         ... ).show()
-        
+
         Compare multiple processed versions side-by-side:
-        
+
         >>> frames_view.group_by(videos_table).select(
         ...     make_video(frames_view.pos, frames_view.frame),
         ...     make_video(frames_view.pos, frames_view.rotated_frame)
