@@ -65,6 +65,7 @@ class TestImportCoco:
 
     def test_import_coco_basic(self, reset_db: None) -> None:
         """Test basic COCO import functionality."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             images_dir = tmp_path / 'images'
@@ -121,6 +122,7 @@ class TestImportCoco:
 
     def test_import_coco_with_schema_overrides(self, reset_db: None) -> None:
         """Test COCO import with schema overrides."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             images_dir = tmp_path / 'images'
@@ -145,6 +147,7 @@ class TestImportCoco:
 
     def test_import_coco_error_missing_json(self, reset_db: None) -> None:
         """Test error handling when COCO JSON file is missing."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             missing_file = tmp_path / 'missing.json'
@@ -156,6 +159,7 @@ class TestImportCoco:
 
     def test_import_coco_error_missing_images_dir(self, reset_db: None) -> None:
         """Test error handling when images directory is missing."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             annotations_file = tmp_path / 'annotations.json'
@@ -170,6 +174,7 @@ class TestImportCoco:
 
     def test_import_coco_error_invalid_json(self, reset_db: None) -> None:
         """Test error handling with invalid JSON."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             annotations_file = tmp_path / 'invalid.json'
@@ -185,6 +190,7 @@ class TestImportCoco:
 
     def test_import_coco_error_missing_required_fields(self, reset_db: None) -> None:
         """Test error handling when required COCO fields are missing."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             annotations_file = tmp_path / 'incomplete.json'
@@ -206,6 +212,7 @@ class TestImportCoco:
 
     def test_import_coco_error_missing_image_file(self, reset_db: None) -> None:
         """Test error handling when an image file is missing."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             annotations_file = tmp_path / 'annotations.json'
@@ -222,6 +229,7 @@ class TestImportCoco:
 
     def test_import_coco_empty_annotations(self, reset_db: None) -> None:
         """Test COCO import with images that have no annotations."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             images_dir = tmp_path / 'images'
@@ -249,6 +257,7 @@ class TestImportCoco:
 
     def test_import_coco_integration_with_export(self, reset_db: None) -> None:
         """Test that imported COCO data can be exported back to COCO format."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             images_dir = tmp_path / 'images'
@@ -285,6 +294,7 @@ class TestImportCoco:
 
     def test_import_coco_with_unknown_categories(self, reset_db: None) -> None:
         """Test COCO import with annotations referencing unknown category IDs."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             images_dir = tmp_path / 'images'
@@ -320,6 +330,7 @@ class TestImportCoco:
 
     def test_import_coco_different_image_modes(self, reset_db: None) -> None:
         """Test COCO import with different image color modes (RGBA, grayscale, etc.)."""
+        pxt.create_dir('test')
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             images_dir = tmp_path / 'images'

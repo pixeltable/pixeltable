@@ -93,7 +93,7 @@ def import_coco(
     _validate_coco_format(coco_data)
 
     # Convert COCO data to Pixeltable format
-    table_data = _convert_coco_to_pixeltable_format(coco_data, images_dir)
+    table_data = _convert_coco_to_pixeltable_format(coco_data, images_dir, schema_overrides)
 
     # Create the table
     return pxt.create_table(
@@ -148,8 +148,16 @@ def _validate_coco_format(coco_data: dict[str, Any]) -> None:
             raise excs.Error(f'Invalid bbox format in annotation at index {i}. Expected [x, y, width, height]')
 
 
-def _convert_coco_to_pixeltable_format(coco_data: dict[str, Any], images_dir: Path) -> list[dict[str, Any]]:
-    """Convert COCO data to Pixeltable table format."""
+def _convert_coco_to_pixeltable_format(
+    coco_data: dict[str, Any], images_dir: Path, schema_overrides: Optional[dict[str, Any]] = None
+) -> list[dict[str, Any]]:
+    """Convert COCO data to Pixeltable table format.
+
+    Args:
+        coco_data: Parsed COCO JSON data
+        images_dir: Directory containing image files
+        schema_overrides: Type overrides to apply to the data
+    """
 
     # Create mappings
     image_id_to_info = {img['id']: img for img in coco_data['images']}
@@ -220,6 +228,28 @@ def _convert_coco_to_pixeltable_format(coco_data: dict[str, Any], images_dir: Pa
         if 'license' in image_info:
             row['license'] = image_info['license']
 
+        # Apply schema overrides if specified
+        if schema_overrides:
+            for column_name, column_type in schema_overrides.items():
+                if column_name in row:
+                    row[column_name] = _convert_value_to_type(row[column_name], column_type)
+
         table_rows.append(row)
 
     return table_rows
+
+
+def _convert_value_to_type(value: Any, target_type: Any) -> Any:
+    """Convert a value to the target Pixeltable type."""
+    import pixeltable as pxt
+
+    # Handle common type conversions
+    if target_type == pxt.String:
+        return str(value)
+    elif target_type == pxt.Int:
+        return int(value)
+    elif target_type == pxt.Float:
+        return float(value)
+    else:
+        # For other types, return as-is and let Pixeltable handle it
+        return value
