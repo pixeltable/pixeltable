@@ -38,7 +38,7 @@ class TestPolars:
         default_tz = Env.get().default_time_zone
 
         src_data = self.make_src_data()
-        df = pl.DataFrame(src_data, strict=False)
+        df = pl.DataFrame(src_data)
 
         t = pxt.io.import_polars('test_types', df)
 
@@ -87,7 +87,7 @@ class TestPolars:
 
     def test_insert_polars_types(self, reset_db: None) -> None:
         src_data = self.make_src_data()
-        df = pl.DataFrame(src_data, strict=False)
+        df = pl.DataFrame(src_data)
         t = pxt.io.import_polars('test_types', df)
 
         initial_count = t.count()

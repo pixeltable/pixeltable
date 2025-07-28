@@ -245,8 +245,8 @@ def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullab
                             first_non_null = val
                         break
 
-                if (first_non_null is not None and 
-                    hasattr(first_non_null, '__len__') and 
+                if (first_non_null is not None and
+                    hasattr(first_non_null, '__len__') and
                     len(first_non_null) > 0):
                     return ts.ArrayType(shape=(None, len(first_non_null)), dtype=ts.IntType(), nullable=nullable)
 
@@ -266,8 +266,8 @@ def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullab
                             first_non_null = val
                         break
 
-                if (first_non_null is not None and 
-                    hasattr(first_non_null, '__len__') and 
+                if (first_non_null is not None and
+                    hasattr(first_non_null, '__len__') and
                     len(first_non_null) > 0):
                     return ts.ArrayType(shape=(None, len(first_non_null)), dtype=ts.FloatType(), nullable=nullable)
 

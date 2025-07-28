@@ -109,12 +109,12 @@ class DataFrameResultSet:
         """
         if not self._rows:
             return pl.DataFrame({col: [] for col in self._col_names})
-        
+
         # Create the data dictionary, handling None values properly for Polars
         data_dict = {}
         for col_name, col_data in zip(self._col_names, zip(*self._rows)):
             # Convert numpy arrays to lists for Polars compatibility
-            processed_data = []
+            processed_data: list[Any] = []
             for val in col_data:
                 if val is None:
                     processed_data.append(None)
@@ -124,7 +124,7 @@ class DataFrameResultSet:
                 else:
                     processed_data.append(val)
             data_dict[col_name] = processed_data
-        
+
         # Use strict=False to allow mixed types and None values
         return pl.DataFrame(data_dict, strict=False)
 
