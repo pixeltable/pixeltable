@@ -152,7 +152,7 @@ def import_parquet(
     *,
     parquet_path: str,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: Optional[str | list[str]] = None,
     **kwargs: Any,
 ) -> pxt.Table:
     """Creates a new base table from a Parquet file or set of files. Requires pyarrow to be installed.

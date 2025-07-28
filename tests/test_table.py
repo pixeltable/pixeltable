@@ -475,7 +475,7 @@ class TestTable:
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
     def test_schema_types(self, reset_db: None) -> None:
-        test_columns: dict[str, Union[type, _GenericAlias]] = {
+        test_columns: dict[str, type | _GenericAlias] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
             'int_col': pxt.Int,

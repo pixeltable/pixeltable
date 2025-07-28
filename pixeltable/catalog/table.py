@@ -455,7 +455,7 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]],
+        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """

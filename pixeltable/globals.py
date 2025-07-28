@@ -51,7 +51,7 @@ def create_table(
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     on_error: Literal['abort', 'ignore'] = 'abort',
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: Optional[str | list[str]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',

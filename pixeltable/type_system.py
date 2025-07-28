@@ -292,7 +292,7 @@ class ColumnType:
 
     @classmethod
     def from_python_type(
-        cls, t: Union[type, _GenericAlias], nullable_default: bool = False, allow_builtin_types: bool = True
+        cls, t: type | _GenericAlias, nullable_default: bool = False, allow_builtin_types: bool = True
     ) -> Optional[ColumnType]:
         """
         Convert a Python type into a Pixeltable `ColumnType` instance.
@@ -362,7 +362,7 @@ class ColumnType:
     @classmethod
     def normalize_type(
         cls,
-        t: Union[ColumnType, type, _AnnotatedAlias],
+        t: ColumnType | type | _AnnotatedAlias,
         nullable_default: bool = False,
         allow_builtin_types: bool = True,
     ) -> ColumnType:
@@ -389,7 +389,7 @@ class ColumnType:
     ]
 
     @classmethod
-    def __raise_exc_for_invalid_type(cls, t: Union[type, _AnnotatedAlias]) -> None:
+    def __raise_exc_for_invalid_type(cls, t: type | _AnnotatedAlias) -> None:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
             if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
@@ -405,7 +405,7 @@ class ColumnType:
         return cls.from_python_type(py_type) if py_type is not None else None
 
     @classmethod
-    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> Union[type, _GenericAlias, None]:
+    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> type | _GenericAlias | None:
         if 'type' in schema:
             if schema['type'] == 'null':
                 return type(None)

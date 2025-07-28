@@ -11,7 +11,7 @@ from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 # TODO: remove and replace calls with astype()
-def cast(expr: exprs.Expr, target_type: Union[ts.ColumnType, type, _GenericAlias]) -> exprs.Expr:
+def cast(expr: exprs.Expr, target_type: ts.ColumnType | type | _GenericAlias) -> exprs.Expr:
     expr.col_type = ts.ColumnType.normalize_type(target_type)
     return expr
 

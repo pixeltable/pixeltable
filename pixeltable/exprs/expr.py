@@ -550,7 +550,7 @@ class Expr(abc.ABC):
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'exprs.TypeCast':
+    def astype(self, new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast':
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
@@ -669,7 +669,7 @@ class Expr(abc.ABC):
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
         if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
             return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
@@ -683,7 +683,7 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
         if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
@@ -691,7 +691,7 @@ class Expr(abc.ABC):
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
         if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
             return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
