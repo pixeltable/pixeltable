@@ -86,7 +86,7 @@ class TestImportCoco:
             assert tbl.count() == 2  # Two images
 
             # Check schema
-            schema = tbl.schema
+            schema = tbl._get_schema()
             assert 'image' in schema
             assert 'annotations' in schema
             assert 'image_id' in schema
@@ -95,7 +95,7 @@ class TestImportCoco:
             assert 'height' in schema
 
             # Verify data
-            rows = list(tbl.select())
+            rows = tbl.select().collect()
             assert len(rows) == 2
 
             # Check first image
@@ -142,7 +142,7 @@ class TestImportCoco:
             )
 
             # Verify schema override was applied
-            schema = tbl.schema
+            schema = tbl._get_schema()
             assert schema['image_id'].is_string_type()
 
     def test_import_coco_error_missing_json(self, reset_db: None) -> None:
@@ -251,7 +251,7 @@ class TestImportCoco:
             tbl = pxt.io.import_coco('test.empty_annotations', annotations_file, images_dir)
 
             # Verify data
-            rows = list(tbl.select())
+            rows = tbl.select().collect()
             assert len(rows) == 1
             assert len(rows[0]['annotations']) == 0  # Empty annotations list
 
@@ -323,7 +323,7 @@ class TestImportCoco:
             tbl = pxt.io.import_coco('test.unknown_category', annotations_file, images_dir)
 
             # Verify unknown category is handled
-            rows = list(tbl.select())
+            rows = tbl.select().collect()
             assert len(rows) == 1
             assert len(rows[0]['annotations']) == 1
             assert rows[0]['annotations'][0]['category'] == 'unknown_999'
@@ -363,7 +363,7 @@ class TestImportCoco:
             tbl = pxt.io.import_coco('test.image_modes', annotations_file, images_dir)
 
             # Verify all images are converted to RGB
-            rows = list(tbl.select())
+            rows = tbl.select().collect()
             assert len(rows) == 2
             for row in rows:
                 assert row['image'].mode == 'RGB'
