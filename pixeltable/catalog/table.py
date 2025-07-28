@@ -1533,11 +1533,7 @@ class Table(SchemaObject):
             env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
     def unlink_external_stores(
-        self,
-        stores: Optional[str | list[str]] = None,
-        *,
-        delete_external_data: bool = False,
-        ignore_errors: bool = False,
+        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
     ) -> None:
         """
         Unlinks this table's external stores.
@@ -1579,7 +1575,7 @@ class Table(SchemaObject):
                 env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store_str}')
 
     def sync(
-        self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True
+        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
     ) -> UpdateStatus:
         """
         Synchronizes this table with its linked external stores.

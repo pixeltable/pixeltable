@@ -828,7 +828,7 @@ class DataFrame:
     def join(
         self,
         other: catalog.Table,
-        on: Optional[exprs.Expr | Sequence[exprs.ColumnRef]] = None,
+        on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: plan.JoinType.LiteralType = 'inner',
     ) -> DataFrame:
         """

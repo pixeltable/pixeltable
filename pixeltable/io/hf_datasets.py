@@ -94,7 +94,7 @@ def import_huggingface_dataset(
     dataset: datasets.Dataset | datasets.DatasetDict,
     *,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[str | list[str]] = None,
+    primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:
     """Create a new base table from a Huggingface dataset, or dataset dict with multiple splits.
