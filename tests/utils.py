@@ -23,8 +23,6 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 
-from .conftest import DO_RERUN
-
 TESTS_DIR = Path(os.path.dirname(__file__))
 
 
@@ -637,11 +635,14 @@ class ReloadTester:
 
 
 def rerun(**kwargs: Any) -> Callable:
+    from .conftest import DO_RERUN
+
     if 'condition' in kwargs:
         kwargs['condition'] = DO_RERUN and kwargs['condition']
     else:
         kwargs['condition'] = DO_RERUN
     if 'only_rerun' not in kwargs:
+        # Set this to an explicit empty list to override the global default in cases where the @rerun decorator is used
         kwargs['only_rerun'] = []
     return pytest.mark.flaky(**kwargs)
 
