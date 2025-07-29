@@ -91,35 +91,6 @@ def _rate_limits_pool(model: str) -> str:
     return f'rate-limits:openai:{model}'
 
 
-class OpenAIRateLimitsInfo(env.RateLimitsInfo):
-    retryable_errors: tuple[Type[Exception], ...]
-
-    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
-        super().__init__(get_request_resources)
-        import openai
-
-        self.retryable_errors = (
-            # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
-            # expired connections
-            # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
-            # 'await connection.aclose()', which is very likely a bug in AsyncConnectionPool)
-            openai.APIConnectionError,
-            # the following errors are retryable according to OpenAI's API documentation
-            openai.RateLimitError,
-            openai.APITimeoutError,
-            openai.UnprocessableEntityError,
-            openai.InternalServerError,
-        )
-
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
-        import openai
-
-        if not isinstance(exc, self.retryable_errors):
-            return None
-        assert isinstance(exc, openai.APIError)
-        return 1.0
-
-
 # RE pattern for duration in '*-reset' headers;
 # examples: 1d2h3ms, 4m5.6s; # fractional seconds can be reported as 0.5s or 500ms
 _header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
@@ -166,6 +137,49 @@ def _get_header_info(
         tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
 
     return requests_info, tokens_info
+
+
+class OpenAIRateLimitsInfo(env.RateLimitsInfo):
+    retryable_errors: tuple[Type[Exception], ...]
+
+    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
+        super().__init__(get_request_resources)
+        import openai
+
+        self.retryable_errors = (
+            # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
+            # expired connections
+            # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
+            # 'await connection.aclose()', which is very likely a bug in AsyncConnectionPool)
+            openai.APIConnectionError,
+            # the following errors are retryable according to OpenAI's API documentation
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.UnprocessableEntityError,
+            openai.InternalServerError,
+        )
+
+    def record_exc(self, exc: Exception) -> None:
+        import openai
+
+        _ = isinstance(exc, openai.APIError)
+        if not isinstance(exc, openai.APIError) or not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
+            return
+        requests_info, tokens_info = _get_header_info(exc.response.headers)
+        if requests_info is not None:
+            _logger.debug(f'record_exc(): requests_info={requests_info}')
+        if tokens_info is not None:
+            _logger.debug(f'record_exc(): tokens_info={tokens_info}')
+        self.record(requests=requests_info, tokens=tokens_info)
+        self.has_exc = True
+
+    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+        import openai
+
+        if not isinstance(exc, self.retryable_errors):
+            return None
+        assert isinstance(exc, openai.APIError)
+        return super().get_retry_delay(exc)
 
 
 #####################################
@@ -355,6 +369,7 @@ async def chat_completions(
     model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
+    _runtime_ctx: Optional[env.RuntimeCtx] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -418,7 +433,8 @@ async def chat_completions(
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     return json.loads(result.text)
 
@@ -461,7 +477,12 @@ def _vision_get_request_resources(
 
 @pxt.udf
 async def vision(
-    prompt: str, image: PIL.Image.Image, *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    prompt: str,
+    image: PIL.Image.Image,
+    *,
+    model: str,
+    model_kwargs: Optional[dict[str, Any]] = None,
+    _runtime_ctx: Optional[env.RuntimeCtx] = None,
 ) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
@@ -521,8 +542,14 @@ async def vision(
         **model_kwargs,
     )
 
+    # _logger.debug(f'vision(): headers={result.headers}')
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    if requests_info is not None:
+        _logger.debug(f'vision(): requests_info={requests_info}')
+    if tokens_info is not None:
+        _logger.debug(f'vision(): tokens_info={tokens_info}')
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     result = json.loads(result.text)
     return result['choices'][0]['message']['content']
@@ -545,7 +572,11 @@ def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
 
 @pxt.udf(batch_size=32)
 async def embeddings(
-    input: Batch[str], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    input: Batch[str],
+    *,
+    model: str,
+    model_kwargs: Optional[dict[str, Any]] = None,
+    _runtime_ctx: Optional[env.RuntimeCtx] = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -592,7 +623,8 @@ async def embeddings(
         input=input, model=model, encoding_format='float', **model_kwargs
     )
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
 

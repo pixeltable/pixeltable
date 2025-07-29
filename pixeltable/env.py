@@ -17,7 +17,6 @@ import types
 import typing
 import uuid
 import warnings
-from abc import abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -890,6 +889,10 @@ class RateLimitsInfo:
     get_request_resources: Callable[..., dict[str, int]]
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
+    has_exc: bool = False
+
+    def debug_str(self) -> str:
+        return ','.join(info.debug_str() for info in self.resource_limits.values())
 
     def is_initialized(self) -> bool:
         return len(self.resource_limits) > 0
@@ -897,7 +900,7 @@ class RateLimitsInfo:
     def reset(self) -> None:
         self.resource_limits.clear()
 
-    def record(self, **kwargs: Any) -> None:
+    def record(self, reset_exc: bool = False, **kwargs: Any) -> None:
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         if len(self.resource_limits) == 0:
             self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items() if v is not None}
@@ -908,14 +911,29 @@ class RateLimitsInfo:
                     f'reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}'
                 )
         else:
+            if self.has_exc and not reset_exc:
+                # ignore updates until we're asked to reset
+                _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
+                return
+            self.has_exc = False
             for k, v in kwargs.items():
                 if v is not None:
                     self.resource_limits[k].update(now, *v)
 
-    @abstractmethod
+    def record_exc(self, exc: Exception) -> None:
+        """Update self.resource_limits based on the exception headers"""
+        self.has_exc = True
+
     def get_retry_delay(self, exc: Exception) -> Optional[float]:
         """Returns number of seconds to wait before retry, or None if not retryable"""
-        pass
+        if len(self.resource_limits) == 0:
+            return 1.0
+        max_delay = 0.0
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        for limit_info in self.resource_limits.values():
+            if limit_info.remaining < 0.05 * limit_info.limit:
+                max_delay = max(max_delay, (limit_info.reset_at - now).total_seconds())
+        return max_delay if max_delay > 0 else None
 
 
 @dataclass
@@ -928,9 +946,15 @@ class RateLimitInfo:
     remaining: int
     reset_at: datetime.datetime
 
+    def debug_str(self) -> str:
+        return (
+            f'{self.resource}@{self.recorded_at.strftime(TIME_FORMAT)}: '
+            f'{self.limit}/{self.remaining}/{self.reset_at.strftime(TIME_FORMAT)}'
+        )
+
     def update(self, recorded_at: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None:
         # we always update everything, even though responses may come back out-of-order: we can't use reset_at to
-        # determine order, because it doesn't increase monotonically (the reeset duration shortens as output_tokens
+        # determine order, because it doesn't increase monotonically (the reset duration shortens as output_tokens
         # are freed up - going from max to actual)
         self.recorded_at = recorded_at
         self.limit = limit
@@ -942,3 +966,16 @@ class RateLimitInfo:
             f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} '
             f'reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}'
         )
+
+
+@dataclass
+class RuntimeCtx:
+    """
+    Container for runtime data provided by the execution system to udfs.
+
+    Udfs that accept the special _runtime_ctx parameter receive an instance of this class.
+    """
+
+    # Indicates a retry attempt following a rate limit error (error code: 429). Requires a 'rate-limits' resource pool.
+    # If True, call RateLimitsInfo.record() with reset_exc=True.
+    is_retry: bool = False

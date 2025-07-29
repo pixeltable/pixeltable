@@ -27,6 +27,7 @@ class CallableFunction(Function):
     py_fns: list[Callable]
     self_name: Optional[str]
     batch_size: Optional[int]
+    accepts_runtime_ctx: bool
 
     def __init__(
         self,
@@ -47,6 +48,13 @@ class CallableFunction(Function):
         self.batch_size = batch_size
         self.__doc__ = self.py_fns[0].__doc__
         super().__init__(signatures, self_path=self_path, is_method=is_method, is_property=is_property)
+
+        if not self.is_polymorphic:
+            # check for _runtime_ctx parameter in our py_fn
+            py_sig = inspect.signature(self.py_fn)
+            self.accepts_runtime_ctx = '_runtime_ctx' in py_sig.parameters
+        else:
+            self.accepts_runtime_ctx = False
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         assert len(self.py_fns) > signature_idx

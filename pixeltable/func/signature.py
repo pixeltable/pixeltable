@@ -237,6 +237,7 @@ class Signature:
         type_substitutions: Optional[dict] = None,
         is_cls_method: bool = False,
     ) -> list[Parameter]:
+        """Ignores parameters starting with '_'."""
         from pixeltable import exprs
 
         assert (py_fn is None) != (py_params is None)
@@ -251,6 +252,8 @@ class Signature:
         for idx, param in enumerate(py_params):
             if is_cls_method and idx == 0:
                 continue  # skip 'self' or 'cls' parameter
+            if param.name.startswith('_'):
+                continue  # skip system parameters
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f'{param.name!r} is a reserved parameter name')
             if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):

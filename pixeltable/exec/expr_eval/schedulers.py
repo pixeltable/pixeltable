@@ -81,6 +81,8 @@ class RateLimitsScheduler(Scheduler):
         while True:
             if item is None:
                 item = await self.queue.get()
+                assert isinstance(item.request.fn_call.fn, func.CallableFunction)
+                assert item.request.fn_call.fn.accepts_runtime_ctx
                 if item.num_retries > 0:
                     self.total_retried += 1
 
@@ -97,7 +99,7 @@ class RateLimitsScheduler(Scheduler):
                 continue
 
             # check rate limits
-            _logger.debug(f'checking rate limits for {self.resource_pool}')
+            # _logger.debug(f'checking rate limits for {self.resource_pool}')
             request_resources = self._get_request_resources(item.request)
             limits_info = self._check_resource_limits(request_resources)
             aws: list[Awaitable[None]] = []
@@ -116,21 +118,31 @@ class RateLimitsScheduler(Scheduler):
                 reset_at = limits_info.reset_at
                 if reset_at > now:
                     # we're waiting for the rate limit to reset
-                    wait_for_reset = asyncio.create_task(asyncio.sleep((reset_at - now).total_seconds()))
+                    wait_duration = (reset_at - now).total_seconds()
+                    wait_for_reset = asyncio.create_task(asyncio.sleep(wait_duration))
                     aws.append(wait_for_reset)
-                    _logger.debug(f'waiting for rate limit reset for {self.resource_pool}')
+                    _logger.debug(
+                        f'waiting {wait_duration:.2f}s for rate limit reset of '
+                        f'{self.resource_pool}:{limits_info.resource} (remaining={limits_info.remaining})'
+                    )
 
             if len(aws) > 0:
                 # we have something to wait for
+                report_ts = limits_info.recorded_at
                 done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
                 for task in pending:
                     task.cancel()
                 if completed_aw in done:
                     _logger.debug(f'wait(): completed request for {self.resource_pool}')
                 if wait_for_reset in done:
-                    _logger.debug(f'wait(): rate limit reset for {self.resource_pool}')
-                    # force waiting for another rate limit report before making any scheduling decisions
-                    self.pool_info.reset()
+                    _logger.debug(f'wait(): rate limit reset for {self.resource_pool}:{limits_info.resource}')
+                    last_report_ts = self.pool_info.resource_limits[limits_info.resource].recorded_at
+                    if report_ts == last_report_ts:
+                        # if we haven't seen a new report since we started waiting, force waiting for another rate limit
+                        # report before making any scheduling decisions
+                        # TODO: is it a good idea to discard the information we have?
+                        _logger.debug(f'resetting {self.resource_pool}: currently at {self.pool_info.debug_str()}')
+                        self.pool_info.reset()
                 # re-evaluate current capacity for current item
                 continue
 
@@ -158,16 +170,22 @@ class RateLimitsScheduler(Scheduler):
 
     def _check_resource_limits(self, request_resources: dict[str, int]) -> Optional[env.RateLimitInfo]:
         """Returns the most depleted resource, relative to its limit, or None if all resources are within limits"""
-        candidates: list[tuple[env.RateLimitInfo, float]] = []  # (info, relative usage)
+        candidates: list[tuple[env.RateLimitInfo, float]] = []  # (info, relative remaining)
         for resource, usage in request_resources.items():
             # 0.05: leave some headroom, we don't have perfect information
             info = self.pool_info.resource_limits[resource]
             est_remaining = info.remaining - self.est_usage[resource] - usage
-            if est_remaining < 0.05 * info.limit:
-                candidates.append((info, est_remaining / info.limit))
-        if len(candidates) == 0:
-            return None
-        return min(candidates, key=lambda x: x[1])[0]
+            candidates.append((info, est_remaining / info.limit))
+        assert len(candidates) > 0
+        candidates.sort(key=lambda x: x[1])  # most depleted first
+        most_depleted = candidates[0]
+        _logger.debug(
+            f'check_resource_limits({request_resources}): '
+            f'most_depleted={most_depleted[0].resource}, rel_remaining={most_depleted[1]}'
+        )
+        if most_depleted[1] < 0.05:
+            return most_depleted[0]
+        return None
 
     async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
@@ -188,7 +206,8 @@ class RateLimitsScheduler(Scheduler):
                 for row, result in zip(request.rows, batch_result):
                     row[request.fn_call.slot_idx] = result
             else:
-                result = await pxt_fn.aexec(*request.args, **request.kwargs)
+                request_kwargs = {**request.kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
+                result = await pxt_fn.aexec(*request.args, **request_kwargs)
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
@@ -202,10 +221,14 @@ class RateLimitsScheduler(Scheduler):
             self.dispatcher.dispatch(request.rows, exec_ctx)
         except Exception as exc:
             _logger.debug(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
+            if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
+                _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
             if self.pool_info is None:
                 # our pool info should be available at this point
                 self._set_pool_info()
             assert self.pool_info is not None
+            self.pool_info.record_exc(exc)
+
             if num_retries < self.MAX_RETRIES:
                 retry_delay = self.pool_info.get_retry_delay(exc)
                 if retry_delay is not None:
@@ -214,7 +237,6 @@ class RateLimitsScheduler(Scheduler):
                     await asyncio.sleep(retry_delay)
                     self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
                     return
-            # TODO: update resource limits reported in exc.response.headers, if present
 
             # record the exception
             _, _, exc_tb = sys.exc_info()
