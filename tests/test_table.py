@@ -249,7 +249,9 @@ class TestTable:
         t = pxt.create_table('test', schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    def test_names(self, reset_db: None, clip_embed: pxt.Function) -> None:
+    def test_table_metadata(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('transformers')  # we need a `clip_embed` instance to test index metadata
+
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
         for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
