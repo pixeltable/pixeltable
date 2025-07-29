@@ -4,7 +4,7 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Optional, Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Optional, _GenericAlias  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -475,7 +475,7 @@ class TestTable:
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
     def test_schema_types(self, reset_db: None) -> None:
-        test_columns: dict[str, Union[type, _GenericAlias]] = {
+        test_columns: dict[str, type | _GenericAlias] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
             'int_col': pxt.Int,
@@ -2092,7 +2092,7 @@ class TestTable:
         with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
             v.i1.recompute()
 
-    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
+    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
         # invalid if_not_exists parameter is rejected
         with pytest.raises(excs.Error) as exc_info:
