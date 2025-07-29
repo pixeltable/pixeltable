@@ -64,6 +64,9 @@ class Dir(SchemaObject):
     def get_metadata(self) -> 'DirMetadata':
         """
         Retrieves metadata associated with this directory.
+
+        Returns:
+            A [DirMetadata][pixeltable.DirMetadata] instance containing this directory's metadata.
         """
         from pixeltable.catalog import retry_loop
 
@@ -75,5 +78,9 @@ class Dir(SchemaObject):
 
 
 class DirMetadata(TypedDict):
+    """Metadata for a Pixeltable table."""
+
     name: str
+    """The name of the directory (ex: `'my_dir'`)."""
     path: str
+    """The full path of the directory (ex: `'my_dir.my_subdir'`)."""

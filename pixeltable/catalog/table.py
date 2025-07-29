@@ -85,28 +85,7 @@ class Table(SchemaObject):
         Retrieves metadata associated with this table.
 
         Returns:
-            A dictionary containing the metadata, in the following format:
-
-                ```python
-                {
-                    'name': 'my_table',
-                    'path': 'my_dir.my_subdir.my_table',
-                    'base': None,  # If this is a view or snapshot, will contain the name of its base table
-                    'schema': {
-                        'col1': StringType(),
-                        'col2': IntType(),
-                    },
-                    'is_replica': False,
-                    'version': 22,
-                    'version_created': datetime.datetime(...),
-                    'schema_version': 1,
-                    'comment': '',
-                    'num_retained_versions': 10,
-                    'is_view': False,
-                    'is_snapshot': False,
-                    'media_validation': 'on_write',
-                }
-                ```
+            A [TableMetadata][pixeltable.TableMetadata] instance containing this table's metadata.
         """
         from pixeltable.catalog import retry_loop
 
@@ -1752,34 +1731,63 @@ class Table(SchemaObject):
 
 
 class ColumnMetadata(TypedDict):
+    """Metadata for a column of a Pixeltable table."""
+
     name: str
+    """The name of the column."""
     type_: str
+    """The type specifier of the column."""
     version_added: int
+    """The table version when this column was added."""
     is_stored: bool
+    """`True` if this is a stored column; `False` if it is dynamically computed."""
     is_primary_key: bool
+    """`True` if this column is part of the table's primary key."""
     media_validation: Optional[Literal['on_read', 'on_write']]
+    """The media validation policy for this column."""
     computed_with: Optional[str]
+    """Expression used to computed this column; `None` if this is not a computed column."""
 
 
 class IndexMetadata(TypedDict):
+    """Metadata for a column of a Pixeltable table."""
     name: str
+    """The name of the index."""
     columns: list[str]
+    """The table columns that are indexed."""
     metric: Literal['cosine', 'ip', 'l2']
+    """Index metric."""
     embeddings: list[str]
+    """List of embeddings defined for this index."""
 
 
 class TableMetadata(TypedDict):
+    """Metadata for a Pixeltable table."""
+
     name: str
+    """The name of the table (ex: `'my_table'`)."""
     path: str
+    """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
     columns: dict[str, ColumnMetadata]
+    """Column metadata for all of the visible columns of the table."""
     indices: dict[str, IndexMetadata]
+    """Index metadata for all of the indices of the table."""
     is_replica: bool
+    """`True` if this table is a replica of another (shared) table."""
     is_view: bool
+    """`True` if this table is a view."""
     is_snapshot: bool
+    """`True` if this table is a snapshot."""
     version: int
+    """The current version of the table."""
     version_created: datetime.datetime
+    """The timestamp when this table version was created."""
     schema_version: int
+    """The current schema version of the table."""
     comment: Optional[str]
+    """User-provided table comment, if one exists."""
     num_retained_versions: int
     media_validation: Literal['on_read', 'on_write']
+    """The media validation policy for this table."""
     base: Optional[str]
+    """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
