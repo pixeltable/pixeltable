@@ -99,7 +99,8 @@ _IS_GPU_AVAILABLE: Optional[bool] = None
 
 def cleanup() -> None:
     for model in _model_cache.values():
-        model._sampler.close()
+        if model._sampler is not None:
+            model._sampler.close()
         model.close()
     _model_cache.clear()
 

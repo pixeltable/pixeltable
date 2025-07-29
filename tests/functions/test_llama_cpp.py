@@ -49,4 +49,4 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
-        llama_cpp.cleanup() # Clean up the model cache after the test
+        llama_cpp.cleanup()  # Clean up the model cache after the test
