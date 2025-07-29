@@ -527,7 +527,7 @@ def text_generation(
 
 
 @pxt.udf(batch_size=16)
-def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> Batch[dict[str, Any]]:
+def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> Batch[list[dict[str, Any]]]:
     """
     Classifies text using a pretrained classification model. `model_id` should be a reference to a pretrained
     [text classification model](https://huggingface.co/models?pipeline_tag=text-classification) such as BERT,
@@ -882,37 +882,51 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
     model = _lookup_model(model_id, AutoModelForQuestionAnswering.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
 
+    results = []
+    
     with torch.no_grad():
-        # Process entire batch at once - following sentence_transformer pattern
-        inputs = tokenizer(question, context, return_tensors='pt', padding=True, truncation=True, max_length=512)
-        outputs = model(**inputs.to(device))
-
-        start_logits = outputs.start_logits
-        end_logits = outputs.end_logits
-
-        # Get best start/end positions for each item in batch
-        start_indices = torch.argmax(start_logits, dim=-1)
-        end_indices = torch.argmax(end_logits, dim=-1)
-
-        results = []
         for i in range(len(context)):
-            start_idx = int(start_indices[i].item())
-            end_idx = int(end_indices[i].item())
-
-            if end_idx >= start_idx and start_idx < len(inputs['input_ids'][i]):
-                # Extract answer tokens
-                answer_tokens = inputs['input_ids'][i][start_idx : end_idx + 1]
-                answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
-
-                # Calculate confidence as product of start and end probabilities
-                start_probs = torch.softmax(start_logits[i], dim=-1)
-                end_probs = torch.softmax(end_logits[i], dim=-1)
-                confidence = float(start_probs[start_idx] * end_probs[end_idx])
-            else:
-                answer = ''
-                confidence = 0.0
-
-            results.append({'answer': answer.strip(), 'score': confidence, 'start': start_idx, 'end': end_idx})
+            # Tokenize the question and context
+            inputs = tokenizer.encode_plus(
+                question[i], 
+                context[i], 
+                add_special_tokens=True,
+                return_tensors='pt',
+                truncation=True,
+                max_length=512
+            )
+            
+            # Get model predictions
+            outputs = model(**inputs.to(device))
+            start_scores = outputs.start_logits
+            end_scores = outputs.end_logits
+            
+            # Find the tokens with the highest start and end scores
+            start_idx = torch.argmax(start_scores)
+            end_idx = torch.argmax(end_scores)
+            
+            # Ensure end_idx >= start_idx
+            if end_idx < start_idx:
+                end_idx = start_idx
+            
+            # Convert token positions to string
+            input_ids = inputs['input_ids'][0]
+            
+            # Extract answer tokens
+            answer_tokens = input_ids[start_idx:end_idx + 1]
+            answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
+            
+            # Calculate confidence score
+            start_probs = torch.softmax(start_scores, dim=1)
+            end_probs = torch.softmax(end_scores, dim=1)
+            confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
+            
+            results.append({
+                'answer': answer.strip(),
+                'score': confidence,
+                'start': int(start_idx),
+                'end': int(end_idx)
+            })
 
     return results
 
