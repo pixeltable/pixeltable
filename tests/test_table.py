@@ -249,13 +249,14 @@ class TestTable:
         t = pxt.create_table('test', schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    def test_names(self, reset_db: None) -> None:
+    def test_names(self, reset_db: None, clip_embed: pxt.Function) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
         for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            view.add_embedding_index('col', embedding=clip_embed)
             puresnap_path = f'{tbl_path}_puresnap'
             puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
@@ -313,7 +314,17 @@ class TestTable:
                         }
                     },
                     'comment': '',
-                    'indices': {},
+                    'indices': {
+                        'idx0': {
+                            'columns': ['col'],
+                            'embeddings': [
+                                "clip(text, model_id='openai/clip-vit-base-patch32')",
+                                "clip(image, model_id='openai/clip-vit-base-patch32')",
+                            ],
+                            'metric': 'cosine',
+                            'name': 'idx0',
+                        }
+                    },
                     'is_view': True,
                     'is_snapshot': False,
                     'is_replica': False,
@@ -321,8 +332,8 @@ class TestTable:
                     'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': view_path,
-                    'schema_version': 0,
-                    'version': 0,
+                    'schema_version': 1,
+                    'version': 1,
                 },
                 view.get_metadata(),
             )
@@ -377,7 +388,7 @@ class TestTable:
                             'name': 'col2',
                             'type_': 'String',
                             'version_added': 0,
-                        }
+                        },
                     },
                     'comment': '',
                     'indices': {},
