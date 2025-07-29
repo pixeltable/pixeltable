@@ -52,12 +52,6 @@ class make_video(pxt.Aggregator):
 
     - A `pxt.Video` containing the created video file path.
 
-    Requirements:
-        - Must be used with `group_by` (typically the base table containing videos)
-        - First parameter must specify frame ordering (typically frame position)
-        - Second parameter must be PIL.Image.Image objects
-        - Cannot be used with window functions
-
     Examples:
         Create a video from frames extracted using FrameIterator:
 
