@@ -72,7 +72,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
 
     for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA', 'FIFTYONE_DATABASE_DIR'):
-        print(f'{var:17} = {os.environ[var]}')
+        print(f'{var:21} = {os.environ[var]}')
 
     # Ensure the shared home directory exists.
     shared_home.mkdir(parents=True, exist_ok=True)
