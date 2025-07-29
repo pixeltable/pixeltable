@@ -1750,6 +1750,7 @@ class ColumnMetadata(TypedDict):
 
 class IndexMetadata(TypedDict):
     """Metadata for a column of a Pixeltable table."""
+
     name: str
     """The name of the index."""
     columns: list[str]
