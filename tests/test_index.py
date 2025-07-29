@@ -2,7 +2,7 @@ import datetime
 import random
 import string
 import sys
-from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -726,7 +726,7 @@ class TestIndex:
             sim = img_t.img.similarity('red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
 
-    def run_btree_test(self, data: list, data_type: Union[type, _GenericAlias]) -> pxt.Table:
+    def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})
         num_rows = len(data)
         rows = [{'data': value} for value in data]

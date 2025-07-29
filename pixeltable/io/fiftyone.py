@@ -1,5 +1,5 @@
 import os
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional
 
 import fiftyone as fo  # type: ignore[import-untyped]
 import fiftyone.utils.data as foud  # type: ignore[import-untyped]
@@ -28,11 +28,11 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         tbl: pxt.Table,
         image: exprs.Expr,
         image_format: str,
-        classifications: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
-        detections: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
+        classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
+        detections: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
         dataset_dir: Optional[os.PathLike] = None,
         shuffle: bool = False,
-        seed: Union[int, float, str, bytes, bytearray, None] = None,
+        seed: int | float | str | bytes | bytearray | None = None,
         max_samples: Optional[int] = None,
     ):
         super().__init__(dataset_dir=dataset_dir, shuffle=shuffle, seed=seed, max_samples=max_samples)

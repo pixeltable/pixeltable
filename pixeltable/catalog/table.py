@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
@@ -473,7 +473,7 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]],
+        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
@@ -547,7 +547,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr],
+        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -792,7 +792,7 @@ class Table(SchemaObject):
             cls._verify_column(col)
             column_names.add(col.name)
 
-    def drop_column(self, column: Union[str, ColumnRef], if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+    def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
 
         Args:
@@ -914,7 +914,7 @@ class Table(SchemaObject):
 
     def add_embedding_index(
         self,
-        column: Union[str, ColumnRef],
+        column: str | ColumnRef,
         *,
         idx_name: Optional[str] = None,
         embedding: Optional[pxt.Function] = None,
@@ -1041,7 +1041,7 @@ class Table(SchemaObject):
     def drop_embedding_index(
         self,
         *,
-        column: Union[str, ColumnRef, None] = None,
+        column: str | ColumnRef | None = None,
         idx_name: Optional[str] = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
@@ -1101,7 +1101,7 @@ class Table(SchemaObject):
 
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
 
-    def _resolve_column_parameter(self, column: Union[str, ColumnRef]) -> Column:
+    def _resolve_column_parameter(self, column: str | ColumnRef) -> Column:
         """Resolve a column parameter to a Column object"""
         col: Column = None
         if isinstance(column, str):
@@ -1120,7 +1120,7 @@ class Table(SchemaObject):
     def drop_index(
         self,
         *,
-        column: Union[str, ColumnRef, None] = None,
+        column: str | ColumnRef | None = None,
         idx_name: Optional[str] = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
@@ -1439,7 +1439,7 @@ class Table(SchemaObject):
             return result
 
     def recompute_columns(
-        self, *columns: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
+        self, *columns: str | ColumnRef, errors_only: bool = False, cascade: bool = True
     ) -> UpdateStatus:
         """Recompute the values in one or more computed columns of this table.
 
@@ -1551,11 +1551,7 @@ class Table(SchemaObject):
             env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
     def unlink_external_stores(
-        self,
-        stores: Optional[str | list[str]] = None,
-        *,
-        delete_external_data: bool = False,
-        ignore_errors: bool = False,
+        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
     ) -> None:
         """
         Unlinks this table's external stores.
@@ -1597,7 +1593,7 @@ class Table(SchemaObject):
                 env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store_str}')
 
     def sync(
-        self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True
+        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
     ) -> UpdateStatus:
         """
         Synchronizes this table with its linked external stores.

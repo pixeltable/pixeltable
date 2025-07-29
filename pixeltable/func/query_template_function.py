@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 
@@ -129,7 +129,7 @@ def retrieval_udf(
     table: catalog.Table,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    parameters: Optional[Iterable[Union[str, exprs.ColumnRef]]] = None,
+    parameters: Optional[Iterable[str | exprs.ColumnRef]] = None,
     limit: Optional[int] = 10,
 ) -> func.QueryTemplateFunction:
     """
