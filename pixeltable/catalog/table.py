@@ -138,7 +138,6 @@ class Table(SchemaObject):
             ),
             schema_version=self._tbl_version_path.schema_version(),
             comment=self._get_comment(),
-            num_retained_versions=self._get_num_retained_versions(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
         )
@@ -1786,7 +1785,6 @@ class TableMetadata(TypedDict):
     """The current schema version of the table."""
     comment: Optional[str]
     """User-provided table comment, if one exists."""
-    num_retained_versions: int
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
     base: Optional[str]
