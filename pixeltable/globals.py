@@ -701,7 +701,7 @@ def ls(path: str = '') -> pd.DataFrame:
                     kind = 'view'
                 else:
                     kind = 'table'
-                version = '' if kind == 'snapshot' else md['version']
+                version = '' if kind == 'snapshot' else str(md['version'])
                 if md['is_replica']:
                     kind = f'{kind}-replica'
             rows.append([name, kind, version, base])

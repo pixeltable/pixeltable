@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
@@ -80,7 +80,7 @@ class Table(SchemaObject):
         conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     # this is duplicated from SchemaObject so that our API docs show the docstring for Table
-    def get_metadata(self) -> dict[str, Any]:
+    def get_metadata(self) -> 'TableMetadata':
         """
         Retrieves metadata associated with this table.
 
@@ -108,21 +108,32 @@ class Table(SchemaObject):
                 }
                 ```
         """
-        return super().get_metadata()
+        from pixeltable.catalog import retry_loop
 
-    def _get_metadata(self) -> dict[str, Any]:
-        md = super()._get_metadata()
-        md['schema'] = self._get_schema()
-        md['is_replica'] = self._tbl_version_path.is_replica()
-        md['version'] = self._get_version()
-        md['version_created'] = datetime.datetime.fromtimestamp(
-            self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc
+        @retry_loop(for_write=False)
+        def op() -> 'TableMetadata':
+            return self._get_metadata()
+
+        return op()
+
+    def _get_metadata(self) -> 'TableMetadata':
+        return TableMetadata(
+            name=self._name,
+            path=self._path(),
+            schema=self._get_schema(),
+            is_replica=self._tbl_version_path.is_replica(),
+            is_view=False,
+            is_snapshot=False,
+            version=self._get_version(),
+            version_created=datetime.datetime.fromtimestamp(
+                self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc
+            ),
+            schema_version=self._tbl_version_path.schema_version(),
+            comment=self._get_comment(),
+            num_retained_versions=self._get_num_retained_versions(),
+            media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
+            base=None,
         )
-        md['schema_version'] = self._tbl_version_path.schema_version()
-        md['comment'] = self._get_comment()
-        md['num_retained_versions'] = self._get_num_retained_versions()
-        md['media_validation'] = self._get_media_validation().name.lower()
-        return md
 
     def _get_version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
@@ -1709,3 +1720,19 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
         if self._tbl_version_path.is_replica():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')
+
+
+class TableMetadata(TypedDict):
+    name: str
+    path: str
+    schema: dict[str, ts.ColumnType]
+    is_replica: bool
+    is_view: bool
+    is_snapshot: bool
+    version: int
+    version_created: datetime.datetime
+    schema_version: int
+    comment: Optional[str]
+    num_retained_versions: int
+    media_validation: Literal['on_read', 'on_write']
+    base: Optional[str]

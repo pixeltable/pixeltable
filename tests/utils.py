@@ -18,7 +18,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog.update_status import UpdateStatus
+from pixeltable.catalog import TableMetadata, UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
@@ -449,7 +449,7 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
     return '\n'.join(lines)
 
 
-def assert_table_metadata_eq(expected: dict[str, Any], actual: dict[str, Any]) -> None:
+def assert_table_metadata_eq(expected: dict[str, Any], actual: TableMetadata) -> None:
     """
     Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
     `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact

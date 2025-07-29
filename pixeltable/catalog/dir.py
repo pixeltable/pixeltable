@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+from typing import TypedDict
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -59,3 +60,20 @@ class Dir(SchemaObject):
             )
         )
         Env.get().conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
+
+    def get_metadata(self) -> 'DirMetadata':
+        """
+        Retrieves metadata associated with this directory.
+        """
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(for_write=False)
+        def op() -> 'DirMetadata':
+            return DirMetadata(name=self._name, path=self._path())
+
+        return op()
+
+
+class DirMetadata(TypedDict):
+    name: str
+    path: str
