@@ -460,9 +460,13 @@ class TableRestorer:
             if col_name not in system_col_names and col_name not in media_col_names
         ]
 
+        q: sql.Executable
+
         assert len(value_store_cols) == len(value_temp_cols)
         if len(value_store_cols) > 0:
-            mismatch_predicates = [store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)]
+            mismatch_predicates = [
+                store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)
+            ]
             mismatch_clause = sql.or_(*mismatch_predicates)
 
             # This query looks for rows that have matching primary keys (rowid + pos_k + v_min), but differ in at least
@@ -496,7 +500,8 @@ class TableRestorer:
                 _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
                 _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
                 raise excs.Error(
-                    'Data corruption error: the replica data are inconsistent with data retrieved from a previous replica.'
+                    'Data corruption error: '
+                    'the replica data are inconsistent with data retrieved from a previous replica.'
                 )
 
         _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')
