@@ -2,13 +2,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestGroq:
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('groq')
@@ -36,7 +35,7 @@ class TestGroq:
         assert 'tennessine' in results['output'][0]['choices'][0]['message']['content'].lower()
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.flaky(reruns=20, reruns_delay=8, condition=DO_RERUN)
+    @rerun(reruns=20, reruns_delay=8)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('groq')
         skip_test_if_no_client('groq')
