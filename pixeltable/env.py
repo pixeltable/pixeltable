@@ -249,10 +249,7 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                if self.dbms.name == 'cockroachdb':
-                    self._current_isolation_level = 'SERIALIZABLE'
-                else:
-                    self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
+                self._current_isolation_level = 'SERIALIZABLE'
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
                     sql.orm.Session(conn) as session,
@@ -491,10 +488,6 @@ class Env:
                 raise excs.Error(error)
             self._logger.info(f'Using database at: {self.db_url}')
         else:
-            print('AH TODO PIXELTABLE_DB', os.environ.get('PIXELTABLE_DB'))
-            print('AH TODO PIXELTABLE_PGDATA', os.environ.get('PIXELTABLE_PGDATA'))
-            print('AH TODO Config.get().home', {Config.get().home})
-
             self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             # cleanup_mode=None will leave the postgres process running after Python exits

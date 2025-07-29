@@ -222,11 +222,6 @@ class TableVersionPath:
         else:
             return False
 
-    def additional_md(self) -> dict[str, Any]:
-        """Return additional metadata from TableMd"""
-        self.refresh_cached_md()
-        return self._cached_tbl_version.tbl_md.additional_md
-
     def as_dict(self) -> dict:
         return {
             'tbl_version': self.tbl_version.as_dict(),

@@ -124,7 +124,7 @@ class Table(SchemaObject):
         md['num_retained_versions'] = self._get_num_retained_versions()
         md['media_validation'] = self._get_media_validation().name.lower()
         md['detailed_schema'] = self._get_detailed_schema()
-        md['additional_md'] = self._tbl_version_path.additional_md()
+        md['additional_md'] = self._tbl_version_path.tbl_version.get().tbl_md.additional_md
         return md
 
     def _get_version(self) -> int:
