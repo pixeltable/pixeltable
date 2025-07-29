@@ -228,6 +228,8 @@ filterwarnings = [
     "ignore:`resume_download` is deprecated and will be removed:FutureWarning",
     # LabelStudio:
     "ignore:invalid escape sequence:DeprecationWarning",
+    # swigvarlink:
+    "ignore:.*builtin type .* has no __module__ attribute.*:DeprecationWarning",
 ]
 
 [tool.ruff]
