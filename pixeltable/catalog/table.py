@@ -117,10 +117,38 @@ class Table(SchemaObject):
         return op()
 
     def _get_metadata(self) -> 'TableMetadata':
+        columns = self._tbl_version_path.columns()
+        column_info: dict[str, ColumnMetadata] = {}
+        for col in columns:
+            column_info[col.name] = ColumnMetadata(
+                name=col.name,
+                type_=col.col_type._to_str(as_schema=True),
+                version_added=col.schema_version_add,
+                is_stored=col.is_stored,
+                is_primary_key=col.is_pk,
+                media_validation=col.media_validation.name.lower() if col.media_validation else None,  # type: ignore[typeddict-item]
+                computed_with=col.value_expr.display_str(inline=False) if col.value_expr else None,
+            )
+        indices = self._tbl_version.get().idxs_by_name.values()
+        index_info: dict[str, IndexMetadata] = {}
+        for info in indices:
+            if isinstance(info.idx, index.EmbeddingIndex):
+                embeddings: list[str] = []
+                if info.idx.string_embed is not None:
+                    embeddings.append(str(info.idx.string_embed))
+                if info.idx.image_embed is not None:
+                    embeddings.append(str(info.idx.image_embed))
+                index_info[info.name] = IndexMetadata(
+                    name=info.name,
+                    columns=[info.col.name],
+                    metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
+                    embeddings=embeddings,
+                )
         return TableMetadata(
             name=self._name,
             path=self._path(),
-            schema=self._get_schema(),
+            columns=column_info,
+            indices=index_info,
             is_replica=self._tbl_version_path.is_replica(),
             is_view=False,
             is_snapshot=False,
@@ -1722,10 +1750,28 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')
 
 
+class ColumnMetadata(TypedDict):
+    name: str
+    type_: str
+    version_added: int
+    is_stored: bool
+    is_primary_key: bool
+    media_validation: Optional[Literal['on_read', 'on_write']]
+    computed_with: Optional[str]
+
+
+class IndexMetadata(TypedDict):
+    name: str
+    columns: list[str]
+    metric: Literal['cosine', 'ip', 'l2']
+    embeddings: list[str]
+
+
 class TableMetadata(TypedDict):
     name: str
     path: str
-    schema: dict[str, ts.ColumnType]
+    columns: dict[str, ColumnMetadata]
+    indices: dict[str, IndexMetadata]
     is_replica: bool
     is_view: bool
     is_snapshot: bool
