@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional
 
 import numpy as np
 import pyarrow as pa
@@ -88,11 +88,11 @@ def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
     return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())  # type: ignore[misc]
 
 
-def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, np.ndarray]]:
+def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
     """Convert a RecordBatch to a dictionary of lists, unlike pa.lib.RecordBatch.to_pydict,
     this function will not convert numpy arrays to lists, and will preserve the original numpy dtype.
     """
-    out: dict[str, Union[list, np.ndarray]] = {}
+    out: dict[str, list | np.ndarray] = {}
     for k, name in enumerate(batch.schema.names):
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
@@ -105,7 +105,7 @@ def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, n
     return out
 
 
-def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, Any]]:
+def iter_tuples(batch: pa.Table | pa.RecordBatch) -> Iterator[dict[str, Any]]:
     """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
     pydict = to_pydict(batch)
     assert len(pydict) > 0, 'empty record batch'
@@ -145,7 +145,7 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
 
 
 def iter_tuples2(
-    batch: Union[pa.Table, pa.RecordBatch], col_mapping: Optional[dict[str, str]], schema: dict[str, ts.ColumnType]
+    batch: pa.Table | pa.RecordBatch, col_mapping: Optional[dict[str, str]], schema: dict[str, ts.ColumnType]
 ) -> Iterator[dict[str, Any]]:
     """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
     pydict = to_pydict(batch)

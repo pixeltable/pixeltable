@@ -2,7 +2,7 @@ import hashlib
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 
 def print_perf_counter_delta(delta: float) -> str:
@@ -24,7 +24,7 @@ def print_perf_counter_delta(delta: float) -> str:
         return f'{delta:.2f} s'
 
 
-def sha256sum(path: Union[Path, str]) -> str:
+def sha256sum(path: Path | str) -> str:
     """
     Compute the SHA256 hash of a file.
     """

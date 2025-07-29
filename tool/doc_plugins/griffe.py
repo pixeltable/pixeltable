@@ -1,7 +1,6 @@
 import ast
 import inspect
 import warnings
-from typing import Union
 
 import griffe.expressions
 from griffe import Extension, Function, Object, ObjectNode, dynamic_import  # type: ignore[attr-defined]
@@ -15,7 +14,7 @@ logger = griffe.get_logger(__name__)  # type: ignore[attr-defined]
 class PxtGriffeExtension(Extension):
     """Implementation of a Pixeltable custom griffe extension."""
 
-    def on_instance(self, node: Union[ast.AST, ObjectNode], obj: Object) -> None:
+    def on_instance(self, node: ast.AST | ObjectNode, obj: Object) -> None:
         if obj.docstring is None:
             # Skip over entities without a docstring
             return

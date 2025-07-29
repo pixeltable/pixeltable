@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -143,8 +143,8 @@ def export_images_as_fo_dataset(
     tbl: pxt.Table,
     images: exprs.Expr,
     image_format: str = 'webp',
-    classifications: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
-    detections: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
+    classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
+    detections: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
 ) -> 'fo.Dataset':
     """
     Export images from a Pixeltable table as a Voxel51 dataset. The data must consist of a single column

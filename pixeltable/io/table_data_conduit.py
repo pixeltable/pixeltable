@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, cast
 
 import pandas as pd
 from pyarrow.parquet import ParquetDataset
@@ -325,7 +325,7 @@ class JsonTableDataConduit(TableDataConduit):
 
 
 class HFTableDataConduit(TableDataConduit):
-    hf_ds: Optional[Union[datasets.Dataset, datasets.DatasetDict]] = None
+    hf_ds: datasets.Dataset | datasets.DatasetDict | None = None
     column_name_for_split: Optional[str] = None
     categorical_features: dict[str, dict[int, str]]
     dataset_dict: dict[str, datasets.Dataset] = None

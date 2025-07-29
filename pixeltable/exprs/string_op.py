@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
@@ -76,7 +76,7 @@ class StringOp(Expr):
         op2_val = data_row[self._op2.slot_idx]
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
-    def eval_nullable(self, op1_val: Union[str, None], op2_val: Union[int, str, None]) -> Union[str, None]:
+    def eval_nullable(self, op1_val: str | None, op2_val: int | str | None) -> str | None:
         """
         Return the result of evaluating the expression on two nullable int/float operands,
         None is interpreted as SQL NULL
@@ -85,7 +85,7 @@ class StringOp(Expr):
             return None
         return self.eval_non_null(op1_val, op2_val)
 
-    def eval_non_null(self, op1_val: str, op2_val: Union[int, str]) -> str:
+    def eval_non_null(self, op1_val: str, op2_val: int | str) -> str:
         """
         Return the result of evaluating the expression on two int/float operands
         """
