@@ -126,10 +126,11 @@ class Table(SchemaObject):
                 version_added=col.schema_version_add,
                 is_stored=col.is_stored,
                 is_primary_key=col.is_pk,
-                media_validation=col.media_validation.name.lower() if col.media_validation else None,  # type: ignore[typeddict-item]
-                computed_with=col.value_expr.display_str(inline=False) if col.value_expr else None,
+                media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
+                computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
             )
-        indices = self._tbl_version.get().idxs_by_name.values()
+        # Pure snapshots have no indices
+        indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
@@ -1696,7 +1697,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         if n is None:
-            n = 1000_000_000
+            n = 1_000_000_000
         if not isinstance(n, int) or n < 1:
             raise excs.Error(f'Invalid value for n: {n}')
 

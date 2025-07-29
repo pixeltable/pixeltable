@@ -272,15 +272,26 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': None,
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': False,
                     'is_snapshot': False,
                     'is_replica': False,
                     'name': 'test',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
+                    'num_retained_versions': 10,
                     'path': tbl_path,
-                    'schema': tbl._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                 },
@@ -290,7 +301,19 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': tbl_path,
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': False,
                     'is_replica': False,
@@ -298,7 +321,6 @@ class TestTable:
                     'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': view_path,
-                    'schema': view._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                 },
@@ -308,7 +330,19 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': f'{tbl_path}:0',
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
@@ -316,7 +350,6 @@ class TestTable:
                     'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': puresnap_path,
-                    'schema': puresnap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                 },
@@ -326,7 +359,28 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': f'{tbl_path}:0',
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        },
+                        'col2': {
+                            'computed_with': "col + 'x'",
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col2',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
@@ -334,7 +388,6 @@ class TestTable:
                     'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': snap_path,
-                    'schema': snap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                 },
@@ -2289,16 +2342,19 @@ class TestTable:
         t.add_computed_column(func=t.c2.upper())
         t.add_computed_column(func_r=t.c2_r.upper())
 
-        assert t.get_metadata()['schema'] == {
-            'c1': ts.IntType(nullable=True),
-            'c1_r': ts.IntType(nullable=False),
-            'c2': ts.StringType(nullable=True),
-            'c2_r': ts.StringType(nullable=False),
-            'arith': ts.IntType(nullable=True),
-            'arith_r': ts.IntType(nullable=False),
-            'func': ts.StringType(nullable=True),
-            'func_r': ts.StringType(nullable=False),
+        expected_schema = {
+            'c1': 'Int',
+            'c1_r': 'Required[Int]',
+            'c2': 'String',
+            'c2_r': 'Required[String]',
+            'arith': 'Int',
+            'arith_r': 'Required[Int]',
+            'func': 'String',
+            'func_r': 'Required[String]',
         }
+        metadata = t.get_metadata()
+        actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
+        assert expected_schema == actual_schema
 
     def test_repr(self, test_tbl: catalog.Table, all_mpnet_embed: func.Function) -> None:
         skip_test_if_not_installed('sentence_transformers')

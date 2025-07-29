@@ -460,7 +460,9 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: TableMetadata) ->
     assert (now - actual_created_at).total_seconds() <= 60
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
-    TestCase().assertDictEqual(expected, trimmed_actual)
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
 
 
 def strip_lines(s: str) -> str:
