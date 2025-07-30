@@ -135,7 +135,7 @@ class TestVideo:
         all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
         assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
         _, view_t = self.create_tbls(all_frame_attrs=False)
-        default_attrs = set(view_t.get_metadata()['schema'].keys())
+        default_attrs = set(view_t.get_metadata()['columns'].keys())
         assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
     def test_get_metadata(self, reset_db: None) -> None:

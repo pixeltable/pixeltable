@@ -25,6 +25,7 @@ from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
+    from pixeltable.catalog.table import TableMetadata
     from pixeltable.globals import TableDataSource
 
 _logger = logging.getLogger('pixeltable')
@@ -261,7 +262,7 @@ class View(Table):
         """
         return self._snapshot_only and self._id == self._tbl_version_path.tbl_id
 
-    def _get_metadata(self) -> dict[str, Any]:
+    def _get_metadata(self) -> 'TableMetadata':
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
