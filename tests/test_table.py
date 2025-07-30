@@ -318,12 +318,15 @@ class TestTable:
                     'indices': {
                         'idx0': {
                             'columns': ['col'],
-                            'embeddings': [
-                                "clip(text, model_id='openai/clip-vit-base-patch32')",
-                                "clip(image, model_id='openai/clip-vit-base-patch32')",
-                            ],
-                            'metric': 'cosine',
+                            'index_type': 'embedding',
                             'name': 'idx0',
+                            'parameters': {
+                                'embeddings': [
+                                    "clip(text, model_id='openai/clip-vit-base-patch32')",
+                                    "clip(image, model_id='openai/clip-vit-base-patch32')",
+                                ],
+                                'metric': 'cosine',
+                            },
                         }
                     },
                     'is_view': True,

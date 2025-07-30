@@ -121,8 +121,11 @@ class Table(SchemaObject):
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
-                    metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
-                    embeddings=embeddings,
+                    index_type='embedding',
+                    parameters=EmbeddingIndexParams(
+                        metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
+                        embeddings=embeddings,
+                    ),
                 )
         return TableMetadata(
             name=self._name,
@@ -1751,6 +1754,12 @@ class IndexMetadata(TypedDict):
     """The name of the index."""
     columns: list[str]
     """The table columns that are indexed."""
+    index_type: Literal['embedding']
+    """The type of index (currently only `'embedding'` is supported, but others will be added in the future)."""
+    parameters: EmbeddingIndexParams
+
+
+class EmbeddingIndexParams(TypedDict):
     metric: Literal['cosine', 'ip', 'l2']
     """Index metric."""
     embeddings: list[str]
