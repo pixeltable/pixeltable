@@ -928,6 +928,7 @@ class RateLimitsInfo:
         """Returns number of seconds to wait before retry, or None if not retryable"""
         if len(self.resource_limits) == 0:
             return 1.0
+        # we're looking for the maximum delay across all depleted resources
         max_delay = 0.0
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         for limit_info in self.resource_limits.values():
