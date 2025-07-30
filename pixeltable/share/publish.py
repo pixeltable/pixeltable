@@ -19,7 +19,6 @@ from .packager import TablePackager, TableRestorer
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
-
 def push_replica(
     dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, is_public: bool | None = False
 ) -> str:
@@ -48,7 +47,7 @@ def push_replica(
     if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
     elif parsed_location.scheme == 'https':
-        _upload_bundle_with_presigned_url(bundle, parsed_location)
+        _upload_bundle_with_presigned_url(bundle, parsed_location.geturl())
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
@@ -124,7 +123,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
     elif parsed_location.scheme == 'https':
-        bundle_path = _download_bundle_from_presigned_url(parsed_location)
+        bundle_path = _download_bundle_from_presigned_url(parsed_location.geturl())
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
@@ -164,21 +163,21 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     return bundle_path
 
 
-def _upload_bundle_with_presigned_url(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
+def _upload_bundle_with_presigned_url(bundle: Path, presigned_url: str) -> None:
     try:
         with open(bundle, 'rb') as f:
             file_size = os.path.getsize(bundle)
             headers = {'Content-Length': str(file_size)}
-            response = requests.put(parsed_location.geturl(), data=f, headers=headers)
+            response = requests.put(presigned_url, data=f, headers=headers)
             response.raise_for_status()
     except Exception as e:
         raise excs.Error(f'Failed to upload bundle: {e}') from e
 
 
-def _download_bundle_from_presigned_url(parsed_location: urllib.parse.ParseResult) -> Path:
+def _download_bundle_from_presigned_url(presigned_url: str) -> Path:
     bundle_path = Path(Env.get().create_tmp_path())
     try:
-        response = requests.get(parsed_location.geturl())
+        response = requests.get(presigned_url)
         response.raise_for_status()
         with open(bundle_path, 'wb') as f:
             f.write(response.content)
