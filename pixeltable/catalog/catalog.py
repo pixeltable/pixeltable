@@ -827,7 +827,6 @@ class Catalog:
     def _get_dir_entry(
         self, dir_id: UUID, name: str, version: Optional[int] = None, lock_entry: bool = False
     ) -> Optional[SchemaObject]:
-        print(f"AH TODO _get_dir_entry table by dir_id {dir_id}, version {version} name {name}")
         user = Env.get().user
         conn = Env.get().conn
 
@@ -905,7 +904,6 @@ class Catalog:
 
     def get_table_by_id(self, tbl_id: UUID, version: Optional[int] = None) -> Optional[Table]:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
-        print(f"AH TODO Fetching table by uuid {tbl_id}, version {version}")
         if (tbl_id, version) not in self._tbls:
             if version is None:
                 self._load_tbl(tbl_id)
@@ -1487,7 +1485,6 @@ class Catalog:
         tbl_record, _ = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
 
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-        print(f"AH TODO got tbl_md: {tbl_md}")
         view_md = tbl_md.view_md
         if view_md is None and not tbl_md.is_replica:
             # this is a base table
@@ -1501,7 +1498,6 @@ class Catalog:
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
         if tbl_md.is_pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
-            print('AH TODO passing pure snapshot')
             pass
         else:
             effective_version = (

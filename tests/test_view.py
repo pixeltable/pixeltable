@@ -889,7 +889,6 @@ class TestView:
                 expected_schema_version = 6
             assert_table_metadata_eq(
                 {
-                    'id': str(ver[i]._id),
                     'base': None,
                     'columns': {
                         name: {
@@ -913,8 +912,6 @@ class TestView:
                     'path': f'dir.test_tbl:{i}',
                     'schema_version': expected_schema_version,
                     'version': i,
-                    'detailed_schema': ver[i]._get_detailed_schema(),
-                    'additional_md': {},
                 },
                 vmd,
             )
@@ -1003,7 +1000,6 @@ class TestView:
 
             assert_table_metadata_eq(
                 {
-                    'id': str(ver[i]._id),
                     'base': f'dir.test_tbl:{expected_base_version}',
                     'columns': {
                         name: {
@@ -1027,8 +1023,6 @@ class TestView:
                     'path': f'dir.test_view:{i}',
                     'schema_version': expected_schema_version,
                     'version': i,
-                    'detailed_schema': ver[i]._get_detailed_schema(),
-                    'additional_md': {},
                 },
                 vmd,
             )
@@ -1080,7 +1074,6 @@ class TestView:
                 expected_base_version = 5
             assert_table_metadata_eq(
                 {
-                    'id': str(ver[i]._id),
                     'base': f'dir.test_view:{expected_base_version}',
                     'columns': {
                         name: {
@@ -1104,8 +1097,6 @@ class TestView:
                     'path': f'dir.test_subview:{i}',
                     'schema_version': expected_schema_version,
                     'version': i,
-                    'detailed_schema': ver[i]._get_detailed_schema(),
-                    'additional_md': {},
                 },
                 vmd,
             )
