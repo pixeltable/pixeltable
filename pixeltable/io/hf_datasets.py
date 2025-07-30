@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import typing
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -66,7 +66,7 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> Optional[ts.Column
         return None
 
 
-def _get_hf_schema(dataset: Union[datasets.Dataset, datasets.DatasetDict]) -> datasets.Features:
+def _get_hf_schema(dataset: datasets.Dataset | datasets.DatasetDict) -> datasets.Features:
     """Get the schema of a huggingface dataset as a dictionary."""
     import datasets
 
@@ -91,10 +91,10 @@ def huggingface_schema_to_pxt_schema(
 
 def import_huggingface_dataset(
     table_path: str,
-    dataset: Union[datasets.Dataset, datasets.DatasetDict],
+    dataset: datasets.Dataset | datasets.DatasetDict,
     *,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:
     """Create a new base table from a Huggingface dataset, or dataset dict with multiple splits.

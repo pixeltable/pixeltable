@@ -524,6 +524,8 @@ def init_ls(init_env: None) -> Iterator[None]:
     client = None
     try:
         for _ in range(max_wait // 5):
+            if ls_process.poll() is not None:
+                raise excs.Error('Label Studio process exited unexpectedly before initialization.')
             time.sleep(5)
             try:
                 client = label_studio_sdk.Client(url=ls_url, api_key='pxt-api-token')

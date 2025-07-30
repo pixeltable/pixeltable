@@ -4,11 +4,10 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
-from ..utils import get_audio_files, skip_test_if_not_installed, validate_update_status
+from ..utils import get_audio_files, rerun, skip_test_if_not_installed, validate_update_status
 
 
-@pytest.mark.flaky(reruns=1, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=1, reruns_delay=8)
 class TestWhisper:
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Unreliable on Linux ARM')
     def test_whisper(self, reset_db: None) -> None:

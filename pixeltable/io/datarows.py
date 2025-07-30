@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, Optional
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -61,7 +61,7 @@ def import_rows(
     rows: list[dict[str, Any]],
     *,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
 ) -> pxt.Table:
@@ -105,7 +105,7 @@ def import_json(
     filepath_or_url: str,
     *,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     **kwargs: Any,

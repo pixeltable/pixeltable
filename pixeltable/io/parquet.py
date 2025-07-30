@@ -7,7 +7,7 @@ import logging
 import typing
 from collections import deque
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import numpy as np
 import PIL.Image
@@ -42,7 +42,7 @@ def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: 
 
 
 def export_parquet(
-    table_or_df: Union[pxt.Table, pxt.DataFrame],
+    table_or_df: pxt.Table | pxt.DataFrame,
     parquet_path: Path,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,
@@ -152,7 +152,7 @@ def import_parquet(
     *,
     parquet_path: str,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:
     """Creates a new base table from a Parquet file or set of files. Requires pyarrow to be installed.

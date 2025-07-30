@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, ClassVar, Iterable, Iterator, Optional, Union
+from typing import Any, ClassVar, Iterable, Iterator, Optional
 
 import ftfy
 
@@ -273,7 +273,7 @@ class DocumentSplitter(ComponentIterator):
                 yield DocumentSection(text=full_text, metadata=md)
                 accumulated_text = []
 
-        def process_element(el: Union[bs4.element.Tag, bs4.NavigableString]) -> Iterator[DocumentSection]:
+        def process_element(el: bs4.element.Tag | bs4.NavigableString) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
             nonlocal accumulated_text, headings, sourceline, emit_on_heading, emit_on_paragraph
 

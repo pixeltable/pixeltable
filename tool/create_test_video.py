@@ -2,7 +2,7 @@ import math
 import tempfile
 from fractions import Fraction
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 import av
 import PIL.Image
@@ -12,7 +12,7 @@ import PIL.ImageFont
 
 def create_test_video(
     frame_count: int,
-    frame_rate: Union[int, Fraction] = 1,
+    frame_rate: int | Fraction = 1,
     frame_width: int = 224,
     aspect_ratio: str = '16:9',
     frame_height: Optional[int] = None,

@@ -8,19 +8,12 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.config import Config
 
-from ..conftest import DO_RERUN
-from ..utils import (
-    SAMPLE_IMAGE_URL,
-    get_video_files,
-    skip_test_if_no_client,
-    skip_test_if_not_installed,
-    validate_update_status,
-)
+from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
-# @pytest.mark.remote_api
-# @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@pytest.mark.remote_api
+@rerun(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db: None) -> None:
@@ -161,7 +154,7 @@ class TestOpenai:
         # adding a second column re-uses the existing client, with an existing connection pool
         t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
 
-    @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
+    @rerun(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
