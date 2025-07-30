@@ -1,3 +1,0 @@
-# DirMetadata
-
-## ::: pixeltable.DirMetadata

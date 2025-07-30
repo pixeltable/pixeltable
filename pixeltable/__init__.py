@@ -4,7 +4,6 @@ from .__version__ import __version__, __version_tuple__
 from .catalog import (
     Column,
     ColumnMetadata,
-    DirMetadata,
     IndexMetadata,
     InsertableTable,
     Table,

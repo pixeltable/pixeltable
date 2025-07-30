@@ -60,27 +60,3 @@ class Dir(SchemaObject):
             )
         )
         Env.get().conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
-
-    def get_metadata(self) -> 'DirMetadata':
-        """
-        Retrieves metadata associated with this directory.
-
-        Returns:
-            A [DirMetadata][pixeltable.DirMetadata] instance containing this directory's metadata.
-        """
-        from pixeltable.catalog import retry_loop
-
-        @retry_loop(for_write=False)
-        def op() -> 'DirMetadata':
-            return DirMetadata(name=self._name, path=self._path())
-
-        return op()
-
-
-class DirMetadata(TypedDict):
-    """Metadata for a Pixeltable table."""
-
-    name: str
-    """The name of the directory (ex: `'my_dir'`)."""
-    path: str
-    """The full path of the directory (ex: `'my_dir.my_subdir'`)."""
