@@ -4,7 +4,7 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Optional, Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Optional, _GenericAlias  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -249,13 +249,16 @@ class TestTable:
         t = pxt.create_table('test', schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    def test_names(self, reset_db: None) -> None:
+    def test_table_metadata(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('transformers')  # we need a `clip_embed` instance to test index metadata
+
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
         for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            view.add_embedding_index('col', embedding=clip_embed)
             puresnap_path = f'{tbl_path}_puresnap'
             puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
@@ -273,15 +276,25 @@ class TestTable:
                 {
                     'id': str(tbl._id),
                     'base': None,
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': False,
                     'is_snapshot': False,
                     'is_replica': False,
                     'name': 'test',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': tbl_path,
-                    'schema': tbl._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                     'detailed_schema': tbl._get_detailed_schema(),
@@ -294,19 +307,40 @@ class TestTable:
                 {
                     'id': str(view._id),
                     'base': tbl_path,
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {
+                        'idx0': {
+                            'columns': ['col'],
+                            'index_type': 'embedding',
+                            'name': 'idx0',
+                            'parameters': {
+                                'embeddings': [
+                                    "clip(text, model_id='openai/clip-vit-base-patch32')",
+                                    "clip(image, model_id='openai/clip-vit-base-patch32')",
+                                ],
+                                'metric': 'cosine',
+                            },
+                        }
+                    },
                     'is_view': True,
                     'is_snapshot': False,
                     'is_replica': False,
                     'name': 'test_view',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': view_path,
-                    'schema': view._get_schema(),
-                    'schema_version': 0,
-                    'version': 0,
-                    'detailed_schema': view._get_detailed_schema(),
-                    'additional_md': {},
+                    'schema_version': 1,
+                    'version': 1,
                 },
                 view.get_metadata(),
             )
@@ -315,15 +349,25 @@ class TestTable:
                 {
                     'id': str(puresnap._id),
                     'base': f'{tbl_path}:0',
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
                     'name': 'test_puresnap',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': puresnap_path,
-                    'schema': puresnap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                     'detailed_schema': puresnap._get_detailed_schema(),
@@ -336,15 +380,34 @@ class TestTable:
                 {
                     'id': str(snap._id),
                     'base': f'{tbl_path}:0',
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        },
+                        'col2': {
+                            'computed_with': "col + 'x'",
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col2',
+                            'type_': 'String',
+                            'version_added': 0,
+                        },
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
                     'name': 'test_snap',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': snap_path,
-                    'schema': snap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                     'detailed_schema': snap._get_detailed_schema(),
@@ -487,7 +550,7 @@ class TestTable:
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
     def test_schema_types(self, reset_db: None) -> None:
-        test_columns: dict[str, Union[type, _GenericAlias]] = {
+        test_columns: dict[str, type | _GenericAlias] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
             'int_col': pxt.Int,
@@ -2104,7 +2167,7 @@ class TestTable:
         with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
             v.i1.recompute()
 
-    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
+    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
         # invalid if_not_exists parameter is rejected
         with pytest.raises(excs.Error) as exc_info:
@@ -2301,16 +2364,19 @@ class TestTable:
         t.add_computed_column(func=t.c2.upper())
         t.add_computed_column(func_r=t.c2_r.upper())
 
-        assert t.get_metadata()['schema'] == {
-            'c1': ts.IntType(nullable=True),
-            'c1_r': ts.IntType(nullable=False),
-            'c2': ts.StringType(nullable=True),
-            'c2_r': ts.StringType(nullable=False),
-            'arith': ts.IntType(nullable=True),
-            'arith_r': ts.IntType(nullable=False),
-            'func': ts.StringType(nullable=True),
-            'func_r': ts.StringType(nullable=False),
+        expected_schema = {
+            'c1': 'Int',
+            'c1_r': 'Required[Int]',
+            'c2': 'String',
+            'c2_r': 'Required[String]',
+            'arith': 'Int',
+            'arith_r': 'Required[Int]',
+            'func': 'String',
+            'func_r': 'Required[String]',
         }
+        metadata = t.get_metadata()
+        actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
+        assert expected_schema == actual_schema
 
     def test_repr(self, test_tbl: catalog.Table, all_mpnet_embed: func.Function) -> None:
         skip_test_if_not_installed('sentence_transformers')

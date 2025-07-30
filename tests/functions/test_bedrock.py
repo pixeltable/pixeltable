@@ -2,13 +2,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_aws_credentials, skip_test_if_not_installed
+from ..utils import rerun, skip_test_if_no_aws_credentials, skip_test_if_not_installed
 from .tool_utils import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
     def test_converse(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')

@@ -11,9 +11,8 @@ class TestDirs:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             dir = pxt.create_dir(name)
-            md = dir.get_metadata()
-            assert md['path'] == name
-            assert md['name'] == name.split('.')[-1]
+            assert dir._path() == name
+            assert dir._name == name.split('.')[-1]
 
         # invalid names
         with pytest.raises(excs.Error, match='Invalid path: 1dir'):
@@ -236,9 +235,8 @@ class TestDirs:
     def test_create_with_parents(self, reset_db: None) -> None:
         all_dirs = ['dir1', 'dir1.dir2', 'dir1.dir2.dir3']
         dir3 = pxt.create_dir('dir1.dir2.dir3', parents=True)
-        md = dir3.get_metadata()
-        assert md['path'] == 'dir1.dir2.dir3'
-        assert md['name'] == 'dir3'
+        assert dir3._path() == 'dir1.dir2.dir3'
+        assert dir3._name == 'dir3'
         listing = pxt.list_dirs(recursive=True)
         assert listing == all_dirs
 
@@ -246,9 +244,8 @@ class TestDirs:
         pxt.drop_dir('dir1.dir2.dir3')
         pxt.drop_dir('dir1.dir2')
         dir4 = pxt.create_dir('dir1.dir2.dir3.dir4', parents=True)
-        md = dir4.get_metadata()
-        assert md['path'] == 'dir1.dir2.dir3.dir4'
-        assert md['name'] == 'dir4'
+        assert dir4._path() == 'dir1.dir2.dir3.dir4'
+        assert dir4._name == 'dir4'
         listing = pxt.list_dirs(recursive=True)
         all_dirs.append('dir1.dir2.dir3.dir4')
         assert listing == all_dirs

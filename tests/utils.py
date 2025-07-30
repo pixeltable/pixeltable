@@ -18,7 +18,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog.update_status import UpdateStatus
+from pixeltable.catalog import TableMetadata, UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
@@ -449,7 +449,7 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
     return '\n'.join(lines)
 
 
-def assert_table_metadata_eq(expected: dict[str, Any], actual: dict[str, Any]) -> None:
+def assert_table_metadata_eq(expected: dict[str, Any], actual: TableMetadata) -> None:
     """
     Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
     `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact
@@ -460,7 +460,9 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: dict[str, Any]) -
     assert (now - actual_created_at).total_seconds() <= 60
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
-    TestCase().assertDictEqual(expected, trimmed_actual)
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
 
 
 def strip_lines(s: str) -> str:
@@ -632,6 +634,19 @@ class ReloadTester:
                 raise RuntimeError(s) from e
         if clear:
             self.clear()
+
+
+def rerun(**kwargs: Any) -> Callable:
+    from .conftest import DO_RERUN
+
+    if 'condition' in kwargs:
+        kwargs['condition'] = DO_RERUN and kwargs['condition']
+    else:
+        kwargs['condition'] = DO_RERUN
+    if 'only_rerun' not in kwargs:
+        # Set this to an explicit empty list to override the global default in cases where the @rerun decorator is used
+        kwargs['only_rerun'] = []
+    return pytest.mark.flaky(**kwargs)
 
 
 # This will be set to True if the tests are running in a CI environment.

@@ -6,7 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs, type_system as ts
+from pixeltable import catalog, exceptions as excs
 from pixeltable.func import Batch
 
 from .utils import (
@@ -874,32 +874,43 @@ class TestView:
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
-            expected_schema: dict[str, ts.ColumnType]
+            expected_schema: dict[str, tuple[str, int]]
             if i < 3:
-                expected_schema = {'c1': ts.IntType(nullable=True)}
+                expected_schema = {'c1': ('Int', 0)}
                 expected_schema_version = 0
             elif i < 5:
-                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True)}
+                expected_schema = {'c1': ('Int', 0), 'c2': ('String', 3)}
                 expected_schema_version = 3
             elif i < 6:
-                expected_schema = {'c2': ts.StringType(nullable=True)}
+                expected_schema = {'c2': ('String', 3)}
                 expected_schema_version = 5
             else:
-                expected_schema = {'balloon': ts.StringType(nullable=True)}
+                expected_schema = {'balloon': ('String', 3)}
                 expected_schema_version = 6
             assert_table_metadata_eq(
                 {
                     'id': str(ver[i]._id),
                     'base': None,
+                    'columns': {
+                        name: {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': 'on_write',
+                            'name': name,
+                            'type_': type_,
+                            'version_added': version_added,
+                        }
+                        for name, (type_, version_added) in expected_schema.items()
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
-                    'num_retained_versions': 10,
                     'path': f'dir.test_tbl:{i}',
-                    'schema': expected_schema,
                     'schema_version': expected_schema_version,
                     'version': i,
                     'detailed_schema': ver[i]._get_detailed_schema(),
@@ -955,40 +966,37 @@ class TestView:
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
+            expected_schema: dict[str, tuple[str, int, str | None]]
             if i == 0:
-                expected_schema = {'c1': ts.IntType(nullable=True), 'c2': ts.StringType(nullable=True)}
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None)}
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {
-                    'c1': ts.IntType(nullable=True),
-                    'c2': ts.StringType(nullable=True),
-                    'c3': ts.IntType(nullable=True),
-                }
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
                 expected_schema = {
-                    'c1': ts.IntType(nullable=True),
-                    'c2': ts.StringType(nullable=True),
-                    'c3': ts.IntType(nullable=True),
-                    'c4': ts.IntType(nullable=True),
+                    'c1': ('Int', 0, None),
+                    'c2': ('String', 3, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 4
             elif i == 3:
                 expected_schema = {
-                    'balloon': ts.IntType(nullable=True),
-                    'c3': ts.IntType(nullable=True),
-                    'c4': ts.IntType(nullable=True),
+                    'balloon': ('Int', 0, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
                 }
                 expected_schema_version = 2
                 expected_base_version = 7
             else:
                 expected_schema = {
-                    'balloon': ts.IntType(nullable=True),
-                    'c4': ts.IntType(nullable=True),
-                    'hamburger': ts.IntType(nullable=True),
+                    'balloon': ('Int', 0, None),
+                    'c4': ('Int', 2, None),
+                    'hamburger': ('Int', 1, 'balloon // 2'),
                 }
                 expected_schema_version = 4
                 expected_base_version = 7
@@ -997,15 +1005,26 @@ class TestView:
                 {
                     'id': str(ver[i]._id),
                     'base': f'dir.test_tbl:{expected_base_version}',
+                    'columns': {
+                        name: {
+                            'computed_with': computed_with,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': 'on_write',
+                            'name': name,
+                            'type_': type_,
+                            'version_added': version_added,
+                        }
+                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
-                    'num_retained_versions': 10,
                     'path': f'dir.test_view:{i}',
-                    'schema': expected_schema,
                     'schema_version': expected_schema_version,
                     'version': i,
                     'detailed_schema': ver[i]._get_detailed_schema(),
@@ -1029,37 +1048,33 @@ class TestView:
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
             if i == 0:
-                expected_schema = {
-                    'c1': ts.IntType(nullable=True),
-                    'c2': ts.StringType(nullable=True),
-                    'c3': ts.IntType(nullable=True),
-                }
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
                 expected_schema_version = 0
                 expected_base_version = 1
             elif i == 1:
                 expected_schema = {
-                    'c1': ts.IntType(nullable=True),
-                    'c3': ts.IntType(nullable=True),
-                    'c4': ts.IntType(nullable=True),
-                    'c5': ts.FloatType(nullable=True),
+                    'c1': ('Int', 0, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
+                    'c5': ('Float', 1, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 2
             elif i == 2:
                 expected_schema = {
-                    'balloon': ts.IntType(nullable=True),
-                    'c3': ts.IntType(nullable=True),
-                    'c4': ts.IntType(nullable=True),
-                    'c5': ts.FloatType(nullable=True),
+                    'balloon': ('Int', 0, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
+                    'c5': ('Float', 1, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 3
             elif i == 3:
                 expected_schema = {
-                    'balloon': ts.IntType(nullable=True),
-                    'c4': ts.IntType(nullable=True),
-                    'hamburger': ts.IntType(nullable=True),
-                    'c5': ts.FloatType(nullable=True),
+                    'balloon': ('Int', 0, None),
+                    'c4': ('Int', 2, None),
+                    'hamburger': ('Int', 1, 'balloon // 2'),
+                    'c5': ('Float', 1, None),
                 }
                 expected_schema_version = 1
                 expected_base_version = 5
@@ -1067,15 +1082,26 @@ class TestView:
                 {
                     'id': str(ver[i]._id),
                     'base': f'dir.test_view:{expected_base_version}',
+                    'columns': {
+                        name: {
+                            'computed_with': computed_with,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': 'on_write',
+                            'name': name,
+                            'type_': type_,
+                            'version_added': version_added,
+                        }
+                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
                     'is_view': True,
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',
-                    'num_retained_versions': 10,
                     'path': f'dir.test_subview:{i}',
-                    'schema': expected_schema,
                     'schema_version': expected_schema_version,
                     'version': i,
                     'detailed_schema': ver[i]._get_detailed_schema(),

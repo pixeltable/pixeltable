@@ -105,13 +105,6 @@ class InsertableTable(Table):
         Env.get().console_logger.info(f'Created table {name!r}.')
         return tbl
 
-    def _get_metadata(self) -> dict[str, Any]:
-        md = super()._get_metadata()
-        md['base'] = None
-        md['is_view'] = False
-        md['is_snapshot'] = False
-        return md
-
     @overload
     def insert(
         self,

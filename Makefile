@@ -139,7 +139,7 @@ typecheck: install
 .PHONY: docscheck
 docscheck: install
 	@echo 'Running `mkdocs build --strict` ...'
-	@mkdocs build --strict
+	@python -W ignore::DeprecationWarning -m mkdocs build --strict
 
 .PHONY: lint
 lint: install

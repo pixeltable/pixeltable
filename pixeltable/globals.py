@@ -27,8 +27,8 @@ if TYPE_CHECKING:
         RowData,  # list of dictionaries
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
-        'datasets.Dataset',
-        'datasets.DatasetDict',  # Huggingface datasets
+        datasets.Dataset,
+        datasets.DatasetDict,  # Huggingface datasets
     ]
 
 
@@ -51,7 +51,7 @@ def create_table(
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     on_error: Literal['abort', 'ignore'] = 'abort',
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -197,7 +197,7 @@ def create_table(
 
 def create_view(
     path: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     is_snapshot: bool = False,
@@ -317,7 +317,7 @@ def create_view(
 
 def create_snapshot(
     path_str: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
@@ -490,7 +490,7 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(
-    table: Union[str, catalog.Table], force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
+    table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
     """Drop a table, view, or snapshot.
 
@@ -707,7 +707,7 @@ def ls(path: str = '') -> pd.DataFrame:
                     kind = 'view'
                 else:
                     kind = 'table'
-                version = '' if kind == 'snapshot' else md['version']
+                version = '' if kind == 'snapshot' else str(md['version'])
                 if md['is_replica']:
                     kind = f'{kind}-replica'
             rows.append([name, kind, version, base])
@@ -804,7 +804,7 @@ def list_functions() -> Styler:
     return pd_df.hide(axis='index')
 
 
-def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
+def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     """
     Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as an input into an
     LLM tool-calling API. To use one or more UDFs as tools, wrap them in a `pxt.tools` call and pass the return value

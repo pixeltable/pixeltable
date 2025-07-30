@@ -14,7 +14,7 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 import colorsys
 import hashlib
 from collections import defaultdict
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import numpy as np
 import PIL.Image
@@ -352,7 +352,7 @@ def draw_bounding_boxes(
     from PIL import ImageColor, ImageDraw, ImageFont
 
     # set default font if not provided
-    txt_font: Union[ImageFont.ImageFont, ImageFont.FreeTypeFont] = (
+    txt_font: ImageFont.ImageFont | ImageFont.FreeTypeFont = (
         ImageFont.load_default() if font is None else ImageFont.truetype(font=font, size=font_size or 10)
     )
 

@@ -1,0 +1,3 @@
+# IndexMetadata
+
+## ::: pixeltable.IndexMetadata

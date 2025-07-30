@@ -12,11 +12,15 @@ from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, 
 
 
 class TestVideo:
-    def create_tbls(self, base_name: str = 'video_tbl', view_name: str = 'frame_view') -> tuple[pxt.Table, pxt.Table]:
+    def create_tbls(
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True
+    ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
-        view_t = pxt.create_view(view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
+        view_t = pxt.create_view(
+            view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
+        )
         return base_t, view_t
 
     def create_and_insert(self, stored: Optional[bool], paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
@@ -25,15 +29,24 @@ class TestVideo:
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
         total_num_rows = view_t.count()
-        result = view_t.where(view_t.frame_idx >= 5).select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
+        # TODO: uncomment when we support to_sql_expr() for JsonPathExpr
+        # num_key_frames = view_t.where(view_t.frame_attrs.key_frame.astype(pxt.Bool)).count()
+        # assert num_key_frames > 0
+        frame_attrs = view_t.where(view_t.pos == 0).select(view_t.frame_attrs).collect()[0, 0]
+        assert isinstance(frame_attrs['key_frame'], bool) and frame_attrs['key_frame']
+        result = (
+            view_t.where(view_t.pos >= 5)
+            .select(view_t.video, view_t.frame_attrs['index'], view_t.frame, view_t.transform)
+            .collect()
+        )
         assert len(result) == total_num_rows - len(paths) * 5
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).show(3)
+        result = view_t.select(view_t.frame, view_t.transform).show(3)
         assert len(result) == 3
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
+        result = view_t.select(view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows
         # Try inserting a row with a `None` video; confirm that it produces no additional rows in the view
         base_t.insert(video=None)
-        result = view_t.select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
+        result = view_t.select(view_t.frame, view_t.transform).collect()
         assert len(result) == total_num_rows
         return base_t, view_t
 
@@ -114,6 +127,16 @@ class TestVideo:
             assert view_t._tbl_version_path.tbl_version.get().cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t.select(view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
+
+    def test_frame_attrs(self, reset_db: None) -> None:
+        video_filepaths = get_video_files()
+        base_t, view_t = self.create_tbls(all_frame_attrs=True)
+        base_t.insert([{'video': video_filepaths[0]}])
+        all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
+        assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
+        _, view_t = self.create_tbls(all_frame_attrs=False)
+        default_attrs = set(view_t.get_metadata()['columns'].keys())
+        assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
     def test_get_metadata(self, reset_db: None) -> None:
         video_filepaths = get_video_files()

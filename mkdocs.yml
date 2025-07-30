@@ -29,8 +29,11 @@ nav:
       - DocumentSplitter: pixeltable/iterators/document-splitter.md
       - FrameIterator: pixeltable/iterators/frame-iterator.md
       - TileIterator: pixeltable/iterators/tile-iterator.md
+    - ColumnMetadata: pixeltable/column-metadata.md
     - DataFrame: pixeltable/data-frame.md
+    - IndexMetadata: pixeltable/index-metadata.md
     - Table: pixeltable/table.md
+    - TableMetadata: pixeltable/table-metadata.md
     - UpdateStatus: pixeltable/update-status.md
   - Built-in Functions and Operators:
     - audio: pixeltable/functions/audio.md
