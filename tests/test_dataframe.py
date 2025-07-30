@@ -643,65 +643,6 @@ class TestDataFrame:
             elt_count += 1
         assert elt_count == 1
 
-    @pytest.mark.skip('Flaky test (fails intermittently)')
-    def test_to_pytorch_dataloader(self, all_datatypes_tbl: catalog.Table) -> None:
-        """Tests the dataset works well with pytorch dataloader:
-        1. compatibility with multiprocessing
-        2. compatibility of all types with default collate_fn
-        """
-        skip_test_if_not_installed('torch')
-        import torch.utils.data
-
-        @pxt.udf
-        def restrict_json_for_default_collate(obj: pxt.Json) -> pxt.Json:
-            keys = ['id', 'label', 'iscrowd', 'bounding_box']
-            return {k: obj[k] for k in keys}
-
-        t = all_datatypes_tbl
-        df = t.select(
-            t.row_id,
-            t.c_int,
-            t.c_float,
-            t.c_bool,
-            t.c_timestamp,
-            t.c_array,
-            t.c_video,
-            # default collate_fn doesnt support null values, nor lists of different lengths
-            # but does allow some dictionaries if they are uniform
-            c_json=restrict_json_for_default_collate(t.c_json.detections[0]),
-            # images must be uniform shape for pytorch collate_fn to not fail
-            c_image=t.c_image.resize([220, 224]).convert('RGB'),
-        )
-        df_size = df.count()
-        ds = df.to_pytorch_dataset(image_format='pt')
-        # test serialization:
-        #  - pickle.dumps() and pickle.loads() must work so that
-        #   we can use num_workers > 0
-        x = pickle.dumps(ds)
-        _ = pickle.loads(x)
-
-        # test we get all rows
-        def check_recover_all_rows(ds: 'torch.utils.data.Dataset', size: int, **kwargs: Any) -> None:
-            dl = torch.utils.data.DataLoader(ds, **kwargs)
-            loaded_ids = set()
-            for batch in dl:
-                for row_id in batch['row_id']:
-                    val = int(row_id)  # np.int -> int or will fail set equality test below.
-                    assert val not in loaded_ids, val
-                    loaded_ids.add(val)
-
-            assert loaded_ids == set(range(size))
-
-        # check different number of workers
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0)  # within this process
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2)  # two separate processes
-
-        # check edge case where some workers get no rows
-        short_size = 1
-        df_short = df.where(t.row_id < short_size)
-        ds_short = df_short.to_pytorch_dataset(image_format='pt')
-        check_recover_all_rows(ds_short, size=short_size, batch_size=13, num_workers=short_size + 1)
-
     def test_pytorch_dataset_caching(self, all_datatypes_tbl: catalog.Table) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
