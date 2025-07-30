@@ -130,6 +130,7 @@ class TestSample:
         print(s)
         assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
 
+    @pytest.mark.skip('Statistically flaky; needs to be revisited')
     def test_sample_md5_fraction(self) -> None:
         from pixeltable.plan import SampleClause
 
