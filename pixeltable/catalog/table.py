@@ -1744,7 +1744,7 @@ class ColumnMetadata(TypedDict):
     media_validation: Optional[Literal['on_read', 'on_write']]
     """The media validation policy for this column."""
     computed_with: Optional[str]
-    """Expression used to computed this column; `None` if this is not a computed column."""
+    """Expression used to compute this column; `None` if this is not a computed column."""
 
 
 class IndexMetadata(TypedDict):

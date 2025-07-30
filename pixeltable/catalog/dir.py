@@ -3,7 +3,6 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-from typing import TypedDict
 from uuid import UUID
 
 import sqlalchemy as sql
