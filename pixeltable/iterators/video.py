@@ -203,7 +203,7 @@ class FrameIterator(ComponentIterator):
                     'pict_type': frame.pict_type,
                     'interlaced_frame': frame.interlaced_frame,
                 }
-                result.update({'frame_attrs': attrs})
+                result['frame_attrs'] = attrs
             else:
                 result.update({'frame_idx': self.next_pos, 'pos_msec': pts_msec, 'pos_frame': video_idx})
             self.next_pos += 1

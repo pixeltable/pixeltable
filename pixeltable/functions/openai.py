@@ -111,30 +111,25 @@ def _parse_header_duration(duration_str: str) -> datetime.timedelta:
 
 
 def _get_header_info(
-    headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
+    headers: httpx.Headers,
 ) -> tuple[Optional[tuple[int, int, datetime.datetime]], Optional[tuple[int, int, datetime.datetime]]]:
-    assert requests or tokens
     now = datetime.datetime.now(tz=datetime.timezone.utc)
 
-    requests_info: Optional[tuple[int, int, datetime.datetime]] = None
-    if requests:
-        requests_limit_str = headers.get('x-ratelimit-limit-requests')
-        requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
-        requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
-        requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
-        requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
-        requests_reset_ts = now + _parse_header_duration(requests_reset_str)
-        requests_info = (requests_limit, requests_remaining, requests_reset_ts)
+    requests_limit_str = headers.get('x-ratelimit-limit-requests')
+    requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
+    requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
+    requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
+    requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
+    requests_reset_ts = now + _parse_header_duration(requests_reset_str)
+    requests_info = (requests_limit, requests_remaining, requests_reset_ts)
 
-    tokens_info: Optional[tuple[int, int, datetime.datetime]] = None
-    if tokens:
-        tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
-        tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
-        tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
-        tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
-        tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
-        tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
-        tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
+    tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
+    tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
+    tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
+    tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
+    tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
+    tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
+    tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
 
     return requests_info, tokens_info
 
@@ -166,10 +161,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
         if not isinstance(exc, openai.APIError) or not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
             return
         requests_info, tokens_info = _get_header_info(exc.response.headers)
-        if requests_info is not None:
-            _logger.debug(f'record_exc(): requests_info={requests_info}')
-        if tokens_info is not None:
-            _logger.debug(f'record_exc(): tokens_info={tokens_info}')
+        _logger.debug(f'record_exc(): requests_info={requests_info} tokens_info={tokens_info}')
         self.record(requests=requests_info, tokens=tokens_info)
         self.has_exc = True
 
@@ -544,10 +536,6 @@ async def vision(
 
     # _logger.debug(f'vision(): headers={result.headers}')
     requests_info, tokens_info = _get_header_info(result.headers)
-    if requests_info is not None:
-        _logger.debug(f'vision(): requests_info={requests_info}')
-    if tokens_info is not None:
-        _logger.debug(f'vision(): tokens_info={tokens_info}')
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
