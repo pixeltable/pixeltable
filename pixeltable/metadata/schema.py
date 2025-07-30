@@ -115,6 +115,9 @@ class ColumnMd:
     # if True, the column is present in the stored table
     stored: Optional[bool]
 
+    # If present, the URI for the destination for column values
+    destination: Optional[str] = None
+
 
 @dataclasses.dataclass
 class IndexMd:

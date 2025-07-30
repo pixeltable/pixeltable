@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
@@ -19,6 +19,7 @@ import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.utils.media_store import MediaStore
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -596,6 +597,7 @@ class Table(SchemaObject):
         self,
         *,
         stored: Optional[bool] = None,
+        destination: Optional[Union[str, Path]] = None,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
@@ -657,6 +659,9 @@ class Table(SchemaObject):
             if stored is not None:
                 col_schema['stored'] = stored
 
+            if destination is not None:
+                col_schema['destination'] = destination
+
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
                 for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
@@ -692,7 +697,7 @@ class Table(SchemaObject):
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        valid_keys = {'type', 'value', 'stored', 'media_validation'}
+        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name}: invalid key {k!r}')
@@ -716,6 +721,10 @@ class Table(SchemaObject):
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
 
+        d = spec.get('destination')
+        if d is not None and not isinstance(d, (str, Path)):
+            raise excs.Error(f'Column {name}: "destination" must be a string or path, got {d}')
+
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
         """Construct list of Columns, given schema"""
@@ -726,6 +735,7 @@ class Table(SchemaObject):
             primary_key: bool = False
             media_validation: Optional[catalog.MediaValidation] = None
             stored = True
+            destination: Optional[str] = None
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
                 col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
@@ -750,6 +760,8 @@ class Table(SchemaObject):
                 media_validation = (
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
+                if 'destination' in spec:
+                    destination = MediaStore.validate_destination(name, spec['destination'])
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -760,6 +772,7 @@ class Table(SchemaObject):
                 stored=stored,
                 is_pk=primary_key,
                 media_validation=media_validation,
+                destination=destination,
             )
             columns.append(column)
         return columns
@@ -784,6 +797,10 @@ class Table(SchemaObject):
                     f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a '
                     f'streaming function'
                 )
+            )
+        if col.destination is not None and not (col.stored and col.is_computed):
+            raise excs.Error(
+                f'Column {col.name!r}: destination={col.destination} only applies to stored computed columns'
             )
 
     @classmethod
