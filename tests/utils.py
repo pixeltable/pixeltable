@@ -17,7 +17,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 import pixeltable.utils.s3 as s3_util
-from pixeltable import catalog, exceptions as excs
+from pixeltable import catalog
 from pixeltable.catalog import TableMetadata, UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
@@ -479,7 +479,7 @@ def skip_test_if_not_installed(*packages: str) -> None:
 def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
-    except excs.Error as exc:
+    except pxt.Error as exc:
         pytest.skip(str(exc))
 
 

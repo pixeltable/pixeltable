@@ -97,21 +97,21 @@ class TestFiftyone:
         img = get_image_files()[0]
         t.insert(id=0, image=img)
 
-        with pytest.raises(excs.Error, match='`images` must be an expression of type Image'):
+        with pytest.raises(pxt.Error, match='`images` must be an expression of type Image'):
             pxt.io.export_images_as_fo_dataset(t, t.id)
 
-        with pytest.raises(excs.Error, match='Invalid label name'):
+        with pytest.raises(pxt.Error, match='Invalid label name'):
             pxt.io.export_images_as_fo_dataset(t, t.image, classifications={'invalid name!@#': t.classifications})
 
-        with pytest.raises(excs.Error, match='Duplicate label name'):
+        with pytest.raises(pxt.Error, match='Duplicate label name'):
             pxt.io.export_images_as_fo_dataset(
                 t, t.image, classifications={'labels': t.classifications}, detections={'labels': t.detections}
             )
 
-        with pytest.raises(excs.Error, match='Invalid classifications data'):
+        with pytest.raises(pxt.Error, match='Invalid classifications data'):
             t.update({'classifications': {'a': 'b'}})
             pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
 
-        with pytest.raises(excs.Error, match='Invalid detections data'):
+        with pytest.raises(pxt.Error, match='Invalid detections data'):
             t.update({'detections': {'a': 'b'}})
             pxt.io.export_images_as_fo_dataset(t, t.image, detections=t.detections)

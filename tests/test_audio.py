@@ -5,7 +5,7 @@ import av
 import pytest
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs
+from pixeltable import env
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.media_store import MediaStore
 
@@ -298,7 +298,7 @@ class TestAudio:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
@@ -308,7 +308,7 @@ class TestAudio:
             )
         assert 'chunk_duration_sec must be a positive number' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
@@ -318,7 +318,7 @@ class TestAudio:
             )
         assert 'chunk_duration_sec must be at least min_chunk_duration_sec' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,

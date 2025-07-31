@@ -240,17 +240,17 @@ class TestPandas:
     def test_pandas_errors(self, reset_db: None) -> None:
         from pixeltable.io import import_csv
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = import_csv(
                 'online_foods', 'tests/data/datasets/onlinefoods.csv', schema_overrides={'Non-Column': pxt.String}
             )
         assert 'Some column(s) specified in `schema_overrides` are not present' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column'])
         assert 'Primary key column(s) are not found in the source:' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = import_csv(
                 # String with null values
                 'edge_cases',
@@ -259,7 +259,7 @@ class TestPandas:
             )
         assert 'Primary key column `string#n` cannot contain null values.' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = import_csv(
                 # Timestamp with null values
                 'edge_cases',

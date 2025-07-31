@@ -107,7 +107,7 @@ class TestDate:
     def test_date_arith(self, reset_db: None) -> None:
         _, t = self.make_test_table()
 
-        with pytest.raises(excs.Error, match='requires numeric types'):
+        with pytest.raises(pxt.Error, match='requires numeric types'):
             _ = t.select(t.dt, outp=t.dt + 1)
-        with pytest.raises(excs.Error, match='requires numeric types'):
+        with pytest.raises(pxt.Error, match='requires numeric types'):
             _ = t.select(t.dt, outm=t.dt - 1)

@@ -34,7 +34,7 @@ class TestImage:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
         for overlap in ((0, 100), (100, 0)):
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 _ = pxt.create_view(
                     'test_view',
                     t,

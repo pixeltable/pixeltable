@@ -1,7 +1,6 @@
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 
@@ -38,7 +37,7 @@ class TestUser:
         pxt.drop_table('test_dir.test_tbl')
         assert t.select().collect()['col'] == [5]
         assert marcel_t.select().collect()['col'] == [22]
-        with pytest.raises(excs.Error, match='Table was dropped'):
+        with pytest.raises(pxt.Error, match='Table was dropped'):
             asiegel_t.select().collect()
 
         # get_table operates over correct userspace
@@ -49,7 +48,7 @@ class TestUser:
         assert pxt.get_table('test_dir.test_tbl').select().collect()['col'] == [22]
 
         Env.get().user = 'asiegel'
-        with pytest.raises(excs.Error, match=r"Path 'test_dir.test_tbl' does not exist."):
+        with pytest.raises(pxt.Error, match=r"Path 'test_dir.test_tbl' does not exist."):
             pxt.get_table('test_dir.test_tbl').select().collect()
 
         # Directory is dropped from correct userspace
@@ -59,5 +58,5 @@ class TestUser:
 
         # Unknown user
         Env.get().user = 'pbrunelle'
-        with pytest.raises(excs.Error, match='Unknown user: pbrunelle'):
+        with pytest.raises(pxt.Error, match='Unknown user: pbrunelle'):
             pxt.create_dir('test_dir')

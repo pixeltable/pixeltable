@@ -6,7 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs
+from pixeltable import catalog
 from pixeltable.func import Batch
 
 from .utils import (
@@ -53,14 +53,14 @@ class TestView:
     def test_errors(self, reset_db: None) -> None:
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
-        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot insert into a view."):
+        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert([{'bad_col': 1}])
-        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot insert into a view."):
+        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert(bad_col=1)
-        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot delete from a view."):
+        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot delete from a view."):
             _ = v.delete()
 
-        with pytest.raises(excs.Error, match=r'Cannot use `create_view` after `join`.'):
+        with pytest.raises(pxt.Error, match=r'Cannot use `create_view` after `join`.'):
             u = pxt.create_table('joined_tbl', {'c1': pxt.String})
             join_df = t.join(u, on=t.c1 == u.c1)
             _ = pxt.create_view('join_view', join_df)
@@ -136,17 +136,17 @@ class TestView:
 
         # test delete view
         pxt.drop_table('test_view')
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.get_table('test_view')
         assert 'does not exist' in str(exc_info.value)
         reload_catalog()
         # still true after reload
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.get_table('test_view')
         assert 'does not exist' in str(exc_info.value)
 
         t = pxt.get_table('test_tbl')
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
@@ -157,12 +157,12 @@ class TestView:
         id_before = v._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('test_view', t, if_exists='invalid')  # type: ignore[arg-type]
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
         # scenario 1: a view exists at the path already
-        with pytest.raises(excs.Error, match='is an existing view'):
+        with pytest.raises(pxt.Error, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v2 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -176,7 +176,7 @@ class TestView:
 
         # scenario 2: a view exists at the path, but has dependency
         _v_on_v = pxt.create_view('test_view_on_view', v2)
-        with pytest.raises(excs.Error, match='is an existing view'):
+        with pytest.raises(pxt.Error, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v3 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -185,7 +185,7 @@ class TestView:
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v3 = pxt.create_view('test_view', t, if_exists='replace')
         err_msg = str(exc_info.value).lower()
         assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
@@ -199,10 +199,10 @@ class TestView:
 
         # scenario 3: path exists but is not a view
         _ = pxt.create_table('not_view', {'c1': pxt.String})
-        with pytest.raises(excs.Error, match='is an existing table'):
+        with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_view('not_view', t)
         for if_exists in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 _ = pxt.create_view('not_view', t, if_exists=if_exists)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a view' in err_msg
@@ -220,7 +220,7 @@ class TestView:
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
-        with pytest.raises(excs.Error, match=r"Column 'c1' already exists in the base table"):
+        with pytest.raises(pxt.Error, match=r"Column 'c1' already exists in the base table"):
             pxt.create_view('test_view', t, additional_columns={'c1': pxt.Int})
 
         # create a view and add a column with default value
@@ -252,22 +252,22 @@ class TestView:
 
         # invalid if_exists value is rejected
         expected_err = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
-        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
             v.add_column(**{col_name: pxt.Int}, if_exists='invalid')
-        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='invalid')
-        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
             v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
         assert col_name in v.columns()
         assert v.select().collect()[0][col_name] == orig_val
 
         # by default, raises an error if the column already exists
         expected_err = f"Duplicate column name: '{col_name}'"
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=expected_err):
             v.add_column(**{col_name: pxt.Int})
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=expected_err):
             v.add_computed_column(**{col_name: t.c2 + t.c3})
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=expected_err):
             v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String})
         assert col_name in v.columns()
         assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
@@ -288,19 +288,19 @@ class TestView:
         # if_exists='replace' will replace the column if it already exists.
         # for a column specific to view. For a base table column, it will raise an error.
         if is_base_column:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 v.add_column(**{col_name: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
             assert v.select().collect()[0][col_name] == orig_val
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 v.add_columns({col_name: pxt.String, non_existing_col3: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
@@ -325,21 +325,21 @@ class TestView:
             v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
             assert v.select(getattr(v, non_existing_col5)).collect()[0][non_existing_col5] == row0[col_name] + 12.3
             expected_err = f'Column {col_name!r} already exists and has dependents.'
-            with pytest.raises(excs.Error, match=expected_err):
+            with pytest.raises(pxt.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
     def test_from_dataframe(self, reset_db: None) -> None:
         t = self.create_tbl()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_view('test_view', t.group_by(t.c2))
         assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_view('test_view', t.order_by(t.c2))
         assert 'Cannot use `create_view` after `order_by`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_view('test_view', t.limit(10))
         assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
 
@@ -795,11 +795,11 @@ class TestView:
         s = pxt.create_snapshot('test_snap', t)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s, additional_columns={'v1': t.c3 * 2.0})
         assert 'value expression cannot be computed in the context of the base test_tbl' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s.where(t.c2 < 10))
         assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
 
