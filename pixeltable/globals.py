@@ -718,8 +718,8 @@ def ls(path: str = '') -> pd.DataFrame:
     This function returns a Pandas DataFrame representing a human-readable listing of the specified directory,
     including various attributes such as version and base table, as appropriate.
 
-    To get a programmatic list of tables and/or directories, use [list_tables()][pixeltable.list_tables] and/or
-    [list_dirs()][pixeltable.list_dirs] instead.
+    To get a programmatic list of the directory's contents, use [get_dir_contents()][pixeltable.get_dir_contents]
+    instead.
     """
     from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
