@@ -574,14 +574,14 @@ def _assemble_dir_contents(
     for name, entry in catalog_entries.items():
         if name.startswith('_'):
             continue  # Skip system paths
-        path = f'{dir_path}.{name}'
+        path = f'{dir_path}.{name}' if len(dir_path) > 0 else name
         if entry.dir is not None:
-            dirs.append(dir_path)
+            dirs.append(path)
             if entry.dir_entries is not None:
                 _assemble_dir_contents(path, entry.dir_entries, tables, dirs)
         else:
             assert entry.table is not None
-            assert entry.dir_entries is None
+            assert not entry.dir_entries
             tables.append(path)
 
 
