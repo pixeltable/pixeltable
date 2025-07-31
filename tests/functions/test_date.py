@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exprs
 from pixeltable.env import Env
 from pixeltable.functions.date import (
     day,

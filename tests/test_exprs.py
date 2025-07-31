@@ -1107,9 +1107,7 @@ class TestExprs:
 
     # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
     # doesn't get created; why?
-    def test_similarity2(
-        self, img_tbl: pxt.Table, indexed_img_tbl: pxt.Table, multi_idx_img_tbl: pxt.Table
-    ) -> None:
+    def test_similarity2(self, img_tbl: pxt.Table, indexed_img_tbl: pxt.Table, multi_idx_img_tbl: pxt.Table) -> None:
         t = img_tbl
         probe = t.select(t.img).show(1)
         img = probe[0, 0]

@@ -16,7 +16,6 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable import func
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject

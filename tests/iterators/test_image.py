@@ -2,7 +2,6 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 
 from ..utils import SAMPLE_IMAGE_URL
 

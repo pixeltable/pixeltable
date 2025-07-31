@@ -50,9 +50,7 @@ def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.T
     return pxt.create_table(name, schema)
 
 
-def create_table_data(
-    t: pxt.Table, col_names: Optional[list[str]] = None, num_rows: int = 10
-) -> list[dict[str, Any]]:
+def create_table_data(t: pxt.Table, col_names: Optional[list[str]] = None, num_rows: int = 10) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: dict[str, Any] = {}

@@ -5,7 +5,6 @@ import pytest
 from PIL import Image
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 
 from ..utils import get_image_files, rerun, skip_test_if_not_installed
 

@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 

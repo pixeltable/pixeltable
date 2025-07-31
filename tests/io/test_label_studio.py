@@ -11,7 +11,6 @@ import pytest
 import requests.exceptions
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import InsertableTable
 from pixeltable.functions.string import format

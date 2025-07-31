@@ -10,7 +10,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import func
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
