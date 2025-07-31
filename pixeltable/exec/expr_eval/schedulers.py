@@ -99,7 +99,6 @@ class RateLimitsScheduler(Scheduler):
                 continue
 
             # check rate limits
-            # _logger.debug(f'checking rate limits for {self.resource_pool}')
             request_resources = self._get_request_resources(item.request)
             limits_info = self._check_resource_limits(request_resources)
             aws: list[Awaitable[None]] = []
@@ -172,7 +171,6 @@ class RateLimitsScheduler(Scheduler):
         """Returns the most depleted resource, relative to its limit, or None if all resources are within limits"""
         candidates: list[tuple[env.RateLimitInfo, float]] = []  # (info, relative remaining)
         for resource, usage in request_resources.items():
-            # 0.05: leave some headroom, we don't have perfect information
             info = self.pool_info.resource_limits[resource]
             est_remaining = info.remaining - self.est_usage[resource] - usage
             candidates.append((info, est_remaining / info.limit))
@@ -183,6 +181,7 @@ class RateLimitsScheduler(Scheduler):
             f'check_resource_limits({request_resources}): '
             f'most_depleted={most_depleted[0].resource}, rel_remaining={most_depleted[1]}'
         )
+        # 0.05: leave some headroom, we don't have perfect information
         if most_depleted[1] < 0.05:
             return most_depleted[0]
         return None

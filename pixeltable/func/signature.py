@@ -84,6 +84,7 @@ class Signature:
     """
 
     SPECIAL_PARAM_NAMES: ClassVar[list[str]] = ['group_by', 'order_by']
+    SYSTEM_PARAM_NAMES: ClassVar[list[str]] = ['_runtime_ctx']
 
     def __init__(self, return_type: ts.ColumnType, parameters: list[Parameter], is_batched: bool = False):
         assert isinstance(return_type, ts.ColumnType)
@@ -252,8 +253,10 @@ class Signature:
         for idx, param in enumerate(py_params):
             if is_cls_method and idx == 0:
                 continue  # skip 'self' or 'cls' parameter
-            if param.name.startswith('_'):
+            if param.name in cls.SYSTEM_PARAM_NAMES:
                 continue  # skip system parameters
+            if param.name.startswith('_'):
+                raise excs.Error(f"{param.name!r}: parameters starting with '_' are reserved")
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f'{param.name!r} is a reserved parameter name')
             if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
