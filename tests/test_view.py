@@ -6,7 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog
+from pixeltable.catalog import Catalog
 from pixeltable.func import Batch
 
 from .utils import (
@@ -213,7 +213,7 @@ class TestView:
         _ = reload_tester.run_query(v3.select())
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(self, reset_db: None, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_to_view(self, reset_db: None, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test add_column* methods for views"""
         t = test_tbl
         t_c1_val0 = t.select(t.c1).order_by(t.c1).collect()[0]['c1']
@@ -241,7 +241,7 @@ class TestView:
         reload_tester.run_reload_test()
 
     def _test_add_column_if_exists(
-        self, v: catalog.Table, t: catalog.Table, col_name: str, orig_val: str, is_base_column: bool
+        self, v: pxt.Table, t: pxt.Table, col_name: str, orig_val: str, is_base_column: bool
     ) -> None:
         """Test if_exists parameter of the add column methods for views"""
         non_existing_col1 = 'non_existing1_' + col_name
@@ -808,8 +808,8 @@ class TestView:
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._get_schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
-        with catalog.Catalog.get().begin_xact(for_write=False):
-            _ = catalog.Catalog.get().load_replica_md(view_s)
+        with Catalog.get().begin_xact(for_write=False):
+            _ = Catalog.get().load_replica_md(view_s)
         assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:

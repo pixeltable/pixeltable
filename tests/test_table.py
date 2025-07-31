@@ -16,7 +16,7 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable import catalog, func
+from pixeltable import func
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
@@ -121,7 +121,7 @@ class TestTable:
         reload_tester.run_reload_test()
 
         tbl = pxt.get_table('test')
-        assert isinstance(tbl, catalog.InsertableTable)
+        assert isinstance(tbl, pxt.catalog.InsertableTable)
         tbl.add_column(c5=pxt.Int)
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
@@ -1657,7 +1657,7 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, reset_db: None, test_tbl: catalog.Table) -> None:
+    def test_computed_col_exceptions(self, reset_db: None, test_tbl: pxt.Table) -> None:
         # exception during insert()
         schema = {'c2': pxt.Int}
         rows = list(test_tbl.select(test_tbl.c2).collect())
@@ -1706,7 +1706,7 @@ class TestTable:
         assert len(results.schema) == 1
         assert results.schema.get('cc1') is None
 
-    def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
+    def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool) -> None:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         status = t.insert(rows)
@@ -1765,7 +1765,7 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(self, reset_db: None, test_tbl: catalog.Table) -> None:
+    def test_computed_window_fn(self, reset_db: None, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -1803,7 +1803,7 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
-    def test_add_column(self, test_tbl: catalog.Table) -> None:
+    def test_add_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.add_column(add1=pxt.Int)
@@ -1956,7 +1956,7 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_add_column_if_exists(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_if_exists(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of add_column."""
         t = test_tbl
         orig_cnames = t.columns()
@@ -2157,7 +2157,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match='Cannot recompute column of a base'):
             v.i1.recompute()
 
-    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: str | ColumnRef) -> None:
+    def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
         # invalid if_not_exists parameter is rejected
         with pytest.raises(pxt.Error) as exc_info:
@@ -2175,7 +2175,7 @@ class TestTable:
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 
-    def test_drop_column(self, test_tbl: catalog.Table) -> None:
+    def test_drop_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         dummy_t = pxt.create_table('dummy', {'dummy_col': pxt.Int})
         num_orig_cols = len(t.columns())
@@ -2269,7 +2269,7 @@ class TestTable:
         pxt.drop_table(t1)
         pxt.drop_table(t2)
 
-    def test_rename_column(self, test_tbl: catalog.Table) -> None:
+    def test_rename_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.rename_column('c1', 'c1_renamed')
@@ -2309,7 +2309,7 @@ class TestTable:
         t = pxt.get_table(t._name)
         check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_add_computed_column(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         status = t.add_computed_column(add1=t.c2 + 10)
         assert status.num_excs == 0
@@ -2368,7 +2368,7 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def test_repr(self, test_tbl: catalog.Table, all_mpnet_embed: func.Function) -> None:
+    def test_repr(self, test_tbl: pxt.Table, all_mpnet_embed: pxt.Function) -> None:
         skip_test_if_not_installed('sentence_transformers')
 
         v = pxt.create_view('test_view', test_tbl)

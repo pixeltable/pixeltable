@@ -11,7 +11,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable import catalog, func
+from pixeltable import func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
 from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
@@ -74,7 +74,7 @@ class TestFunction:
 
         t.add_computed_column(f1=f1(t.c1, t.c2))
 
-        func.FunctionRegistry.get().clear_cache()
+        FunctionRegistry.get().clear_cache()
         reload_catalog()
         t = pxt.get_table('test')
         status = t.insert(rows)
@@ -91,7 +91,7 @@ class TestFunction:
     def f2(a: Optional[int], b: float = 0.0, c: Optional[float] = 1.0) -> float:
         return (0.0 if a is None else a) + b + (0.0 if c is None else c)
 
-    def test_call(self, test_tbl: catalog.Table) -> None:
+    def test_call(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         r0 = t.select(t.c2, t.c3).collect().to_pandas()
@@ -462,7 +462,7 @@ class TestFunction:
     def add2_with_default(x: int, y: int = 1) -> int:
         return x + y
 
-    def test_expr_udf(self, test_tbl: catalog.Table) -> None:
+    def test_expr_udf(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         t.add_computed_column(other_int=t.c2 + 5)
 

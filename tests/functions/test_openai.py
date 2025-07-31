@@ -159,7 +159,7 @@ class TestOpenai:
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
@@ -222,7 +222,7 @@ class TestOpenai:
             [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
         )
 
-        tools: pxt.func.Tools
+        tools: pxt.Tools
         if as_retrieval_udf:
             tools = pxt.tools(pxt.retrieval_udf(t, name='get_customer_info', parameters=['customer_id']))
         else:

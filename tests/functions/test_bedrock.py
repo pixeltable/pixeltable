@@ -46,7 +46,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions import bedrock
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String})
             messages = [{'role': 'user', 'content': [{'text': t.prompt}]}]
             t.add_computed_column(
