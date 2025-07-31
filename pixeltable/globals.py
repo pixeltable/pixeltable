@@ -560,16 +560,16 @@ def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
     catalog_entries = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
-    tables: list[str] = []
     dirs: list[str] = []
-    _assemble_dir_contents(dir_path, catalog_entries, tables, dirs)
-    tables.sort()
+    tables: list[str] = []
+    _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
     dirs.sort()
-    return DirContents(tables=tables, dirs=dirs)
+    tables.sort()
+    return DirContents(dirs, tables)
 
 
 def _assemble_dir_contents(
-    dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], tables: list[str], dirs: list[str]
+    dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], dirs: list[str], tables: list[str]
 ) -> None:
     for name, entry in catalog_entries.items():
         if name.startswith('_'):
@@ -578,7 +578,7 @@ def _assemble_dir_contents(
         if entry.dir is not None:
             dirs.append(path)
             if entry.dir_entries is not None:
-                _assemble_dir_contents(path, entry.dir_entries, tables, dirs)
+                _assemble_dir_contents(path, entry.dir_entries, dirs, tables)
         else:
             assert entry.table is not None
             assert not entry.dir_entries
