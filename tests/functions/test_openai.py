@@ -3,7 +3,6 @@ import os
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.config import Config
@@ -104,7 +103,7 @@ class TestOpenai:
         # contain the string "json", it refuses the request.
         # TODO This should probably not be throwing an exception, but rather logging the error in
         # `t.chat_output_4.errormsg` etc.
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pytest.raises(pxt.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
         assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
@@ -160,7 +159,7 @@ class TestOpenai:
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
@@ -223,7 +222,7 @@ class TestOpenai:
             [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
         )
 
-        tools: pxt.func.Tools
+        tools: pxt.Tools
         if as_retrieval_udf:
             tools = pxt.tools(pxt.retrieval_udf(t, name='get_customer_info', parameters=['customer_id']))
         else:
