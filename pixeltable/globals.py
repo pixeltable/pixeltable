@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, NamedTuple, Optional, Union
 
 import pandas as pd
 from pandas.io.formats.style import Styler
@@ -534,6 +534,57 @@ def drop_table(
     Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
+def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
+    """Get the contents of a Pixeltable directory.
+
+    Args:
+        dir_path: Path to the directory. Defaults to the root directory.
+        recursive: If `False`, returns only those tables and directories that are directly contained in specified
+            directory; if `True`, returns all tables and directories that are descendants of the specified directory,
+            recursively.
+
+    Returns:
+        A [`DirContents`][pixeltable.DirContents] object representing the contents of the specified directory.
+
+    Raises:
+        Error: If the path does not exist or does not designate a directory.
+
+    Examples:
+        Get contents of top-level directory:
+
+        >>> pxt.get_dir_contents()
+
+        Get contents of 'dir1':
+
+        >>> pxt.get_dir_contents('dir1')
+    """
+    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
+    catalog_entries = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    tables: list[str] = []
+    dirs: list[str] = []
+    _assemble_dir_contents(dir_path, catalog_entries, tables, dirs)
+    tables.sort()
+    dirs.sort()
+    return DirContents(tables=tables, dirs=dirs)
+
+
+def _assemble_dir_contents(
+    dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], tables: list[str], dirs: list[str]
+) -> None:
+    for name, entry in catalog_entries.items():
+        if name.startswith('_'):
+            continue  # Skip system paths
+        path = f'{dir_path}.{name}'
+        if entry.dir is not None:
+            dirs.append(dir_path)
+            if entry.dir_entries is not None:
+                _assemble_dir_contents(path, entry.dir_entries, tables, dirs)
+        else:
+            assert entry.table is not None
+            assert entry.dir_entries is None
+            tables.append(path)
+
+
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     """List the [`Table`][pixeltable.Table]s in a directory.
 
@@ -875,3 +926,14 @@ def configure_logging(
 
 def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
+
+
+class DirContents(NamedTuple):
+    """
+    Represents the contents of a Pixeltable directory.
+    """
+
+    dirs: list[str]
+    """List of directory paths contained in this directory."""
+    tables: list[str]
+    """List of table paths contained in this directory."""

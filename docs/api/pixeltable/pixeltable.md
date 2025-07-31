@@ -18,13 +18,12 @@ below.
 | [`pxt.create_snapshot`][pixeltable.create_snapshot] | Create a new snapshot           |
 | [`pxt.drop_table`][pixeltable.drop_table]           | Delete a table                  |
 | [`pxt.get_table`][pixeltable.get_table]             | Get a handle to a table         |
-| [`pxt.list_tables`][pixeltable.list_tables]         | List the tables in a directory  |
 
-| Directory Operations                      |                                     |
-|-------------------------------------------|-------------------------------------|
-| [`pxt.create_dir`][pixeltable.create_dir] | Create a directory                  |
-| [`pxt.list_dirs`][pixeltable.list_dirs]   | List the directories in a directory |
-| [`pxt.drop_dir`][pixeltable.drop_dir]     | Remove a directory                  |
+| Directory Operations                                  |                                                                             |
+|-------------------------------------------------------|-----------------------------------------------------------------------------|
+| [`pxt.create_dir`][pixeltable.create_dir]             | Create a directory                                                          |
+| [`pxt.drop_dir`][pixeltable.drop_dir]                 | Remove a directory                                                          |
+| [`pxt.get_dir_contents`][pixeltable.get_dir_contents] | Get the paths of all objects (tables and subdirs) in a Pixeltable directory |
 
 | Misc                                                    |                                                                        |
 |---------------------------------------------------------|------------------------------------------------------------------------|
@@ -43,11 +42,12 @@ below.
       - create_snapshot
       - create_table
       - create_view
+      - drop_dir
       - drop_table
+      - get_dir_contents
       - get_table
       - init
       - ls
       - list_tables
       - list_dirs
       - move
-      - drop_dir
