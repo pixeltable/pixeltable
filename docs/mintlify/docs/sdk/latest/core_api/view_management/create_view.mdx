@@ -1,0 +1,523 @@
+---
+title: "pxt.create_view"
+description: "Create views and snapshots of tables for data organization and analysis"
+---
+
+<Badge text="View Management" color="purple" size="small" />
+
+## Function Signature
+
+```python
+pxt.create_view(
+    path: str,
+    base: Union[Table, DataFrame],
+    additional_columns: Optional[dict] = None,
+    is_snapshot: bool = False,
+    iterator: Optional[Iterator] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    media_validation: str = 'on_write',
+    if_exists: str = 'error'
+) -> Optional[Table]
+```
+
+## Description
+
+Create a view of an existing table, view, or snapshot to provide different perspectives on your data without duplicating storage. Views are **virtual tables** that apply filters, transformations, or additional computations to base tables while maintaining live connections to the underlying data.
+
+Views enable powerful data organization patterns: create filtered subsets for different teams, add computed columns for specific analyses, combine multiple processing stages, or create snapshots for reproducible experiments. Views update automatically when underlying data changes (unless they are snapshots).
+
+## Parameters
+
+<ParamField path="path" type="str" required>
+  Name or path for the view using dot notation for hierarchical organization.
+  
+  **Examples:**
+  - `'filtered_images'` - Simple view name
+  - `'analysis.high_quality_images'` - Nested view path
+  - `'experiments.model_v2.training_data'` - Deep hierarchy
+</ParamField>
+
+<ParamField path="base" type="Union[Table, DataFrame]" required>
+  The base table, view, or snapshot to create the view from. Can also be a DataFrame with filters and transformations applied.
+  
+  **Examples:**
+  - `my_table` - Direct table reference
+  - `my_table.where(my_table.score > 0.8)` - Filtered DataFrame
+  - `my_table.select(my_table.image, my_table.labels)` - Column subset
+</ParamField>
+
+<ParamField path="additional_columns" type="Optional[dict]" default="None">
+  Additional computed columns to add to the view after creation. Same format as `create_table` schema parameter.
+  
+  **Example:**
+  ```python
+  additional_columns={
+      'enhanced_score': my_table.score * 1.2,
+      'category': classify_function(my_table.image)
+  }
+  ```
+</ParamField>
+
+<ParamField path="is_snapshot" type="bool" default="False">
+  Whether to create a snapshot instead of a live view.
+  
+  - `False`: Live view that updates with base table changes
+  - `True`: Snapshot with fixed data at creation time (equivalent to `create_snapshot`)
+</ParamField>
+
+<ParamField path="iterator" type="Optional[Iterator]" default="None">
+  Iterator for creating one-to-many views (advanced feature).
+  
+  Used for views that expand single rows into multiple rows, such as video frame extraction or document chunking.
+</ParamField>
+
+<ParamField path="num_retained_versions" type="int" default="10">
+  Number of view versions to retain for change tracking and rollback.
+</ParamField>
+
+<ParamField path="comment" type="str" default="''">
+  Optional description of the view's purpose and contents.
+</ParamField>
+
+<ParamField path="media_validation" type="str" default="'on_write'">
+  When to validate media files in the view.
+  
+  - `'on_write'`: Validate during insert/update operations
+  - `'on_read'`: Validate at query time
+</ParamField>
+
+<ParamField path="if_exists" type="str" default="'error'">
+  Behavior when view already exists.
+  
+  - `'error'`: Raise exception if view exists
+  - `'ignore'`: Return existing view handle
+  - `'replace'`: Replace existing view if no dependents
+  - `'replace_force'`: Replace view and all dependents
+</ParamField>
+
+## Returns
+
+<ResponseField name="Table" type="Optional[Table]">
+  Handle to the newly created view, or existing view when `if_exists='ignore'`. Returns `None` in some edge cases.
+</ResponseField>
+
+## Examples
+
+### Basic Filtered Views
+
+```python
+import pixeltable as pxt
+
+# Get base table
+images = pxt.get_table('image_collection')
+
+# Create filtered views for different quality levels
+high_quality = pxt.create_view(
+    'high_quality_images',
+    images.where(images.user_rating >= 4)
+)
+
+large_images = pxt.create_view(
+    'large_images', 
+    images.where(images.image.width > 1920)
+)
+
+# Create view with multiple filters
+professional_photos = pxt.create_view(
+    'professional_photos',
+    images.where(
+        (images.user_rating >= 4) & 
+        (images.image.width > 1920) &
+        (images.category == 'professional')
+    )
+)
+```
+
+### Views with Additional Computed Columns
+
+```python
+# Create view with new computed columns
+enhanced_images = pxt.create_view(
+    'enhanced_images',
+    images.where(images.user_rating >= 3),
+    additional_columns={
+        'aspect_ratio': images.image.width / images.image.height,
+        'quality_score': images.user_rating * 2.5,
+        'is_landscape': images.image.width > images.image.height
+    },
+    comment='Images with enhanced metadata for analysis'
+)
+
+# View with AI-powered additional columns
+ai_enhanced = pxt.create_view(
+    'ai_enhanced_images',
+    images,
+    additional_columns={
+        'ai_description': openai.vision(
+            'Describe this image in detail',
+            images.image,
+            model='gpt-4o-mini'
+        ),
+        'detected_objects': yolox(images.image, threshold=0.5),
+        'aesthetic_score': aesthetic_model(images.image)
+    }
+)
+```
+
+### Project-Specific Views
+
+```python
+# Create views for different project phases
+project_base = pxt.get_table('computer_vision_dataset')
+
+# Training data view
+training_view = pxt.create_view(
+    'projects.cv_model.training_data',
+    project_base.where(project_base.split == 'train'),
+    additional_columns={
+        'augmented_image': augment_image(project_base.image),
+        'normalized_labels': normalize_labels(project_base.labels)
+    },
+    comment='Training data with augmentations and normalized labels'
+)
+
+# Validation data view  
+validation_view = pxt.create_view(
+    'projects.cv_model.validation_data',
+    project_base.where(project_base.split == 'validation'),
+    comment='Clean validation data for model evaluation'
+)
+
+# Test data view
+test_view = pxt.create_view(
+    'projects.cv_model.test_data',
+    project_base.where(project_base.split == 'test'),
+    comment='Final evaluation dataset'
+)
+```
+
+### Analytical Views for Different Teams
+
+```python
+# Data science team view - focus on model features
+ds_view = pxt.create_view(
+    'teams.data_science.feature_analysis',
+    images.select(
+        images.image,
+        images.embeddings,
+        images.labels,
+        images.metadata
+    ),
+    additional_columns={
+        'feature_importance': calculate_feature_importance(images.embeddings),
+        'cluster_assignment': cluster_images(images.embeddings)
+    },
+    comment='Feature-focused view for data science analysis'
+)
+
+# Product team view - focus on user metrics
+product_view = pxt.create_view(
+    'teams.product.user_engagement',
+    images.select(
+        images.user_rating,
+        images.view_count,
+        images.upload_date,
+        images.category
+    ),
+    additional_columns={
+        'engagement_score': (images.user_rating * images.view_count),
+        'days_since_upload': (datetime.now() - images.upload_date).days,
+        'trending_score': calculate_trending(images.user_rating, images.view_count)
+    },
+    comment='User engagement metrics for product analysis'
+)
+```
+
+### Snapshot Views for Reproducible Experiments
+
+```python
+# Create snapshot for reproducible experiment
+experiment_snapshot = pxt.create_view(
+    'experiments.model_comparison.baseline_data',
+    training_view.where(training_view.quality_score > 0.7),
+    is_snapshot=True,  # Fixed data that won't change
+    comment='Baseline dataset for model comparison experiment - frozen on 2024-01-15'
+)
+
+# Multiple experimental snapshots
+experiment_variations = [
+    ('small_dataset', training_view.limit(1000)),
+    ('medium_dataset', training_view.limit(5000)), 
+    ('large_dataset', training_view.limit(20000))
+]
+
+for name, data_subset in experiment_variations:
+    pxt.create_view(
+        f'experiments.scaling_study.{name}',
+        data_subset,
+        is_snapshot=True,
+        comment=f'Fixed dataset for scaling study: {name}'
+    )
+```
+
+### Iterative View Development
+
+```python
+def create_analysis_pipeline(base_table, version='v1'):
+    """Create a series of views for iterative analysis"""
+    
+    # Step 1: Clean data
+    clean_data = pxt.create_view(
+        f'analysis.{version}.step1_clean',
+        base_table.where(
+            (base_table.image.width > 100) &
+            (base_table.image.height > 100) &
+            (base_table.labels.is_not_null())
+        ),
+        comment=f'Clean data - {version}'
+    )
+    
+    # Step 2: Add features
+    with_features = pxt.create_view(
+        f'analysis.{version}.step2_features',
+        clean_data,
+        additional_columns={
+            'aspect_ratio': clean_data.image.width / clean_data.image.height,
+            'area': clean_data.image.width * clean_data.image.height,
+            'label_count': clean_data.labels.length()
+        },
+        comment=f'Feature engineering - {version}'
+    )
+    
+    # Step 3: Final analysis dataset
+    final_dataset = pxt.create_view(
+        f'analysis.{version}.step3_final',
+        with_features.where(with_features.label_count > 0),
+        additional_columns={
+            'complexity_score': calculate_complexity(
+                with_features.aspect_ratio,
+                with_features.area,
+                with_features.label_count
+            )
+        },
+        comment=f'Final analysis dataset - {version}'
+    )
+    
+    return clean_data, with_features, final_dataset
+
+# Create analysis pipeline
+base = pxt.get_table('raw_images')
+clean, features, final = create_analysis_pipeline(base, 'experiment_2024_01')
+```
+
+### Dynamic View Creation
+
+```python
+def create_quality_tier_views(base_table, score_thresholds):
+    """Create views for different quality tiers"""
+    
+    tier_views = {}
+    
+    for tier_name, min_score in score_thresholds.items():
+        view_name = f'quality_tiers.{tier_name}'
+        
+        tier_view = pxt.create_view(
+            view_name,
+            base_table.where(base_table.quality_score >= min_score),
+            additional_columns={
+                'tier': tier_name,
+                'tier_percentile': calculate_percentile(
+                    base_table.quality_score, 
+                    min_score
+                )
+            },
+            comment=f'Quality tier: {tier_name} (score >= {min_score})',
+            if_exists='replace'
+        )
+        
+        tier_views[tier_name] = tier_view
+        print(f"Created tier view: {tier_name} (≥{min_score})")
+    
+    return tier_views
+
+# Create quality-based views
+quality_tiers = {
+    'premium': 0.9,
+    'high': 0.7,
+    'medium': 0.5,
+    'basic': 0.3
+}
+
+tier_views = create_quality_tier_views(images, quality_tiers)
+```
+
+### Advanced View Patterns
+
+```python
+# Chained views for complex processing pipelines
+raw_data = pxt.get_table('sensor_data')
+
+# Stage 1: Data cleaning
+cleaned = pxt.create_view(
+    'pipeline.stage1_cleaned',
+    raw_data.where(raw_data.sensor_value.is_not_null()),
+    additional_columns={
+        'cleaned_value': clean_sensor_data(raw_data.sensor_value)
+    }
+)
+
+# Stage 2: Feature extraction
+with_features = pxt.create_view(
+    'pipeline.stage2_features',
+    cleaned,
+    additional_columns={
+        'moving_average': calculate_moving_average(cleaned.cleaned_value),
+        'anomaly_score': detect_anomalies(cleaned.cleaned_value)
+    }
+)
+
+# Stage 3: Analysis ready
+analysis_ready = pxt.create_view(
+    'pipeline.stage3_analysis',
+    with_features.where(with_features.anomaly_score < 0.1),
+    additional_columns={
+        'trend': calculate_trend(with_features.moving_average),
+        'forecast': predict_next_value(with_features.cleaned_value)
+    }
+)
+```
+
+### Error Handling and Safe View Creation
+
+```python
+def safe_create_view(name, base_data, **kwargs):
+    """Safely create view with comprehensive error handling"""
+    
+    try:
+        # Check if base data is valid
+        if hasattr(base_data, 'count'):
+            row_count = base_data.count()
+            print(f"Creating view '{name}' from {row_count} rows")
+        
+        # Create view with error handling
+        view = pxt.create_view(name, base_data, **kwargs)
+        
+        if view is not None:
+            print(f"✅ Successfully created view: {name}")
+            return view
+        else:
+            print(f"⚠️ View creation returned None: {name}")
+            return None
+            
+    except Exception as e:
+        error_msg = str(e)
+        if 'already exists' in error_msg:
+            print(f"📝 View '{name}' already exists")
+            if kwargs.get('if_exists') == 'ignore':
+                try:
+                    return pxt.get_table(name)
+                except:
+                    pass
+        else:
+            print(f"❌ Failed to create view '{name}': {e}")
+        
+        return None
+
+# Usage with error handling
+safe_view = safe_create_view(
+    'analysis.safe_experiment',
+    images.where(images.user_rating > 3),
+    if_exists='ignore',
+    comment='Safely created experimental view'
+)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Path errors:**
+  - Invalid view path or view already exists and `if_exists='error'`
+  - Path exists but is not a view
+  
+  **Base table errors:**
+  - Base table/view does not exist or is not accessible
+  - Invalid DataFrame or query specification
+  
+  **Schema errors:**
+  - Invalid additional_columns specification
+  - Type mismatches in computed columns
+  
+  **Dependency errors:**
+  - Cannot replace view with dependents when `if_exists='replace'`
+</ResponseField>
+
+## Best Practices
+
+### View Organization Strategy
+```python
+# ✅ Organize views hierarchically by purpose
+pxt.create_view('analysis.customer_segments.high_value', ...)
+pxt.create_view('analysis.customer_segments.new_users', ...)
+pxt.create_view('experiments.model_v2.training_data', ...)
+pxt.create_view('teams.data_science.feature_analysis', ...)
+
+# ✅ Use descriptive names that indicate content and purpose
+pxt.create_view('high_resolution_training_images', ...)  # Clear purpose
+pxt.create_view('validated_labels_only', ...)            # Clear filtering
+
+# ❌ Avoid vague or confusing names
+# pxt.create_view('view1', ...)                          # Too generic
+# pxt.create_view('temp_data', ...)                      # Unclear purpose
+```
+
+### Performance Considerations
+```python
+# ✅ Use snapshots for heavy computations that don't need live updates
+expensive_features = pxt.create_view(
+    'precomputed_features',
+    base_table,
+    additional_columns={'ai_features': expensive_ai_function(base_table.image)},
+    is_snapshot=True  # Avoid recomputing expensive operations
+)
+
+# ✅ Filter early to reduce data volume
+filtered_view = pxt.create_view(
+    'relevant_data',
+    large_table.where(large_table.category == 'target_category'),  # Filter first
+    additional_columns={'analysis': analyze_function(large_table.data)}  # Then compute
+)
+```
+
+### Development Workflow
+```python
+# Development pattern: Start with simple views, add complexity gradually
+# 1. Basic filtering
+basic_view = pxt.create_view('dev.basic_filter', table.where(table.score > 0.5))
+
+# 2. Add simple computations  
+enhanced_view = pxt.create_view(
+    'dev.with_features',
+    basic_view,
+    additional_columns={'doubled_score': basic_view.score * 2}
+)
+
+# 3. Add AI/ML features
+final_view = pxt.create_view(
+    'dev.full_pipeline',
+    enhanced_view,
+    additional_columns={'ml_prediction': model_predict(enhanced_view.data)}
+)
+
+# 4. Create production version
+production_view = pxt.create_view(
+    'production.final_pipeline',
+    final_view,
+    is_snapshot=True,  # Freeze for production
+    comment='Production pipeline v1.0 - frozen 2024-01-15'
+)
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

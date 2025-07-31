@@ -1,0 +1,226 @@
+
+
+export const quartoRawHtml =
+[`
+<table class="dataframe" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr style="text-align: right;">
+<th data-quarto-table-cell-role="th">dt</th>
+<th data-quarto-table-cell-role="th">note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2024-08-09 23:00:00-07:00</td>
+<td>No time zone specified (uses default)</td>
+</tr>
+<tr>
+<td>2024-08-09 23:00:00-07:00</td>
+<td>Time zone America/Los_Angeles was specified explicitly</td>
+</tr>
+<tr>
+<td>2024-08-09 20:00:00-07:00</td>
+<td>Time zone America/New_York was specified explicitly</td>
+</tr>
+</tbody>
+</table>
+`,`
+<table class="dataframe" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr style="text-align: right;">
+<th data-quarto-table-cell-role="th">dt</th>
+<th data-quarto-table-cell-role="th">dt_new_york</th>
+<th data-quarto-table-cell-role="th">note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2024-08-09 23:00:00-07:00</td>
+<td>2024-08-10 02:00:00-04:00</td>
+<td>No time zone specified (uses default)</td>
+</tr>
+<tr>
+<td>2024-08-09 23:00:00-07:00</td>
+<td>2024-08-10 02:00:00-04:00</td>
+<td>Time zone America/Los_Angeles was specified explicitly</td>
+</tr>
+<tr>
+<td>2024-08-09 20:00:00-07:00</td>
+<td>2024-08-09 23:00:00-04:00</td>
+<td>Time zone America/New_York was specified explicitly</td>
+</tr>
+</tbody>
+</table>
+`,`
+<table class="dataframe" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr style="text-align: right;">
+<th data-quarto-table-cell-role="th">dt</th>
+<th data-quarto-table-cell-role="th">day_default</th>
+<th data-quarto-table-cell-role="th">day_eastern</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2024-08-09 23:00:00-07:00</td>
+<td>9</td>
+<td>10</td>
+</tr>
+<tr>
+<td>2024-08-09 23:00:00-07:00</td>
+<td>9</td>
+<td>10</td>
+</tr>
+<tr>
+<td>2024-08-09 20:00:00-07:00</td>
+<td>9</td>
+<td>9</td>
+</tr>
+</tbody>
+</table>
+`];
+
+[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/time-zones.ipynb)  
+[![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/time-zones.ipynb)  
+<a href="https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/notebooks/feature-guides/time-zones.ipynb" download><img src="https://img.shields.io/badge/%E2%AC%87-Download%20Notebook-blue" alt="Download Notebook"></a>
+
+# Time Zones in Pixeltable
+
+Because typical use cases involve datasets that span multiple time
+zones, Pixeltable strives to be precise in how it handles time zone
+arithmetic for datetimes.
+
+Timestamps are always stored in the Pixeltable database in UTC, to
+ensure consistency across datasets and deployments. Time zone
+considerations therefore apply during insertion and retrieval of
+timestamp data.
+
+
+```python
+%pip install -qU pixeltable
+```
+
+### The Default Time Zone
+
+Every Pixeltable deployment has a **default time zone**. The default
+time zone can be configured either by setting the `PIXELTABLE_TIME_ZONE`
+environment variable, or by adding a `time-zone` entry to the
+`[pixeltable]` section in `$PIXELTABLE_HOME/config.toml`. It must be a
+valid [IANA Time
+Zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+
+(See the [Pixeltable
+Configuration](https://pixeltable.github.io/pixeltable/config/) guide
+for more details on configuration options.)
+
+
+```python
+import os
+os.environ['PIXELTABLE_TIME_ZONE'] = 'America/Los_Angeles'
+```
+
+If no time zone is configured, then Pixeltable will fall back on the
+system time zone of the host on which it is running. **Because system
+time zone is deployment-dependent, it is recommended that production
+deployments configure a default time zone explicitly.**
+
+As outlined in the [Python datetime
+documentation](https://docs.python.org/3/library/datetime.html), a
+Python `datetime` object may be either **naive** (no time zone) or
+**aware** (equipped with an explicit time zone). Pixeltable will always
+interpret naive `datetime` objects as belonging to the configured
+default time zone.
+
+### Insertion and Retrieval
+
+When a `datetime` is inserted into the database, it will be converted to
+UTC and stored as an absolute timestamp. If the `datetime` has an
+explicit time zone, Pixeltable will use that time zone for the
+conversion; otherwise, Pixeltable will use the default time zone.
+
+When a `datetime` is retrieved, it will always be retrieved in the
+default time zone. To query in a different time zone, it is necessary to
+do an explicit conversion; we’ll give an example of this in a moment.
+Let’s first walk through a few examples that illustrate the default
+behavior.
+
+
+```python
+import pixeltable as pxt
+
+pxt.drop_dir('tz_demo', force=True)
+pxt.create_dir('tz_demo')
+t = pxt.create_table('tz_demo.example', {'dt': pxt.Timestamp, 'note': pxt.String})
+```
+
+``` text
+Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
+Created directory `tz_demo`.
+Created table `example`.
+```
+
+
+```python
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+naive_dt    = datetime(2024, 8, 9, 23, 0, 0)
+explicit_dt = datetime(2024, 8, 9, 23, 0, 0, tzinfo=ZoneInfo('America/Los_Angeles'))
+other_dt    = datetime(2024, 8, 9, 23, 0, 0, tzinfo=ZoneInfo('America/New_York'))
+
+t.insert([
+    {'dt': naive_dt,    'note': 'No time zone specified (uses default)'},
+    {'dt': explicit_dt, 'note': 'Time zone America/Los_Angeles was specified explicitly'},
+    {'dt': other_dt,    'note': 'Time zone America/New_York was specified explicitly'}
+])
+```
+
+``` text
+Inserting rows into `example`: 3 rows [00:00, 842.91 rows/s]
+Inserted 3 rows with 0 errors.
+```
+
+``` text
+UpdateStatus(num_rows=3, num_computed_values=3, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+On retrieval, all timestamps are normalized to the default time zone,
+regardless of how they were specified during insertion.
+
+
+```python
+t.collect()
+```
+
+<div dangerouslySetInnerHTML={{ __html: quartoRawHtml[0] }} />
+
+To represent timestamps in a different time zone, use the `astimezone`
+method.
+
+
+```python
+t.select(t.dt, dt_new_york=t.dt.astimezone('America/New_York'), note=t.note).collect()
+```
+
+<div dangerouslySetInnerHTML={{ __html: quartoRawHtml[1] }} />
+
+### Timestamp Methods and Properties
+
+The Pixeltable API exposes all the standard `datetime` methods and
+properties from the Python library. Because retrieval uses the default
+time zone, they are all relative to the default time zone unless
+`astimezone` is used.
+
+
+```python
+t.select(
+    t.dt,
+    day_default=t.dt.day,
+    day_eastern=t.dt.astimezone('America/New_York').day
+).collect()
+```
+
+<div dangerouslySetInnerHTML={{ __html: quartoRawHtml[2] }} />
+
+Observe that the first two timestamps map to different dates depending
+on the time zone, as expected.

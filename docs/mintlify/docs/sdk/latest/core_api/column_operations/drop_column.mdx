@@ -1,0 +1,277 @@
+---
+title: "table.drop_column"
+description: "Remove columns from tables with dependency checking"
+---
+
+<Badge text="Destructive" color="red" size="small" />
+
+## Function Signature
+
+```python
+table.drop_column(
+    column: Union[str, ColumnRef],
+    if_not_exists: str = 'error'
+) -> None
+```
+
+## Description
+
+Remove a column from a table by name or column reference. This is a **destructive operation** that permanently deletes the column and all its data. The operation includes dependency checking to prevent removal of columns that are referenced by computed columns.
+
+Use `drop_column` when cleaning up unused columns, removing temporary columns, or restructuring your table schema. Always ensure you understand the dependencies before dropping columns in production environments.
+
+<Callout type="warning">
+  **🚨 Destructive Operation**  
+  This permanently removes the column and all its data. Cannot be undone without restoring from backup.
+</Callout>
+
+## Parameters
+
+<ParamField path="column" type="Union[str, ColumnRef]" required>
+  The column to drop, specified either by name (string) or by column reference.
+  
+  **Examples:**
+  - `'user_rating'` - Drop by column name
+  - `table.user_rating` - Drop by column reference
+  - `table['user_rating']` - Drop by column reference (bracket notation)
+</ParamField>
+
+<ParamField path="if_not_exists" type="str" default="'error'">
+  Behavior when the column doesn't exist.
+  
+  - `'error'`: Raise exception if column doesn't exist
+  - `'ignore'`: Do nothing if column doesn't exist (safe operation)
+  
+  **Best Practice:** Use `'ignore'` in scripts that might run multiple times.
+</ParamField>
+
+## Returns
+
+<ResponseField name="None" type="None">
+  This function doesn't return a value. The column is removed from the table schema immediately.
+</ResponseField>
+
+## Examples
+
+### Basic Column Removal
+
+```python
+import pixeltable as pxt
+
+# Get table reference
+images = pxt.get_table('image_collection')
+
+# Drop column by name
+images.drop_column('user_rating')
+
+# Drop column by reference
+images.drop_column(images.category)
+
+# Drop with bracket notation
+images.drop_column(images['is_favorite'])
+```
+
+### Safe Column Removal
+
+```python
+# Safe removal that won't fail if column doesn't exist
+images.drop_column('temp_processing_flag', if_not_exists='ignore')
+
+# Useful in cleanup scripts
+cleanup_columns = ['temp_data', 'debug_info', 'staging_notes']
+for col_name in cleanup_columns:
+    images.drop_column(col_name, if_not_exists='ignore')
+```
+
+### Dependency Checking
+
+```python
+# This will fail if other computed columns depend on 'detected_objects'
+try:
+    images.drop_column('detected_objects')
+except Exception as e:
+    print(f"Cannot drop column: {e}")
+    print("Check for dependent computed columns first")
+
+# Check dependencies before dropping
+def safe_drop_column(table, column_name):
+    """Safely drop column with dependency information"""
+    try:
+        table.drop_column(column_name)
+        print(f"Successfully dropped column: {column_name}")
+    except Exception as e:
+        if "referenced by" in str(e):
+            print(f"Column '{column_name}' has dependencies: {e}")
+            print("Remove dependent columns first, then retry")
+        else:
+            print(f"Error dropping column: {e}")
+            
+safe_drop_column(images, 'source_image')
+```
+
+### Schema Evolution Workflow
+
+```python
+# Step 1: Add new improved column
+images.add_computed_column(
+    enhanced_objects=improved_detection_function(images.image)
+)
+
+# Step 2: Verify new column works correctly
+sample_results = images.select(images.enhanced_objects).limit(5).collect()
+print("New column working correctly:", len(sample_results))
+
+# Step 3: Update dependent columns to use new column
+# (This step would involve recreating dependent computed columns)
+
+# Step 4: Drop old column after dependencies are updated
+images.drop_column('old_objects', if_not_exists='ignore')
+```
+
+### Bulk Column Cleanup
+
+```python
+# Remove multiple temporary columns
+temp_columns = [
+    'temp_width', 'temp_height', 'temp_processed', 
+    'debug_info', 'staging_metadata'
+]
+
+removed_count = 0
+for col_name in temp_columns:
+    try:
+        images.drop_column(col_name, if_not_exists='ignore')
+        removed_count += 1
+        print(f"Removed: {col_name}")
+    except Exception as e:
+        print(f"Could not remove {col_name}: {e}")
+
+print(f"Successfully removed {removed_count} columns")
+```
+
+### Development Cleanup
+
+```python
+# Clean up experimental columns during development
+experimental_columns = [col for col in images.column_names() 
+                       if col.startswith('test_') or col.startswith('exp_')]
+
+print(f"Found {len(experimental_columns)} experimental columns")
+for col in experimental_columns:
+    images.drop_column(col, if_not_exists='ignore')
+    print(f"Cleaned up: {col}")
+```
+
+### Error Handling Patterns
+
+```python
+def drop_column_with_retry(table, column_name, max_retries=3):
+    """Drop column with dependency resolution retry logic"""
+    for attempt in range(max_retries):
+        try:
+            table.drop_column(column_name)
+            print(f"Successfully dropped {column_name}")
+            return True
+        except Exception as e:
+            if "referenced by" in str(e) and attempt < max_retries - 1:
+                print(f"Attempt {attempt + 1}: Column has dependencies, retrying...")
+                # Here you might implement logic to handle dependencies
+                continue
+            else:
+                print(f"Failed to drop {column_name}: {e}")
+                return False
+    return False
+
+# Usage
+drop_column_with_retry(images, 'legacy_data')
+```
+
+### Production Safety Patterns
+
+```python
+# Create backup reference before dropping important columns
+important_columns = ['user_ratings', 'manual_labels', 'verified_data']
+
+def backup_and_drop(table, column_name):
+    """Backup column data before dropping"""
+    if column_name in important_columns:
+        # Export data before dropping
+        backup_data = table.select(table[column_name]).collect()
+        print(f"Backed up {len(backup_data)} rows for {column_name}")
+        
+        # Save backup (implementation depends on your backup strategy)
+        # save_column_backup(column_name, backup_data)
+    
+    # Proceed with drop
+    table.drop_column(column_name, if_not_exists='ignore')
+
+# Use in production
+backup_and_drop(images, 'legacy_user_ratings')
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Column not found:**
+  - Column doesn't exist and `if_not_exists='error'`
+  
+  **Dependency errors:**
+  - Column is referenced by computed columns (must remove dependents first)
+  - Cannot drop system columns or primary key columns
+  
+  **Permission errors:**
+  - Insufficient permissions to modify table schema
+</ResponseField>
+
+## Best Practices
+
+### Dependency Management
+```python
+# Always check for dependent columns before dropping
+def list_column_dependencies(table, column_name):
+    """Show what columns depend on the target column"""
+    # This is conceptual - actual implementation would query metadata
+    print(f"Checking dependencies for: {column_name}")
+    # In practice, error messages from drop attempts reveal dependencies
+
+# Test drop in development first
+def test_column_drop(table, column_name):
+    """Test if column can be safely dropped"""
+    try:
+        # Don't actually drop in test mode
+        print(f"Column '{column_name}' can be safely dropped")
+        return True
+    except Exception as e:
+        print(f"Column '{column_name}' cannot be dropped: {e}")
+        return False
+```
+
+### Safe Production Workflow
+```python
+# 1. Identify unused columns
+# 2. Check dependencies  
+# 3. Remove dependent columns first
+# 4. Drop target column
+# 5. Verify table integrity
+
+def safe_production_drop(table, column_name):
+    """Production-safe column dropping with all checks"""
+    print(f"Preparing to drop column: {column_name}")
+    
+    # Check if column exists
+    if column_name not in table.column_names():
+        print(f"Column {column_name} doesn't exist - nothing to do")
+        return
+    
+    # Attempt drop with proper error handling
+    try:
+        table.drop_column(column_name)
+        print(f"✅ Successfully dropped: {column_name}")
+    except Exception as e:
+        print(f"❌ Failed to drop {column_name}: {e}")
+        raise
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

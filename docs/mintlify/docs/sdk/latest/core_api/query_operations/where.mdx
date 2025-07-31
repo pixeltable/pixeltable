@@ -1,0 +1,412 @@
+---
+title: "table.where"
+description: "table.where() - Filter rows with boolean expressions, returns DataFrame"
+---
+
+<Badge text="Query Operations" color="purple" size="small" />
+
+## Function Signature
+
+```python
+table.where(predicate: Expr) -> DataFrame
+```
+
+## Description
+
+The `where` method filters table rows based on boolean expressions, similar to SQL WHERE clauses. It returns a `DataFrame` representing the filtered query without executing it immediately.
+
+This is a core component of Pixeltable's querying system, enabling powerful data filtering with support for complex expressions, media operations, and seamless integration with other query operations.
+
+## Parameters
+
+<ParamField path="predicate" type="Expr" required>
+  Boolean expression that evaluates to True/False for each row. Can include:
+  - **Comparison operators**: `==`, `!=`, `<`, `>`, `<=`, `>=`
+  - **Logical operators**: `&` (and), `|` (or), `~` (not)
+  - **String operations**: `.contains()`, `.startswith()`, `.endswith()`
+  - **Null checks**: `.is_null()`, `.is_not_null()`
+  - **Set operations**: `.isin()`, `.between()`
+</ParamField>
+
+## Returns
+
+<ResponseField name="DataFrame" type="DataFrame">
+  A lazy DataFrame object representing the filtered query. Chain with other operations or use `.collect()` to execute.
+</ResponseField>
+
+## Examples
+
+### Basic Filtering
+
+```python
+import pixeltable as pxt
+
+# Get table handle
+tbl = pxt.get_table('users')
+
+# Simple equality filter
+active_users = tbl.where(tbl.status == 'active')
+print(f"Found {active_users.count()} active users")
+
+# Numerical comparisons
+high_scorers = tbl.where(tbl.score > 85)
+recent_users = tbl.where(tbl.created_date >= '2024-01-01')
+
+# Execute queries
+results = high_scorers.select(tbl.name, tbl.score).collect()
+```
+
+### Complex Boolean Logic
+
+```python
+# Combining conditions with AND (&)
+premium_active = tbl.where(
+    (tbl.status == 'active') & (tbl.subscription_type == 'premium')
+)
+
+# Multiple AND conditions
+qualified_users = tbl.where(
+    (tbl.age >= 18) & 
+    (tbl.score > 70) & 
+    (tbl.verified == True)
+)
+
+# OR conditions (|)
+priority_users = tbl.where(
+    (tbl.vip_status == True) | (tbl.revenue > 10000)
+)
+
+# NOT conditions (~)
+incomplete_profiles = tbl.where(
+    ~((tbl.email.is_not_null()) & (tbl.phone.is_not_null()))
+)
+```
+
+### String Filtering
+
+```python
+# String matching operations
+gmail_users = tbl.where(tbl.email.contains('@gmail.com'))
+tech_companies = tbl.where(tbl.company.endswith('.tech'))
+us_users = tbl.where(tbl.country.startswith('US'))
+
+# Case-insensitive matching
+admin_users = tbl.where(tbl.role.lower().contains('admin'))
+
+# Pattern matching with regex
+phone_pattern = tbl.where(tbl.phone.matches(r'^\+1-\d{3}-\d{3}-\d{4}$'))
+
+# Multiple string conditions
+valid_emails = tbl.where(
+    tbl.email.contains('@') & 
+    tbl.email.contains('.') &
+    ~tbl.email.contains(' ')
+)
+```
+
+### Null and Missing Data
+
+```python
+# Null value filtering
+complete_profiles = tbl.where(
+    tbl.email.is_not_null() & 
+    tbl.phone.is_not_null() &
+    tbl.address.is_not_null()
+)
+
+# Find missing data
+incomplete_data = tbl.where(
+    tbl.profile_picture.is_null() |
+    tbl.bio.is_null()
+)
+
+# Empty string handling
+valid_names = tbl.where(
+    tbl.name.is_not_null() & 
+    (tbl.name != '') &
+    ~tbl.name.contains('test')
+)
+```
+
+### Date and Time Filtering
+
+```python
+from datetime import datetime, timedelta
+
+# Date range filtering
+last_month = tbl.where(
+    tbl.created_date >= (datetime.now() - timedelta(days=30))
+)
+
+# Between dates
+q4_data = tbl.where(
+    tbl.order_date.between('2024-10-01', '2024-12-31')
+)
+
+# Time of day filtering
+business_hours = tbl.where(
+    (tbl.timestamp.hour >= 9) & (tbl.timestamp.hour < 17)
+)
+
+# Weekday filtering
+weekday_activity = tbl.where(
+    tbl.activity_date.weekday() < 5  # Monday=0, Sunday=6
+)
+```
+
+### Numerical Ranges and Sets
+
+```python
+# Range filtering
+mid_range_scores = tbl.where(tbl.score.between(70, 90))
+
+# Set membership
+target_regions = ['North', 'South', 'East']
+regional_data = tbl.where(tbl.region.isin(target_regions))
+
+# Multiple numerical conditions
+qualified_products = tbl.where(
+    (tbl.price >= 10) & 
+    (tbl.price <= 1000) &
+    (tbl.rating >= 4.0)
+)
+
+# Statistical filtering
+outliers = tbl.where(
+    (tbl.value > tbl.value.mean() + 2 * tbl.value.std()) |
+    (tbl.value < tbl.value.mean() - 2 * tbl.value.std())
+)
+```
+
+### Media and JSON Filtering
+
+```python
+# Image metadata filtering
+media_tbl = pxt.get_table('media_files')
+
+large_images = media_tbl.where(
+    (media_tbl.image.width > 1920) & 
+    (media_tbl.image.height > 1080)
+)
+
+# Video duration filtering
+long_videos = media_tbl.where(
+    media_tbl.video.duration > 300  # 5 minutes
+)
+
+# JSON field filtering
+logs_tbl = pxt.get_table('api_logs')
+error_logs = logs_tbl.where(
+    logs_tbl.response_data['status_code'] >= 400
+)
+
+# JSON array filtering
+multi_tag_posts = logs_tbl.where(
+    pxt.functions.json_array_length(logs_tbl.tags) > 1
+)
+```
+
+### Chaining Where Conditions
+
+```python
+# Multiple where calls (equivalent to AND)
+filtered_data = (tbl
+    .where(tbl.active == True)
+    .where(tbl.score > 80)
+    .where(tbl.created_date >= '2024-01-01')
+)
+
+# Same as single where with AND
+combined_filter = tbl.where(
+    (tbl.active == True) &
+    (tbl.score > 80) &
+    (tbl.created_date >= '2024-01-01')
+)
+
+# Chain with select and other operations
+results = (tbl
+    .where(tbl.subscription_type == 'premium')
+    .select(tbl.name, tbl.email, tbl.revenue)
+    .order_by(tbl.revenue.desc())
+    .limit(10)
+    .collect()
+)
+```
+
+### Dynamic Filtering
+
+```python
+def build_user_filter(status=None, min_score=None, created_after=None):
+    """Build dynamic filters based on provided criteria."""
+    
+    conditions = []
+    
+    if status:
+        conditions.append(tbl.status == status)
+    
+    if min_score is not None:
+        conditions.append(tbl.score >= min_score)
+    
+    if created_after:
+        conditions.append(tbl.created_date >= created_after)
+    
+    # Combine all conditions with AND
+    if conditions:
+        combined_condition = conditions[0]
+        for condition in conditions[1:]:
+            combined_condition = combined_condition & condition
+        
+        return tbl.where(combined_condition)
+    else:
+        return tbl
+
+# Usage
+filtered_users = build_user_filter(
+    status='active',
+    min_score=75,
+    created_after='2024-01-01'
+)
+```
+
+### Performance-Optimized Filtering
+
+```python
+# Index-friendly filtering (if indexes exist)
+indexed_lookup = tbl.where(tbl.user_id == 12345)
+
+# Range queries on indexed columns
+date_range = tbl.where(
+    tbl.indexed_timestamp.between('2024-01-01', '2024-02-01')
+)
+
+# Avoid expensive operations in WHERE when possible
+# ✅ Good - filter first, then compute
+recent_data = tbl.where(tbl.date >= '2024-01-01')
+processed = recent_data.select(
+    tbl.name,
+    expensive_calc=tbl.data.apply(complex_function)
+)
+
+# ❌ Less efficient - compute then filter
+# all_processed = tbl.select(tbl.name, expensive=tbl.data.apply(complex_function))
+# filtered = all_processed.where(tbl.date >= '2024-01-01')
+```
+
+### Error Handling and Validation
+
+```python
+def safe_where_query(table, condition_func, *args):
+    """Safely apply where conditions with error handling."""
+    
+    try:
+        # Build condition
+        condition = condition_func(table, *args)
+        
+        # Test the condition
+        filtered = table.where(condition)
+        count = filtered.count()
+        
+        print(f"Filter condition will return {count} rows")
+        
+        # Warn about large results
+        if count > 50000:
+            print("Warning: Large result set")
+        
+        return filtered
+        
+    except Exception as e:
+        print(f"Filter error: {e}")
+        return table  # Return unfiltered table
+
+# Usage
+def user_status_filter(table, status):
+    return table.status == status
+
+active_users = safe_where_query(tbl, user_status_filter, 'active')
+```
+
+### Combining Where with Aggregations
+
+```python
+# Filter before aggregation for efficiency
+category_stats = (tbl
+    .where(tbl.active == True)  # Filter first
+    .group_by(tbl.category)
+    .aggregate(
+        count=pxt.functions.count(),
+        avg_score=pxt.functions.avg(tbl.score),
+        total_revenue=pxt.functions.sum(tbl.revenue)
+    )
+)
+
+# Filter aggregated results
+high_performing_categories = category_stats.where(
+    category_stats.avg_score > 85
+)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in various error conditions:
+  - Invalid boolean expressions that don't evaluate to True/False
+  - References to non-existent columns or tables
+  - Type mismatches in comparison operations
+  - Syntax errors in complex expressions
+  - Memory errors with very large datasets
+</ResponseField>
+
+## Related Functions
+
+- [`table.select()`](/docs/sdk/latest/core_api/query_operations/select) - Choose columns and expressions to query
+- [`table.order_by()`](/docs/sdk/latest/core_api/query_operations/order_by) - Sort filtered results
+- [`table.limit()`](/docs/sdk/latest/core_api/query_operations/limit) - Limit number of filtered results
+- [`table.join()`](/docs/sdk/latest/core_api/query_operations/join) - Join filtered data with other tables
+- [`table.insert()`](/docs/sdk/latest/core_api/data_operations/insert) - Add new rows to table
+- [`table.update()`](/docs/sdk/latest/core_api/data_operations/update) - Modify existing rows
+
+## Best Practices
+
+### Filter Early and Often
+
+```python
+# ✅ Filter early to reduce data processing
+filtered_base = tbl.where(tbl.active == True)
+results = filtered_base.select(tbl.name, expensive_computation=...)
+
+# ❌ Avoid late filtering
+# all_computed = tbl.select(tbl.name, expensive=...)
+# filtered = all_computed.where(tbl.active == True)
+```
+
+### Use Appropriate Operators
+
+```python
+# ✅ Use & and | for boolean operations
+condition = (tbl.score > 80) & (tbl.verified == True)
+
+# ❌ Don't use Python 'and'/'or' keywords
+# condition = (tbl.score > 80) and (tbl.verified == True)  # Won't work!
+```
+
+### Index-Aware Filtering
+
+```python
+# Filter on indexed columns when possible
+user_lookup = tbl.where(tbl.user_id == target_id)  # Fast if indexed
+date_range = tbl.where(tbl.created_date >= start_date)  # Fast if indexed
+```
+
+### Null Safety
+
+```python
+# Always handle potential null values
+safe_filter = tbl.where(
+    tbl.optional_field.is_not_null() &
+    (tbl.optional_field > threshold)
+)
+```
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*

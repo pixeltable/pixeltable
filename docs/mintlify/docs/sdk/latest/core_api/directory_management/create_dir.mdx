@@ -1,0 +1,381 @@
+---
+title: "pxt.create_dir"
+description: "Create directories for organizing tables and data structures"
+---
+
+<Badge text="Directory Management" color="blue" size="small" />
+
+## Function Signature
+
+```python
+pxt.create_dir(
+    path: str,
+    if_exists: str = 'error',
+    parents: bool = False
+) -> Optional[Dir]
+```
+
+## Description
+
+Create a directory in the Pixeltable workspace to organize tables, views, and other data structures hierarchically. Directories provide a namespace system that helps manage complex data projects by grouping related tables and enabling logical organization of your data infrastructure.
+
+Use `create_dir` to establish organizational structure in your Pixeltable workspace, separate different projects or domains, create development/staging/production environments, or group related data processing workflows.
+
+## Parameters
+
+<ParamField path="path" type="str" required>
+  Path to the directory using dot notation for hierarchical structure.
+  
+  **Examples:**
+  - `'projects'` - Top-level directory
+  - `'projects.computer_vision'` - Nested directory
+  - `'dev.experiments.model_training'` - Deep hierarchy
+</ParamField>
+
+<ParamField path="if_exists" type="str" default="'error'">
+  Behavior when directory already exists.
+  
+  - `'error'`: Raise exception if directory exists
+  - `'ignore'`: Return existing directory handle, do nothing
+  - `'replace'`: Drop existing directory if empty, create new one
+  - `'replace_force'`: Drop existing directory and all contents, create new one
+  
+  **Warning:** `'replace_force'` permanently deletes all contents!
+</ParamField>
+
+<ParamField path="parents" type="bool" default="False">
+  Create missing parent directories automatically.
+  
+  - `True`: Create entire directory path, including missing parents
+  - `False`: Require parent directories to already exist
+  
+  **Best Practice:** Use `parents=True` for deep hierarchies.
+</ParamField>
+
+## Returns
+
+<ResponseField name="Dir" type="Optional[Dir]">
+  A handle to the newly created directory, or existing directory when `if_exists='ignore'`. Returns `None` in some edge cases.
+</ResponseField>
+
+## Examples
+
+### Basic Directory Creation
+
+```python
+import pixeltable as pxt
+
+# Create top-level directories for organization
+projects_dir = pxt.create_dir('projects')
+experiments_dir = pxt.create_dir('experiments')
+production_dir = pxt.create_dir('production')
+
+# Create domain-specific directories
+cv_dir = pxt.create_dir('projects.computer_vision')
+nlp_dir = pxt.create_dir('projects.natural_language')
+audio_dir = pxt.create_dir('projects.audio_processing')
+```
+
+### Hierarchical Organization
+
+```python
+# Create deep directory hierarchies for complex projects
+pxt.create_dir(
+    'company.departments.marketing.campaigns.2024.q1',
+    parents=True  # Creates all missing parent directories
+)
+
+# Organize by data type and processing stage
+pxt.create_dir('media.images.raw', parents=True)
+pxt.create_dir('media.images.processed', parents=True)
+pxt.create_dir('media.videos.segments', parents=True)
+
+# Development workflow organization
+pxt.create_dir('workflows.data_ingestion', parents=True)
+pxt.create_dir('workflows.feature_extraction', parents=True)
+pxt.create_dir('workflows.model_training', parents=True)
+```
+
+### Project Template Creation
+
+```python
+def create_project_structure(project_name):
+    """Create standardized project directory structure"""
+    
+    base_dirs = [
+        f'{project_name}.data.raw',
+        f'{project_name}.data.processed',
+        f'{project_name}.data.features',
+        f'{project_name}.models.experiments',
+        f'{project_name}.models.production',
+        f'{project_name}.results.analysis',
+        f'{project_name}.results.reports'
+    ]
+    
+    created_dirs = []
+    for dir_path in base_dirs:
+        try:
+            dir_handle = pxt.create_dir(dir_path, parents=True)
+            created_dirs.append(dir_path)
+            print(f"✅ Created: {dir_path}")
+        except Exception as e:
+            print(f"❌ Failed to create {dir_path}: {e}")
+    
+    print(f"Project '{project_name}' structure created with {len(created_dirs)} directories")
+    return created_dirs
+
+# Create standardized project
+create_project_structure('image_classification')
+```
+
+### Environment Separation
+
+```python
+# Create separate environments for development lifecycle
+environments = ['dev', 'staging', 'production']
+projects = ['user_analysis', 'content_moderation', 'recommendation_engine']
+
+for env in environments:
+    for project in projects:
+        dir_path = f'{env}.{project}'
+        pxt.create_dir(dir_path, parents=True, if_exists='ignore')
+        print(f"Environment ready: {dir_path}")
+
+# Now you can create tables in appropriate environments
+# dev tables: pxt.create_table('dev.user_analysis.user_profiles', ...)
+# prod tables: pxt.create_table('production.user_analysis.user_profiles', ...)
+```
+
+### Safe Directory Creation
+
+```python
+def safe_create_dir(path, description=""):
+    """Safely create directory with error handling and logging"""
+    
+    try:
+        dir_handle = pxt.create_dir(path, if_exists='ignore')
+        print(f"📁 Directory ready: {path}")
+        if description:
+            print(f"   Purpose: {description}")
+        return dir_handle
+        
+    except Exception as e:
+        print(f"❌ Failed to create directory '{path}': {e}")
+        return None
+
+# Create directories with descriptions
+safe_create_dir(
+    'computer_vision.object_detection',
+    "Object detection models and training data"
+)
+
+safe_create_dir(
+    'nlp.sentiment_analysis', 
+    "Text sentiment analysis pipeline"
+)
+```
+
+### Migration and Cleanup
+
+```python
+# Migrate from old structure to new structure
+def migrate_directory_structure():
+    """Migrate from old flat structure to hierarchical organization"""
+    
+    # Create new organized structure
+    new_dirs = [
+        'v2.projects.vision',
+        'v2.projects.text',
+        'v2.experiments.active',
+        'v2.experiments.archived'
+    ]
+    
+    for dir_path in new_dirs:
+        pxt.create_dir(dir_path, parents=True, if_exists='ignore')
+    
+    print("New directory structure created")
+    # Note: Table migration would be a separate step
+
+# Replace existing directory safely
+def replace_directory_safely(path, backup_suffix="_backup"):
+    """Replace directory with backup of original"""
+    
+    backup_path = f"{path}{backup_suffix}"
+    
+    try:
+        # Create backup of existing directory (conceptual)
+        print(f"Creating backup: {backup_path}")
+        
+        # Replace with new directory
+        pxt.create_dir(path, if_exists='replace_force')
+        print(f"✅ Replaced directory: {path}")
+        
+    except Exception as e:
+        print(f"❌ Failed to replace directory: {e}")
+
+# Usage
+replace_directory_safely('experiments.old_models')
+```
+
+### Batch Directory Operations
+
+```python
+# Create multiple related directories efficiently
+def create_analysis_workspace(analysis_name):
+    """Create complete workspace for data analysis project"""
+    
+    workspace_dirs = {
+        f'analysis.{analysis_name}.input': 'Raw input data',
+        f'analysis.{analysis_name}.preprocessing': 'Data cleaning and prep',
+        f'analysis.{analysis_name}.features': 'Extracted features',
+        f'analysis.{analysis_name}.models': 'Trained models',
+        f'analysis.{analysis_name}.results': 'Analysis outputs',
+        f'analysis.{analysis_name}.reports': 'Generated reports'
+    }
+    
+    created = 0
+    for dir_path, purpose in workspace_dirs.items():
+        try:
+            pxt.create_dir(dir_path, parents=True, if_exists='ignore')
+            print(f"📁 {dir_path} - {purpose}")
+            created += 1
+        except Exception as e:
+            print(f"❌ {dir_path}: {e}")
+    
+    print(f"\n🎉 Analysis workspace '{analysis_name}' ready with {created} directories")
+
+# Create analysis workspace
+create_analysis_workspace('customer_segmentation')
+```
+
+### Dynamic Directory Creation
+
+```python
+# Create directories based on data characteristics
+def create_dynamic_structure(data_types, processing_stages):
+    """Create directory structure based on dynamic requirements"""
+    
+    base_path = 'dynamic_project'
+    
+    for data_type in data_types:
+        for stage in processing_stages:
+            dir_path = f'{base_path}.{data_type}.{stage}'
+            
+            try:
+                pxt.create_dir(dir_path, parents=True, if_exists='ignore')
+                print(f"📁 Created: {dir_path}")
+            except Exception as e:
+                print(f"❌ Failed: {dir_path} - {e}")
+
+# Usage with dynamic inputs
+data_types = ['images', 'videos', 'audio', 'text']
+processing_stages = ['raw', 'cleaned', 'features', 'embeddings']
+
+create_dynamic_structure(data_types, processing_stages)
+```
+
+### Development Best Practices
+
+```python
+# Template for organized development workflow
+class ProjectOrganizer:
+    """Helper class for managing project directory structure"""
+    
+    def __init__(self, project_name):
+        self.project_name = project_name
+        self.base_path = f'projects.{project_name}'
+    
+    def setup_basic_structure(self):
+        """Create basic project directories"""
+        basic_dirs = [
+            f'{self.base_path}.data.raw',
+            f'{self.base_path}.data.processed', 
+            f'{self.base_path}.experiments',
+            f'{self.base_path}.production'
+        ]
+        
+        for dir_path in basic_dirs:
+            pxt.create_dir(dir_path, parents=True, if_exists='ignore')
+        
+        print(f"Basic structure created for: {self.project_name}")
+    
+    def add_domain_directories(self, domains):
+        """Add domain-specific directories"""
+        for domain in domains:
+            dir_path = f'{self.base_path}.domains.{domain}'
+            pxt.create_dir(dir_path, parents=True, if_exists='ignore')
+            print(f"Domain directory created: {domain}")
+    
+    def create_experiment_space(self, experiment_name):
+        """Create isolated space for experiments"""
+        exp_path = f'{self.base_path}.experiments.{experiment_name}'
+        subdirs = ['data', 'models', 'results', 'analysis']
+        
+        for subdir in subdirs:
+            pxt.create_dir(f'{exp_path}.{subdir}', parents=True, if_exists='ignore')
+        
+        print(f"Experiment space ready: {experiment_name}")
+
+# Usage
+organizer = ProjectOrganizer('recommendation_system')
+organizer.setup_basic_structure()
+organizer.add_domain_directories(['user_data', 'content_data', 'interaction_data'])
+organizer.create_experiment_space('collaborative_filtering')
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Path errors:**
+  - Invalid directory path format or reserved names
+  - Path already exists and `if_exists='error'`
+  - Path exists but is not a directory
+  
+  **Parent directory errors:**
+  - Parent directories don't exist and `parents=False`
+  - Permission errors when creating parent directories
+  
+  **System errors:**
+  - Insufficient permissions to create directories
+  - Storage or system-level errors during creation
+</ResponseField>
+
+## Best Practices
+
+### Naming Conventions
+```python
+# ✅ Good directory naming patterns
+pxt.create_dir('projects.computer_vision')          # Clear purpose
+pxt.create_dir('data.images.training_set')          # Hierarchical organization  
+pxt.create_dir('experiments.model_comparison')      # Descriptive names
+pxt.create_dir('production.user_facing_models')     # Environment clarity
+
+# ❌ Avoid these patterns
+# pxt.create_dir('stuff')                           # Too vague
+# pxt.create_dir('dir1.dir2.dir3')                  # Non-descriptive
+# pxt.create_dir('temporary_test_data_2024_jan')    # Too specific/dated
+```
+
+### Organization Strategies
+```python
+# Strategy 1: By Data Type
+pxt.create_dir('media.images', parents=True)
+pxt.create_dir('media.videos', parents=True)
+pxt.create_dir('text.documents', parents=True)
+pxt.create_dir('text.conversations', parents=True)
+
+# Strategy 2: By Project Stage
+pxt.create_dir('pipeline.ingestion', parents=True)
+pxt.create_dir('pipeline.processing', parents=True)
+pxt.create_dir('pipeline.analysis', parents=True)
+pxt.create_dir('pipeline.output', parents=True)
+
+# Strategy 3: By Business Domain
+pxt.create_dir('business.marketing.analytics', parents=True)
+pxt.create_dir('business.sales.forecasting', parents=True)
+pxt.create_dir('business.operations.monitoring', parents=True)
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

@@ -1,0 +1,318 @@
+---
+title: "table.add_computed_column"
+description: "Add computed columns with AI transformations and custom expressions"
+---
+
+<Badge text="Column Operations" color="orange" size="small" />
+
+## Function Signature
+
+```python
+table.add_computed_column(
+    **kwargs,
+    stored: bool = True,
+    print_stats: bool = False,
+    on_error: str = 'abort',
+    if_exists: str = 'error'
+) -> UpdateStatus
+```
+
+## Description
+
+Add computed columns to a table using expressions, AI functions, or transformations. This is Pixeltable's **core feature** that enables intelligent data processing by automatically computing values based on other columns in the table. Computed columns can perform AI operations like image analysis, text processing, embeddings generation, and complex transformations.
+
+Unlike simple columns that store static data, computed columns are **living expressions** that automatically update when their dependencies change, making them perfect for AI workflows where data flows through multiple processing stages.
+
+## Parameters
+
+<ParamField path="**kwargs" type="dict" required>
+  Exactly one keyword argument of the form `col_name=expression`. The keyword name becomes the column name, and the value is the expression to compute.
+  
+  **Examples:**
+  - `detected_objects=yolox(table.image)`
+  - `embeddings=openai.embeddings(table.text)`
+  - `resized_image=table.image.resize((224, 224))`
+</ParamField>
+
+<ParamField path="stored" type="bool" default="True">
+  Whether the column is materialized and stored on disk or computed on demand.
+  
+  - `True`: Results are computed once and stored (faster queries, uses more storage)
+  - `False`: Results are computed each time accessed (slower queries, saves storage)
+  
+  **Use stored=False for:**
+  - Expensive transformations that rarely need full table scans
+  - Development/testing phases
+  - Storage-constrained environments
+</ParamField>
+
+<ParamField path="print_stats" type="bool" default="False">
+  If `True`, print execution metrics during column evaluation including timing, memory usage, and progress information.
+  
+  Useful for monitoring performance of AI operations and large batch processing.
+</ParamField>
+
+<ParamField path="on_error" type="str" default="'abort'">
+  Determines behavior when errors occur during column evaluation.
+  
+  - `'abort'`: Raise exception and don't add the column
+  - `'ignore'`: Continue execution, store `None` for failed rows, and save error details in `col_name.errormsg` and `col_name.errortype` fields
+  
+  **Best Practices:**
+  - Use `'abort'` for development to catch issues early
+  - Use `'ignore'` for production with unreliable data sources
+</ParamField>
+
+<ParamField path="if_exists" type="str" default="'error'">
+  Behavior when column already exists.
+  
+  - `'error'`: Raise exception if column exists
+  - `'ignore'`: Do nothing and return if column exists  
+  - `'replace'` or `'replace_force'`: Drop existing column and add new one (only if no dependents)
+  
+  **Note:** You cannot replace columns that have dependent computed columns.
+</ParamField>
+
+## Returns
+
+<ResponseField name="UpdateStatus" type="UpdateStatus">
+  Information about the execution status of the operation, including number of rows processed, execution time, and any errors encountered.
+</ResponseField>
+
+## Examples
+
+### Basic Image Processing
+
+```python
+import pixeltable as pxt
+from pixeltable.functions import openai, yolox
+
+# Create table with images
+images = pxt.create_table('demo_images', {
+    'image': pxt.Image,
+    'description': pxt.String
+})
+
+# Add basic computed columns
+images.add_computed_column(
+    # Rotate images by 90 degrees
+    rotated=images.image.rotate(90)
+)
+
+images.add_computed_column(
+    # Get image dimensions
+    width=images.image.width,
+    height=images.image.height
+)
+```
+
+### AI-Powered Object Detection
+
+```python
+# Add object detection using YOLOX
+images.add_computed_column(
+    detected_objects=yolox(images.image, model_id='yolox_s', threshold=0.5)
+)
+
+# Extract specific information from detection results
+images.add_computed_column(
+    num_objects=images.detected_objects.length(),
+    has_person=images.detected_objects.contains('person')
+)
+```
+
+### Text Processing with OpenAI
+
+```python
+# Create table with text content
+articles = pxt.create_table('articles', {
+    'title': pxt.String,
+    'content': pxt.String
+})
+
+# Generate embeddings
+articles.add_computed_column(
+    embeddings=openai.embeddings(articles.content, model='text-embedding-3-small')
+)
+
+# AI-powered analysis
+articles.add_computed_column(
+    summary=openai.chat_completions(
+        messages=[{
+            'role': 'user', 
+            'content': f'Summarize this article: {articles.content}'
+        }],
+        model='gpt-4o-mini'
+    ).choices[0].message.content
+)
+```
+
+### Advanced Expression Chains
+
+```python
+# Chain multiple transformations
+images.add_computed_column(
+    # Resize then convert to grayscale
+    processed=images.image.resize((224, 224)).convert('L')
+)
+
+# Conditional expressions
+images.add_computed_column(
+    category=pxt.functions.if_else(
+        images.width > images.height,
+        'landscape',
+        pxt.functions.if_else(
+            images.width < images.height,
+            'portrait',
+            'square'
+        )
+    )
+)
+```
+
+### Error Handling in Production
+
+```python
+# Robust error handling for production workloads
+try:
+    # Add AI column with error tolerance
+    status = images.add_computed_column(
+        ai_description=openai.vision(
+            'Describe this image in detail',
+            images.image,
+            model='gpt-4o-mini'
+        ),
+        on_error='ignore',  # Continue processing on errors
+        print_stats=True    # Monitor performance
+    )
+    
+    print(f"Processed {status.num_rows} rows")
+    
+    # Check for errors
+    error_rows = images.where(images.ai_description.errormsg.is_not_null()).collect()
+    if error_rows:
+        print(f"Found {len(error_rows)} rows with errors")
+        
+except Exception as e:
+    print(f"Failed to add computed column: {e}")
+```
+
+### Unstored Columns for Development
+
+```python
+# Use unstored columns during development
+images.add_computed_column(
+    # Expensive operation computed on-demand
+    detailed_analysis=openai.vision(
+        'Provide detailed analysis of this image including objects, colors, composition, and mood',
+        images.image,
+        model='gpt-4o'
+    ),
+    stored=False  # Don't store results, compute when needed
+)
+
+# Query only when needed
+sample_analysis = images.select(images.detailed_analysis).limit(5).collect()
+```
+
+### Complex Dependencies
+
+```python
+# Computed columns can depend on other computed columns
+images.add_computed_column(
+    # First: detect objects
+    objects=yolox(images.image, threshold=0.3)
+)
+
+images.add_computed_column(
+    # Then: analyze detected objects with AI
+    object_analysis=openai.chat_completions(
+        messages=[{
+            'role': 'user',
+            'content': f'Analyze these detected objects: {images.objects}'
+        }],
+        model='gpt-4o-mini'
+    ).choices[0].message.content
+)
+
+# Finally: sentiment analysis of the analysis
+images.add_computed_column(
+    sentiment=openai.chat_completions(
+        messages=[{
+            'role': 'user',
+            'content': f'What is the sentiment of this analysis: {images.object_analysis}'
+        }],
+        model='gpt-4o-mini'
+    ).choices[0].message.content
+)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Column name errors:**
+  - Invalid column name (contains reserved characters or conflicts with system columns)
+  - Column already exists and `if_exists='error'`
+  
+  **Dependency errors:**
+  - Attempting to replace column that has dependents when `if_exists='replace'`
+  - Cannot replace base table columns
+  
+  **Expression errors:**
+  - Invalid expression syntax or type mismatches
+  - References to non-existent columns or functions
+</ResponseField>
+
+## Best Practices
+
+### Performance Optimization
+```python
+# Pre-filter data before expensive AI operations
+large_images = images.where(images.image.width > 1000)
+large_images.add_computed_column(
+    high_res_analysis=openai.vision('Analyze this high-resolution image', large_images.image)
+)
+
+# Use appropriate storage strategy
+images.add_computed_column(
+    quick_transform=images.image.resize((100, 100)),
+    stored=True  # Fast, frequently accessed
+)
+
+images.add_computed_column(
+    expensive_analysis=complex_ai_function(images.image),
+    stored=False  # Slow, rarely accessed
+)
+```
+
+### Development Workflow
+```python
+# Start with simple expressions
+images.add_computed_column(test_width=images.image.width)
+
+# Add AI functions incrementally  
+images.add_computed_column(
+    test_objects=yolox(images.image),
+    on_error='ignore',  # Handle errors gracefully
+    print_stats=True    # Monitor performance
+)
+
+# Iterate and replace during development
+images.add_computed_column(
+    improved_objects=yolox(images.image, threshold=0.7),
+    if_exists='replace'  # Replace previous version
+)
+```
+
+## Related Functions
+
+- [`table.add_column`](/docs/sdk/latest/core_api/column_operations/add_column) - Add simple data columns
+- [`table.drop_column`](/docs/sdk/latest/core_api/column_operations/drop_column) - Remove columns
+- [`table.rename_column`](/docs/sdk/latest/core_api/column_operations/rename_column) - Rename columns
+- [`table.columns`](/docs/sdk/latest/core_api/column_operations/columns) - Access column information
+- [`table.select`](/docs/sdk/latest/core_api/query_operations/select) - Query computed columns
+- [`table.where`](/docs/sdk/latest/core_api/query_operations/where) - Filter using computed columns
+
+---
+
+*Every computed column is a promise: "I will always be current, I will always be correct, and I will never be forgotten." This is the database keeping its word.*

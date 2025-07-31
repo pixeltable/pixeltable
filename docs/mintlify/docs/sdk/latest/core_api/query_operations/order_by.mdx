@@ -1,0 +1,225 @@
+---
+title: "table.order_by"
+description: "order_by(*expr_list, asc=True) - Sort DataFrame rows by specified expressions"
+---
+
+<Badge text="Query Operations" color="purple" size="small" />
+
+## Function Signature
+
+```python
+def order_by(self, *expr_list, asc: bool = True) -> DataFrame
+```
+
+## Description
+
+Add an order-by clause to sort the rows of this DataFrame by one or more expressions. The function returns a new DataFrame with the specified ordering applied. You can sort by multiple columns and control the sort direction (ascending or descending).
+
+**Key Features:**
+- **Multiple column sorting** - Order by multiple expressions in sequence
+- **Flexible sort direction** - Control ascending/descending order per call
+- **Expression support** - Sort by computed expressions, not just columns
+- **Chainable operations** - Combine with other DataFrame operations
+- **Mixed sort orders** - Chain multiple `order_by()` calls for different directions
+
+## Parameters
+
+<ParamField path="*expr_list" type="Expression" required>
+  One or more column references or expressions to sort by. Can be table columns (e.g., `table.column_name`) or computed expressions.
+</ParamField>
+
+<ParamField path="asc" type="bool" default="True">
+  Whether to sort in ascending order (`True`) or descending order (`False`). Applies to all expressions in this `order_by()` call.
+</ParamField>
+
+## Returns
+
+<ResponseField name="result" type="DataFrame">
+  A new DataFrame with the specified ordering applied. The original DataFrame remains unchanged.
+</ResponseField>
+
+## Examples
+
+### Basic Single Column Sorting
+
+```python
+import pixeltable as pxt
+
+# Create table with sample data
+table = pxt.create_table('products', {
+    'name': pxt.String,
+    'price': pxt.Float,
+    'rating': pxt.Float,
+    'category': pxt.String
+})
+
+# Sort by price (ascending by default)
+df = table.select().order_by(table.price)
+print(df.collect())
+# Products sorted from lowest to highest price
+
+# Sort by rating in descending order
+df = table.select().order_by(table.rating, asc=False)
+print(df.collect())
+# Products sorted from highest to lowest rating
+```
+
+### Multiple Column Sorting
+
+```python
+# Sort by category first, then by price within each category
+df = table.select().order_by(table.category, table.price)
+print(df.collect())
+# Groups by category, then sorts by price within each group
+
+# Sort by multiple columns in descending order
+df = table.select().order_by(table.price, table.rating, asc=False)
+print(df.collect())
+# Sorts by price (high to low), then rating (high to low)
+```
+
+### Mixed Sort Directions
+
+```python
+# Sort by price descending, but rating ascending
+df = (table.select()
+      .order_by(table.price, asc=False)      # Price: high to low
+      .order_by(table.rating, asc=True))     # Rating: low to high
+print(df.collect())
+
+# Complex multi-column mixed ordering
+df = (table.select()
+      .order_by(table.category)              # Category: A-Z
+      .order_by(table.price, asc=False)      # Price: high to low
+      .order_by(table.rating))               # Rating: low to high
+```
+
+### Sorting by Computed Expressions
+
+```python
+# Sort by a computed expression
+df = table.select().order_by(table.price * table.rating, asc=False)
+print(df.collect())
+# Sorts by price-rating product (value score)
+
+# Sort by string operations
+df = table.select().order_by(table.name.length())
+print(df.collect())
+# Sorts by product name length
+
+# Sort by conditional expressions
+df = table.select().order_by(
+    pxt.functions.if_else(table.rating > 4.0, table.price, -table.price)
+)
+# Complex conditional sorting logic
+```
+
+### Combining with Other Operations
+
+```python
+# Order by with filtering and selection
+df = (table.select(table.name, table.price, table.rating)
+      .where(table.category == 'Electronics')
+      .order_by(table.rating, asc=False)
+      .limit(10))
+print(df.collect())
+# Top 10 electronics by rating
+
+# Order by with aggregations in views
+electronics = table.where(table.category == 'Electronics')
+top_electronics = (electronics.select()
+                  .order_by(electronics.rating, asc=False)
+                  .limit(5))
+```
+
+### Date and Time Sorting
+
+```python
+# For tables with timestamp columns
+logs = pxt.create_table('logs', {
+    'timestamp': pxt.Timestamp,
+    'level': pxt.String,
+    'message': pxt.String
+})
+
+# Sort by most recent first
+recent_logs = logs.select().order_by(logs.timestamp, asc=False)
+
+# Sort by level priority, then by time
+priority_order = (logs.select()
+                     .order_by(logs.level)           # ERROR, INFO, WARN
+                     .order_by(logs.timestamp, asc=False))  # Newest first
+```
+
+### Working with JSON Data
+
+```python
+# Sort by JSON field values
+users = pxt.create_table('users', {
+    'profile': pxt.Json,
+    'created_at': pxt.Timestamp
+})
+
+# Sort by nested JSON field
+df = users.select().order_by(users.profile['age'].as_int())
+
+# Sort by computed JSON aggregation
+df = users.select().order_by(
+    (users.profile['score'].as_float() + users.profile['bonus'].as_float()),
+    asc=False
+)
+```
+
+### Performance Tips
+
+```python
+# For large datasets, order_by before other operations when possible
+# ✅ Good: Filter first to reduce data
+df = (table.where(table.category == 'Electronics')  # Reduce dataset
+      .order_by(table.price, asc=False)             # Then sort
+      .limit(100))                                  # Then limit
+
+# ⚠️ Less efficient: Order entire dataset first
+df = (table.order_by(table.price, asc=False)       # Sort everything
+      .where(table.category == 'Electronics')      # Then filter
+      .limit(100))
+
+# Index commonly sorted columns for better performance
+# (Note: Actual indexing depends on your table schema design)
+```
+
+### Error Handling
+
+```python
+try:
+    # Attempting to order by invalid expression
+    df = table.select().order_by(nonexistent_table.column)
+except Exception as e:
+    print(f"Order by error: {e}")
+    # Handle invalid column references
+
+try:
+    # Multiple order_by calls are valid (they chain)
+    df = table.select().order_by(table.price).order_by(table.rating)
+    print("Chained ordering successful")
+except Exception as e:
+    print(f"Unexpected error: {e}")
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised if the specified expression is invalid or refers to tables not in the DataFrame.
+</ResponseField>
+
+## Related Functions
+
+- [`table.select()`](/docs/sdk/latest/core_api/query_operations/select) - Select columns and expressions
+- [`table.where()`](/docs/sdk/latest/core_api/query_operations/where) - Filter rows
+- [`table.limit()`](/docs/sdk/latest/core_api/query_operations/limit) - Limit number of rows
+- [`table.join()`](/docs/sdk/latest/core_api/query_operations/join) - Join with other tables
+- [`DataFrame.collect()`](/docs/sdk/latest/core_api/data_operations/collect) - Execute query and get results
+
+---
+
+*This documentation was generated from the Pixeltable codebase and enhanced with practical examples.*
