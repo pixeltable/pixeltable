@@ -55,7 +55,7 @@ class TestMistral:
                     'stop': ['def'],
                     'random_seed': 4171780,
                     'suffix': t.suffix,
-                }
+                },
             )
         )
         status = t.insert(

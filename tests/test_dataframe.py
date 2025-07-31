@@ -1,5 +1,4 @@
 import datetime
-import pickle
 import re
 import urllib.request
 from pathlib import Path
