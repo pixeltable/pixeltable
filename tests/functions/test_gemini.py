@@ -74,6 +74,7 @@ class TestGemini:
         assert results['output2'][0].size == (1280, 896)
 
     @pytest.mark.skip('Very expensive')
+    @pytest.mark.expensive
     @rerun(reruns=3, reruns_delay=30)  # longer delay between reruns
     def test_generate_videos(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')

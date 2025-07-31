@@ -51,18 +51,18 @@ class TestDirs:
         # new client: force loading from store
         reload_catalog()
 
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
-        listing = pxt.list_dirs(recursive=False)
-        assert listing == ['dir1']
-        listing = pxt.list_dirs('dir1', recursive=True)
-        assert listing == ['dir1.sub1', 'dir1.sub1.subsub1']
-        listing = pxt.list_dirs('dir1', recursive=False)
-        assert listing == ['dir1.sub1']
-        listing = pxt.list_dirs('dir1.sub1', recursive=True)
-        assert listing == ['dir1.sub1.subsub1']
-        listing = pxt.list_dirs('dir1.sub1', recursive=False)
-        assert listing == ['dir1.sub1.subsub1']
+        listing = pxt.get_dir_contents(recursive=True)
+        assert listing == (['dir1', 'dir1.sub1', 'dir1.sub1.subsub1'], ['dir1.t1', 't2'])
+        listing = pxt.get_dir_contents(recursive=False)
+        assert listing == (['dir1'], ['t2'])
+        listing = pxt.get_dir_contents('dir1', recursive=True)
+        assert listing == (['dir1.sub1', 'dir1.sub1.subsub1'], ['dir1.t1'])
+        listing = pxt.get_dir_contents('dir1', recursive=False)
+        assert listing == (['dir1.sub1'], ['dir1.t1'])
+        listing = pxt.get_dir_contents('dir1.sub1', recursive=True)
+        assert listing == (['dir1.sub1.subsub1'], [])
+        listing = pxt.get_dir_contents('dir1.sub1', recursive=False)
+        assert listing == (['dir1.sub1.subsub1'], [])
 
     def test_create_if_exists(self, reset_db: None) -> None:
         """Test if_exists parameter of create_dir API"""
