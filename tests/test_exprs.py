@@ -1077,37 +1077,7 @@ class TestExprs:
         )
         print(result)
 
-    @pytest.mark.skip(reason='temporarily disabled')
-    def test_similarity(self, small_img_tbl: pxt.Table) -> None:
-        t = small_img_tbl
-        _ = t.show(30)
-        probe = t.select(t.img, t.category).show(1)
-        img = probe[0, 0]
-        result = t.where(t.img.nearest(img)).show(10)
-        assert len(result) == 10
-        # nearest() with one SQL predicate and one Python predicate
-        result = t.select(t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)).show(10)
-        # TODO: figure out how to verify results
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.img.nearest(img)).order_by(t.category).show()
-        assert 'cannot be used in conjunction with' in str(exc_info.value)
-
-        result = t.select(t.img.nearest('musical instrument')).show(10)
-        assert len(result) == 10
-        # matches() with one SQL predicate and one Python predicate
-        french_horn_category = 'n03394916'
-        result = t[t.img.nearest('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)].show(
-            10
-        )
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.img.nearest(5)).show()
-        assert 'requires' in str(exc_info.value)
-
-    # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
-    # doesn't get created; why?
-    def test_similarity2(
+    def test_similarity(
         self, img_tbl: catalog.Table, indexed_img_tbl: catalog.Table, multi_idx_img_tbl: catalog.Table
     ) -> None:
         t = img_tbl
