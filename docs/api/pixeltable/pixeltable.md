@@ -48,6 +48,4 @@ below.
       - get_table
       - init
       - ls
-      - list_tables
-      - list_dirs
       - move
