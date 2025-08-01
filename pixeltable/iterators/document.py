@@ -213,12 +213,6 @@ class DocumentSplitter(ComponentIterator):
             if kwargs.get('limit') is None:
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
 
-        # check dependencies at the end
-        if Separator.SENTENCE in separators:
-            _ = Env.get().spacy_nlp
-        if Separator.TOKEN_LIMIT in separators:
-            Env.get().require_package('tiktoken')
-
         return schema, []
 
     def __next__(self) -> dict[str, Any]:

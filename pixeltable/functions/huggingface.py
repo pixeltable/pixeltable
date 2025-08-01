@@ -63,13 +63,10 @@ def sentence_transformer(
 
 @sentence_transformer.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
-    try:
-        from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer
 
-        model = _lookup_model(model_id, SentenceTransformer)
-        return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
-    except ImportError:
-        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+    model = _lookup_model(model_id, SentenceTransformer)
+    return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf
@@ -201,13 +198,10 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
 
 @clip.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
-    try:
-        from transformers import CLIPModel
+    from transformers import CLIPModel
 
-        model = _lookup_model(model_id, CLIPModel.from_pretrained)
-        return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
-    except ImportError:
-        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+    model = _lookup_model(model_id, CLIPModel.from_pretrained)
+    return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf(batch_size=4)
