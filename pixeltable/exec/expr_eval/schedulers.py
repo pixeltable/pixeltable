@@ -82,7 +82,7 @@ class RateLimitsScheduler(Scheduler):
             if item is None:
                 item = await self.queue.get()
                 assert isinstance(item.request.fn_call.fn, func.CallableFunction)
-                assert item.request.fn_call.fn.accepts_runtime_ctx
+                assert '_runtime_ctx' in item.request.fn_call.fn.signature.system_parameters
                 if item.num_retries > 0:
                     self.total_retried += 1
 
