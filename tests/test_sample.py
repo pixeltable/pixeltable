@@ -5,7 +5,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import catalog, exceptions as excs
 
 from .utils import SAMPLE_IMAGE_URL, ReloadTester
 
@@ -29,69 +28,69 @@ class TestSample:
                     rowid += 1
         return pxt.create_table('scm_t', source=rows, schema_overrides=schema)
 
-    def test_sample_errors(self, test_tbl: catalog.Table) -> None:
+    def test_sample_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         # ------- Test that sample is not preceded by anything unexpected
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).sample(n=10)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().group_by(t.c1).sample(n=10)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().order_by(t.c1).sample(n=10)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().limit(5).sample(n=10)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().join(t, on=t.c1).sample(n=10)
 
         # ------- Test that sample is not followed by anything unexpected
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).show()
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).head()
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).tail()
-        with pytest.raises(excs.Error, match='cannot be used after'):
+        with pytest.raises(pxt.Error, match='cannot be used after'):
             _ = t.select().sample(n=10).where(t.c1 > 10)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).group_by(t.c1)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).order_by(t.c1)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).group_by(t.c1)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).limit(5)
-        with pytest.raises(excs.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().sample(n=10).join(t, on=t.c1)
 
         # ------- Test sample parameter correctness
-        with pytest.raises(excs.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type Int'):
             _ = t.select().sample(n=0.01)  # type: ignore[arg-type]
-        with pytest.raises(excs.Error, match='must be >'):
+        with pytest.raises(pxt.Error, match='must be >'):
             _ = t.select().sample(n=-1)
-        with pytest.raises(excs.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type Int'):
             _ = t.select().sample(n_per_stratum='abc', stratify_by=t.c1)  # type: ignore[arg-type]
-        with pytest.raises(excs.Error, match='must be >'):
+        with pytest.raises(pxt.Error, match='must be >'):
             _ = t.select().sample(n_per_stratum=0, stratify_by=t.c1)
-        with pytest.raises(excs.Error, match='must be of type Float'):
+        with pytest.raises(pxt.Error, match='must be of type Float'):
             _ = t.select().sample(fraction=24)
-        with pytest.raises(excs.Error, match='parameter must be >'):
+        with pytest.raises(pxt.Error, match='parameter must be >'):
             _ = t.select().sample(fraction=-0.5)
-        with pytest.raises(excs.Error, match='parameter must be <'):
+        with pytest.raises(pxt.Error, match='parameter must be <'):
             _ = t.select().sample(fraction=12.9)
-        with pytest.raises(excs.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type Int'):
             _ = t.select().sample(n=10, seed=-123.456)  # type: ignore[arg-type]
 
         # Test invalid sample parameter combinations
-        with pytest.raises(excs.Error, match='Exactly one of '):
+        with pytest.raises(pxt.Error, match='Exactly one of '):
             _ = t.select().sample()
-        with pytest.raises(excs.Error, match='Exactly one of '):
+        with pytest.raises(pxt.Error, match='Exactly one of '):
             _ = t.select().sample(n=10, n_per_stratum=5, stratify_by=t.c1)
-        with pytest.raises(excs.Error, match='Exactly one of '):
+        with pytest.raises(pxt.Error, match='Exactly one of '):
             _ = t.select().sample(n=10, fraction=0.10)
-        with pytest.raises(excs.Error, match='Exactly one of '):
+        with pytest.raises(pxt.Error, match='Exactly one of '):
             _ = t.select().sample(n_per_stratum=10, fraction=0.10, stratify_by=t.c1)
-        with pytest.raises(excs.Error, match='Must specify'):
+        with pytest.raises(pxt.Error, match='Must specify'):
             _ = t.select().sample(n_per_stratum=5)
 
         # test valid parameter combinations
@@ -102,23 +101,23 @@ class TestSample:
         _ = t.select().sample(n_per_stratum=5, stratify_by=t.c1)
 
         # test stratify_by list
-        with pytest.raises(excs.Error, match='must be a list of scalar expressions'):
+        with pytest.raises(pxt.Error, match='must be a list of scalar expressions'):
             _ = t.select().sample(n=10, stratify_by=47)
-        with pytest.raises(excs.Error, match='Invalid expression'):
+        with pytest.raises(pxt.Error, match='Invalid expression'):
             _ = t.select().sample(n=10, stratify_by=[None])
-        with pytest.raises(excs.Error, match='Invalid expression'):
+        with pytest.raises(pxt.Error, match='Invalid expression'):
             _ = t.select().sample(n=10, stratify_by=[123])
-        with pytest.raises(excs.Error, match='Invalid type'):
+        with pytest.raises(pxt.Error, match='Invalid type'):
             _ = t.select().sample(n=10, stratify_by=[t.c6])
 
         # String, Int, Float, Bool, Timestamp types
         _ = t.select().sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c3, t.c4, t.c5])
 
         # Preceding where clauses must be suitable for direct sql translation
-        with pytest.raises(excs.Error, match='not expressible in SQL'):
+        with pytest.raises(pxt.Error, match='not expressible in SQL'):
             t.select().where(t.c2.apply(str) == '11').sample(n=10).collect()
 
-    def test_sample_display(self, test_tbl: catalog.Table) -> None:
+    def test_sample_display(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         df = t.select(t.c1).sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c4])
@@ -159,7 +158,7 @@ class TestSample:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    def test_sample_basic_n(self, test_tbl: catalog.Table) -> None:
+    def test_sample_basic_n(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, False)
 
         df = t.select().sample(n=20)
@@ -168,7 +167,7 @@ class TestSample:
         df = t.select().where(t.id < 200).sample(n=20)
         self._check_sample(df, 20)
 
-    def test_sample_basic_f(self, test_tbl: catalog.Table) -> None:
+    def test_sample_basic_f(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, False)
         t_rows = t.count()
 
@@ -181,7 +180,7 @@ class TestSample:
         df = t.select().where(t.id < 200).sample(fraction=0.5)
         self._check_sample(df, 200 * 0.5)
 
-    def test_sample_snapshot_reload(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_sample_snapshot_reload(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = self.create_sample_data(4, 6, False)
 
         df = t.select(t.cat1).sample(fraction=0.3, seed=51, stratify_by=[t.cat1])
@@ -191,7 +190,7 @@ class TestSample:
         print(results)
         reload_tester.run_reload_test()
 
-    def test_sample_stratified_n(self, test_tbl: catalog.Table) -> None:
+    def test_sample_stratified_n(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, True)
 
         df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
@@ -204,7 +203,7 @@ class TestSample:
         print(p)
         assert len(r) == 10
 
-    def test_sample_stratified_f(self, test_tbl: catalog.Table) -> None:
+    def test_sample_stratified_f(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
 
@@ -232,7 +231,7 @@ class TestSample:
         )
         print('summary:\n', rsum)
 
-    def test_sample_snapshot(self, test_tbl: catalog.Table) -> None:
+    def test_sample_snapshot(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
         df = t.select().sample(n=10)
@@ -241,7 +240,7 @@ class TestSample:
         df = t.select().sample(fraction=0.1)
         self.validate_snapshot(df, t_rows)
 
-    def test_sample_snapshot_stratified(self, test_tbl: catalog.Table) -> None:
+    def test_sample_snapshot_stratified(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
         df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
@@ -266,7 +265,7 @@ class TestSample:
         new_table.insert(df)
         assert new_table.count() == 2 * n_sample
 
-    def test_sample_create_insert_table(self, test_tbl: catalog.Table) -> None:
+    def test_sample_create_insert_table(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, False)
 
         df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
@@ -284,7 +283,7 @@ class TestSample:
         self.check_create_insert(t, df, 20)
         print(df.collect())
 
-    def test_reproducible_sample(self, test_tbl: catalog.Table) -> None:
+    def test_reproducible_sample(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, False)
 
         df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
@@ -298,15 +297,15 @@ class TestSample:
         r4 = df.collect()
         assert r0 == r4
 
-    def test_sample_view(self, test_tbl: catalog.Table) -> None:
+    def test_sample_view(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, False)
 
         df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
-        with pytest.raises(excs.Error, match='cannot be created with'):
+        with pytest.raises(pxt.Error, match='cannot be created with'):
             _ = pxt.create_view('v1', df)
 
         df = t.select().sample(n=20)
-        with pytest.raises(excs.Error, match='cannot be created with'):
+        with pytest.raises(pxt.Error, match='cannot be created with'):
             _ = pxt.create_view('v1', df)
 
         df = t.select().sample(fraction=0.01)
@@ -318,7 +317,7 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01).collect())
         assert v.count() == n
 
-    def test_sample_iterator(self, test_tbl: catalog.Table) -> None:
+    def test_sample_iterator(self, test_tbl: pxt.Table) -> None:
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
         t = pxt.create_table('test_tile_tbl', {'image': pxt.Image})
 

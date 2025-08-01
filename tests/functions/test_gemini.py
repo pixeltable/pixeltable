@@ -46,7 +46,7 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions import gemini
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             t.add_computed_column(response=gemini.generate_content(t.prompt, model='gemini-2.0-flash', tools=tools))
             t.add_computed_column(tool_calls=gemini.invoke_tools(tools, t.response))
@@ -74,6 +74,7 @@ class TestGemini:
         assert results['output2'][0].size == (1280, 896)
 
     @pytest.mark.skip('Very expensive')
+    @pytest.mark.expensive
     @rerun(reruns=3, reruns_delay=30)  # longer delay between reruns
     def test_generate_videos(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
