@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
 
 
 class TestHistory:
@@ -94,9 +93,9 @@ class TestHistory:
         print(r.schema)
         print(r)
 
-        with pytest.raises(excs.Error, match='Invalid value for'):
+        with pytest.raises(pxt.Error, match='Invalid value for'):
             t.history(n=0)
-        with pytest.raises(excs.Error, match='Invalid value for'):
+        with pytest.raises(pxt.Error, match='Invalid value for'):
             t.history(n=1.5)  # type: ignore[arg-type]
 
         r = t.history(n=3)
