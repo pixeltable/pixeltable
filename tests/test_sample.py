@@ -1,6 +1,3 @@
-import hashlib
-import random
-
 import pytest
 
 import pixeltable as pxt
