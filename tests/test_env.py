@@ -1,8 +1,3 @@
-"""
-Simplified end-to-end test for Env.clear() with database switching.
-Compatible with pytest and PyCharm debugger.
-"""
-
 import os
 import shutil
 import tempfile
