@@ -1001,6 +1001,51 @@ class TestFunction:
         t.drop_column('result')
         reload_and_validate_table(has_result_column=False)
 
+    def test_udf_import_error(self, reset_db: None) -> None:
+        """
+        Tests that the Pixeltable catalog loads successfully when a function's conditional_return_type() method
+        raises an ImportError. (The affected UDF will be unusable for new inserts, but the table will be loadable
+        and queryable as with any other evolution error.)
+        """
+        import tests.test_function  # noqa: PLW0406
+
+        def mimic(fn: func.CallableFunction) -> None:
+            """Monkey-patches `tests.test_function.evolving_udf` with the given function."""
+            tests.test_function.evolving_udf = func.CallableFunction(
+                fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
+            )
+            tests.test_function.evolving_udf._conditional_return_type = fn._conditional_return_type
+
+        @pxt.udf(_force_stored=True)
+        def udf_base_version(a: str, b: str) -> str:
+            return a
+        mimic(udf_base_version)
+
+        t = pxt.create_table('test', {'c1': pxt.String})
+        t.insert(c1='xyz')
+        t.add_computed_column(result=tests.test_function.evolving_udf(t.c1, 'constant'))
+
+        data = t.head()
+
+        @pxt.udf(_force_stored=True)
+        def udf_import_error(a: str, b: str) -> str:
+            return a
+
+        @udf_import_error.conditional_return_type
+        def _(b: str) -> ts.ColumnType:
+            raise ImportError('This is a mock ImportError.')
+
+        mimic(udf_import_error)
+
+        reload_catalog()
+
+        regex = 'A UDF call to .* could not be fully resolved, because a module .*\n.*\n.*This is a mock ImportError.'
+
+        with pytest.warns(pxt.PixeltableWarning, match=regex):
+            t = pxt.get_table('test')
+
+        assert_resultset_eq(data, t.head())
+
     def test_tool_errors(self) -> None:
         with pytest.raises(pxt.Error) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
