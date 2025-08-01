@@ -205,6 +205,7 @@ def _download_bundle_from_presigned_url(presigned_url: str, max_retries: int = 3
 
 
 def delete_replica(dest_path: str) -> None:
+    """Delete cloud replica"""
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     delete_request_json = {'operation_type': 'delete_snapshot', 'table_uri': dest_path}
     response = requests.post(PIXELTABLE_API_URL, json=delete_request_json, headers=headers_json)

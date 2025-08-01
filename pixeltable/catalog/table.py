@@ -307,24 +307,6 @@ class Table(SchemaObject):
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
-    def _get_detailed_schema(self) -> dict[str, Any]:
-        """Return the Comprehensive schema for columns of this table."""
-        column_indices: dict[str, Any] = {}
-        for _, row in self._index_descriptor().iterrows():
-            row['Column'] = {'index_name': row['Index Name'], 'metric': row['Metric'], 'embedding': row['Embedding']}
-        full_schema: dict[str, Any] = {}
-        for col in self._tbl_version_path.columns():
-            full_schema[col.name] = {
-                'type': col.col_type._to_str(as_schema=True),
-                'stored': col.is_stored,
-                'is_primary': col.is_pk,
-                'media_validation': str(col.media_validation),
-                'is_computed': col.is_computed,
-                'computed_with': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
-                'index': column_indices.get(col.name, None),
-            }
-        return full_schema
-
     def get_base_table(self) -> Optional['Table']:
         return self._get_base_table()
 

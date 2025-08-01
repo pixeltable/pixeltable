@@ -190,9 +190,11 @@ class Catalog:
     def clear(cls) -> None:
         """Remove the instance. Used for testing."""
         # invalidate all existing instances to force reloading of metadata
-        if cls._instance is not None:
-            for tbl_version in cls._instance._tbl_versions.values():
-                tbl_version.is_validated = False
+        for tbl_version in cls._instance._tbl_versions.values():
+            # _logger.debug(
+            #     f'Invalidating table version {tbl_version.id}:{tbl_version.effective_version} ({id(tbl_version):x})'
+            # )
+            tbl_version.is_validated = False
         cls._instance = None
 
     def __init__(self) -> None:
