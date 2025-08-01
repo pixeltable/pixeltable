@@ -1,5 +1,4 @@
 import datetime
-import pickle
 import re
 import urllib.request
 from pathlib import Path
@@ -13,7 +12,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import catalog, exceptions as excs
 from pixeltable.iterators import FrameIterator
 
 from .utils import (
@@ -29,7 +27,7 @@ from .utils import (
 
 
 class TestDataFrame:
-    def create_join_tbls(self, num_rows: int) -> tuple[catalog.Table, catalog.Table, catalog.Table]:
+    def create_join_tbls(self, num_rows: int) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
         t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int})
         t2 = pxt.create_table(f't2_{num_rows}', {'id': pxt.Int, 'f': pxt.Float})
         validate_update_status(t1.insert({'id': i, 'i': i} for i in range(num_rows)), expected_rows=num_rows)
@@ -49,7 +47,7 @@ class TestDataFrame:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl: catalog.Table) -> None:
+    def test_select_where(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res1 = t.collect()
         res2 = t.select().collect()
@@ -72,59 +70,59 @@ class TestDataFrame:
         _ = t.where(t.c2 < 10).select(t.c2, t.c2).collect()  # repeated name no error
 
         # where clause needs to be a predicate
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.where(t.c1).select(t.c2).collect()
         assert 'needs to return bool' in str(exc_info.value)
 
         # where clause needs to be a predicate
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.where(15).select(t.c2).collect()  # type: ignore[arg-type]
         assert 'requires a pixeltable expression' in str(exc_info.value).lower()
 
         # duplicate select list
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1).select(t.c2).collect()
         assert 'already specified' in str(exc_info.value)
 
         # invalid expr in select list: Callable is not a valid literal
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(datetime.datetime.now).collect()
         assert 'Invalid expression' in str(exc_info.value)
 
         # catch invalid name in select list from user input
         # only check stuff that's not caught by python kwargs checker
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, **{'c2-1': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, **{'': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, **{'foo.bar': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, _c3=t.c2).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         # catch repeated name from user input
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c2, c2=t.c1).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c2 + 1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
         # select list contains invalid references
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t2 = pxt.create_table('t2', {'c1': pxt.Int})
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
-        with pytest.raises(excs.Error, match='Where clause already specified'):
+        with pytest.raises(pxt.Error, match='Where clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
     def test_join(self, reset_db: None) -> None:
@@ -184,51 +182,51 @@ class TestDataFrame:
     def test_join_errors(self, reset_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=(t2.id, 17)).collect()  # type: ignore[arg-type]
         assert 'must be a sequence of column references or a boolean expression' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=(15, 27)).collect()  # type: ignore[arg-type]
         assert 'must be a sequence of column references or a boolean expression' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, how='cross', on=t2.id).collect()
         assert "'on' not allowed for cross join" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2).collect()
         assert "how='inner' requires 'on'" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.f).collect()
         assert "'f' not found in any of: t1" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t3.i).collect()
         assert 'expression cannot be evaluated in the context of the joined tables: i' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id + 1).collect()
         assert 'boolean expression expected, but got Optional[Int]: id + 1' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
         assert "ambiguous column reference: 'id'" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()
         assert "column 'i' not found in joined table" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t1.id, how='inner').head()
         assert 'head() not supported for joins' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t1.id, how='inner').tail()
         assert 'tail() not supported for joins' in str(exc_info.value)
 
-    def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
+    def test_result_set_iterator(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.select(t.c1, t.c2, t.c3).collect()
         pd_df = res.to_pandas()
@@ -258,39 +256,39 @@ class TestDataFrame:
         assert res[0, 'c2'] == pd_df['c2'][0]
         assert res[0, 'c2'] == res[0, 1]
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = res['does_not_exist']
         assert 'Invalid column name' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = res[0, 'does_not_exist']
         assert 'Invalid column name' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = res[0, 0, 0]
         assert 'Bad index' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = res['c2', 0]
         assert 'Bad index' in str(exc_info.value)
 
-    def test_order_by(self, test_tbl: catalog.Table) -> None:
+    def test_order_by(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         _ = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
 
-    def test_expr_unique_id(self, test_tbl: catalog.Table) -> None:
+    def test_expr_unique_id(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # Multiple constants with the same string representation but different types must be unique (expr.id)
         res = t.select(t.c2, t.c1, t.c1 == '2', t.c1 < '4', t.c2 == 4).limit(4).collect()
         print(res)
         assert len(res) == 4
 
-    def test_limit(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_limit(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         nrows = 3
         res = t.select(t.c4).limit(nrows).collect()
@@ -305,7 +303,7 @@ class TestDataFrame:
         print(res[0]['get_lim'])
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
 
-        with pytest.raises(excs.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type Int'):
             _ = t.limit(5.3).collect()  # type: ignore[arg-type]
 
         v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})
@@ -314,7 +312,7 @@ class TestDataFrame:
         print(results)
         reload_tester.run_reload_test()
 
-    def test_limit2(self, test_tbl: catalog.Table) -> None:
+    def test_limit2(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         nrows = 3
         res = t.select(t.c4).limit(nrows).collect()
@@ -330,7 +328,7 @@ class TestDataFrame:
             {'c4': True, 'folded_flt': 1.7000000000000002},
         ]
 
-    def test_limit4(self, test_tbl: catalog.Table) -> None:
+    def test_limit4(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         @pxt.query
@@ -340,7 +338,7 @@ class TestDataFrame:
         res = t.select(t.c4, get_lim(2.2)).collect()
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
 
-    def test_limit5(self, test_tbl: catalog.Table) -> None:
+    def test_limit5(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.select(t.c4, foo=[2, 3, 4]).limit(2).collect()
         print(res)
@@ -354,7 +352,7 @@ class TestDataFrame:
         print(res)
         assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
 
-    def test_head_tail(self, test_tbl: catalog.Table) -> None:
+    def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
@@ -365,11 +363,11 @@ class TestDataFrame:
         res = t.where(t.c2 > 9).head(10).to_pandas()
         assert np.all(res.c2 == list(range(10, 20)))
         # order_by() is an error
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.c2).head(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
         # group_by() is an error
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.group_by(t.c2).head(10)
         assert 'cannot be used with group_by' in str(exc_info.value)
 
@@ -378,15 +376,15 @@ class TestDataFrame:
         res = t.where(t.c2 < 90).tail().to_pandas()
         assert np.all(res.c2 == list(range(80, 90)))
         # order_by() is an error
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.c2).tail(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
         # group_by() is an error
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.group_by(t.c2).tail(10)
         assert 'cannot be used with group_by' in str(exc_info.value)
 
-    def test_repr(self, test_tbl: catalog.Table) -> None:
+    def test_repr(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         df = t.select(t.c1, t.c1.upper(), t.c2 + 5).where(t.c2 < 10).group_by(t.c1).order_by(t.c3).limit(10)
         df.describe()
@@ -406,7 +404,7 @@ class TestDataFrame:
         )
         _ = df._repr_html_()  # TODO: Is there a good way to test this output?
 
-    def test_count(self, test_tbl: catalog.Table, small_img_tbl: pxt.Table) -> None:
+    def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
@@ -416,10 +414,10 @@ class TestDataFrame:
 
         # for now, count() doesn't work with non-SQL Where clauses
         t = small_img_tbl
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.where(t.img.width > 100).count()
 
-    def test_select_literal(self, test_tbl: catalog.Table) -> None:
+    def test_select_literal(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
@@ -459,7 +457,7 @@ class TestDataFrame:
         opurl_img = urllib.request.urlopen(url=thumb)
         PIL.Image.open(opurl_img)
 
-    def test_update_delete_where(self, test_tbl: catalog.Table) -> None:
+    def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         old: list[int] = t.select(t.c3).collect()['c3']
 
@@ -484,41 +482,41 @@ class TestDataFrame:
 
         # select_list
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `select`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c2).delete()
         assert 'Cannot use `delete` after `select`' in str(exc_info.value)
 
         # group_by
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.group_by(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.group_by(t.c2).delete()
         assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
 
         # order_by
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.order_by(t.c2).update({'c3': 0.0})
         assert 'Cannot use `update` after `order_by`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.order_by(t.c2).delete()
         assert 'Cannot use `delete` after `order_by`' in str(exc_info.value)
 
         # limit
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.limit(10).update({'c3': 0.0})
         assert 'Cannot use `update` after `limit`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.limit(10).delete()
         assert 'Cannot use `delete` after `limit`' in str(exc_info.value)
 
@@ -526,27 +524,27 @@ class TestDataFrame:
 
         t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
         v2 = pxt.create_view('test_view_2', t2, iterator=FrameIterator.create(video=t2.video, fps=1))
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).delete()
         assert 'Cannot use `delete` after `group_by`' in str(exc_info.value)
 
         # delete from view
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v2.where(t.c2 < 10).delete()
         assert 'Cannot use `delete` on a view.' in str(exc_info.value)
 
         # update snapshot
         snap = pxt.create_snapshot('test_snapshot', t)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             snap.where(t.c2 < 10).update({'c3': 0.0})
         assert 'Cannot use `update` on a snapshot.' in str(exc_info.value)
 
         # delete from snapshot
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot use `delete` on a snapshot.' in str(exc_info.value)
 
@@ -554,14 +552,14 @@ class TestDataFrame:
         r = df.limit(5).collect()
         assert all(r[i, 0] == v for i in range(len(r)))
 
-    def test_select_constant(self, all_datatypes_tbl: catalog.Table) -> None:
+    def test_select_constant(self, all_datatypes_tbl: pxt.Table) -> None:
         t = all_datatypes_tbl
         self.__check_constant_query(t.select(5), 5)
         self.__check_constant_query(t.select(None), None)
         self.__check_constant_query(t.select(foo=5), 5)
         self.__check_constant_query(t.select(foo=None), None)
 
-    def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
+    def test_to_pytorch_dataset(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
@@ -591,7 +589,7 @@ class TestDataFrame:
             assert isinstance(tup['c_video'], str)
             assert isinstance(tup['c_json'], dict)
 
-    def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.Table) -> None:
+    def test_to_pytorch_image_format(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests the image_format parameter is honored"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
         import torch
@@ -643,66 +641,7 @@ class TestDataFrame:
             elt_count += 1
         assert elt_count == 1
 
-    @pytest.mark.skip('Flaky test (fails intermittently)')
-    def test_to_pytorch_dataloader(self, all_datatypes_tbl: catalog.Table) -> None:
-        """Tests the dataset works well with pytorch dataloader:
-        1. compatibility with multiprocessing
-        2. compatibility of all types with default collate_fn
-        """
-        skip_test_if_not_installed('torch')
-        import torch.utils.data
-
-        @pxt.udf
-        def restrict_json_for_default_collate(obj: pxt.Json) -> pxt.Json:
-            keys = ['id', 'label', 'iscrowd', 'bounding_box']
-            return {k: obj[k] for k in keys}
-
-        t = all_datatypes_tbl
-        df = t.select(
-            t.row_id,
-            t.c_int,
-            t.c_float,
-            t.c_bool,
-            t.c_timestamp,
-            t.c_array,
-            t.c_video,
-            # default collate_fn doesnt support null values, nor lists of different lengths
-            # but does allow some dictionaries if they are uniform
-            c_json=restrict_json_for_default_collate(t.c_json.detections[0]),
-            # images must be uniform shape for pytorch collate_fn to not fail
-            c_image=t.c_image.resize([220, 224]).convert('RGB'),
-        )
-        df_size = df.count()
-        ds = df.to_pytorch_dataset(image_format='pt')
-        # test serialization:
-        #  - pickle.dumps() and pickle.loads() must work so that
-        #   we can use num_workers > 0
-        x = pickle.dumps(ds)
-        _ = pickle.loads(x)
-
-        # test we get all rows
-        def check_recover_all_rows(ds: 'torch.utils.data.Dataset', size: int, **kwargs: Any) -> None:
-            dl = torch.utils.data.DataLoader(ds, **kwargs)
-            loaded_ids = set()
-            for batch in dl:
-                for row_id in batch['row_id']:
-                    val = int(row_id)  # np.int -> int or will fail set equality test below.
-                    assert val not in loaded_ids, val
-                    loaded_ids.add(val)
-
-            assert loaded_ids == set(range(size))
-
-        # check different number of workers
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0)  # within this process
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2)  # two separate processes
-
-        # check edge case where some workers get no rows
-        short_size = 1
-        df_short = df.where(t.row_id < short_size)
-        ds_short = df_short.to_pytorch_dataset(image_format='pt')
-        check_recover_all_rows(ds_short, size=short_size, batch_size=13, num_workers=short_size + 1)
-
-    def test_pytorch_dataset_caching(self, all_datatypes_tbl: catalog.Table) -> None:
+    def test_pytorch_dataset_caching(self, all_datatypes_tbl: pxt.Table) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
         2. adding a row to the table invalidates the cached version
@@ -773,11 +712,11 @@ class TestDataFrame:
         assert len(coco_ds.imgs) == view_t.count()
 
         # incorrect select list
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = view_t.select({'image': view_t.frame, 'annotations': view_t.detections}).to_coco_dataset()
         assert '"annotations" is not a list' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = view_t.select(view_t.detections).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
@@ -841,20 +780,20 @@ class TestDataFrame:
         assert len(results) == 5
 
         # Test head, tail, group by, count - which will not work
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, t.c3).distinct().head(2)
         assert 'head() cannot be used with group_by' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, t.c3).distinct().tail(2)
         assert 'tail() cannot be used with group_by' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c1, t.c3).group_by(t.c2).distinct()
         assert 'Group-by already specified' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c1, t.c3).distinct().count()
         assert 'count() cannot be used with group_by' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.distinct().distinct()
         assert 'Group-by already specified' in str(exc_info.value)
 

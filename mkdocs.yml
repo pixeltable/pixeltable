@@ -31,6 +31,7 @@ nav:
       - TileIterator: pixeltable/iterators/tile-iterator.md
     - ColumnMetadata: pixeltable/column-metadata.md
     - DataFrame: pixeltable/data-frame.md
+    - DirContents: pixeltable/dir-contents.md
     - IndexMetadata: pixeltable/index-metadata.md
     - Table: pixeltable/table.md
     - TableMetadata: pixeltable/table-metadata.md

@@ -4,8 +4,9 @@ from .__version__ import __version__, __version_tuple__
 from .catalog import Column, ColumnMetadata, IndexMetadata, InsertableTable, Table, TableMetadata, UpdateStatus, View
 from .dataframe import DataFrame
 from .exceptions import Error, ExprEvalError, PixeltableWarning
-from .func import Aggregator, Function, expr_udf, mcp_udfs, query, retrieval_udf, uda, udf
+from .func import Aggregator, Function, Tool, ToolChoice, Tools, expr_udf, mcp_udfs, query, retrieval_udf, uda, udf
 from .globals import (
+    DirContents,
     array,
     configure_logging,
     create_dir,
@@ -15,6 +16,7 @@ from .globals import (
     create_view,
     drop_dir,
     drop_table,
+    get_dir_contents,
     get_table,
     init,
     list_dirs,

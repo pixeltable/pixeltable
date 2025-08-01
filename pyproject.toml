@@ -220,6 +220,7 @@ filterwarnings = [
     "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",
     "ignore:`allow_reuse` is deprecated and will be ignored:DeprecationWarning",
     "ignore::pydantic.PydanticDeprecatedSince20",
+    "ignore::pydantic.PydanticDeprecatedSince211",
     # This warning is from Whisper:
     "ignore:FP16 is not supported on CPU:UserWarning",
     # These four warnings are all from WhisperX:
