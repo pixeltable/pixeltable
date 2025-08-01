@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -18,6 +19,7 @@ from .packager import TablePackager, TableRestorer
 # pixeltable.com URLs are available.
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
+
 
 def push_replica(
     dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, is_public: bool | None = False
@@ -163,27 +165,43 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     return bundle_path
 
 
-def _upload_bundle_with_presigned_url(bundle: Path, presigned_url: str) -> None:
-    try:
-        with open(bundle, 'rb') as f:
-            file_size = os.path.getsize(bundle)
-            headers = {'Content-Length': str(file_size)}
-            response = requests.put(presigned_url, data=f, headers=headers)
-            response.raise_for_status()
-    except Exception as e:
-        raise excs.Error(f'Failed to upload bundle: {e}') from e
+def _upload_bundle_with_presigned_url(bundle: Path, presigned_url: str, max_retries: int = 3) -> None:
+    file_size = bundle.stat().st_size
+    headers = {'Content-Length': str(file_size), 'Content-Type': 'application/octet-stream'}
+    for attempt in range(1, max_retries + 1):
+        try:
+            with open(bundle, 'rb') as f:
+                response = requests.put(presigned_url, data=f, headers=headers, stream=True, timeout=(60, 1800))
+                response.raise_for_status()
+                return
+        except (requests.exceptions.Timeout, requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+            if attempt == max_retries:
+                raise excs.Error(f'Upload failed after {max_retries} attempts: {e}') from e
+            time.sleep(1)  # wait before retrying
+            continue
+        except Exception as e:
+            raise excs.Error(f'Failed to upload : {e}') from e
 
 
-def _download_bundle_from_presigned_url(presigned_url: str) -> Path:
+def _download_bundle_from_presigned_url(presigned_url: str, max_retries: int = 3) -> Path:
     bundle_path = Path(Env.get().create_tmp_path())
-    try:
-        response = requests.get(presigned_url)
-        response.raise_for_status()
-        with open(bundle_path, 'wb') as f:
-            f.write(response.content)
-        return bundle_path
-    except Exception as e:
-        raise excs.Error(f'Failed to download bundle: {e}') from e
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(presigned_url, stream=True, timeout=(60, 1800))
+            response.raise_for_status()
+            # Stream download to file
+            with open(bundle_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return bundle_path
+        except (requests.exceptions.Timeout, requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+            if attempt == max_retries:
+                raise excs.Error(f'Download failed after {max_retries} attempts: {e}') from e
+            time.sleep(1)  # wait before retrying
+            continue
+        except Exception as e:
+            raise excs.Error(f'Failed to download : {e}') from e
+    raise excs.Error(f'Download failed after {max_retries} attempts')
 
 
 def delete_replica(dest_path: str) -> None:
