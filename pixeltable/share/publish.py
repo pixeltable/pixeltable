@@ -10,6 +10,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.media_store import TempStore
 
 from .packager import TablePackager, TableRestorer
 
@@ -136,7 +137,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']
 
-    bundle_path = Path(Env.get().create_tmp_path())
+    bundle_path = TempStore.create_path()
     progress_bar = tqdm(
         desc='Downloading',
         total=bundle_size,

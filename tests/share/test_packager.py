@@ -16,8 +16,8 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrameResultSet
-from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
+from pixeltable.utils.media_store import TempStore
 from tests.conftest import clean_db
 
 from ..utils import (
@@ -82,7 +82,7 @@ class TestPackager:
         self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=13)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
-        tmp_dir = Path(Env.get().create_tmp_path())
+        tmp_dir = TempStore.create_path()
         with tarfile.open(bundle_path, 'r:bz2') as tf:
             tf.extractall(tmp_dir)
         return tmp_dir

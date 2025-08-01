@@ -19,6 +19,7 @@ from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project
 from pixeltable.utils import coco
+from pixeltable.utils.media_store import TempStore
 
 # label_studio_sdk>=1 and label_studio_sdk<1 are not compatible, so we need to try
 # the import two different ways to insure intercompatibility
@@ -215,7 +216,7 @@ class LabelStudioProject(Project):
                 else:
                     # No localpath; create a temp file and upload it
                     assert isinstance(row[media_col_idx], PIL.Image.Image)
-                    file = env.Env.get().create_tmp_path(extension='.png')
+                    file = TempStore.create_path(extension='.png')
                     row[media_col_idx].save(file, format='png')
                     task_id = self.project.import_tasks(file)[0]
                     os.remove(file)

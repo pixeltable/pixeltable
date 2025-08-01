@@ -14,7 +14,7 @@ import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import catalog, env
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.media_store import MediaStore, TempStore
 
 
 class DataRow:
@@ -287,7 +287,7 @@ class DataRow:
             return
         assert self.excs[index] is None
         assert col.col_type.is_media_type()
-        src_path = MediaStore.resolve_tmp_url(self.file_urls[index])
+        src_path = TempStore.resolve_url(self.file_urls[index])
         if src_path is None:
             # The media url does not point to a temporary file, leave it as is
             return
