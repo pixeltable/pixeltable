@@ -48,7 +48,7 @@ class make_video(pxt.Aggregator):
     Args:
         fps: Frames per second for the output video. Default is 25. This is set when the aggregator is created.
 
-    __Returns:__
+    Returns:
 
     - A `pxt.Video` containing the created video file path.
 
