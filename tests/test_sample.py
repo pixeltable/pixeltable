@@ -129,25 +129,6 @@ class TestSample:
         print(s)
         assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
 
-    @pytest.mark.skip('Statistically flaky; needs to be revisited')
-    def test_sample_md5_fraction(self) -> None:
-        from pixeltable.plan import SampleClause
-
-        fract = 0.422
-
-        threshold_hex = SampleClause.fraction_to_md5_hex(fract)
-        print(threshold_hex)
-
-        for count in (100, 1000, 10000, 100000, 1000000):
-            k = 1
-            for _i in range(count):
-                b = hashlib.md5(str(random.randint(0, 1000000000)).encode()).hexdigest() < threshold_hex
-                if b:
-                    #                print(i, b)
-                    k += 1
-            print(fract, count, k, k / count)
-            self._check_sample_count(fract * count, k)
-
     @classmethod
     def _check_sample_count(cls, expected: int | float, actual: int) -> None:
         assert abs(expected - actual) / actual < 0.25
