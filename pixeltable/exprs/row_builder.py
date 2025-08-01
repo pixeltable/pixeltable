@@ -499,3 +499,15 @@ class RowBuilder:
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""
         return exprs.DataRow(self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+
+    def stored_img_cols(self) -> list[exprs.ColumnSlotIdx]:
+        """Returns the list of stored image columns"""
+        stored_col_info = self.output_slot_idxs()
+        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
+        return stored_img_col_info
+
+    def stored_media_cols(self) -> list[exprs.ColumnSlotIdx]:
+        """Returns the list of stored media columns"""
+        stored_col_info = self.output_slot_idxs()
+        stored_media_col_info = [info for info in stored_col_info if info.col.col_type.is_media_type()]
+        return stored_media_col_info
