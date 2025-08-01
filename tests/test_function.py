@@ -140,37 +140,39 @@ class TestFunction:
         assert "'b'" in str(exc_info.value)
 
         # bad default value
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Default value'):
 
             @pxt.udf
             def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
                 return a + b + c
 
-        assert 'default value' in str(exc_info.value).lower()
         # missing param type
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match="Cannot infer pixeltable type for parameter 'c'"):
 
             @pxt.udf
             def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
                 return a + b + c
 
-        assert "cannot infer pixeltable type for parameter 'c'" in str(exc_info.value).lower()
         # bad parameter name
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='reserved'):
 
             @pxt.udf
             def f1(group_by: int) -> int:
                 return group_by
 
-        assert 'reserved' in str(exc_info.value)
         # bad parameter name
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='reserved'):
 
             @pxt.udf
             def f1(order_by: int) -> int:
                 return order_by
 
-        assert 'reserved' in str(exc_info.value)
+        # bad parameter name
+        with pytest.raises(pxt.Error, match='reserved'):
+
+            @pxt.udf
+            def f1(_int_param: int) -> int:
+                return _int_param
 
     @staticmethod
     @pxt.udf(is_method=True)
