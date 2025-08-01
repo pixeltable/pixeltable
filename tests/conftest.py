@@ -249,16 +249,25 @@ def _retry_hf(fn: Callable) -> Callable:
 @pytest.fixture(scope='session')
 @_retry_hf
 def clip_embed() -> func.Function:
-    return clip.using(model_id='openai/clip-vit-base-patch32')
+    try:
+        return clip.using(model_id='openai/clip-vit-base-patch32')
+    except ImportError:
+        return None  # Any time this happens, the test wil be skipped anyway.
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
 def e5_embed() -> func.Function:
-    return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    try:
+        return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    except ImportError:
+        return None
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
 def all_mpnet_embed() -> func.Function:
-    return sentence_transformer.using(model_id='all-mpnet-base-v2')
+    try:
+        return sentence_transformer.using(model_id='all-mpnet-base-v2')
+    except ImportError:
+        return None
