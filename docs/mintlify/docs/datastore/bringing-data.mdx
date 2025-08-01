@@ -14,9 +14,10 @@ Pixeltable supports importing data directly during table creation and insertion 
 
 Pixeltable supports importing from a variety of data sources:
 - CSV files (`.csv`)
-- Excel files (`.xls`, `.xlsx`)
+- Excel files (`.xls`, `.xlsx`) 
 - Parquet files (`.parquet`, `.pq`, `.parq`)
 - JSON files (`.json`)
+- COCO datasets (annotation JSON + images directory)
 - Pandas DataFrames
 - Pixeltable DataFrames
 - Hugging Face datasets
@@ -434,6 +435,32 @@ table.insert(df)
         'myproject.json_url',
         'https://api.example.com/data.json'
     )
+    ```
+  </Accordion>
+
+  <Accordion title="COCO Dataset Import" icon="image">
+    ```python
+    # Basic COCO import
+    table1 = pxt.io.import_coco(
+        'myproject.coco_dataset',
+        'annotations/instances_train2017.json',
+        'images/train2017/'
+    )
+
+    # COCO import with schema overrides
+    table2 = pxt.io.import_coco(
+        'myproject.coco_typed',
+        'annotations/instances_val2017.json',
+        'images/val2017/',
+        schema_overrides={
+            'image_id': pxt.String,
+            'annotations': pxt.Json
+        }
+    )
+
+    # The imported table can be used with existing COCO utilities
+    query = table1.select({'image': table1.image, 'annotations': table1.annotations})
+    export_path = query.to_coco_dataset()
     ```
   </Accordion>
 
