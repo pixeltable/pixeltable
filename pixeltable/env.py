@@ -101,6 +101,8 @@ class Env:
     def _init_env(cls, reinit_db: bool = False) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
+        if cls._instance is not None:
+            cls._instance._cleanup()
         cls._instance = None
         env = Env()
         env._set_up(reinit_db=reinit_db)
@@ -246,7 +248,7 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
+                self._current_isolation_level = 'SERIALIZABLE'
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
                     sql.orm.Session(conn) as session,
@@ -814,6 +816,91 @@ class Env:
             self._spacy_nlp = spacy.load(spacy_model)
         except Exception as exc:
             raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
+
+    def _cleanup(self) -> None:
+        """
+        Internal cleanup method that properly closes all resources and resets state.
+        This is called before destroying the singleton instance.
+        """
+        # Close database connections and sessions
+        if self._current_session is not None:
+            try:
+                self._current_session.close()
+            except Exception as e:
+                _logger.error(f'Error closing session: {e}')
+            self._current_session = None
+
+        if self._current_conn is not None:
+            try:
+                self._current_conn.close()
+            except Exception as e:
+                _logger.error(f'Error closing connection: {e}')
+            self._current_conn = None
+
+        # Stop HTTP server
+        if self._httpd is not None:
+            try:
+                self._httpd.shutdown()
+                self._httpd.server_close()
+            except Exception as e:
+                _logger.error(f'Error stopping HTTP server: {e}')
+            self._httpd = None
+
+        # Stop database server (for local environment)
+        if self._db_server is not None and self._dbms is not None:
+            try:
+                # First terminate all connections to the database
+                if self._db_name is not None:
+                    temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+                    try:
+                        with temp_engine.begin() as conn:
+                            stmt = f"""
+                                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                                FROM pg_stat_activity
+                                WHERE pg_stat_activity.datname = '{self._db_name}'
+                                AND pid <> pg_backend_pid()
+                            """
+                            conn.execute(sql.text(stmt))
+                            _logger.info(f"Terminated all connections to database '{self._db_name}'")
+                    except Exception as e:
+                        _logger.warning(f'Error terminating database connections: {e}')
+                    finally:
+                        temp_engine.dispose()
+            except Exception as e:
+                _logger.error(f'Error stopping database server: {e}')
+            self._db_server = None
+
+        # Dispose of SQLAlchemy engine (after stopping db server)
+        if self._sa_engine is not None:
+            try:
+                self._sa_engine.dispose()
+            except Exception as e:
+                _logger.error(f'Error disposing engine: {e}')
+            self._sa_engine = None
+
+        # Close event loop
+        if self._event_loop is not None:
+            try:
+                if self._event_loop.is_running():
+                    self._event_loop.stop()
+                self._event_loop.close()
+            except Exception as e:
+                _logger.error(f'Error closing event loop: {e}')
+            self._event_loop = None
+
+        # Remove logging handlers
+        for handler in self._logger.handlers[:]:
+            try:
+                handler.close()
+                self._logger.removeHandler(handler)
+            except Exception as e:
+                _logger.error(f'Error removing handler: {e}')
+
+        # Clear temporary directory
+        try:
+            self.clear_tmp_dir()
+        except Exception as e:
+            _logger.error(f'Error clearing tmp directory: {e}')
 
 
 def register_client(name: str) -> Callable:

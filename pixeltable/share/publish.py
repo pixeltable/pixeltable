@@ -1,4 +1,6 @@
+import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -16,21 +18,25 @@ from .packager import TablePackager, TableRestorer
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
 
-PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
+PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
-def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
-    if not src_tbl._tbl_version.get().is_snapshot:
+def push_replica(
+    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, is_public: bool | None = False
+) -> str:
+    if not src_tbl._tbl_version_path.is_snapshot():
         raise excs.Error('Only snapshots may be published.')
 
-    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri})
+    packager = TablePackager(
+        src_tbl, additional_md={'table_uri': dest_tbl_uri, 'bucket_name': bucket, 'is_public': is_public}
+    )
     request_json = packager.md | {'operation_type': 'publish_snapshot'}
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
     if response.status_code != 200:
         raise excs.Error(f'Error publishing snapshot: {response.text}')
     response_json = response.json()
-    if not isinstance(response_json, dict) or response_json.get('destination') != 's3':
+    if not isinstance(response_json, dict):
         raise excs.Error(f'Error publishing snapshot: unexpected response from server.\n{response_json}')
     upload_id = response_json['upload_id']
     destination_uri = response_json['destination_uri']
@@ -42,17 +48,23 @@ def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     parsed_location = urllib.parse.urlparse(destination_uri)
     if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
+    elif parsed_location.scheme == 'https':
+        _upload_bundle_with_presigned_url(bundle, parsed_location.geturl())
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
     Env.get().console_logger.info('Finalizing snapshot ...')
 
     finalize_request_json = {
+        'table_uri': dest_tbl_uri,
         'operation_type': 'finalize_snapshot',
         'upload_id': upload_id,
         'datafile': bundle.name,
         'size': bundle.stat().st_size,
         'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
+        'rows': packager.md['rows'],
+        'preview_header': packager.md['preview_header'],
+        'preview_data': packager.md['preview_data'],
     }
     # TODO: Use Pydantic for validation
     finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=headers_json)
@@ -107,11 +119,13 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         raise excs.Error(f'Error cloning shapshot: unexpected response from server.\n{response_json}')
 
     primary_tbl_additional_md = response_json['md']['tables'][0]['table_md']['additional_md']
-    bundle_uri = primary_tbl_additional_md['destination_uri']
+    bundle_uri = response_json['destination_uri']
     bundle_filename = primary_tbl_additional_md['datafile']
     parsed_location = urllib.parse.urlparse(bundle_uri)
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
+    elif parsed_location.scheme == 'https':
+        bundle_path = _download_bundle_from_presigned_url(parsed_location.geturl())
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
@@ -149,3 +163,54 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     )
     s3_client.download_file(Bucket=bucket, Key=remote_path, Filename=str(bundle_path), Callback=progress_bar.update)
     return bundle_path
+
+
+def _upload_bundle_with_presigned_url(bundle: Path, presigned_url: str, max_retries: int = 3) -> None:
+    file_size = bundle.stat().st_size
+    headers = {'Content-Length': str(file_size), 'Content-Type': 'application/octet-stream'}
+    for attempt in range(1, max_retries + 1):
+        try:
+            with open(bundle, 'rb') as f:
+                response = requests.put(presigned_url, data=f, headers=headers, stream=True, timeout=(60, 1800))
+                response.raise_for_status()
+                return
+        except (requests.exceptions.Timeout, requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+            if attempt == max_retries:
+                raise excs.Error(f'Upload failed after {max_retries} attempts: {e}') from e
+            time.sleep(1)  # wait before retrying
+            continue
+        except Exception as e:
+            raise excs.Error(f'Failed to upload : {e}') from e
+
+
+def _download_bundle_from_presigned_url(presigned_url: str, max_retries: int = 3) -> Path:
+    bundle_path = Path(Env.get().create_tmp_path())
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(presigned_url, stream=True, timeout=(60, 1800))
+            response.raise_for_status()
+            # Stream download to file
+            with open(bundle_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return bundle_path
+        except (requests.exceptions.Timeout, requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+            if attempt == max_retries:
+                raise excs.Error(f'Download failed after {max_retries} attempts: {e}') from e
+            time.sleep(1)  # wait before retrying
+            continue
+        except Exception as e:
+            raise excs.Error(f'Failed to download : {e}') from e
+    raise excs.Error(f'Download failed after {max_retries} attempts')
+
+
+def delete_replica(dest_path: str) -> None:
+    """Delete cloud replica"""
+    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
+    delete_request_json = {'operation_type': 'delete_snapshot', 'table_uri': dest_path}
+    response = requests.post(PIXELTABLE_API_URL, json=delete_request_json, headers=headers_json)
+    if response.status_code != 200:
+        raise excs.Error(f'Error deleting replica: {response.text}')
+    response_json = response.json()
+    if not isinstance(response_json, dict) or 'table_uri' not in response_json:
+        raise excs.Error(f'Error deleting replica: unexpected response from server.\n{response_json}')
