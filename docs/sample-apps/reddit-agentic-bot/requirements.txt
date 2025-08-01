@@ -1,5 +1,5 @@
 # Core Libraries
-pixeltable==0.3.12 # Pinning version
+pixeltable
 python-dotenv # For loading .env files
 
 # Reddit Interaction

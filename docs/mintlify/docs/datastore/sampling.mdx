@@ -18,36 +18,17 @@ Pixeltable provides several methods for sampling, including random sampling of a
 
 ```python
 import pixeltable as pxt
-import random
 
-# Load a sample dataset
-pop_data = pxt.create_table(
-    'population_data',
-    {
-        'country': pxt.String,
-        'continent': pxt.String,
-        'pop_2023': pxt.Int,
-    },
-    if_exists='ignore',
+# Import the population dataset
+pop_t = pxt.create_table(
+    'population',
+    source='https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/world-population-data.csv',
+    if_exists='ignore'
 )
 
-country = random.choices(['USA', 'Canada', 'Mexico'], k=10)
-continent = random.choices(['North America', 'South America'], k=10)
-pop_2023 = random.choices(range(0, 1000000), k=10)
-data = []
-
-for i in range(10):
-    data.append({
-        'country': country[i],
-        'continent': continent[i],
-        'pop_2023': pop_2023[i],
-    })
-
-pop_data.insert(data)
-
-# Get a random sample of 10 countries
-sample_df = pop_data.sample(n=10, seed=42)
-sample_df.collect()
+# Get a random sample of 20 countries
+sample_df = pop_t.sample(n=20, seed=42)
+print(sample_df.collect())
 ```
 
 ## Basic Sampling Methods
@@ -60,17 +41,17 @@ Pixeltable offers simple ways to draw random samples from your data.
 
     ```python
     # Get a random sample of 5 rows
-    random_sample = pop_data.sample(n=5, seed=123)
-    random_sample.collect()
+    random_sample = pop_t.sample(n=5, seed=123)
+    print(random_sample.collect())
     ```
   </Tab>
   <Tab title="Sample by Fraction">
-    Use `fraction` to get a percentage of the total rows. This is useful for scaling down a dataset proportionally. The value should be between 0.0 and 1.0.
+    Use `fraction` to get a percentage of the total rows. This is useful for scaling down a dataset proportionally. The value should be between 0.0 and 1.0. For sampling with `fraction`, each row is selected independently with probability p.
 
     ```python
     # Get a 1% random sample of the data
-    fractional_sample = pop_data.sample(fraction=0.01, seed=123)
-    fractional_sample.collect()
+    fractional_sample = pop_t.sample(fraction=0.01, seed=123)
+    print(fractional_sample.collect())
     ```
   </Tab>
   <Tab title="Reproducibility with `seed`">
@@ -78,15 +59,17 @@ Pixeltable offers simple ways to draw random samples from your data.
 
     ```python
     # This will always return the same 3 rows
-    reproducible_sample = pop_data.sample(n=3, seed=42)
-    reproducible_sample.collect()
+    reproducible_sample = pop_t.sample(n=3, seed=42)
+    print(reproducible_sample.collect())
     ```
   </Tab>
 </Tabs>
 
 ## Stratified Sampling
 
-Stratified sampling is an advanced technique that ensures subgroups within your data are represented proportionally in the sample. You can stratify your data based on one or more columns.
+Stratified sampling is a technique that ensures subgroups within your data are represented proportionally in the sample. This is useful when you want to ensure that your sample accurately reflects the diversity of the original dataset.
+
+For example, using our `population` table, we can perform stratified sampling to get a sample of countries that is representative of the different continents.
 
 <AccordionGroup>
   <Accordion title="Sample `n_per_stratum`" icon="layer-group">
@@ -94,12 +77,12 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
 
     ```python
     # Sample 2 countries from each continent
-    stratified_sample = pop_data.sample(
+    stratified_sample = pop_t.sample(
         n_per_stratum=2, 
-        stratify_by=[pop_data.continent], 
+        stratify_by=[pop_t.continent], 
         seed=42
     )
-    stratified_sample.collect()
+    print(stratified_sample.collect())
     ```
   </Accordion>
   <Accordion title="Sample `n` with stratification" icon="list-ol">
@@ -107,12 +90,12 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
 
     ```python
     # Sample a total of 20 countries, stratified by continent
-    proportional_sample = pop_data.sample(
+    proportional_sample = pop_t.sample(
         n=20, 
-        stratify_by=[pop_data.continent], 
+        stratify_by=[pop_t.continent], 
         seed=42
     )
-    proportional_sample.collect()
+    print(proportional_sample.collect())
     ```
   </Accordion>
   <Accordion title="Sample `fraction` with stratification" icon="percent">
@@ -120,12 +103,12 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
 
     ```python
     # Sample 10% of countries from each continent
-    fractional_stratified = pop_data.sample(
+    fractional_stratified = pop_t.sample(
         fraction=0.1, 
-        stratify_by=[pop_data.continent], 
+        stratify_by=[pop_t.continent], 
         seed=42
     )
-    fractional_stratified.collect()
+    print(fractional_stratified.collect())
     ```
   </Accordion>
 </AccordionGroup>
@@ -139,12 +122,11 @@ The `sample()` operation has specific rules about how it can be used in a query 
     You can apply a `where()` clause before `sample()` to filter the data before sampling. This is the most common way to chain operations with `sample()`.
 
     ```python
-    # Sample 5 countries from Asia
-    asian_countries_sample = pop_data.where(
-        pop_data.continent == 'Asia'
+    # Sample 5 countries with a population greater than 100 million
+    large_countries_sample = pop_t.where(
+        pop_t.pop_2023 > 100000000
     ).sample(n=5, seed=42)
-    
-    asian_countries_sample.collect()
+    print(large_countries_sample.collect())
     ```
   </Card>
   <Card title="Creating Snapshots and Tables" icon="camera">
@@ -152,7 +134,7 @@ The `sample()` operation has specific rules about how it can be used in a query 
 
     ```python
     # Create a sample DataFrame
-    sample_df = pop_data.sample(fraction=0.1, seed=42)
+    sample_df = pop_t.sample(fraction=0.1, seed=42)
 
     # Create a persistent snapshot from the sample
     pxt.create_snapshot('population_sample_snapshot', sample_df, if_exists='replace')
@@ -167,7 +149,7 @@ The `sample()` operation has specific rules about how it can be used in a query 
     ```python
     # This will raise an error
     try:
-        pop_data.order_by(pop_data.pop_2023).sample(n=10)
+        pop_t.order_by(pop_t.pop_2023).sample(n=10)
     except Exception as e:
         print(e)
     ```
