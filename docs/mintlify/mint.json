@@ -167,7 +167,8 @@
       "group": "Built-in Integrations",
       "pages": [
         "docs/integrations/frameworks",
-        "docs/integrations/models"
+        "docs/integrations/models",
+        "docs/integrations/contributing-integrations"
       ]
     },
     {
