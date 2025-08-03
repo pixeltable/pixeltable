@@ -37,7 +37,6 @@ class TestMistral:
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.skip(reason="Disabled until we figure out why it's failing")
     def test_fim_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
@@ -49,12 +48,14 @@ class TestMistral:
             output2=fim_completions(
                 prompt=t.input,
                 model='codestral-latest',
-                temperature=0.8,
-                top_p=0.95,
-                max_tokens=300,
-                stop=['def'],
-                random_seed=4171780,
-                suffix=t.suffix,
+                model_kwargs={
+                    'temperature': 0.8,
+                    'top_p': 0.95,
+                    'max_tokens': 300,
+                    'stop': ['def'],
+                    'random_seed': 4171780,
+                    'suffix': t.suffix,
+                },
             )
         )
         status = t.insert(

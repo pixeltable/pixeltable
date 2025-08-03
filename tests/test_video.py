@@ -4,7 +4,6 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
 
@@ -109,7 +108,7 @@ class TestVideo:
         assert num_frames_10.count() == 10
         assert num_frames_50.count() == 50
         assert num_frames_1000.count() == 449
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view(
                 'invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2, num_frames=10)
             )
@@ -255,13 +254,13 @@ class TestVideo:
         view_t.add_computed_column(transformed=view_t.frame.rotate(30), stored=True)
         _ = view_t.select(make_video(view_t.pos, view_t.transformed)).group_by(base_t).show()
 
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # make_video() doesn't allow windows
             _ = view_t.select(make_video(view_t.pos, view_t.frame, group_by=base_t)).show()
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # make_video() requires ordering
             _ = view_t.select(make_video(view_t.frame, order_by=view_t.pos)).show()
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # incompatible ordering requirements
             _ = (
                 view_t.select(make_video(view_t.pos, view_t.frame), make_video(view_t.pos - 1, view_t.transformed))
@@ -276,7 +275,7 @@ class TestVideo:
         _ = view_t.select(make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             view_t.add_computed_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store

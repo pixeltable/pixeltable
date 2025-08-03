@@ -4,7 +4,7 @@ import pixeltable as pxt
 
 
 def run_tool_invocations_test(
-    make_table: Callable[[pxt.func.Tools, pxt.func.ToolChoice], pxt.Table],
+    make_table: Callable[[pxt.Tools, pxt.ToolChoice], pxt.Table],
     *,
     test_random_question: bool = True,
     test_multiple_tool_use: bool = True,
@@ -13,7 +13,7 @@ def run_tool_invocations_test(
 ) -> None:
     """make_table is expected to yield an empty table with 'prompt' and 'tool_calls' columns."""
     tools = pxt.tools(stock_price, weather)
-    tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [None]
+    tool_choice_opts: list[Optional[pxt.ToolChoice]] = [None]
     if test_tool_choice:
         tool_choice_opts += [
             tools.choice(auto=True),

@@ -82,7 +82,7 @@ class TestTogether:
         from pixeltable.functions.together import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-32k-retrieval'))
+        t.add_computed_column(embed=embeddings(input=t.input, model='BAAI/bge-base-en-v1.5'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 
