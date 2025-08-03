@@ -4,32 +4,31 @@ Performance test for chat completion endpoint integrations in Pixeltable.
 
 import argparse
 import random
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Callable, Optional
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
 
-class ProviderConfig(TypedDict):
+@dataclass
+class ProviderConfig:
     """Configuration for a provider."""
-
-    function: pxt.Function
+    udf: pxt.Function
     default_model: str
-    prompt_type: Literal['messages', 'string']
     prompt_udf: pxt.Function
-    params: Dict[str, Any]
-    response_path: Callable[[Any], Any]
+    params: dict[str, Any]
     system_prompt: Optional[str]
 
 
-def get_random_words(wordlist: List[str], k: int = 2) -> List[str]:
+def get_random_words(wordlist: list[str], k: int = 2) -> list[str]:
     """Get k random words from the wordlist."""
     return random.sample(wordlist, k=k)
 
 
 @pxt.udf
-def create_chatgpt_prompt(word1: str, word2: str) -> List[Dict[str, str]]:
+def create_chatgpt_prompt(word1: str, word2: str) -> list[dict[str, str]]:
     """Create a prompt in ChatGPT message format."""
     return [
         {'role': 'system', 'content': 'You are a creative writer who creates natural-sounding sentences.'},
@@ -42,7 +41,7 @@ def create_chatgpt_prompt(word1: str, word2: str) -> List[Dict[str, str]]:
 
 
 @pxt.udf
-def create_claude_prompt(word1: str, word2: str) -> List[Dict[str, str]]:
+def create_simple_messages_prompt(word1: str, word2: str) -> list[dict[str, str]]:
     """Create a prompt in Claude message format (no system message in messages)."""
     return [
         {
@@ -63,102 +62,72 @@ def create_simple_prompt(word1: str, word2: str) -> str:
     )
 
 
-@pxt.udf
-def create_simple_messages_prompt(word1: str, word2: str) -> List[Dict[str, str]]:
-    """Create a simple messages format prompt (user message only)."""
-    return [
-        {
-            'role': 'user',
-            'content': f'Generate a single sentence that uses both of these words: {word1} and {word2}. '
-            f'The sentence should be natural and make sense.',
-        }
-    ]
-
-
-def create_provider_configs() -> Dict[str, ProviderConfig]:
+def create_provider_configs() -> dict[str, ProviderConfig]:
     """Create configuration for each supported provider."""
     return {
-        'openai': {
-            'function': pxtf.openai.chat_completions,
-            'default_model': 'gpt-4o-mini',
-            'prompt_type': 'messages',
-            'prompt_udf': create_chatgpt_prompt,
-            'params': {'max_tokens': 100, 'temperature': 0.7},
-            'response_path': lambda r: r.choices[0].message.content,
-            'system_prompt': None,
-        },
-        'anthropic': {
-            'function': pxtf.anthropic.messages,
-            'default_model': 'claude-3-haiku-20240307',
-            'prompt_type': 'messages',
-            'prompt_udf': create_claude_prompt,
-            'params': {'max_tokens': 100, 'temperature': 0.7},
-            'response_path': lambda r: r.content[0].text,
-            'system_prompt': 'You are a creative writer who creates natural-sounding sentences.',
-        },
-        'gemini': {
-            'function': pxtf.gemini.generate_content,
-            'default_model': 'gemini-2.0-flash',
-            'prompt_type': 'string',
-            'prompt_udf': create_simple_prompt,
-            'params': {},
-            'response_path': lambda r: r,
-            'system_prompt': None,
-        },
-        'fireworks': {
-            'function': pxtf.fireworks.chat_completions,
-            'default_model': 'accounts/fireworks/models/mixtral-8x22b-instruct',
-            'prompt_type': 'messages',
-            'prompt_udf': create_simple_messages_prompt,
-            'params': {'max_tokens': 300, 'top_k': 40, 'top_p': 0.9, 'temperature': 0.7},
-            'response_path': lambda r: r,
-            'system_prompt': None,
-        },
-        'groq': {
-            'function': pxtf.groq.chat_completions,
-            'default_model': 'llama3-8b-8192',
-            'prompt_type': 'messages',
-            'prompt_udf': create_chatgpt_prompt,
-            'params': {'max_tokens': 100, 'temperature': 0.7},
-            'response_path': lambda r: r.choices[0].message.content,
-            'system_prompt': None,
-        },
-        'mistralai': {
-            'function': pxtf.mistralai.chat_completions,
-            'default_model': 'mistral-tiny',
-            'prompt_type': 'messages',
-            'prompt_udf': create_chatgpt_prompt,
-            'params': {'max_tokens': 100, 'temperature': 0.7},
-            'response_path': lambda r: r.choices[0].message.content,
-            'system_prompt': None,
-        },
-        'together': {
-            'function': pxtf.together.completions,
-            'default_model': 'mistralai/Mixtral-8x7B-Instruct-v0.1',
-            'prompt_type': 'string',
-            'prompt_udf': create_simple_prompt,
-            'params': {'max_tokens': 100, 'temperature': 0.7},
-            'response_path': lambda r: r.choices[0].text,
-            'system_prompt': None,
-        },
-        'deepseek': {
-            'function': pxtf.deepseek.chat_completions,
-            'default_model': 'deepseek-chat',
-            'prompt_type': 'messages',
-            'prompt_udf': create_chatgpt_prompt,
-            'params': {'max_tokens': 100, 'temperature': 0.7},
-            'response_path': lambda r: r.choices[0].message.content,
-            'system_prompt': None,
-        },
-        'bedrock': {
-            'function': pxtf.bedrock.converse,
-            'default_model': 'anthropic.claude-3-haiku-20240307-v1:0',
-            'prompt_type': 'messages',
-            'prompt_udf': create_claude_prompt,
-            'params': {'max_tokens': 100, 'temperature': 0.7},
-            'response_path': lambda r: r.output.message.content[0].text,
-            'system_prompt': None,
-        },
+        'openai': ProviderConfig(
+            udf=pxtf.openai.chat_completions,
+            default_model='gpt-4o-mini',
+            prompt_udf=create_chatgpt_prompt,
+            params={'max_tokens': 100, 'temperature': 0.7},
+            system_prompt=None,
+        ),
+        'anthropic': ProviderConfig(
+            udf=pxtf.anthropic.messages,
+            default_model='claude-3-haiku-20240307',
+            prompt_udf=create_simple_messages_prompt,
+            params={'max_tokens': 100, 'temperature': 0.7},
+            system_prompt='You are a creative writer who creates natural-sounding sentences.',
+        ),
+        'gemini': ProviderConfig(
+            udf=pxtf.gemini.generate_content,
+            default_model='gemini-2.0-flash',
+            prompt_udf=create_simple_prompt,
+            params={},
+            system_prompt=None,
+        ),
+        'fireworks': ProviderConfig(
+            udf=pxtf.fireworks.chat_completions,
+            default_model='accounts/fireworks/models/mixtral-8x22b-instruct',
+            prompt_udf=create_simple_messages_prompt,
+            params={'max_tokens': 300, 'top_k': 40, 'top_p': 0.9, 'temperature': 0.7},
+            system_prompt=None,
+        ),
+        'groq': ProviderConfig(
+            udf=pxtf.groq.chat_completions,
+            default_model='llama3-8b-8192',
+            prompt_udf=create_chatgpt_prompt,
+            params={'max_tokens': 100, 'temperature': 0.7},
+            system_prompt=None,
+        ),
+        'mistralai': ProviderConfig(
+            udf=pxtf.mistralai.chat_completions,
+            default_model='mistral-tiny',
+            prompt_udf=create_chatgpt_prompt,
+            params={'max_tokens': 100, 'temperature': 0.7},
+            system_prompt=None,
+        ),
+        'together': ProviderConfig(
+            udf=pxtf.together.completions,
+            default_model='mistralai/Mixtral-8x7B-Instruct-v0.1',
+            prompt_udf=create_simple_prompt,
+            params={'max_tokens': 100, 'temperature': 0.7},
+            system_prompt=None,
+        ),
+        'deepseek': ProviderConfig(
+            udf=pxtf.deepseek.chat_completions,
+            default_model='deepseek-chat',
+            prompt_udf=create_chatgpt_prompt,
+            params={'max_tokens': 100, 'temperature': 0.7},
+            system_prompt=None,
+        ),
+        'bedrock': ProviderConfig(
+            udf=pxtf.bedrock.converse,
+            default_model='anthropic.claude-3-haiku-20240307-v1:0',
+            prompt_udf=create_simple_messages_prompt,
+            params={'max_tokens': 100, 'temperature': 0.7},
+            system_prompt=None,
+        ),
     }
 
 
@@ -194,7 +163,7 @@ Examples:
 
     # Get provider configuration
     provider_config = provider_configs[args.provider]
-    model = args.model or provider_config['default_model']
+    model = args.model or provider_config.default_model
 
     print(f'Using provider: {args.provider}')
     print(f'Using model: {model}')
@@ -206,33 +175,17 @@ Examples:
     with open('/usr/share/dict/american-english', encoding='utf-8') as f:
         wordlist = [word.strip() for word in f]
 
-    t.add_computed_column(prompt=provider_config['prompt_udf'](t.word1, t.word2))
-
-    # Create provider-specific computed column
-    if provider_config['prompt_type'] == 'messages':
-        # Handle system prompt for providers that support it
-        if 'system_prompt' in provider_config and args.provider == 'anthropic':
-            t.add_computed_column(
-                response=provider_config['function'](
-                    messages=t.prompt,
-                    model=model,
-                    system=provider_config['system_prompt'],
-                    model_kwargs=provider_config['params'],
-                )
-            )
-        else:
-            t.add_computed_column(
-                response=provider_config['function'](
-                    messages=t.prompt, model=model, model_kwargs=provider_config['params']
-                )
-            )
-    else:  # prompt_type == 'string'
-        t.add_computed_column(
-            response=provider_config['function'](t.prompt, model=model, model_kwargs=provider_config['params'])
-        )
+    # computed columns:
+    # 1. prompt
+    # 2. response
+    t.add_computed_column(prompt=provider_config.prompt_udf(t.word1, t.word2))
+    udf_call_kwargs = {'model': model, 'model_kwargs': provider_config.params}
+    if provider_config.system_prompt is not None:
+        udf_call_kwargs['system'] = provider_config.system_prompt
+    t.add_computed_column(response=provider_config.udf(t.prompt, **udf_call_kwargs))
 
     # Generate rows
-    rows = ({'word1': w1, 'word2': w2} for _ in range(args.n) for w1, w2 in [random.sample(wordlist, k=2)])
+    rows = ({'word1': words[0], 'word2': words[1]} for words in (random.sample(wordlist, k=2) for _ in range(args.n)))
 
     # Insert and time the operation
     start = datetime.now()
@@ -248,7 +201,6 @@ Examples:
     # for row in results:
     #     try:
     #         # Extract content based on provider response format
-    #         response_path = provider_config.get('response_path', lambda x: str(x))
     #         content = response_path(row['response'])
     #         print(f"Words: {row['word1']}, {row['word2']}")
     #         print(f"Sentence: {content}")
