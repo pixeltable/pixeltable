@@ -27,6 +27,10 @@ def test_setup() -> Generator[Dict[str, str], None, None]:
     test_dir = tempfile.mkdtemp(prefix='pxt_test_env')
     env1_home = os.path.join(test_dir, 'env1')
     env2_home = os.path.join(test_dir, 'env2')
+    # Save env
+    home = os.environ.get('PIXELTABLE_HOME', None)
+    db = os.environ.get('PIXELTABLE_DB', None)
+    pgdata = os.environ.get('PIXELTABLE_PGDATA', None)
 
     os.makedirs(env1_home)
     os.makedirs(env2_home)
@@ -34,8 +38,16 @@ def test_setup() -> Generator[Dict[str, str], None, None]:
     yield {'env1_home': env1_home, 'env2_home': env2_home, 'test_dir': test_dir}
 
     # Cleanup
+    Catalog.clear()
+
     if os.path.exists(test_dir):
         shutil.rmtree(test_dir)
+    if home is not None:
+        os.environ['PIXELTABLE_HOME'] = home
+    if db is not None:
+        os.environ['PIXELTABLE_DB'] = db
+    if pgdata is not None:
+        os.environ['PIXELTABLE_PGDATA'] = pgdata
 
 
 def _reset_env() -> None:
@@ -45,8 +57,9 @@ def _reset_env() -> None:
     Config.init(config_overrides={}, reinit=True)
     Env._init_env()
 
-@pytest.mark.skip("This test may be affecting other test setup, disabling for now")
+
 class TestEnvReset:
+    """Run tests for env reset"""
 
     def test_basic(self, test_setup: Dict[str, str]) -> None:
         """Test basic env clear functionality."""
