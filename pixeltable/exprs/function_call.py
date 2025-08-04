@@ -490,24 +490,35 @@ class FunctionCall(Expr):
         else:
             # Evaluate the call_return_type as defined in the current codebase.
             call_return_type: Optional[ts.ColumnType] = None
-            try:
-                call_return_type = resolved_fn.call_return_type(bound_args)
-            except ImportError as exc:
-                validation_error = dedent(
-                    f"""
-                    A UDF call to {fn.self_path!r} could not be fully resolved, because a module required
-                    by the UDF could not be imported:
-                    {exc}
-                    """
-                )
-                if return_type is None:
-                    # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious
-                    # way to infer it during DB migration, so we might encounter a stored return_type of None. If the
-                    # resolution of call_return_type also fails, then we're out of luck; we have no choice but to
-                    # fail-fast.
-                    raise excs.Error(validation_error) from exc
+
+            if isinstance(resolved_fn, func.ExprTemplateFunction) and not resolved_fn.template.expr.is_valid:
+                # The FunctionCall is based on an ExprTemplateFunction, but the template expression is not valid
+                # (because it in turn contains an invalid FunctionCall). In this case, inherit the validation error
+                # from the template expression.
+                validation_error = resolved_fn.template.expr.validation_error
             else:
-                assert call_return_type is not None  # call_return_type resolution must have succeeded.
+                try:
+                    call_return_type = resolved_fn.call_return_type(bound_args)
+                except ImportError as exc:
+                    validation_error = dedent(
+                        f"""
+                        A UDF call to {fn.self_path!r} could not be fully resolved, because a module required
+                        by the UDF could not be imported:
+                        {exc}
+                        """
+                    )
+
+            assert (call_return_type is None) != (validation_error is None)
+
+            if call_return_type is None and return_type is None:
+                # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious
+                # way to infer it during DB migration, so we might encounter a stored return_type of None. If the
+                # resolution of call_return_type also fails, then we're out of luck; we have no choice but to
+                # fail-fast.
+                raise excs.Error(validation_error)
+
+            if call_return_type is not None:
+                # call_return_type resolution succeeded.
                 if return_type is None:
                     # Schema versions prior to 25 did not store the return_type in metadata (as mentioned above), so
                     # fall back on the call_return_type.

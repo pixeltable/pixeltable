@@ -1021,6 +1021,7 @@ class TestFunction:
         @pxt.udf(_force_stored=True)
         def udf_base_version(a: str, b: str) -> pxt.Array[(None,), pxt.Float]:
             return np.ones((1024,), dtype=np.float32)
+
         mimic(udf_base_version)
 
         @udf_base_version.conditional_return_type

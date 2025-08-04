@@ -87,7 +87,11 @@ class ExprTemplateFunction(Function):
         assert not self.is_polymorphic
         with_defaults = bound_args.copy()
         with_defaults.update(
-            {param_name: default for param_name, default in self.template.defaults.items() if param_name not in bound_args}
+            {
+                param_name: default
+                for param_name, default in self.template.defaults.items()
+                if param_name not in bound_args
+            }
         )
         substituted_expr = self.template.expr.copy().substitute(
             {self.template.param_exprs[name]: expr for name, expr in with_defaults.items()}
