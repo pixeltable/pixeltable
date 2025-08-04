@@ -108,7 +108,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             mime_type=puremagic.from_file(file, mime=True),
             width=img.width,
             height=img.height,
-            filepath=file,
+            filepath=str(file),
             num_channels=len(img.getbands()),
         )
 
