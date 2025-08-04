@@ -166,13 +166,13 @@ Examples:
     parser.add_argument('--n', type=int, required=True, help='Number of word pairs to generate sentences for')
     parser.add_argument('--model', help='Model to use (overrides provider default)')
     parser.add_argument('--log-level', type=int, default=10, help='Logging level (default: 10)')
-
     args = parser.parse_args()
 
-    # Configure logging
-    pxt.configure_logging(level=args.log_level)
+    # Load wordlist
+    with open('/usr/share/dict/american-english', encoding='utf-8') as f:
+        wordlist = [word.strip() for word in f]
 
-    # Get provider configuration
+    pxt.configure_logging(level=args.log_level)
     provider_config = provider_configs[args.provider]
     model = args.model or provider_config.default_model
 
@@ -181,43 +181,18 @@ Examples:
     print(f'Generating {args.n} sentences...')
 
     t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String}, if_exists='replace')
-
-    # Load wordlist
-    with open('/usr/share/dict/american-english', encoding='utf-8') as f:
-        wordlist = [word.strip() for word in f]
-
-    # computed columns:
-    # 1. prompt
-    # 2. response
     t.add_computed_column(prompt=provider_config.prompt_udf(t.word1, t.word2))
-    udf_call_kwargs = {'model': model, **provider_config.kwargs}
-    t.add_computed_column(response=provider_config.udf(t.prompt, **udf_call_kwargs))
+    t.add_computed_column(response=provider_config.udf(t.prompt, model=model, **provider_config.kwargs))
 
-    # Generate rows
     rows = ({'word1': words[0], 'word2': words[1]} for words in (random.sample(wordlist, k=2) for _ in range(args.n)))
-
-    # Insert and time the operation
     start = datetime.now()
     status = t.insert(rows, on_error='ignore')
     # make sure we're not testing a service that's experiencing an outage
-    assert status.num_excs < int(args.n * 0.01), status
+    assert status.num_excs <= int(args.n * 0.01), status
     end = datetime.now()
 
     print(status)
     print(f'Total time: {(end - start).total_seconds():.2f} seconds')
-
-    # # Show a few examples
-    # print("\nExample generated sentences:")
-    # results = t.select(t.word1, t.word2, t.response).limit(3).collect()
-    # for row in results:
-    #     try:
-    #         # Extract content based on provider response format
-    #         content = response_path(row['response'])
-    #         print(f"Words: {row['word1']}, {row['word2']}")
-    #         print(f"Sentence: {content}")
-    #         print()
-    #     except Exception as e:
-    #         print(f"Error extracting response: {e}")
 
 
 if __name__ == '__main__':
