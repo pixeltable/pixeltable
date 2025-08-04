@@ -184,7 +184,7 @@ Examples:
     t.add_computed_column(prompt=provider_config.prompt_udf(t.word1, t.word2))
     t.add_computed_column(response=provider_config.udf(t.prompt, model=model, **provider_config.kwargs))
 
-    rows = ({'word1': words[0], 'word2': words[1]} for words in (random.sample(wordlist, k=2) for _ in range(args.n)))
+    rows = ({'word1': word1, 'word2': word2} for word1, word2 in (random.sample(wordlist, k=2) for _ in range(args.n)))
     start = datetime.now()
     status = t.insert(rows, on_error='ignore')
     # make sure we're not testing a service that's experiencing an outage
