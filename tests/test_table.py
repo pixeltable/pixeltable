@@ -2602,21 +2602,35 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_drop_column_in_view(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int}, if_exists='replace_force')
-        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), if_exists='replace_force')
-        _ = pxt.create_view('view2', t.where(t.c1 % 20 == 0), if_exists='replace_force')
-        _ = pxt.create_view('view3', t.where(v1.c1 % 10 == 0), if_exists='replace_force')
+    def test_drop_column_in_view_predicate(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})
+        v2 = pxt.create_view('view2', v1.where((t.c1 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int})
+        v3 = pxt.create_view('view3', v2.where(((v1.vc1 + v2.vc2) - (t.c1 + t.c2)) % 5 == 0), additional_columns={'vc3': pxt.Int})
+        v4 = pxt.create_view('view4', v3.where((t.c2 / v3.vc3) < 19), additional_columns={'vc4': pxt.Int})
 
         with pytest.raises(pxt.Error, match='Cannot drop column `c1` because the following views depend on it') as e:
             t.drop_column('c1')
 
         assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
-        assert 'view: view2, predicate: c1 % 20 == 0' in str(e.value).lower()
-        assert 'view: view3, predicate: c1 % 10 == 0' in str(e.value).lower()
+        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
+
+        with pytest.raises(pxt.Error, match='Cannot drop column `c2` because the following views depend on it') as e:
+            t.drop_column('c2')
+
+        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
+        assert 'view: view4, predicate: c2 / vc3 < 19' in str(e.value).lower()
+
+        with pytest.raises(pxt.Error, match='Cannot drop column `vc1` because the following views depend on it') as e:
+            v1.drop_column('vc1')
+
+        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
+
 
     def test_drop_last_column(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int}, if_exists='replace_force')
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
         # drop the first column
         t.drop_column('c1')
         # drop an unknown column
