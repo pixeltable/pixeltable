@@ -6,7 +6,7 @@ import argparse
 import random
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -15,11 +15,11 @@ import pixeltable.functions as pxtf
 @dataclass
 class ProviderConfig:
     """Configuration for a provider."""
+
+    prompt_udf: pxt.Function
     udf: pxt.Function
     default_model: str
-    prompt_udf: pxt.Function
-    params: dict[str, Any]
-    system_prompt: Optional[str]
+    kwargs: dict[str, Any]
 
 
 def get_random_words(wordlist: list[str], k: int = 2) -> list[str]:
@@ -64,69 +64,80 @@ def create_simple_prompt(word1: str, word2: str) -> str:
 
 def create_provider_configs() -> dict[str, ProviderConfig]:
     """Create configuration for each supported provider."""
+    from google.genai.types import GenerateContentConfigDict
+
     return {
         'openai': ProviderConfig(
+            prompt_udf=create_chatgpt_prompt,
             udf=pxtf.openai.chat_completions,
             default_model='gpt-4o-mini',
-            prompt_udf=create_chatgpt_prompt,
-            params={'max_tokens': 100, 'temperature': 0.7},
-            system_prompt=None,
+            kwargs={'model_kwargs': {'max_tokens': 100, 'temperature': 0.7}},
         ),
         'anthropic': ProviderConfig(
+            prompt_udf=create_simple_messages_prompt,
             udf=pxtf.anthropic.messages,
             default_model='claude-3-haiku-20240307',
-            prompt_udf=create_simple_messages_prompt,
-            params={'max_tokens': 100, 'temperature': 0.7},
-            system_prompt='You are a creative writer who creates natural-sounding sentences.',
+            kwargs={
+                'max_tokens': 100,
+                'model_kwargs': {
+                    'temperature': 0.7,
+                    'system': 'You are a creative writer who creates natural-sounding sentences.',
+                },
+            },
         ),
         'gemini': ProviderConfig(
+            prompt_udf=create_simple_prompt,
             udf=pxtf.gemini.generate_content,
             default_model='gemini-2.0-flash',
-            prompt_udf=create_simple_prompt,
-            params={},
-            system_prompt=None,
+            kwargs={
+                'config': GenerateContentConfigDict(
+                    candidate_count=3,
+                    stop_sequences=['\n'],
+                    max_output_tokens=300,
+                    temperature=1.0,
+                    top_p=0.95,
+                    top_k=40,
+                    response_mime_type='text/plain',
+                    presence_penalty=0.6,
+                    frequency_penalty=0.6,
+                )
+            },
         ),
         'fireworks': ProviderConfig(
+            prompt_udf=create_simple_messages_prompt,
             udf=pxtf.fireworks.chat_completions,
             default_model='accounts/fireworks/models/mixtral-8x22b-instruct',
-            prompt_udf=create_simple_messages_prompt,
-            params={'max_tokens': 300, 'top_k': 40, 'top_p': 0.9, 'temperature': 0.7},
-            system_prompt=None,
+            kwargs={'model_kwargs': {'max_tokens': 300, 'top_k': 40, 'top_p': 0.9, 'temperature': 0.7}},
         ),
         'groq': ProviderConfig(
+            prompt_udf=create_chatgpt_prompt,
             udf=pxtf.groq.chat_completions,
             default_model='llama3-8b-8192',
-            prompt_udf=create_chatgpt_prompt,
-            params={'max_tokens': 100, 'temperature': 0.7},
-            system_prompt=None,
+            kwargs={'model_kwargs': {'max_tokens': 100, 'temperature': 0.7}},
         ),
         'mistralai': ProviderConfig(
+            prompt_udf=create_chatgpt_prompt,
             udf=pxtf.mistralai.chat_completions,
             default_model='mistral-tiny',
-            prompt_udf=create_chatgpt_prompt,
-            params={'max_tokens': 100, 'temperature': 0.7},
-            system_prompt=None,
+            kwargs={'model_kwargs': {'max_tokens': 100, 'temperature': 0.7}},
         ),
         'together': ProviderConfig(
+            prompt_udf=create_simple_prompt,
             udf=pxtf.together.completions,
             default_model='mistralai/Mixtral-8x7B-Instruct-v0.1',
-            prompt_udf=create_simple_prompt,
-            params={'max_tokens': 100, 'temperature': 0.7},
-            system_prompt=None,
+            kwargs={'model_kwargs': {'max_tokens': 100, 'temperature': 0.7}},
         ),
         'deepseek': ProviderConfig(
+            prompt_udf=create_chatgpt_prompt,
             udf=pxtf.deepseek.chat_completions,
             default_model='deepseek-chat',
-            prompt_udf=create_chatgpt_prompt,
-            params={'max_tokens': 100, 'temperature': 0.7},
-            system_prompt=None,
+            kwargs={'model_kwargs': {'max_tokens': 100, 'temperature': 0.7}},
         ),
         'bedrock': ProviderConfig(
+            prompt_udf=create_simple_messages_prompt,
             udf=pxtf.bedrock.converse,
             default_model='anthropic.claude-3-haiku-20240307-v1:0',
-            prompt_udf=create_simple_messages_prompt,
-            params={'max_tokens': 100, 'temperature': 0.7},
-            system_prompt=None,
+            kwargs={'model_kwargs': {'max_tokens': 100, 'temperature': 0.7}},
         ),
     }
 
@@ -179,9 +190,7 @@ Examples:
     # 1. prompt
     # 2. response
     t.add_computed_column(prompt=provider_config.prompt_udf(t.word1, t.word2))
-    udf_call_kwargs = {'model': model, 'model_kwargs': provider_config.params}
-    if provider_config.system_prompt is not None:
-        udf_call_kwargs['system'] = provider_config.system_prompt
+    udf_call_kwargs = {'model': model, **provider_config.kwargs}
     t.add_computed_column(response=provider_config.udf(t.prompt, **udf_call_kwargs))
 
     # Generate rows
@@ -190,6 +199,8 @@ Examples:
     # Insert and time the operation
     start = datetime.now()
     status = t.insert(rows, on_error='ignore')
+    # make sure we're not testing a service that's experiencing an outage
+    assert status.num_excs < int(args.n * 0.01), status
     end = datetime.now()
 
     print(status)
