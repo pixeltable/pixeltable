@@ -85,13 +85,12 @@ class ExprTemplateFunction(Function):
         conditional_return_type).
         """
         assert not self.is_polymorphic
-        template = self.template
         with_defaults = bound_args.copy()
         with_defaults.update(
-            {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args}
+            {param_name: default for param_name, default in self.template.defaults.items() if param_name not in bound_args}
         )
-        substituted_expr = template.expr.copy().substitute(
-            {template.param_exprs[name]: expr for name, expr in with_defaults.items()}
+        substituted_expr = self.template.expr.copy().substitute(
+            {self.template.param_exprs[name]: expr for name, expr in with_defaults.items()}
         )
         return substituted_expr.col_type
 

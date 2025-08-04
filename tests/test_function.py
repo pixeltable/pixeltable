@@ -1019,9 +1019,21 @@ class TestFunction:
             tests.test_function.evolving_udf._conditional_return_type = fn._conditional_return_type
 
         @pxt.udf(_force_stored=True)
-        def udf_base_version(a: str, b: str) -> str:
-            return a
+        def udf_base_version(a: str, b: str) -> pxt.Array[(None,), pxt.Float]:
+            return np.ones((1024,), dtype=np.float32)
         mimic(udf_base_version)
+
+        @udf_base_version.conditional_return_type
+        def _(b: str) -> ts.ColumnType:
+            return ts.ArrayType(shape=(1024,), dtype=ts.FloatType())
+
+        @pxt.udf(_force_stored=True)
+        def udf_import_error(a: str, b: str) -> pxt.Array[(None,), pxt.Float]:
+            return np.ones((1024,), dtype=np.float32)
+
+        @udf_import_error.conditional_return_type
+        def _(b: str) -> ts.ColumnType:
+            raise ImportError('This is a mock ImportError.')
 
         t = pxt.create_table('test', {'c1': pxt.String})
         t.insert(c1='xyz')
@@ -1029,24 +1041,23 @@ class TestFunction:
 
         data = t.head()
 
-        @pxt.udf(_force_stored=True)
-        def udf_import_error(a: str, b: str) -> str:
-            return a
-
-        @udf_import_error.conditional_return_type
-        def _(b: str) -> ts.ColumnType:
-            raise ImportError('This is a mock ImportError.')
-
         mimic(udf_import_error)
-
         reload_catalog()
-
         regex = 'A UDF call to .* could not be fully resolved, because a module .*\n.*\n.*This is a mock ImportError.'
-
         with pytest.warns(pxt.PixeltableWarning, match=regex):
             t = pxt.get_table('test')
-
         assert_resultset_eq(data, t.head())
+
+        # Now try using it as an embedding index.
+        mimic(udf_base_version)
+        t = pxt.create_table('test', {'c1': pxt.String}, if_exists='replace')
+        t.add_embedding_index('c1', embedding=tests.test_function.evolving_udf.using(b='constant'))
+        t.insert(c1='xyz')
+
+        mimic(udf_import_error)
+        reload_catalog()
+        with pytest.warns(pxt.PixeltableWarning, match=regex):
+            t = pxt.get_table('test')
 
     def test_tool_errors(self) -> None:
         with pytest.raises(pxt.Error) as exc_info:
