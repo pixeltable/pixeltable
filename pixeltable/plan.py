@@ -403,7 +403,7 @@ class Planner:
                 ignore_errors=ignore_errors,
             )
         )
-        plan.set_stored_img_cols(row_builder.stored_img_cols())
+        plan.set_stored_img_cols(row_builder.stored_img_cols)
         return plan
 
     @classmethod
@@ -426,7 +426,7 @@ class Planner:
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
 
-        plan.set_stored_img_cols(plan.row_builder.stored_img_cols())
+        plan.set_stored_img_cols(plan.row_builder.stored_img_cols)
         plan.set_ctx(
             exec.ExecContext(
                 plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
@@ -652,7 +652,7 @@ class Planner:
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
-        plan.set_stored_img_cols(plan.row_builder.stored_img_cols())
+        plan.set_stored_img_cols(plan.row_builder.stored_img_cols)
         return plan
 
     @classmethod
@@ -719,7 +719,7 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
-        plan.set_stored_img_cols(row_builder.stored_img_cols())
+        plan.set_stored_img_cols(row_builder.stored_img_cols)
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         return plan, len(row_builder.default_eval_ctx.target_exprs)
@@ -1045,5 +1045,5 @@ class Planner:
         plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
 
         # we want to flush images
-        plan.set_stored_img_cols(row_builder.stored_img_cols())
+        plan.set_stored_img_cols(row_builder.stored_img_cols)
         return plan
