@@ -2601,3 +2601,27 @@ class TestTable:
                 assert np.array_equal(a1, a2)
 
         reload_tester.run_reload_test()
+
+    def test_drop_column_in_view(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int}, if_exists='replace_force')
+        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), if_exists='replace_force')
+        _ = pxt.create_view('view2', t.where(t.c1 % 20 == 0), if_exists='replace_force')
+        _ = pxt.create_view('view3', t.where(v1.c1 % 10 == 0), if_exists='replace_force')
+
+        with pytest.raises(pxt.Error, match='Cannot drop column `c1` because the following views depend on it') as e:
+            t.drop_column('c1')
+
+        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
+        assert 'view: view2, predicate: c1 % 20 == 0' in str(e.value).lower()
+        assert 'view: view3, predicate: c1 % 10 == 0' in str(e.value).lower()
+
+    def test_drop_last_column(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int}, if_exists='replace_force')
+        # drop the first column
+        t.drop_column('c1')
+        # drop an unknown column
+        with pytest.raises(pxt.Error, match="Column 'c3' unknown"):
+            t.drop_column('c3')
+        # drop the last column
+        with pytest.raises(pxt.Error, match='Cannot drop column `c2` as it is the last remaining column in this table'):
+            t.drop_column('c2')

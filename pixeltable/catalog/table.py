@@ -859,7 +859,28 @@ class Table(SchemaObject):
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
-            _ = self._get_views(recursive=True, include_snapshots=False)
+            views = self._get_views(recursive=True, include_snapshots=False)
+
+            # See if any view predicates depend on this column
+            dependent_views = []
+            for view in views:
+                predicate = view._tbl_version_path.tbl_version.get().predicate
+                if predicate is not None:
+                    from pixeltable.exprs import Expr
+
+                    predicate_cols = Expr.get_refd_column_ids(predicate.as_dict())
+                    for predicate_col in predicate_cols:
+                        if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
+                            dependent_views.append((view, predicate))
+
+            if len(dependent_views) > 0:
+                dependent_views_str = '\n'.join(
+                    f'view: {view._path()}, predicate: {predicate!s}' for view, predicate in dependent_views
+                )
+                raise excs.Error(
+                    f'Cannot drop column `{col.name}` because the following views depend on it:\n{dependent_views_str}'
+                )
+
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
             col_handle = col.handle
@@ -877,6 +898,12 @@ class Table(SchemaObject):
                 raise excs.Error(
                     f'Cannot drop column `{col.name}` because the following external stores depend on it:\n'
                     f'{", ".join(dependent_store_names)}'
+                )
+            all_columns = self.columns()
+            if len(all_columns) == 1 and col.name == all_columns[0]:
+                raise excs.Error(
+                    f'Cannot drop column `{col.name}` as it is the last remaining column in this table.'
+                    f' Tables must have at least one column.'
                 )
 
             self._tbl_version.get().drop_column(col)
