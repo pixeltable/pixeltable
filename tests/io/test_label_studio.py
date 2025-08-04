@@ -33,7 +33,6 @@ _logger = logging.getLogger('pixeltable')
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='Label Studio tests do not currently run on Linux ARM'
 )
-#@pytest.mark.skip()
 class TestLabelStudio:
     test_config_image = """
     <View>
