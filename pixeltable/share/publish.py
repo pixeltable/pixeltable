@@ -51,7 +51,7 @@ def push_replica(
     if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
     elif parsed_location.scheme == 'https':
-        _upload_bundle_from_presigned_url(bundle, parsed_location.geturl())
+        _upload_to_presigned_url(file_path=bundle, url=parsed_location.geturl())
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
@@ -127,7 +127,8 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
     elif parsed_location.scheme == 'https':
-        bundle_path = _download_bundle_from_presigned_url(parsed_location.geturl())
+        bundle_path = Path(Env.get().create_tmp_path())
+        _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
@@ -167,24 +168,6 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     return bundle_path
 
 
-def _upload_bundle_from_presigned_url(bundle: Path, presigned_url: str, max_retries: int = 3) -> None:
-    """Upload bundle using presigned URL with progress and retries"""
-    try:
-        _upload_with_progress(file_path=bundle, url=presigned_url, max_retries=max_retries)
-    except Exception as e:
-        raise excs.Error(f'Failed to upload replica: {e}') from e
-
-
-def _download_bundle_from_presigned_url(presigned_url: str, max_retries: int = 3) -> Path:
-    """Download bundle using presigned URL in a temp directory"""
-    try:
-        bundle_path = Path(Env.get().create_tmp_path())
-        _download_with_progress(url=presigned_url, output_path=bundle_path, max_retries=max_retries)
-        return bundle_path
-    except Exception as e:
-        raise excs.Error(f'Failed to download replica: {e}') from e
-
-
 def _create_retry_session(
     max_retries: int = 3, backoff_factor: float = 1.0, status_forcelist: Optional[list] = None
 ) -> requests.Session:
@@ -213,7 +196,7 @@ def _create_retry_session(
     return session
 
 
-def _upload_with_progress(file_path: Path, url: str, max_retries: int = 3) -> requests.Response:
+def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) -> requests.Response:
     """Upload file with progress bar and retries"""
     file_size = file_path.stat().st_size
 
@@ -238,7 +221,7 @@ def _upload_with_progress(file_path: Path, url: str, max_retries: int = 3) -> re
         session.close()
 
 
-def _download_with_progress(
+def _download_from_presigned_url(
     url: str, output_path: Path, headers: Optional[Dict[str, str]] = None, max_retries: int = 3
 ) -> None:
     """Download file with progress bar and retries"""
