@@ -397,7 +397,10 @@ def create_snapshot(
 
 
 def create_replica(
-    destination: str, source: Union[str, catalog.Table], bucket_name: str | None = None, is_public: bool | None = False
+    destination: str,
+    source: (str | catalog.Table),
+    bucket_name: str | None = None,
+    access: Literal['public', 'private'] = 'private',
 ) -> Optional[catalog.Table]:
     """
     Create a replica of a table. Can be used either to create a remote replica of a local table, or to create a local
@@ -409,8 +412,9 @@ def create_replica(
         source: Path to the source table, or (if the source table is a local table) a handle to the source table.
         bucket_name: The name of the pixeltable cloud-registered bucket to use to store replica's data.
             If no `bucket_name` is provided, the default Pixeltable storage bucket will be used.
-        is_public: If True, replica will be shared publicly. If false, replica will remain private.
-            By default, all replicas are private.
+        access: Access control for the replica.
+            - `'public'`: Anyone can access this replica.
+            - `'private'`: Only the owner can access (default)
     """
     remote_dest = destination.startswith('pxt://')
     remote_source = isinstance(source, str) and source.startswith('pxt://')
@@ -420,7 +424,7 @@ def create_replica(
     if remote_dest:
         if isinstance(source, str):
             source = get_table(source)
-        share.push_replica(destination, source, bucket_name, is_public)
+        share.push_replica(destination, source, bucket_name, access)
         return None
     else:
         assert isinstance(source, str)

@@ -3,7 +3,7 @@ import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -24,13 +24,13 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 
 
 def push_replica(
-    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, is_public: bool | None = False
+    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
 ) -> str:
     if not src_tbl._tbl_version_path.is_snapshot():
         raise excs.Error('Only snapshots may be published.')
 
     packager = TablePackager(
-        src_tbl, additional_md={'table_uri': dest_tbl_uri, 'bucket_name': bucket, 'is_public': is_public}
+        src_tbl, additional_md={'table_uri': dest_tbl_uri, 'bucket_name': bucket, 'is_public': access == 'public'}
     )
     request_json = packager.md | {'operation_type': 'publish_snapshot'}
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
