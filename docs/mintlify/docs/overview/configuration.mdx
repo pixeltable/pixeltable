@@ -22,11 +22,11 @@ verbosity = 2
 api_key = 'my-openai-api-key'
 
 [openai.rate_limits]
-tts-1 = 500
+tts-1 = 500  # OpenAI uses a per-model rate limit configuration (see below for details)
 
 [mistral]
 api_key = 'my-openai-api-key'
-rate_limit = 600
+rate_limit = 600  # Mistral uses a single rate limit for all models
 
 [label_studio]
 url = 'http://localhost:8080/'
@@ -65,7 +65,8 @@ api_key = 'my-label-studio-api-key'
 
 ## Rate Limit Configuration
 
-Pixeltable supports two patterns for configuring API rate limits in `config.toml`. Refer to the docstring of the relevant udf for details on the rate limiting pattern used by that udf.
+Pixeltable supports two patterns for configuring API rate limits in `config.toml`. Refer to the docstring of the
+relevant udf in the [API reference](https://pixeltable.github.io/pixeltable/) for details on the rate limiting pattern used by that udf.
 
 ### Single Rate Limit per Provider
 
