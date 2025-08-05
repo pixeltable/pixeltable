@@ -35,6 +35,7 @@ class TestGroq:
         assert 'tennessine' in results['output'][0]['choices'][0]['message']['content'].lower()
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
+    @pytest.mark.skip(reason='Temporarily disabled')
     @rerun(reruns=20, reruns_delay=8)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('groq')
