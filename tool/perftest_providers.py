@@ -33,6 +33,7 @@ def instructions(count: int, word1: str, word2: str) -> str:
         f'The prose should be natural and make sense.'
     )
 
+
 @pxt.udf
 def create_chatgpt_prompt(count: int, word1: str, word2: str) -> list[dict[str, str]]:
     """Create a prompt in ChatGPT message format."""
@@ -51,10 +52,7 @@ def create_simple_messages_prompt(count: int, word1: str, word2: str) -> list[di
 @pxt.udf
 def create_simple_prompt(count: int, word1: str, word2: str) -> str:
     """Create a simple string prompt."""
-    return (
-        f'You are a creative writer who creates natural-sounding prose. '
-        f'{instructions(count, word1, word2)}'
-    )
+    return f'You are a creative writer who creates natural-sounding prose. {instructions(count, word1, word2)}'
 
 
 def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:

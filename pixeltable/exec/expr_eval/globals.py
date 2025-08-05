@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import asyncio
-import datetime
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Optional, Protocol

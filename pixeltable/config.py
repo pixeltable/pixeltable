@@ -115,7 +115,7 @@ class Config:
         # Next try the config file
         if value is None:
             # Resolve nested section dicts
-            lookup_elems = section.split('.') + [key]
+            lookup_elems = [*section.split('.'), key]
             value = self.__config_dict
             for el in lookup_elems:
                 if isinstance(value, dict):
@@ -179,7 +179,10 @@ KNOWN_CONFIG_OPTIONS = {
         'rate_limits': 'Per-model rate limits for OpenAI API requests',
     },
     'replicate': {'api_token': 'Replicate API token'},
-    'together': {'api_key': 'Together API key', 'rate_limits': 'Per-model category rate limits for Together API requests'},
+    'together': {
+        'api_key': 'Together API key',
+        'rate_limits': 'Per-model category rate limits for Together API requests',
+    },
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
 

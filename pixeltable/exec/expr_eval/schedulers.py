@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Collection, Optional
 
 from pixeltable import env, func
 from pixeltable.config import Config
+
 from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
@@ -385,6 +386,8 @@ class RequestRateScheduler(Scheduler):
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
                 now = time.monotonic()
+                # put the request back in the queue right away, which prevents new requests from being generated until
+                # this one succeeds or exceeds its retry limit
                 self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx, retry_after=now + retry_delay))
                 return
 
