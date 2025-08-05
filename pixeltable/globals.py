@@ -398,7 +398,7 @@ def create_snapshot(
 
 def create_replica(
     destination: str,
-    source: (str | catalog.Table),
+    source: str | catalog.Table,
     bucket_name: str | None = None,
     access: Literal['public', 'private'] = 'private',
 ) -> Optional[catalog.Table]:

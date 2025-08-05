@@ -3,7 +3,7 @@ import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Dict, Literal, Optional
+from typing import Literal, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -203,11 +203,21 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
     headers = {'Content-Length': str(file_size), 'Content-Type': 'application/octet-stream'}
 
     session = _create_retry_session(max_retries=max_retries)
-
     try:
         with (
             open(file_path, 'rb') as f,
-            tqdm.wrapattr(f, 'read', total=file_size, desc='Uploading') as file_with_progress,
+            tqdm.wrapattr(
+                f,
+                method='read',
+                total=file_size,
+                desc='Uploading',
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+                miniters=1,  # Update every iteration (should be fine for an upload)
+                ncols=100,
+                file=sys.stdout,
+            ) as file_with_progress,
         ):
             response = session.put(
                 url,
@@ -222,7 +232,7 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
 
 
 def _download_from_presigned_url(
-    url: str, output_path: Path, headers: Optional[Dict[str, str]] = None, max_retries: int = 3
+    url: str, output_path: Path, headers: Optional[dict[str, str]] = None, max_retries: int = 3
 ) -> None:
     """Download file with progress bar and retries"""
     session = _create_retry_session(max_retries=max_retries)
@@ -235,15 +245,21 @@ def _download_from_presigned_url(
         response.raise_for_status()
 
         total_size = int(response.headers.get('content-length', 0))
-
-        with (
-            open(output_path, 'wb') as f,
-            tqdm(total=total_size, unit='B', unit_scale=True, desc='Downloading') as pbar,
-        ):
+        progress_bar = tqdm(
+            desc='Downloading',
+            total=total_size,
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+            miniters=1,
+            ncols=100,
+            file=sys.stdout,
+        )
+        with open(output_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-                    pbar.update(len(chunk))
+                    progress_bar.update(len(chunk))
     finally:
         session.close()
 
