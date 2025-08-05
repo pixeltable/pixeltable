@@ -866,9 +866,10 @@ class Table(SchemaObject):
             for view in views:
                 if view._tbl_version is not None:
                     predicate = view._tbl_version.get().predicate
-                    for predicate_col in exprs.Expr.get_refd_column_ids(predicate.as_dict()):
-                        if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
-                            dependent_views.append((view, predicate))
+                    if predicate is not None:
+                        for predicate_col in exprs.Expr.get_refd_column_ids(predicate.as_dict()):
+                            if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
+                                dependent_views.append((view, predicate))
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
