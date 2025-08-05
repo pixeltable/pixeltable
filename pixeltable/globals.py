@@ -413,6 +413,7 @@ def create_replica(
         bucket_name: The name of the pixeltable cloud-registered bucket to use to store replica's data.
             If no `bucket_name` is provided, the default Pixeltable storage bucket will be used.
         access: Access control for the replica.
+
             - `'public'`: Anyone can access this replica.
             - `'private'`: Only the owner can access (default)
     """

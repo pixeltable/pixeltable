@@ -1,6 +1,3 @@
-import os
-from typing import Iterator
-
 import pytest
 
 import pixeltable as pxt
@@ -10,31 +7,22 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 
 
-def _reset_env(reinit: bool) -> None:
+def _reset_env(reinit: bool, db_name: str) -> None:
     """Reset the environment for testing."""
     Catalog.clear()
     # Reload configs
-    Config.init(config_overrides={}, reinit=True)
+    Config.init(config_overrides={'pixeltable.db': db_name}, reinit=True)
     Env._init_env(reinit_db=reinit)
-
-
-@pytest.fixture(scope='function')
-def test_env_setup(init_env: None) -> Iterator[None]:
-    """Restore PIXELTABLE_DB set by conftest"""
-    test_db = os.environ['PIXELTABLE_DB']
-    yield
-    os.environ['PIXELTABLE_DB'] = test_db
 
 
 class TestEnvReset:
     """Run tests for env reset"""
 
-    def test_basic(self, reset_db: None, test_env_setup: None) -> None:
+    def test_basic(self, reset_db: None) -> None:
         """Test basic env clear functionality."""
         # Set environment
         dbname = 'test_basic_db'
-        os.environ['PIXELTABLE_DB'] = dbname
-        _reset_env(reinit=True)
+        _reset_env(reinit=True, db_name=dbname)
 
         env1 = Env.get()
         assert env1 is not None
@@ -46,7 +34,7 @@ class TestEnvReset:
         assert t.count() == 1
 
         # Verify we can create a new env instance with same db
-        _reset_env(reinit=False)
+        _reset_env(reinit=False, db_name=dbname)
         env2 = Env.get()
         assert env2 is not None
         assert env2 != env1
@@ -55,21 +43,19 @@ class TestEnvReset:
         assert t is not None
         assert t.count() == 1
 
-    def test_switch_environments(self, reset_db: None, test_env_setup: None) -> None:
+    def test_switch_environments(self, reset_db: None) -> None:
         """Test switching between two environments."""
         dbname1 = 'test_switch_environments_db1'
         dbname2 = 'test_switch_environments_db2'
 
         # Environment 1
-        os.environ['PIXELTABLE_DB'] = dbname1
-        _reset_env(reinit=True)
+        _reset_env(reinit=True, db_name=dbname1)
 
         t1 = pxt.create_table('table1', {'name': pxt.String})
         t1.insert([{'name': 'env1_data'}])
 
         # Switch to Environment 2
-        os.environ['PIXELTABLE_DB'] = dbname2
-        _reset_env(reinit=True)
+        _reset_env(reinit=True, db_name=dbname2)
 
         env2 = Env.get()
         assert env2._db_name == dbname2
@@ -83,8 +69,7 @@ class TestEnvReset:
             pxt.get_table('table1')
 
         # Switch back to Environment 1
-        os.environ['PIXELTABLE_DB'] = dbname1
-        _reset_env(reinit=False)
+        _reset_env(reinit=False, db_name=dbname1)
 
         env1_again = Env.get()
         assert env1_again._db_name == dbname1
@@ -97,12 +82,11 @@ class TestEnvReset:
         with pytest.raises(excs.Error):
             pxt.get_table('table2')
 
-    def test_metadata_persistence(self, reset_db: None, test_env_setup: None) -> None:
+    def test_metadata_persistence(self, reset_db: None) -> None:
         """Test that metadata persists across environment switches."""
         metadata_db = 'test_metadata_persistence_db'
         # Environment 1 setup
-        os.environ['PIXELTABLE_DB'] = metadata_db
-        _reset_env(reinit=True)
+        _reset_env(reinit=True, db_name=metadata_db)
 
         # Create directory structure
         pxt.create_dir('analytics')
@@ -133,7 +117,7 @@ class TestEnvReset:
         high_sales_count = v1.count()
 
         # Reinitialize same environment
-        _reset_env(reinit=False)
+        _reset_env(reinit=False, db_name=metadata_db)
 
         # Verify metadata
         assert set(pxt.list_dirs()) == dirs_before

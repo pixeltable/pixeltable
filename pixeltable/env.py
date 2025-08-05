@@ -103,7 +103,7 @@ class Env:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
         if cls._instance is not None:
-            cls._instance._cleanup()
+            cls._instance._clean_up()
         cls._instance = None
         env = Env()
         env._set_up(reinit_db=reinit_db)
@@ -488,7 +488,7 @@ class Env:
                 raise excs.Error(error)
             self._logger.info(f'Using database at: {self.db_url}')
         else:
-            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+            self._db_name = config.get_string_value('db')
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             # cleanup_mode=None will leave the postgres process running after Python exits
             # cleanup_mode='stop' will terminate the postgres process when Python exits
@@ -820,7 +820,7 @@ class Env:
         except Exception as exc:
             raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
-    def _cleanup(self) -> None:
+    def _clean_up(self) -> None:
         """
         Internal cleanup method that properly closes all resources and resets state.
         This is called before destroying the singleton instance.
