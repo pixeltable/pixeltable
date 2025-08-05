@@ -43,6 +43,10 @@ async def chat_completions(
 
     Deepseek uses the OpenAI SDK, so you will need to install the `openai` package to use this UDF.
 
+    Request throttling:
+    Applies the rate limit set in the config (section `deepseek`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install openai`
