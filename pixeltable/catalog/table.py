@@ -190,9 +190,7 @@ class Table(SchemaObject):
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(
-                t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only)
-            )
+            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
