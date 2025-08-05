@@ -483,8 +483,7 @@ class Table(SchemaObject):
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is identical to the format of the schema in a call to
-        [`create_table()`][pixeltable.globals.create_table].
+        The format of the `schema` argument is a dict mapping column names to their types.
 
         Args:
             schema: A dictionary mapping column names to types.
@@ -672,7 +671,7 @@ class Table(SchemaObject):
                 [col_name], IfExistsParam.validated(if_exists, 'if_exists')
             )
             # if the column to add already exists and user asked to ignore
-            # exiting column, there's nothing to do.
+            # existing column, there's nothing to do.
             result = UpdateStatus()
             if len(cols_to_ignore) != 0:
                 assert cols_to_ignore[0] == col_name
@@ -790,10 +789,8 @@ class Table(SchemaObject):
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
         """Check integrity of user-supplied schema and set defaults"""
-        column_names: set[str] = set()
         for col in schema:
             cls._verify_column(col)
-            column_names.add(col.name)
 
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
