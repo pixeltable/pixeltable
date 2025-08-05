@@ -2638,5 +2638,5 @@ class TestTable:
         with pytest.raises(pxt.Error, match="Column 'c3' unknown"):
             t.drop_column('c3')
         # drop the last column
-        with pytest.raises(pxt.Error, match='Cannot drop column `c2` as it is the last remaining column in this table'):
+        with pytest.raises(pxt.Error, match='Cannot drop column `c2` because it is the last remaining column in this table'):
             t.drop_column('c2')

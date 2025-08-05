@@ -183,15 +183,15 @@ class Table(SchemaObject):
 
         return op()
 
-    def _get_views(self, *, recursive: bool = True, include_immutables: bool = True) -> list['Table']:
+    def _get_views(self, *, recursive: bool = True, mutable_only: bool = False) -> list['Table']:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
         views = [cat.get_table_by_id(id) for id in view_ids]
-        if not include_immutables:
+        if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
             views.extend(
-                t for view in views for t in view._get_views(recursive=True, include_immutables=include_immutables)
+                t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only)
             )
         return views
 
@@ -859,7 +859,7 @@ class Table(SchemaObject):
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
-            views = self._get_views(recursive=True, include_immutables=False)
+            views = self._get_views(recursive=True, mutable_only=True)
 
             # See if any view predicates depend on this column
             dependent_views = []
@@ -900,7 +900,7 @@ class Table(SchemaObject):
             all_columns = self.columns()
             if len(all_columns) == 1 and col.name == all_columns[0]:
                 raise excs.Error(
-                    f'Cannot drop column `{col.name}` as it is the last remaining column in this table.'
+                    f'Cannot drop column `{col.name}` because it is the last remaining column in this table.'
                     f' Tables must have at least one column.'
                 )
 
