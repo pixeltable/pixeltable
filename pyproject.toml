@@ -203,13 +203,7 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.pytest.ini_options]
-addopts = '''
-    -v
-    -m "not remote_api and not expensive"
-    --strict-markers
-    --reruns 2
-    --only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
-    '''
+addopts = '-v -m "not remote_api and not expensive" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",

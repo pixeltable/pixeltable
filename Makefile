@@ -25,7 +25,8 @@ else
 endif
 
 # Common test parameters
-PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
+PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
+	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
 
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
 NB_CELL_TIMEOUT := 3600
@@ -113,12 +114,12 @@ check: typecheck docscheck lint formatcheck
 .PHONY: pytest
 pytest: install
 	@echo 'Running `pytest` ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS)
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests
 
 .PHONY: fullpytest
 fullpytest: install
 	@echo 'Running `pytest`, including expensive tests ...'
-	@$(ULIMIT_CMD) pytest -m '' $(PYTEST_COMMON_ARGS)
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m '' tests
 
 .PHONY: nbtest
 nbtest: install
