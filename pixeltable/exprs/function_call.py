@@ -115,6 +115,7 @@ class FunctionCall(Expr):
         self._validation_error = validation_error
 
         if validation_error is not None:
+            self.bound_idxs = {}
             self.resource_pool = None
             return
 
@@ -300,8 +301,16 @@ class FunctionCall(Expr):
         """
         res = super().substitute(spec)
         assert res is self
-        self.return_type = self.fn.call_return_type(self.bound_args)
-        self.col_type = self.return_type
+        if self.is_valid:
+            # If this FunctionCall is valid, re-evaluate the call_return_type of the substituted expression. If the
+            # FunctionCall is not valid, it isn't safe to do this. (Really we should be asserting that it *is* valid,
+            # but we still need to be able to do substitutions on invalid FunctionCalls, because loading an
+            # EmbeddingIndex from the db involves reconstructing the requisite (substituted) FunctionCalls. We could
+            # fix this by separately persisting the FunctionCall instances held by EmbeddingIndex to the db. That's
+            # probably a good idea, but it's also probably not urgent, since it only affects Functions that have a
+            # conditional_return_type implemented.)
+            self.return_type = self.fn.call_return_type(self.bound_args)
+            self.col_type = self.return_type
         return self
 
     def update(self, data_row: DataRow) -> None:
@@ -480,25 +489,54 @@ class FunctionCall(Expr):
             ).strip()
         else:
             # Evaluate the call_return_type as defined in the current codebase.
-            call_return_type = resolved_fn.call_return_type(bound_args)
-            if return_type is None:
-                # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
-                # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
-                # the call_return_type that we just inferred (which matches the deserialization behavior prior to
-                # version 25).
-                return_type = call_return_type
-            elif not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
-                # There is a return_type stored in metadata (schema version >= 25),
-                # and the stored return_type of the UDF call doesn't match the column type of the FunctionCall.
-                validation_error = dedent(
-                    f"""
-                    The return type stored in the database for a UDF call to {fn.self_path!r} no longer
-                    matches its return type as currently defined in the code. This probably means that the
-                    code for {fn.self_path!r} has changed in a backward-incompatible way.
-                    Return type of UDF call in the database: {return_type}
-                    Return type of UDF as currently defined in code: {call_return_type}
-                    """
-                ).strip()
+            call_return_type: Optional[ts.ColumnType] = None
+
+            if isinstance(resolved_fn, func.ExprTemplateFunction) and not resolved_fn.template.expr.is_valid:
+                # The FunctionCall is based on an ExprTemplateFunction, but the template expression is not valid
+                # (because it in turn contains an invalid FunctionCall). In this case, inherit the validation error
+                # from the template expression.
+                validation_error = resolved_fn.template.expr.validation_error
+            else:
+                try:
+                    call_return_type = resolved_fn.call_return_type(bound_args)
+                except ImportError as exc:
+                    validation_error = dedent(
+                        f"""
+                        A UDF call to {fn.self_path!r} could not be fully resolved, because a module required
+                        by the UDF could not be imported:
+                        {exc}
+                        """
+                    )
+
+            assert (call_return_type is None) != (validation_error is None)
+
+            if call_return_type is None and return_type is None:
+                # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious
+                # way to infer it during DB migration, so we might encounter a stored return_type of None. If the
+                # resolution of call_return_type also fails, then we're out of luck; we have no choice but to
+                # fail-fast.
+                raise excs.Error(validation_error)
+
+            if call_return_type is not None:
+                # call_return_type resolution succeeded.
+                if return_type is None:
+                    # Schema versions prior to 25 did not store the return_type in metadata (as mentioned above), so
+                    # fall back on the call_return_type.
+                    return_type = call_return_type
+                elif not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
+                    # There is a return_type stored in metadata (schema version >= 25),
+                    # and the stored return_type of the UDF call doesn't match the column type of the FunctionCall.
+                    validation_error = dedent(
+                        f"""
+                        The return type stored in the database for a UDF call to {fn.self_path!r} no longer
+                        matches its return type as currently defined in the code. This probably means that the
+                        code for {fn.self_path!r} has changed in a backward-incompatible way.
+                        Return type of UDF call in the database: {return_type}
+                        Return type of UDF as currently defined in code: {call_return_type}
+                        """
+                    ).strip()
+
+        assert return_type is not None  # Guaranteed by the above logic.
 
         fn_call = cls(
             resolved_fn,
