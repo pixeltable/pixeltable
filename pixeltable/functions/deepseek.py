@@ -26,7 +26,7 @@ def _deepseek_client() -> 'openai.AsyncOpenAI':
     return env.Env.get().get_client('deepseek')
 
 
-@pxt.udf
+@pxt.udf(resource_pool='request-rate:deepseek')
 async def chat_completions(
     messages: list,
     *,

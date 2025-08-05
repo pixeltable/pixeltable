@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import datetime
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Optional, Protocol
@@ -56,6 +57,7 @@ class Scheduler(abc.ABC):
         request: FnCallArgs
         num_retries: int
         exec_ctx: ExecCtx
+        retry_after: Optional[float] = None  # time.monotonic()
 
         def __lt__(self, other: Scheduler.QueueItem) -> bool:
             # prioritize by number of retries (more retries = higher priority)
