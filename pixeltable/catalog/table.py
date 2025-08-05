@@ -183,15 +183,15 @@ class Table(SchemaObject):
 
         return op()
 
-    def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
+    def _get_views(self, *, recursive: bool = True, include_immutables: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
         views = [cat.get_table_by_id(id) for id in view_ids]
-        if not include_snapshots:
-            views = [t for t in views if not t._tbl_version_path.is_snapshot()]
+        if not include_immutables:
+            views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
             views.extend(
-                t for view in views for t in view._get_views(recursive=True, include_snapshots=include_snapshots)
+                t for view in views for t in view._get_views(recursive=True, include_immutables=include_immutables)
             )
         return views
 
@@ -859,17 +859,14 @@ class Table(SchemaObject):
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
-            views = self._get_views(recursive=True, include_snapshots=False)
+            views = self._get_views(recursive=True, include_immutables=False)
 
             # See if any view predicates depend on this column
             dependent_views = []
             for view in views:
-                predicate = view._tbl_version_path.tbl_version.get().predicate
-                if predicate is not None:
-                    from pixeltable.exprs import Expr
-
-                    predicate_cols = Expr.get_refd_column_ids(predicate.as_dict())
-                    for predicate_col in predicate_cols:
+                if view._tbl_version is not None:
+                    predicate = view._tbl_version.get().predicate
+                    for predicate_col in exprs.Expr.get_refd_column_ids(predicate.as_dict()):
                         if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
                             dependent_views.append((view, predicate))
 
@@ -886,7 +883,7 @@ class Table(SchemaObject):
             col_handle = col.handle
             dependent_stores = [
                 (view, store)
-                for view in (self, *self._get_views(recursive=True, include_snapshots=False))
+                for view in (self, *views)
                 for store in view._tbl_version.get().external_stores.values()
                 if col_handle in store.get_local_columns()
             ]
