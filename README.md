@@ -78,7 +78,8 @@ t.add_computed_column(
     )
 )
 
-# Insert data - automatically triggers computation of all computed columns
+# Insert data directly from an external URL
+# Automatically triggers computation of all computed columns
 t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
 
 # Query - All data, metadata, and computed results are persistently stored
@@ -98,13 +99,15 @@ results = t.select(
 *   **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/docs/overview/quick-start) what's necessary when data or code changes, saving time and cost.
 *   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility.
 
+Pixeltable can ingest data from local storage or directly from a URL. When external media files are referenced by URL, as in the `insert` statement above, Pixeltable caches them locally before processing. See the [Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb) notebook for more details.
+
 **Focus on your application logic, not the infrastructure.**
 
-## Where is my data?
+## Where Did My Data Go?
 
 Pixeltable workloads generate various kinds of outputs, including both structured outputs (such as bounding boxes for detected objects) and/or unstructured outputs (such as generated images or video). By default, everything resides in your Pixeltable user directory at `~/.pixeltable`. Structured data is stored in a Postgres instance in `~/.pixeltable`. Generated media (images, video, audio, documents) are stored outside the Postgres database, in separate flat files in `~/.pixeltable/media`. Those media files are referenced by URL in the database, and Pixeltable provides the "glue" for a unified table interface over both structured and unstructured data.
 
-Pixeltable can ingest data from local storage or by URL. When external media files are referenced by URL, as in the `insert` statement in the preceding example, Pixeltable caches them locally in `~/.pixeltable` before processing. See the [Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb) notebook for more details.
+In general, the user is not expected to interact directly with the data in `~/.pixeltable`; the data store is fully managed by Pixeltable and is intended to be accessed exclusively through the Pixeltable Python SDK. But that's where everything lives, in case you're curious and want to poke around.
 
 ## ⚖️ Key Principles
 
