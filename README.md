@@ -5,7 +5,8 @@
 
 <h2>Declarative Data Infrastructure for Multimodal AI Apps</h2>
 
-Pixeltable is the only Python library providing incremental storage, transformation, indexing, and orchestration of multimodal data.
+Pixeltable is the only Python library that unifies incremental storage, transformation, indexing, and orchestration
+for multimodal data.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
@@ -33,7 +34,7 @@ Pixeltable is the only Python library providing incremental storage, transformat
 pip install pixeltable
 ```
 
-**Pixeltable unifies multimodal data storage, retrieval and orchestration.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup. All media  (videos, images, audio) resides in ext. files, and Pixeltable stores references to those. Files can be local/remote (e.g. S3). For the latter, Pixeltable caches the [files locally on access](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb).
+## Pixeltable Demo
 
 https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
 
@@ -58,7 +59,7 @@ from pixeltable.functions import huggingface
 # Object detection with automatic model management
 t.add_computed_column(
     detections=huggingface.detr_for_object_detection(
-        t.input_image, 
+        t.input_image,
         model_id='facebook/detr-resnet-50'
     )
 )
@@ -67,7 +68,7 @@ t.add_computed_column(
 t.add_computed_column(detections_text=t.detections.label_text)
 
 # OpenAI Vision API integration with built-in rate limiting and async managemennt
-from pixeltable.functions import openai         
+from pixeltable.functions import openai
 
 t.add_computed_column(
     vision=openai.vision(
@@ -99,15 +100,20 @@ results = t.select(
 
 **Focus on your application logic, not the infrastructure.**
 
+## Where is my data?
+
+Pixeltable workloads generate various kinds of outputs, including both structured outputs (such as bounding boxes for detected objects) and/or unstructured outputs (such as generated images or video). By default, everything resides in your Pixeltable user directory at `~/.pixeltable`. Structured data is stored in a Postgres instance in `~/.pixeltable`. Generated media (images, video, audio, documents) are stored outside the Postgres database, in separate flat files in `~/.pixeltable/media`. Those media files are referenced by URL in the database, and Pixeltable provides the "glue" for a unified table interface over both structured and unstructured data.
+
+Pixeltable can ingest data from local storage or by URL. When external media files are referenced by URL, as in the `insert` statement in the preceding example, Pixeltable caches them locally in `~/.pixeltable` before processing. See the [Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb) notebook for more details.
 
 ## ⚖️ Key Principles
 
 * **[Unified Multimodal Interface:](https://docs.pixeltable.com/docs/datastore/tables-and-operations)** `pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
   ```python
   t = pxt.create_table(
-    'media', 
+    'media',
     {
-        'img': pxt.Image, 
+        'img': pxt.Image,
         'video': pxt.Video
     }
   )
@@ -125,7 +131,7 @@ results = t.select(
 * **[Built-in Vector Search:](https://docs.pixeltable.com/docs/datastore/embedding-index)** Add embedding indexes and perform similarity searches directly on tables/views.
   ```python
   t.add_embedding_index(
-    'img', 
+    'img',
     embedding=clip.using(
         model_id='openai/clip-vit-base-patch32'
     )
@@ -137,10 +143,10 @@ results = t.select(
 * **[On-the-Fly Data Views:](https://docs.pixeltable.com/docs/datastore/views)** Create virtual tables using iterators for efficient processing without data duplication.
   ```python
   frames = pxt.create_view(
-    'frames', 
-    videos, 
+    'frames',
+    videos,
     iterator=FrameIterator.create(
-        video=videos.video, 
+        video=videos.video,
         fps=1
     )
   )
@@ -204,8 +210,8 @@ import pixeltable as pxt
 
 # Create a table
 t = pxt.create_table(
-    'films', 
-    {'name': pxt.String, 'revenue': pxt.Float, 'budget': pxt.Float}, 
+    'films',
+    {'name': pxt.String, 'revenue': pxt.Float, 'budget': pxt.Float},
     if_exists="replace"
 )
 
@@ -353,13 +359,13 @@ qa.add_computed_column(context=get_relevant_context(qa.prompt))
 qa.add_computed_column(
     final_prompt=pxtf.string.format(
         """
-        PASSAGES: 
+        PASSAGES:
         {0}
-        
-        QUESTION: 
+
+        QUESTION:
         {1}
-        """, 
-        qa.context, 
+        """,
+        qa.context,
         qa.prompt
     )
 )
