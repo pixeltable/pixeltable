@@ -560,6 +560,14 @@ class Env:
         finally:
             engine.dispose()
 
+    def _pgserver_terminate_connections_stmt(self) -> str:
+        return f"""
+                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                FROM pg_stat_activity
+                WHERE pg_stat_activity.datname = '{self._db_name}'
+                AND pid <> pg_backend_pid()
+            """
+
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
@@ -568,13 +576,7 @@ class Env:
             with engine.begin() as conn:
                 # terminate active connections
                 if self._db_server is not None:
-                    stmt = f"""
-                        SELECT pg_terminate_backend(pg_stat_activity.pid)
-                        FROM pg_stat_activity
-                        WHERE pg_stat_activity.datname = '{self._db_name}'
-                        AND pid <> pg_backend_pid()
-                    """
-                    conn.execute(sql.text(stmt))
+                    conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
                 # drop db
                 stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
@@ -823,20 +825,8 @@ class Env:
         Internal cleanup method that properly closes all resources and resets state.
         This is called before destroying the singleton instance.
         """
-        # Close database connections and sessions
-        if self._current_session is not None:
-            try:
-                self._current_session.close()
-            except Exception as e:
-                _logger.error(f'Error closing session: {e}')
-            self._current_session = None
-
-        if self._current_conn is not None:
-            try:
-                self._current_conn.close()
-            except Exception as e:
-                _logger.error(f'Error closing connection: {e}')
-            self._current_conn = None
+        assert self._current_session is None
+        assert self._current_conn is None
 
         # Stop HTTP server
         if self._httpd is not None:
@@ -844,40 +834,31 @@ class Env:
                 self._httpd.shutdown()
                 self._httpd.server_close()
             except Exception as e:
-                _logger.error(f'Error stopping HTTP server: {e}')
-            self._httpd = None
+                _logger.warning(f'Error stopping HTTP server: {e}')
 
-        # Stop database server (for local environment)
-        if self._db_server is not None and self._dbms is not None:
+        # First terminate all connections to the database
+        if self._db_server is not None:
+            assert self._dbms is not None
+            assert self._db_name is not None
             try:
-                # First terminate all connections to the database
-                if self._db_name is not None:
-                    temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
-                    try:
-                        with temp_engine.begin() as conn:
-                            stmt = f"""
-                                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                                FROM pg_stat_activity
-                                WHERE pg_stat_activity.datname = '{self._db_name}'
-                                AND pid <> pg_backend_pid()
-                            """
-                            conn.execute(sql.text(stmt))
-                            _logger.info(f"Terminated all connections to database '{self._db_name}'")
-                    except Exception as e:
-                        _logger.warning(f'Error terminating database connections: {e}')
-                    finally:
-                        temp_engine.dispose()
+                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+                try:
+                    with temp_engine.begin() as conn:
+                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
+                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
+                except Exception as e:
+                    _logger.warning(f'Error terminating database connections: {e}')
+                finally:
+                    temp_engine.dispose()
             except Exception as e:
-                _logger.error(f'Error stopping database server: {e}')
-            self._db_server = None
+                _logger.warning(f'Error stopping database server: {e}')
 
         # Dispose of SQLAlchemy engine (after stopping db server)
         if self._sa_engine is not None:
             try:
                 self._sa_engine.dispose()
             except Exception as e:
-                _logger.error(f'Error disposing engine: {e}')
-            self._sa_engine = None
+                _logger.warning(f'Error disposing engine: {e}')
 
         # Close event loop
         if self._event_loop is not None:
@@ -886,8 +867,7 @@ class Env:
                     self._event_loop.stop()
                 self._event_loop.close()
             except Exception as e:
-                _logger.error(f'Error closing event loop: {e}')
-            self._event_loop = None
+                _logger.warning(f'Error closing event loop: {e}')
 
         # Remove logging handlers
         for handler in self._logger.handlers[:]:
@@ -895,13 +875,7 @@ class Env:
                 handler.close()
                 self._logger.removeHandler(handler)
             except Exception as e:
-                _logger.error(f'Error removing handler: {e}')
-
-        # Clear temporary directory
-        try:
-            self.clear_tmp_dir()
-        except Exception as e:
-            _logger.error(f'Error clearing tmp directory: {e}')
+                _logger.warning(f'Error removing handler: {e}')
 
 
 def register_client(name: str) -> Callable:

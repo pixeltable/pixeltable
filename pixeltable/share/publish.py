@@ -1,12 +1,14 @@
 import os
 import sys
-import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Dict, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -49,7 +51,7 @@ def push_replica(
     if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
     elif parsed_location.scheme == 'https':
-        _upload_bundle_with_presigned_url(bundle, parsed_location.geturl())
+        _upload_bundle_from_presigned_url(bundle, parsed_location.geturl())
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
@@ -62,7 +64,7 @@ def push_replica(
         'datafile': bundle.name,
         'size': bundle.stat().st_size,
         'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
-        'rows': packager.md['rows'],
+        'rows': packager.md['row_count'],  # TODO rename rows to row_count once cloud side changes are complete
         'preview_header': packager.md['preview_header'],
         'preview_data': packager.md['preview_data'],
     }
@@ -165,45 +167,105 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     return bundle_path
 
 
-def _upload_bundle_with_presigned_url(bundle: Path, presigned_url: str, max_retries: int = 3) -> None:
-    file_size = bundle.stat().st_size
-    headers = {'Content-Length': str(file_size), 'Content-Type': 'application/octet-stream'}
-    for attempt in range(1, max_retries + 1):
-        try:
-            with open(bundle, 'rb') as f:
-                response = requests.put(presigned_url, data=f, headers=headers, stream=True, timeout=(60, 1800))
-                response.raise_for_status()
-                return
-        except (requests.exceptions.Timeout, requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
-            if attempt == max_retries:
-                raise excs.Error(f'Upload failed after {max_retries} attempts: {e}') from e
-            time.sleep(1)  # wait before retrying
-            continue
-        except Exception as e:
-            raise excs.Error(f'Failed to upload : {e}') from e
+def _upload_bundle_from_presigned_url(bundle: Path, presigned_url: str, max_retries: int = 3) -> None:
+    """Upload bundle using presigned URL with progress and retries"""
+    try:
+        _upload_with_progress(file_path=bundle, url=presigned_url, max_retries=max_retries)
+    except Exception as e:
+        raise excs.Error(f'Failed to upload replica: {e}') from e
 
 
 def _download_bundle_from_presigned_url(presigned_url: str, max_retries: int = 3) -> Path:
-    bundle_path = Path(Env.get().create_tmp_path())
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = requests.get(presigned_url, stream=True, timeout=(60, 1800))
+    """Download bundle using presigned URL in a temp directory"""
+    try:
+        bundle_path = Path(Env.get().create_tmp_path())
+        _download_with_progress(url=presigned_url, output_path=bundle_path, max_retries=max_retries)
+        return bundle_path
+    except Exception as e:
+        raise excs.Error(f'Failed to download replica: {e}') from e
+
+
+def _create_retry_session(
+    max_retries: int = 3, backoff_factor: float = 1.0, status_forcelist: Optional[list] = None
+) -> requests.Session:
+    """Create a requests session with retry configuration"""
+    if status_forcelist is None:
+        status_forcelist = [
+            408,  # Request Timeout
+            429,  # Too Many Requests (rate limiting)
+            500,  # Internal Server Error (server-side error)
+            502,  # Bad Gateway (proxy/gateway got invalid response)
+            503,  # Service Unavailable (server overloaded or down)
+            504,  # Gateway Timeout (proxy/gateway timeout)
+        ]
+    retry_strategy = Retry(
+        total=max_retries,
+        read=max_retries,
+        connect=max_retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+        allowed_methods=['GET', 'PUT', 'POST', 'DELETE'],
+    )
+
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount('https://', adapter)
+    return session
+
+
+def _upload_with_progress(file_path: Path, url: str, max_retries: int = 3) -> requests.Response:
+    """Upload file with progress bar and retries"""
+    file_size = file_path.stat().st_size
+
+    headers = {'Content-Length': str(file_size), 'Content-Type': 'application/octet-stream'}
+
+    session = _create_retry_session(max_retries=max_retries)
+
+    try:
+        with (
+            open(file_path, 'rb') as f,
+            tqdm.wrapattr(f, 'read', total=file_size, desc='Uploading') as file_with_progress,
+        ):
+            response = session.put(
+                url,
+                data=file_with_progress,
+                headers=headers,
+                timeout=(60, 1800),  # 60 seconds to connect and 300 seconds for server response
+            )
             response.raise_for_status()
-            # Stream download to file
-            with open(bundle_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
+            return response
+    finally:
+        session.close()
+
+
+def _download_with_progress(
+    url: str, output_path: Path, headers: Optional[Dict[str, str]] = None, max_retries: int = 3
+) -> None:
+    """Download file with progress bar and retries"""
+    session = _create_retry_session(max_retries=max_retries)
+
+    try:
+        # Stream download with progress
+        response = session.get(
+            url, headers=headers, stream=True, timeout=(60, 300)
+        )  # 60 seconds to connect and 300 seconds for server response
+        response.raise_for_status()
+
+        total_size = int(response.headers.get('content-length', 0))
+
+        with (
+            open(output_path, 'wb') as f,
+            tqdm(total=total_size, unit='B', unit_scale=True, desc='Downloading') as pbar,
+        ):
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
                     f.write(chunk)
-            return bundle_path
-        except (requests.exceptions.Timeout, requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
-            if attempt == max_retries:
-                raise excs.Error(f'Download failed after {max_retries} attempts: {e}') from e
-            time.sleep(1)  # wait before retrying
-            continue
-        except Exception as e:
-            raise excs.Error(f'Failed to download : {e}') from e
-    raise excs.Error(f'Download failed after {max_retries} attempts')
+                    pbar.update(len(chunk))
+    finally:
+        session.close()
 
 
+# TODO: This will be replaced by drop_table with cloud table uri
 def delete_replica(dest_path: str) -> None:
     """Delete cloud replica"""
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}

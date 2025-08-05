@@ -92,7 +92,7 @@ class TablePackager:
         self.bundle_path = self.__build_tarball()
 
         _logger.info('Extracting preview data.')
-        self.md['rows'] = self.table.count()
+        self.md['row_count'] = self.table.count()
         preview_header, preview = self.__extract_preview_data()
         self.md['preview_header'] = preview_header
         self.md['preview_data'] = preview
