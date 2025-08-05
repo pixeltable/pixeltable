@@ -13,7 +13,8 @@ for multimodal data.
 ![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-E5DDD4)
 <br>
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
-[![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
+[![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
+[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![My Discord (1306431018890166272)](https://img.shields.io/badge/💬-Discord-%235865F2.svg)](https://discord.gg/QPyqFYx2UN)
 
@@ -34,7 +35,7 @@ for multimodal data.
 pip install pixeltable
 ```
 
-**Pixeltable unifies multimodal data storage, retrieval and orchestration.**
+**Pixeltable unifies multimodal data storage, retrieval, and orchestration.**
 It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace.
 
 ## Pixeltable Demo
@@ -86,6 +87,7 @@ t.add_computed_column(
 t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
 
 # Query - All data, metadata, and computed results are persistently stored
+# Structured and unstructured data are returned side-by-side
 results = t.select(
     t.input_image,
     t.detections_text,
@@ -100,7 +102,7 @@ results = t.select(
 *   **AI Model Integration:** Runs inference ([embeddings](https://docs.pixeltable.com/docs/datastore/embedding-index), [object detection](https://docs.pixeltable.com/docs/examples/vision/yolox), [LLMs](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers)) as part of the data pipeline.
 *   **Indexing & Retrieval:** Creates and manages vector indexes for fast [semantic search](https://docs.pixeltable.com/docs/datastore/embedding-index#phase-3%3A-query) alongside traditional filtering.
 *   **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/docs/overview/quick-start) what's necessary when data or code changes, saving time and cost.
-*   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility.
+*   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility. See below for an example that uses "time travel" to query an older version of a table.
 
 Pixeltable can ingest data from local storage or directly from a URL. When external media files are referenced by URL, as in the `insert` statement above, Pixeltable caches them locally before processing. See the [Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb) notebook for more details.
 
@@ -183,20 +185,28 @@ In general, the user is not expected to interact directly with the data in `~/.p
   )
   ```
 
-* **[Persistent & Versioned:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data, metadata, and computed results are automatically stored.
+* **[Data Persistence:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data, metadata, and computed results are automatically stored and versioned.
   ```python
-  t.revert()  # Revert to a previous version
-  stored_table = pxt.get_table('my_existing_table')  # Retrieve persisted table
+  t = pxt.get_table('my_table')  # Get a handle to an existing table
+  t.select(t.account, t.balance).collect()  # Query its contents
+  t.revert()  # Undo the last modification to the table and restore its previous state
+  ```
+
+* **[Time Travel:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** By default, Pixeltable preserves the full change history of each table, and any prior version can be selected and queried.
+  ```python
+  t.history()  # Display a human-readable list of all prior versions of the table
+  old_version = pxt.get_table('my_table:472')  # Get a handle to a specific version of a table
+  old_version.select(t.account, t.balance).collect()  # Query the older version
   ```
 
 * **[SQL-like Python Querying:](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting)** Familiar syntax combined with powerful AI capabilities.
   ```python
   results = (
-    t.where(t.score > 0.8)
-    .order_by(t.timestamp)
-    .select(t.image, score=t.score)
-    .limit(10)
-    .collect()
+      t.where(t.score > 0.8)
+      .order_by(t.timestamp)
+      .select(t.image, score=t.score)
+      .limit(10)
+      .collect()
   )
   ```
 
