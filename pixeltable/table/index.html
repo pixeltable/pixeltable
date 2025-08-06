@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="../data-frame/">
+        <link rel="prev" href="../index-metadata/">
       
       
-        <link rel="next" href="../update-status/">
+        <link rel="next" href="../table-metadata/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -508,11 +508,74 @@
   
   
     <li class="md-nav__item">
+      <a href="../column-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ColumnMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../data-frame/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     DataFrame
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dir-contents/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DirContents
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    IndexMetadata
   </span>
   
 
@@ -926,6 +989,27 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../table-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    TableMetadata
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -2182,7 +2266,7 @@ FileCache.emit_eviction_warnings() at the end of the operation.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_column</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span> <span class="o">|</span> <span class="n"><span title="builtins.type">type</span></span> <span class="o">|</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
@@ -2195,7 +2279,7 @@ FileCache.emit_eviction_warnings() at the end of the operation.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>kwargs</code></b>
-              (<code><span title="typing.Union">Union</span>[<span title="pixeltable.type_system.ColumnType">ColumnType</span>, <span title="builtins.type">type</span>, <span title="typing._GenericAlias">_GenericAlias</span>, <span title="pixeltable.exprs.Expr">Expr</span>]</code>, default:
+              (<code><span title="pixeltable.type_system.ColumnType">ColumnType</span> | <span title="builtins.type">type</span> | <span title="typing._GenericAlias">_GenericAlias</span> | <span title="pixeltable.exprs.Expr">Expr</span></code>, default:
                   <code>{}</code>
 )
           –
@@ -2268,7 +2352,7 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_columns</span><span class="p">(</span>
-    <span class="n">schema</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">]],</span>
+    <span class="n">schema</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span> <span class="o">|</span> <span class="n"><span title="builtins.type">type</span></span> <span class="o">|</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">],</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
@@ -2285,7 +2369,7 @@ columns, use <a class="autorefs autorefs-internal" href="#pixeltable.Table.add_c
     <ul>
         <li class="doc-section-item field-body">
           <b><code>schema</code></b>
-              (<code>dict[str, <span title="typing.Union">Union</span>[<span title="pixeltable.type_system.ColumnType">ColumnType</span>, <span title="builtins.type">type</span>, <span title="typing._GenericAlias">_GenericAlias</span>]]</code>)
+              (<code>dict[str, <span title="pixeltable.type_system.ColumnType">ColumnType</span> | <span title="builtins.type">type</span> | <span title="typing._GenericAlias">_GenericAlias</span>]</code>)
           –
           <div class="doc-md-description">
             <p>A dictionary mapping column names to types.</p>
@@ -2490,7 +2574,7 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_embedding_index</span><span class="p">(</span>
-    <span class="n">column</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">],</span>
+    <span class="n">column</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">idx_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">embedding</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.Function">Function</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2544,7 +2628,7 @@ also search for images using a text description:</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>column</code></b>
-              (<code><span title="typing.Union">Union</span>[str, <span title="pixeltable.exprs.ColumnRef">ColumnRef</span>]</code>)
+              (<code>str | <span title="pixeltable.exprs.ColumnRef">ColumnRef</span></code>)
           –
           <div class="doc-md-description">
             <p>The name of, or reference to, the column to be indexed; must be a <code>String</code> or <code>Image</code> column.</p>
@@ -2892,8 +2976,7 @@ the row with new <code>id</code> 3 (assuming this key does not exist):</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_column</span><span class="p">(</span>
-    <span class="n">column</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">],</span>
-    <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
+    <span class="n">column</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">,</span> <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
@@ -2906,7 +2989,7 @@ the row with new <code>id</code> 3 (assuming this key does not exist):</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>column</code></b>
-              (<code><span title="typing.Union">Union</span>[str, <span title="pixeltable.exprs.ColumnRef">ColumnRef</span>]</code>)
+              (<code>str | <span title="pixeltable.exprs.ColumnRef">ColumnRef</span></code>)
           –
           <div class="doc-md-description">
             <p>The name or reference of the column to drop.</p>
@@ -2970,7 +3053,7 @@ or if it is referenced by a dependent computed column.</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_embedding_index</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">column</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">column</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">idx_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -2987,7 +3070,7 @@ embedding index; otherwise the specific index name must be provided instead.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>column</code></b>
-              (<code><span title="typing.Union">Union</span>[str, <span title="pixeltable.exprs.ColumnRef">ColumnRef</span>, None]</code>, default:
+              (<code>str | <span title="pixeltable.exprs.ColumnRef">ColumnRef</span> | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3079,7 +3162,7 @@ the index does not exist and <code>if_not_exists='error'</code>.</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_index</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">column</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">column</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">idx_name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -3096,7 +3179,7 @@ otherwise the specific index name must be provided instead.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>column</code></b>
-              (<code><span title="typing.Union">Union</span>[str, <span title="pixeltable.exprs.ColumnRef">ColumnRef</span>, None]</code>, default:
+              (<code>str | <span title="pixeltable.exprs.ColumnRef">ColumnRef</span> | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3185,7 +3268,7 @@ indices or multiple indices.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="s1">&#39;TableMetadata&#39;</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3196,26 +3279,10 @@ indices or multiple indices.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>dict[str, <span title="typing.Any">Any</span>]</code>
+              <code>&#39;TableMetadata&#39;</code>
           –
           <div class="doc-md-description">
-            <p>A dictionary containing the metadata, in the following format:</p>
-<pre><code class="language-python">{
-    'base': None,  # If this is a view or snapshot, will contain the name of its base table
-    'schema': {
-        'col1': StringType(),
-        'col2': IntType(),
-    },
-    'is_replica': False,
-    'version': 22,
-    'schema_version': 1,
-    'comment': '',
-    'num_retained_versions': 10,
-    'is_view': False,
-    'is_snapshot': False,
-    'media_validation': 'on_write',
-}
-</code></pre>
+            <p>A <a class="autorefs autorefs-internal" href="../table-metadata/#pixeltable.TableMetadata">TableMetadata</a> instance containing this table's metadata.</p>
           </div>
         </li>
     </ul>
@@ -3586,9 +3653,7 @@ all sub-views (including views of views, etc.)</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">recompute_columns</span><span class="p">(</span>
-    <span class="o">*</span><span class="n">columns</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">],</span>
-    <span class="n">errors_only</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="o">*</span><span class="n">columns</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">,</span> <span class="n">errors_only</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
@@ -3601,7 +3666,7 @@ all sub-views (including views of views, etc.)</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>columns</code></b>
-              (<code><span title="typing.Union">Union</span>[str, <span title="pixeltable.exprs.ColumnRef">ColumnRef</span>]</code>, default:
+              (<code>str | <span title="pixeltable.exprs.ColumnRef">ColumnRef</span></code>, default:
                   <code>()</code>
 )
           –
@@ -3804,7 +3869,7 @@ it:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">sync</span><span class="p">(</span>
-    <span class="n">stores</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stores</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">export_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">import_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
@@ -3820,7 +3885,7 @@ it:</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>stores</code></b>
-              (<code><span title="typing.Optional">Optional</span>[str | list[str]]</code>, default:
+              (<code>str | list[str] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3925,7 +3990,7 @@ See DataFrame.to_pytorch_dataset()</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">unlink_external_stores</span><span class="p">(</span>
-    <span class="n">stores</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stores</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">delete_external_data</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
@@ -3941,7 +4006,7 @@ See DataFrame.to_pytorch_dataset()</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>stores</code></b>
-              (<code><span title="typing.Optional">Optional</span>[str | list[str]]</code>, default:
+              (<code>str | list[str] | None</code>, default:
                   <code>None</code>
 )
           –

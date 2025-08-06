@@ -506,6 +506,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../column-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ColumnMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../data-frame/" class="md-nav__link">
         
   
@@ -527,11 +548,74 @@
   
   
     <li class="md-nav__item">
+      <a href="../../dir-contents/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DirContents
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    IndexMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Table
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../table-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    TableMetadata
   </span>
   
 
@@ -1501,7 +1585,7 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
       <p>Generate content from the specified model. For additional details, see:
 <a href="https://ai.google.dev/gemini-api/docs/text-generation">https://ai.google.dev/gemini-api/docs/text-generation</a></p>
 <p>Request throttling:
-Applies the rate limit set in the config (section <code>gemini</code>, key <code>rate_limit</code>). If no rate
+Applies the rate limit set in the config (section <code>gemini.rate_limits</code>; use the model id as the key). If no rate
 limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
@@ -1596,6 +1680,9 @@ to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl<
 
       <p>Generates images based on a text description and configuration. For additional details, see:
 <a href="https://ai.google.dev/gemini-api/docs/image-generation">https://ai.google.dev/gemini-api/docs/image-generation</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>imagen.rate_limits</code>; use the model id as the key). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install google-genai</code></li>
@@ -1682,6 +1769,9 @@ to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl<
 
       <p>Generates videos based on a text description and configuration. For additional details, see:
 <a href="https://ai.google.dev/gemini-api/docs/video-generation">https://ai.google.dev/gemini-api/docs/video-generation</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>veo.rate_limits</code>; use the model id as the key). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install google-genai</code></li>

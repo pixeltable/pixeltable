@@ -506,6 +506,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../column-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ColumnMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../data-frame/" class="md-nav__link">
         
   
@@ -527,11 +548,74 @@
   
   
     <li class="md-nav__item">
+      <a href="../../dir-contents/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DirContents
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    IndexMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Table
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../table-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    TableMetadata
   </span>
   
 
@@ -1469,6 +1553,69 @@
 
 
       <p>Aggregator that creates a video from a sequence of images.</p>
+<p>Creates an H.264 encoded MP4 video from a sequence of PIL Image frames. This aggregator requires the input
+frames to be ordered (typically by frame position) and is commonly used with <code>FrameIterator</code> views to
+reconstruct videos from processed frames.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>fps</code></b>
+              (<code>int</code>, default:
+                  <code>25</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Frames per second for the output video. Default is 25. This is set when the aggregator is created.</p>
+          </div>
+        </li>
+    </ul>
+      <p>Returns:</p>
+<ul>
+<li>A <code>pxt.Video</code> containing the created video file path.</li>
+</ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Create a video from frames extracted using FrameIterator:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">pixeltable</span> <span class="k">as</span> <span class="nn">pxt</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">pixeltable.functions.video</span> <span class="kn">import</span> <span class="n">make_video</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">pixeltable.iterators</span> <span class="kn">import</span> <span class="n">FrameIterator</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Create base table for videos</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">videos_table</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;videos&#39;</span><span class="p">,</span> <span class="p">{</span><span class="s1">&#39;video&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Video</span><span class="p">})</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Create view to extract frames</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">frames_view</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s1">&#39;video_frames&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">videos_table</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">iterator</span><span class="o">=</span><span class="n">FrameIterator</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">video</span><span class="o">=</span><span class="n">videos_table</span><span class="o">.</span><span class="n">video</span><span class="p">,</span> <span class="n">fps</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Reconstruct video from frames</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">frames_view</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">videos_table</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">make_video</span><span class="p">(</span><span class="n">frames_view</span><span class="o">.</span><span class="n">pos</span><span class="p">,</span> <span class="n">frames_view</span><span class="o">.</span><span class="n">frame</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</code></pre></div>
+    <p>Apply transformations to frames before creating a video:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Add computed column with transformed frames</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">frames_view</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">rotated_frame</span><span class="o">=</span><span class="n">frames_view</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">30</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">stored</span><span class="o">=</span><span class="kc">True</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Create video from transformed frames</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">frames_view</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">videos_table</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">make_video</span><span class="p">(</span><span class="n">frames_view</span><span class="o">.</span><span class="n">pos</span><span class="p">,</span> <span class="n">frames_view</span><span class="o">.</span><span class="n">rotated_frame</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</code></pre></div>
+    <p>Compare multiple processed versions side-by-side:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">frames_view</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">videos_table</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">make_video</span><span class="p">(</span><span class="n">frames_view</span><span class="o">.</span><span class="n">pos</span><span class="p">,</span> <span class="n">frames_view</span><span class="o">.</span><span class="n">frame</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">make_video</span><span class="p">(</span><span class="n">frames_view</span><span class="o">.</span><span class="n">pos</span><span class="p">,</span> <span class="n">frames_view</span><span class="o">.</span><span class="n">rotated_frame</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</code></pre></div>
 
 
 

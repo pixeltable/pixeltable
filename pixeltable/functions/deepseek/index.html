@@ -506,6 +506,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../column-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ColumnMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../data-frame/" class="md-nav__link">
         
   
@@ -527,11 +548,74 @@
   
   
     <li class="md-nav__item">
+      <a href="../../dir-contents/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DirContents
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    IndexMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Table
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../table-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    TableMetadata
   </span>
   
 
@@ -1444,6 +1528,9 @@
 <p>Equivalent to the Deepseek <code>chat/completions</code> API endpoint.
 For additional details, see: <a href="https://api-docs.deepseek.com/api/create-chat-completion">https://api-docs.deepseek.com/api/create-chat-completion</a></p>
 <p>Deepseek uses the OpenAI SDK, so you will need to install the <code>openai</code> package to use this UDF.</p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>deepseek</code>, key <code>rate_limit</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install openai</code></li>

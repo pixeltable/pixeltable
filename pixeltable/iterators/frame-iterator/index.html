@@ -555,6 +555,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../column-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ColumnMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../data-frame/" class="md-nav__link">
         
   
@@ -576,11 +597,74 @@
   
   
     <li class="md-nav__item">
+      <a href="../../dir-contents/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DirContents
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    IndexMetadata
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Table
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../table-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    TableMetadata
   </span>
   
 
@@ -1374,7 +1458,11 @@
 
 </h2>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">FrameIterator</span><span class="p">(</span>
-    <span class="n">video</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fps</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">num_frames</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">video</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fps</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">num_frames</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">all_frame_attrs</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -1410,6 +1498,30 @@ extracted). If <code>fps</code> is greater than the frame rate of the video, an 
           <div class="doc-md-description">
             <p>Exact number of frames to extract. The frames will be spaced as evenly as possible. If
 <code>num_frames</code> is greater than the number of frames in the video, all frames will be extracted.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>all_frame_attrs</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If True, outputs a <code>pxt.Json</code> column <code>frame_attrs</code> with the following <code>pyav</code>-provided attributes
+(for more information, see <code>pyav</code>'s documentation on
+<a href="https://pyav.org/docs/develop/api/video.html#module-av.video.frame">VideoFrame</a> and
+<a href="https://pyav.org/docs/develop/api/frame.html">Frame</a>):</p>
+<ul>
+<li><code>index</code> (<code>int</code>)</li>
+<li><code>pts</code> (<code>Optional[int]</code>)</li>
+<li><code>dts</code> (<code>Optional[int]</code>)</li>
+<li><code>time</code> (<code>Optional[float]</code>)</li>
+<li><code>is_corrupt</code> (<code>bool</code>)</li>
+<li><code>key_frame</code> (<code>bool</code>)</li>
+<li><code>pict_type</code> (<code>int</code>)</li>
+<li><code>interlaced_frame</code> (<code>bool</code>)</li>
+</ul>
+<p>If False, only outputs frame attributes <code>frame_idx</code>, <code>pos_msec</code>, and <code>pos_frame</code> as separate columns.</p>
           </div>
         </li>
     </ul>
