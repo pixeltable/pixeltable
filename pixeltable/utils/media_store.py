@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class MediaStoreFile:
+class MediaStore:
     """
     Utilities to manage media files stored in a local filesystem directory.
 
@@ -35,10 +35,17 @@ class MediaStoreFile:
     pattern = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
     __base_dir: Path
 
-    def __init__(self, base_dir: Optional[Path] = None):
-        """Initialize the MediaStoreFile with a base directory."""
-        assert base_dir is not None, 'Base directory must be provided'
+    def __init__(self, base_dir: Path):
+        """Initialize a MediaStore with a base directory."""
+        assert isinstance(base_dir, Path), 'Base directory must be a Path instance.'
         self.__base_dir = base_dir
+
+    @classmethod
+    def get(cls, base_uri: Optional[Path] = None) -> MediaStore:
+        """Get a MediaStore instance for the given base URI, or the environment's media_dir if None."""
+        if base_uri is None:
+            return MediaStore(env.Env.get().media_dir)
+        raise NotImplementedError
 
     @property
     def _media_dir(self) -> Path:
@@ -47,7 +54,7 @@ class MediaStoreFile:
 
     @classmethod
     def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: Optional[str]) -> Path:
-        """Save a media binary data to a file in the MediaStore. format is ignored for binary data."""
+        """Save a media binary data to a file in a MediaStore. format is ignored for binary data."""
         assert isinstance(file_data, bytes)
         with open(dest_path, 'wb') as f:
             f.write(file_data)
@@ -57,7 +64,7 @@ class MediaStoreFile:
 
     @classmethod
     def _save_pil_image_file(cls, image: PIL.Image.Image, dest_path: Path, format: Optional[str]) -> Path:
-        """Save a PIL Image to a file in the MediaStore with the specified format."""
+        """Save a PIL Image to a file in a MediaStore with the specified format."""
         if dest_path.suffix != f'.{format}':
             dest_path = dest_path.with_name(f'{dest_path.name}.{format}')
 
@@ -88,7 +95,7 @@ class MediaStoreFile:
         return self._prepare_media_path_raw(col.tbl.id, col.id, col.tbl.version, ext)
 
     def resolve_url(self, file_url: Optional[str]) -> Optional[Path]:
-        """Return path if the given url refers to a file managed by this MediaStoreFile, else None.
+        """Return path if the given url refers to a file managed by this MediaStore, else None.
 
         Args:
             file_url: URL to check
@@ -113,7 +120,7 @@ class MediaStoreFile:
         return Path(src_path)
 
     def relocate_local_media_file(self, src_path: Path, col: Column) -> str:
-        """Relocate a local file to the MediaStore, and return its new URL"""
+        """Relocate a local file to a MediaStore, and return its new URL"""
         dest_path = self._prepare_media_path(col, ext=src_path.suffix)
         src_path.rename(dest_path)
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
@@ -121,7 +128,7 @@ class MediaStoreFile:
         return new_file_url
 
     def copy_local_media_file(self, src_path: Path, col: Column) -> str:
-        """Copy a local file to the MediaStore, and return its new URL"""
+        """Copy a local file to a MediaStore, and return its new URL"""
         dest_path = self._prepare_media_path(col, ext=src_path.suffix)
         shutil.copy2(src_path, dest_path)
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
@@ -129,7 +136,7 @@ class MediaStoreFile:
         return new_file_url
 
     def save_media_object(self, data: bytes | PIL.Image.Image, col: Column, format: Optional[str]) -> tuple[Path, str]:
-        """Save a media data object to a file in the MediaStore
+        """Save a media data object to a file in a MediaStore
         Returns:
             dest_path: Path to the saved media file
             url: URL of the saved media file
@@ -188,51 +195,14 @@ class MediaStoreFile:
         return result
 
 
-class MediaStore:
-    """
-    Utilities to manage media files stored in Env.media_dir
-
-    Media file names are a composite of: table id, column id, tbl_version, new uuid:
-    the table id/column id/tbl_version are redundant but useful for identifying all files for a table
-    or all files created for a particular version of a table
-    """
-
-    @classmethod
-    def _media_dir(cls) -> Path:
-        """Returns the media directory path."""
-        return env.Env.get().media_dir
-
-    @classmethod
-    def relocate_local_media_file(cls, src_path: Path, col: Column) -> str:
-        """Relocate a local file to the MediaStore, and return its new URL"""
-        return MediaStoreFile(cls._media_dir()).relocate_local_media_file(src_path, col)
-
-    @classmethod
-    def copy_local_media_file(cls, src_path: Path, col: Column) -> str:
-        """Copy a local file to the MediaStore, and return its new URL"""
-        return MediaStoreFile(cls._media_dir()).copy_local_media_file(src_path, col)
-
-    @classmethod
-    def save_media_object(cls, data: bytes | PIL.Image.Image, col: Column, format: Optional[str]) -> tuple[Path, str]:
-        return MediaStoreFile(cls._media_dir()).save_media_object(data, col, format)
-
-    @classmethod
-    def delete(cls, tbl_id: UUID, tbl_version: Optional[int] = None) -> None:
-        MediaStoreFile(cls._media_dir()).delete(tbl_id, tbl_version)
-
-    @classmethod
-    def count(cls, tbl_id: UUID) -> int:
-        return MediaStoreFile(cls._media_dir()).count(tbl_id)
-
-    @classmethod
-    def stats(cls) -> list[tuple[UUID, int, int, int]]:
-        return MediaStoreFile(cls._media_dir()).stats()
-
-
 class TempStore:
     """
-    A temporary store for data in files that is not yet persisted to its destination.
-    Destination is typically either the MediaStore (local persisted files) or a cloud object store.
+    A temporary store for files of data that are not yet persisted to their destination(s).
+    A destination is typically either a MediaStore (local persisted files) or a cloud object store.
+
+    The TempStore class has no internal state, it provides functionality to manage temporary files
+    in the env.Env.get().tmp_dir directory.
+    It reuses some of the MediaStore functionality to create unique file names.
     """
 
     @classmethod
@@ -243,24 +213,16 @@ class TempStore:
         return env.Env.get().tmp_dir
 
     @classmethod
-    def clear(cls) -> None:
-        for path in glob.glob(f'{cls._tmp_dir()}/*'):
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-
-    @classmethod
     def count(cls, tbl_id: Optional[UUID] = None) -> int:
-        return MediaStoreFile(cls._tmp_dir()).count(tbl_id)
+        return MediaStore(cls._tmp_dir()).count(tbl_id)
 
     @classmethod
     def resolve_url(cls, file_url: Optional[str]) -> Optional[Path]:
-        return MediaStoreFile(cls._tmp_dir()).resolve_url(file_url)
+        return MediaStore(cls._tmp_dir()).resolve_url(file_url)
 
     @classmethod
     def save_media_object(cls, data: bytes | PIL.Image.Image, col: Column, format: Optional[str]) -> tuple[Path, str]:
-        return MediaStoreFile(cls._tmp_dir()).save_media_object(data, col, format)
+        return MediaStore(cls._tmp_dir()).save_media_object(data, col, format)
 
     @classmethod
     def delete_media_file(cls, obj_path: Path) -> None:
@@ -272,6 +234,9 @@ class TempStore:
 
     @classmethod
     def create_path(cls, tbl_id: Optional[UUID] = None, extension: str = '') -> Path:
+        """Return a new, unique Path located in the temporary store.
+        If tbl_id is provided, the path name will be similar to a MediaStore path based on the tbl_id.
+        If tbl_id is None, a random UUID will be used to create the path."""
         if tbl_id is not None:
-            return MediaStoreFile(cls._tmp_dir())._prepare_media_path_raw(tbl_id, 0, 0, extension)
+            return MediaStore(cls._tmp_dir())._prepare_media_path_raw(tbl_id, 0, 0, extension)
         return cls._tmp_dir() / f'{uuid.uuid4()}{extension}'

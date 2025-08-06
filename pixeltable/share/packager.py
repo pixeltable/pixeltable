@@ -619,7 +619,7 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, media_col)
+                self.media_files[url] = MediaStore.get().relocate_local_media_file(src_path, media_col)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
