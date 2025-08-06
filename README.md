@@ -5,9 +5,6 @@
 
 <h2>Declarative Data Infrastructure for Multimodal AI Apps</h2>
 
-Pixeltable is the only Python library that unifies incremental storage, transformation, indexing, and orchestration
-for multimodal data.
-
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
 ![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-E5DDD4)
@@ -35,7 +32,7 @@ for multimodal data.
 pip install pixeltable
 ```
 
-**Pixeltable unifies multimodal data storage, retrieval, and orchestration.**
+**Pixeltable unifies storage, retrieval, and orchestration for multimodal data.**
 It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace.
 
 ## Pixeltable Demo
@@ -106,7 +103,7 @@ results = t.select(
 
 Pixeltable can ingest data from local storage or directly from a URL. When external media files are referenced by URL, as in the `insert` statement above, Pixeltable caches them locally before processing. See the [Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb) notebook for more details.
 
-## Where Did My Data Go?
+## 🗄️ Where Did My Data Go?
 
 Pixeltable workloads generate various outputs, including both structured outputs (such as bounding boxes for detected objects) and/or unstructured outputs (such as generated images or video). By default, everything resides in your Pixeltable user directory at `~/.pixeltable`. Structured data is stored in a Postgres instance in `~/.pixeltable`. Generated media (images, video, audio, documents) are stored outside the Postgres database, in separate flat files in `~/.pixeltable/media`. Those media files are referenced by URL in the database, and Pixeltable provides the "glue" for a unified table interface over both structured and unstructured data.
 
