@@ -132,8 +132,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         should_retry_str = exc.response.headers.get('x-should-retry', '')
         if should_retry_str.lower() != 'true':
             return None
-        retry_after_str = exc.response.headers.get('retry-after', '1')
-        return int(retry_after_str)
+        return super().get_retry_delay(exc)
 
 
 @pxt.udf

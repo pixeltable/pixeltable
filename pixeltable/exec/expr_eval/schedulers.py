@@ -270,6 +270,7 @@ class RequestRateScheduler(Scheduler):
     num_in_flight: int
     total_requests: int
     total_retried: int
+    total_errors: int
 
     TIME_FORMAT = '%H:%M.%S %f'
     MAX_RETRIES = 3
@@ -294,6 +295,7 @@ class RequestRateScheduler(Scheduler):
         self.num_in_flight = 0
         self.total_requests = 0
         self.total_retried = 0
+        self.total_errors = 0
 
         # try to get the rate limit from the config
         elems = resource_pool.split(':')
@@ -312,6 +314,7 @@ class RequestRateScheduler(Scheduler):
             key = model
         requests_per_min = Config.get().get_int_value(key, section=section)
         requests_per_min = requests_per_min or self.DEFAULT_RATE_LIMIT
+        _logger.debug(f'rate limit for {self.resource_pool}: {requests_per_min} RPM')
         self.secs_per_request = 1 / (requests_per_min / 60)
 
     @classmethod
@@ -325,8 +328,12 @@ class RequestRateScheduler(Scheduler):
             if item.num_retries > 0:
                 self.total_retried += 1
             now = time.monotonic()
+            wait_duration = 0.0
+            if item.retry_after is not None:
+                wait_duration = item.retry_after - now
             if now - last_request_ts < self.secs_per_request:
-                wait_duration = self.secs_per_request - (now - last_request_ts)
+                wait_duration = max(wait_duration, self.secs_per_request - (now - last_request_ts))
+            if wait_duration > 0:
                 _logger.debug(f'waiting for {wait_duration} for {self.resource_pool}')
                 await asyncio.sleep(wait_duration)
 
@@ -372,15 +379,20 @@ class RequestRateScheduler(Scheduler):
 
         except Exception as exc:
             _logger.debug(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
+            if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
+                _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
             is_rate_limit_error, retry_after = self._is_rate_limit_error(exc)
             if is_rate_limit_error and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
-                await asyncio.sleep(retry_delay)
-                self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
+                now = time.monotonic()
+                # put the request back in the queue right away, which prevents new requests from being generated until
+                # this one succeeds or exceeds its retry limit
+                self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx, retry_after=now + retry_delay))
                 return
 
             # record the exception
+            self.total_errors += 1
             _, _, exc_tb = sys.exc_info()
             for row in request.rows:
                 row.set_exc(request.fn_call.slot_idx, exc)
@@ -388,7 +400,7 @@ class RequestRateScheduler(Scheduler):
         finally:
             _logger.debug(
                 f'Scheduler stats: #in-flight={self.num_in_flight} #requests={self.total_requests}, '
-                f'#retried={self.total_retried}'
+                f'#retried={self.total_retried} #errors={self.total_errors}'
             )
             if is_task:
                 self.num_in_flight -= 1
