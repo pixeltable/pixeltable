@@ -1,12 +1,21 @@
+from pathlib import Path
+
 import pytest
 
-from pixeltable.utils.media_store import MediaStore
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import env
+from pixeltable.utils.media_store import MediaStore
 
 
 class TestDestination:
+    @classmethod
+    def base_dest(cls) -> Path:
+        """Return the base destination directory for tests"""
+        base_path = env.Env.get().tmp_dir / '..' / 'test_dest'
+        base_path.mkdir(exist_ok=True)
+        return base_path
+
     def pr_us(self, us: pxt.UpdateStatus, op: str = '') -> None:
         """Print contents of UpdateStatus"""
         print(f'=========================== pr_us =========================== op: {op}')
@@ -50,12 +59,11 @@ class TestDestination:
     def test_dest_local_2(self, reset_db: None) -> None:
         """Test destination with two local directories"""
 
-        # Create two valid local directories for image rotation
-        base_dest = env.Env.get().tmp_dir
-        valid_dest_1 = base_dest / 'img_rot1'
+        # Create two valid local file Paths for image rotation
+        valid_dest_1 = self.base_dest() / 'img_rot1'
         if not valid_dest_1.exists():
             valid_dest_1.mkdir()
-        valid_dest_2 = base_dest / 'img_rot2'
+        valid_dest_2 = self.base_dest() / 'img_rot2'
         if not valid_dest_2.exists():
             valid_dest_2.mkdir()
 
@@ -69,7 +77,103 @@ class TestDestination:
         r = t.collect()
         print(r)
 
+        r_dest = t.select(t.img.fileurl, t.img_rot1.fileurl, t.img_rot2.fileurl, t.img_rot3.fileurl).collect()
+        print(r_dest)
+
+        dest1_uri = f'file://{valid_dest_1}'
+        dest2_uri = f'file://{valid_dest_2}'
         assert len(r) == 2
-        assert 3 * len(r) == MediaStore.get().count(t._id)
-#        assert len(r) == MediaStore.get(valid_dest_1).count(t._id)
-#        assert len(r) == MediaStore.get(valid_dest_2).count(t._id)
+        assert len(r) == MediaStore.get().count(t._id)
+        assert len(r) == MediaStore.get(dest1_uri).count(t._id)
+        assert len(r) == MediaStore.get(dest2_uri).count(t._id)
+
+    def test_dest_local_3x3(self, reset_db: None) -> None:
+        """Test destination with two local Paths receiving copies of the same computed image"""
+
+        # Create two valid local Paths for image rotation
+        valid_dest_1 = self.base_dest() / 'img_rot1'
+        if not valid_dest_1.exists():
+            valid_dest_1.mkdir()
+        valid_dest_2 = self.base_dest() / 'img_rot2'
+        if not valid_dest_2.exists():
+            valid_dest_2.mkdir()
+
+        t = pxt.create_table('test_dest', schema={'img': pxt.Image})
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
+        t.add_computed_column(img_rot2=t.img.rotate(90), destination=valid_dest_1)
+        t.add_computed_column(img_rot3=t.img.rotate(90), destination=valid_dest_2)
+        t.add_computed_column(img_rot4=t.img.rotate(90), destination=valid_dest_2)  # Try to copy twice to the same dest
+        print(t.collect())
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        r = t.collect()
+        print(r)
+
+        r_dest = t.select(t.img_rot1.fileurl, t.img_rot2.fileurl, t.img_rot3.fileurl, t.img_rot4.fileurl).collect()
+        print(r_dest)
+
+        dest1_uri = f'file://{valid_dest_1}'
+        dest2_uri = f'file://{valid_dest_2}'
+        assert len(r) == 2
+        assert len(r) == MediaStore.get().count(t._id)
+        assert len(r) == MediaStore.get(dest1_uri).count(t._id)
+
+        # The outcome of this test is unusual:
+        # When the column img_rot4 is ADDED, the computed result for existing rows is not identified
+        # as a duplicate, so it is double copied to the destination.
+        # When new rows are INSERTED, the results and destinations for img_rot3 and img_rot4 are identified
+        # as duplicates, so they are not double copied to the destination.
+        assert len(r) + 1 == MediaStore.get(dest2_uri).count(t._id)
+
+    def test_dest_local_uri(self, reset_db: None) -> None:
+        """Test destination with local URI"""
+
+        # Create a valid local directories for image rotation, expressed as file URI
+        valid_dest_1 = self.base_dest() / 'img_rot1'
+        if not valid_dest_1.exists():
+            valid_dest_1.mkdir()
+        dest1_uri = f'file://{valid_dest_1}'
+
+        t = pxt.create_table('test_dest', schema={'img': pxt.Image})
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
+        t.add_computed_column(img_rot2=t.img.rotate(180), destination=valid_dest_1)
+        print(t.collect())
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        r = t.collect()
+        print(r)
+
+        assert len(r) == 2
+        assert len(r) == MediaStore.get().count(t._id)
+        assert len(r) == MediaStore.get(dest1_uri).count(t._id)
+
+    def test_dest_local_copy(self, reset_db: None) -> None:
+        """Test destination attempting to copy a local file to another destination"""
+
+        # Create two valid local file Paths for image rotation
+        valid_dest_1 = self.base_dest() / 'img_rot1'
+        if not valid_dest_1.exists():
+            valid_dest_1.mkdir()
+
+        # The intent of this test is to copy the same image to two different destinations
+        t = pxt.create_table('test_dest', schema={'img': pxt.Image})
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        t.add_computed_column(img_rot1=t.img, destination=None)
+        t.add_computed_column(img_rot2=t.img, destination=valid_dest_1)
+        print(t.collect())
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        r = t.collect()
+        print(r)
+
+        r_dest = t.select(t.img.fileurl, t.img_rot1.fileurl, t.img_rot2.fileurl).collect()
+        print(r_dest)
+
+        assert len(r) == 2
+
+        dest1_uri = f'file://{valid_dest_1}'
+
+        # Copying a local file to the MediaStore is not allowed
+        assert MediaStore.get().count(t._id) == 0
+
+        # Ensure that local file is copied to a specified destination
+        assert len(r) == MediaStore.get(dest1_uri).count(t._id)

@@ -501,6 +501,9 @@ class Planner:
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         plan.ctx.num_computed_exprs = len(recomputed_exprs)
+
+        plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
@@ -599,6 +602,7 @@ class Planner:
         # we're returning everything to the user, so we might as well do it in a single batch
         ctx.batch_size = 0
         plan.set_ctx(ctx)
+        plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return (
             plan,
@@ -652,6 +656,8 @@ class Planner:
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
+        plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+
         return plan
 
     @classmethod
@@ -720,6 +726,8 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
+        plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+
         return plan, len(row_builder.default_eval_ctx.target_exprs)
 
     @classmethod
