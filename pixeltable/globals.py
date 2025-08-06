@@ -415,7 +415,7 @@ def create_replica(
         access: Access control for the replica.
 
             - `'public'`: Anyone can access this replica.
-            - `'private'`: Only the owner can access (default)
+            - `'private'`: Only the owner can access.
     """
     remote_dest = destination.startswith('pxt://')
     remote_source = isinstance(source, str) and source.startswith('pxt://')
