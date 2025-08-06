@@ -2,13 +2,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestAnthropic:
     def test_messages(self, reset_db: None) -> None:
         skip_test_if_not_installed('anthropic')
@@ -40,13 +39,13 @@ class TestAnthropic:
         assert len(results['output'][0]['content'][0]['text']) > 0
         assert len(results['output2'][0]['content'][0]['text']) > 0
 
-    @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
+    @rerun(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('anthropic')
         skip_test_if_no_client('anthropic')
         from pixeltable.functions import anthropic
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(

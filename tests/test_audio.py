@@ -5,7 +5,7 @@ import av
 import pytest
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs
+from pixeltable import env
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.media_store import MediaStore
 
@@ -149,6 +149,22 @@ class TestAudio:
             assert count == file_to_chunks_from_view.get(file, 0)
         reload_tester.run_reload_test()
 
+    def test_audio_iterator_on_videos_revert_media_store(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        video_filepaths = get_video_files()
+        video_t = pxt.create_table('videos', {'video': pxt.Video})
+        video_t.insert({'video': p} for p in video_filepaths)
+
+        pre_count = MediaStore.count(video_t._id)
+        # extract audio
+        video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
+        post_count = MediaStore.count(video_t._id)
+        assert post_count > pre_count  # Some files should have been added
+
+        print(video_t.history())
+        video_t.revert()
+        final_count = MediaStore.count(video_t._id)
+        assert final_count == pre_count  # Reverting should remove the added files
+
     def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
@@ -282,7 +298,7 @@ class TestAudio:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
@@ -292,7 +308,7 @@ class TestAudio:
             )
         assert 'chunk_duration_sec must be a positive number' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
@@ -302,7 +318,7 @@ class TestAudio:
             )
         assert 'chunk_duration_sec must be at least min_chunk_duration_sec' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,

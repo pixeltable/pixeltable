@@ -45,7 +45,7 @@ class AggregationNode(ExecNode):
         # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
         self.agg_fn_calls = [cast(exprs.FunctionCall, e) for e in self.agg_fn_eval_ctx.target_exprs]
         # create output_batch here, rather than in __iter__(), so we don't need to remember tbl and row_builder
-        self.output_batch = DataRowBatch(row_builder, 0)
+        self.output_batch = DataRowBatch(row_builder)
         self.limit = None
 
     def set_limit(self, limit: int) -> None:

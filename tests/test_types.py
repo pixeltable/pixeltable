@@ -111,7 +111,7 @@ class TestTypes:
 
     def test_from_python_type(self, init_env: None) -> None:
         # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
-        test_cases: dict[Union[type, _GenericAlias], tuple[ColumnType, str]] = {
+        test_cases: dict[type | _GenericAlias, tuple[ColumnType, str]] = {
             # Builtin and standard types
             str: (StringType(nullable=False), 'String'),
             int: (IntType(nullable=False), 'Int'),
@@ -174,11 +174,15 @@ class TestTypes:
             assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type]) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type  # noqa: RUF036
+            assert ColumnType.from_python_type(py_type | None) == nullable_pxt_type
+            assert ColumnType.from_python_type(None | py_type) == nullable_pxt_type  # noqa: RUF036
 
             assert ColumnType.from_python_type(py_type, nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == non_nullable_pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type  # noqa: RUF036
+            assert ColumnType.from_python_type(py_type | None, nullable_default=True) == nullable_pxt_type
+            assert ColumnType.from_python_type(None | py_type, nullable_default=True) == nullable_pxt_type  # noqa: RUF036
 
             assert str(non_nullable_pxt_type) == string
             assert str(nullable_pxt_type) == f'Optional[{string}]'

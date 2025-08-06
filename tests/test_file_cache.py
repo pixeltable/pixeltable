@@ -6,18 +6,17 @@ from pathlib import Path
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
-from .utils import get_image_files
+from .utils import get_image_files, rerun
 
 
 class TestFileCache:
     # TODO: Understand why this test is flaky on Windows. (It appears to be a timing issue
     #     related to the Windows filesystem.)
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Test is flaky on Windows')
-    @pytest.mark.flaky(reruns=3)  # Occasional download timeouts
+    @rerun(reruns=3)  # Occasional download timeouts
     def test_eviction(self, reset_db: None) -> None:
         # Set a very small cache size of 200 kiB for this test (the imagenette images are ~5-10 kiB each)
         fc = FileCache.get()
@@ -68,17 +67,17 @@ class TestFileCache:
 
         # Re-insert some images and check that we get a "previously evicted" warning
         with pytest.warns(
-            excs.PixeltableWarning, match='10 media file\\(s\\) had to be downloaded multiple times'
+            pxt.PixeltableWarning, match='10 media file\\(s\\) had to be downloaded multiple times'
         ) as record:
             t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10))
         # Check that we saw the warning exactly once
-        assert sum(r.category is excs.PixeltableWarning for r in record) == 1
+        assert sum(r.category is pxt.PixeltableWarning for r in record) == 1
 
         # Re-insert some more files and check that we get another warning (we should get one per top-level operation),
         # and that the new warning reflects cumulative session eviction stats.
         with pytest.warns(
-            excs.PixeltableWarning, match='15 media file\\(s\\) had to be downloaded multiple times'
+            pxt.PixeltableWarning, match='15 media file\\(s\\) had to be downloaded multiple times'
         ) as record:
             t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10, 15))
         # Check that we saw the warning exactly once
-        assert sum(r.category is excs.PixeltableWarning for r in record) == 1
+        assert sum(r.category is pxt.PixeltableWarning for r in record) == 1

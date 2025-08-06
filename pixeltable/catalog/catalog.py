@@ -103,7 +103,7 @@ def retry_loop(
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
-                except sql.exc.DBAPIError as e:
+                except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -165,7 +165,7 @@ class Catalog:
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
     _tbl_versions: dict[tuple[UUID, Optional[int]], TableVersion]
-    _tbls: dict[UUID, Table]
+    _tbls: dict[tuple[UUID, Optional[int]], Table]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -356,7 +356,7 @@ class Catalog:
                             # raise to abort the transaction
                             raise
 
-                        except sql.exc.DBAPIError as e:
+                        except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                             has_exc = True
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
@@ -380,7 +380,7 @@ class Catalog:
                     # we got this exception after getting the initial table locks and therefore need to abort
                     raise
 
-            except sql.exc.DBAPIError as e:
+            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                 has_exc = True
                 # we got some db error during the actual operation (not just while trying to get locks on the metadata
                 # records): we convert these into Errors, if asked to do so, and abort
@@ -698,6 +698,7 @@ class Catalog:
 
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
+        assert isinstance(dir_id, UUID)
         conn = Env.get().conn
         names: list[str] = []
         while True:
@@ -708,7 +709,7 @@ class Catalog:
                 break
             names.insert(0, dir.md['name'])
             dir_id = dir.parent_id
-        return Path('.'.join(names), empty_is_valid=True, allow_system_paths=True)
+        return Path.parse('.'.join(names), allow_empty_path=True, allow_system_path=True)
 
     @dataclasses.dataclass
     class DirEntry:
@@ -825,7 +826,9 @@ class Catalog:
         add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
 
-    def _get_dir_entry(self, dir_id: UUID, name: str, lock_entry: bool = False) -> Optional[SchemaObject]:
+    def _get_dir_entry(
+        self, dir_id: UUID, name: str, version: Optional[int] = None, lock_entry: bool = False
+    ) -> Optional[SchemaObject]:
         user = Env.get().user
         conn = Env.get().conn
 
@@ -854,9 +857,7 @@ class Catalog:
         )
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
-            if tbl_id not in self._tbls:
-                _ = self._load_tbl(tbl_id)
-            return self._tbls[tbl_id]
+            return self.get_table_by_id(tbl_id, version)
 
         return None
 
@@ -872,7 +873,7 @@ class Catalog:
         """Return the schema object at the given path, or None if it doesn't exist.
 
         Raises Error if
-        - the parent directory doesn't exist'
+        - the parent directory doesn't exist
         - raise_if_exists is True and the path exists
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
@@ -892,7 +893,7 @@ class Catalog:
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
         if parent_dir is None:
             raise excs.Error(f'Directory {parent_path!r} does not exist.')
-        obj = self._get_dir_entry(parent_dir.id, path.name, lock_entry=lock_obj)
+        obj = self._get_dir_entry(parent_dir.id, path.name, path.version, lock_entry=lock_obj)
 
         if obj is None and raise_if_not_exists:
             raise excs.Error(f'Path {path!r} does not exist.')
@@ -903,18 +904,14 @@ class Catalog:
             raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.')
         return obj
 
-    def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
+    def get_table_by_id(self, tbl_id: UUID, version: Optional[int] = None) -> Optional[Table]:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
-        if tbl_id in self._tbls:
-            return self._tbls[tbl_id]
-        tbl = self._load_tbl(tbl_id)
-        # # if this is a mutable table, we also need to have its mutable views loaded, in order to track column
-        # # dependencies
-        # tbl_version = tbl._tbl_version.get()
-        # if tbl_version.is_mutable:
-        #     for v in tbl_version.mutable_views:
-        #         _ = self.get_table_by_id(v.id)
-        return tbl
+        if (tbl_id, version) not in self._tbls:
+            if version is None:
+                self._load_tbl(tbl_id)
+            else:
+                self._load_tbl_at_version(tbl_id, version)
+        return self._tbls.get((tbl_id, version))
 
     @retry_loop(for_write=True)
     def create_table(
@@ -946,7 +943,7 @@ class Catalog:
             comment=comment,
             media_validation=media_validation,
         )
-        self._tbls[tbl._id] = tbl
+        self._tbls[tbl._id, None] = tbl
         return tbl
 
     def create_view(
@@ -1045,12 +1042,12 @@ class Catalog:
             )
 
         # Ensure that the system directory exists.
-        self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
+        self._create_dir(Path.parse('_system', allow_system_path=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
         # Now check to see if this table already exists in the catalog.
         existing = self.get_table_by_id(tbl_id)
         if existing is not None:
-            existing_path = Path(existing._path(), allow_system_paths=True)
+            existing_path = Path.parse(existing._path(), allow_system_path=True)
             if existing_path != path:
                 # It does exist, under a different path from the specified one.
                 if not existing_path.is_system_path:
@@ -1073,12 +1070,12 @@ class Catalog:
             replica_path: Path
             if replica is None:
                 # We've never seen this table before. Create a new anonymous system table for it.
-                replica_path = Path(f'_system.replica_{ancestor_id.hex}', allow_system_paths=True)
+                replica_path = Path.parse(f'_system.replica_{ancestor_id.hex}', allow_system_path=True)
             else:
                 # The table already exists in the catalog. The existing path might be a system path (if the table
                 # was created as an anonymous base table of some other table), or it might not (if it's a snapshot
                 # that was directly replicated by the user at some point). In either case, use the existing path.
-                replica_path = Path(replica._path(), allow_system_paths=True)
+                replica_path = Path.parse(replica._path(), allow_system_path=True)
 
             # Store the metadata; it could be a new version (in which case a new record will be created), or a known
             # version (in which case the newly received metadata will be validated as identical).
@@ -1271,8 +1268,10 @@ class Catalog:
             tv.drop()
 
         self.delete_tbl_md(tbl._id)
-        assert tbl._id in self._tbls
-        del self._tbls[tbl._id]
+        assert (tbl._id, None) in self._tbls
+        versions = [k[1] for k in self._tbls if k[0] == tbl._id]
+        for version in versions:
+            del self._tbls[tbl._id, version]
         _logger.info(f'Dropped table `{tbl._path()}`.')
 
     @retry_loop(for_write=True)
@@ -1459,7 +1458,7 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
-    def _load_tbl(self, tbl_id: UUID) -> Optional[Table]:
+    def _load_tbl(self, tbl_id: UUID) -> None:
         """Loads metadata for the table with the given id and caches it."""
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
@@ -1494,8 +1493,8 @@ class Catalog:
             if (tbl_id, None) not in self._tbl_versions:
                 _ = self._load_tbl_version(tbl_id, None)
             tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(tbl_id, None))
-            self._tbls[tbl_id] = tbl
-            return tbl
+            self._tbls[tbl_id, None] = tbl
+            return
 
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
@@ -1519,8 +1518,68 @@ class Catalog:
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
-        self._tbls[tbl_id] = view
-        return view
+        self._tbls[tbl_id, None] = view
+
+    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> None:
+        from .view import View
+
+        # Load the specified TableMd and TableVersionMd records from the db.
+        conn = Env.get().conn
+        q: sql.Executable = (
+            sql.select(schema.Table, schema.TableVersion)
+            .join(schema.TableVersion)
+            .where(schema.Table.id == tbl_id)
+            .where(schema.Table.id == schema.TableVersion.tbl_id)
+            .where(schema.TableVersion.version == version)
+        )
+        row = conn.execute(q).one_or_none()
+        if row is None:
+            return None
+        tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
+        tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+        version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
+
+        # Reconstruct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
+        # timestamps of this table and all its ancestors.
+        # TODO: Store the relevant TableVersionPaths in the database, so that we don't need to rely on timestamps
+        #     (which might be nondeterministic in the future).
+
+        # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
+        # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
+        # given TableVersion's created_at timestamp.
+        ancestors: list[tuple[UUID, Optional[int]]] = [(tbl_id, version)]
+        if tbl_md.view_md is not None:
+            for ancestor_id, _ in tbl_md.view_md.base_versions:
+                q = (
+                    sql.select(schema.TableVersion)
+                    .where(schema.TableVersion.tbl_id == ancestor_id)
+                    .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= version_md.created_at)
+                    .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
+                    .limit(1)
+                )
+                row = conn.execute(q).one_or_none()
+                if row is None:
+                    # This can happen if an ancestor version is garbage collected; it can also happen in
+                    # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
+                    _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{version}')
+                    raise excs.Error('The specified table version is no longer valid and cannot be retrieved.')
+                ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
+                ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
+                assert ancestor_version_md.created_at <= version_md.created_at
+                ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
+
+        # Force any ancestors to be loaded (base table first).
+        for anc_id, anc_version in ancestors[::-1]:
+            if (anc_id, anc_version) not in self._tbl_versions:
+                _ = self._load_tbl_version(anc_id, anc_version)
+
+        # Now reconstruct the relevant TableVersionPath instance from the ancestor versions.
+        tvp: Optional[TableVersionPath] = None
+        for anc_id, anc_version in ancestors[::-1]:
+            tvp = TableVersionPath(TableVersionHandle(anc_id, anc_version), base=tvp)
+
+        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
+        self._tbls[tbl_id, version] = view
 
     @retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
@@ -1698,9 +1757,7 @@ class Catalog:
         stmt = (
             sql.update(schema.TableVersion)
             .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version)
-            .values(
-                md=schema.TableVersion.md.op('||')({'additional_md': {'update_status': dataclasses.asdict(status)}})
-            )
+            .values(md=schema.TableVersion.md.op('||')({'update_status': dataclasses.asdict(status)}))
         )
 
         res = conn.execute(stmt)
@@ -1817,9 +1874,9 @@ class Catalog:
                 version_md,
                 effective_version,
                 schema_version_md,
+                mutable_views,
                 base_path=base_path,
                 base=base,
-                mutable_views=mutable_views,
             )
 
         # register the instance before init()

@@ -21,6 +21,13 @@ verbosity = 2
 [openai]
 api_key = 'my-openai-api-key'
 
+[openai.rate_limits]
+tts-1 = 500  # OpenAI uses a per-model rate limit configuration (see below for details)
+
+[mistral]
+api_key = 'my-openai-api-key'
+rate_limit = 600  # Mistral uses a single rate limit for all models
+
 [label_studio]
 url = 'http://localhost:8080/'
 api_key = 'my-label-studio-api-key'
@@ -51,8 +58,50 @@ api_key = 'my-label-studio-api-key'
 | LABEL_STUDIO_URL | [label_studio]<br/>url | (string) URL of the Label Studio server to use |
 | MISTRAL_API_KEY | [mistral]<br/>api_key | (string) API key to use for Mistral AI services |
 | OPENAI_API_KEY | [openai]<br/>api_key | (string) API key to use for OpenAI services |
+| OPENAI_BASE_URL | [openai]<br/>base_url | (string, optional) Base URL to use for OpenAI services |
+| OPENAI_API_VERSION | [openai]<br/>api_version | (string) API version for use with Azure OpenAI; must be `'latest'` or `'preview'` |
 | REPLICATE_API_TOKEN | [replicate]<br/>api_token | (string) API token to use for Replicate services |
 | TOGETHER_API_KEY | [together]<br/>api_key | (string) API key to use for Together AI services |
+
+## Rate Limit Configuration
+
+Pixeltable supports two patterns for configuring API rate limits in `config.toml`. Refer to the docstring of the
+relevant udf in the [API reference](https://pixeltable.github.io/pixeltable/) for details on the rate limiting pattern used by that udf.
+
+### Single Rate Limit per Provider
+
+For providers with a single rate limit across all models, add a `rate_limit` key to the provider's config section:
+
+```toml
+[mistral]
+api_key = 'my-mistral-api-key'
+rate_limit = 600  # requests per minute
+
+[fireworks]
+api_key = 'my-fireworks-api-key'
+rate_limit = 300
+```
+
+### Per-Model Rate Limits
+
+For providers that support different rate limits for different models, add a `<provider>.rate_limits` section and list the rate limits for each model:
+
+```toml
+[openai]
+api_key = 'my-openai-api-key'
+
+[openai.rate_limits]
+gpt-4o = 500
+gpt-4o-mini = 1000
+tts-1 = 50
+dall-e-3 = 10
+
+[gemini.rate_limits]
+gemini-pro = 600
+gemini-pro-vision = 300
+```
+
+If no rate limit is configured, Pixeltable uses a default of 600 requests per minute.
 
 ## Configuration Best Practices
 

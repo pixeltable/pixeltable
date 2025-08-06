@@ -26,7 +26,7 @@ def _deepseek_client() -> 'openai.AsyncOpenAI':
     return env.Env.get().get_client('deepseek')
 
 
-@pxt.udf
+@pxt.udf(resource_pool='request-rate:deepseek')
 async def chat_completions(
     messages: list,
     *,
@@ -42,6 +42,10 @@ async def chat_completions(
     For additional details, see: <https://api-docs.deepseek.com/api/create-chat-completion>
 
     Deepseek uses the OpenAI SDK, so you will need to install the `openai` package to use this UDF.
+
+    Request throttling:
+    Applies the rate limit set in the config (section `deepseek`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 

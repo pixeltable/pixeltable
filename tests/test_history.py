@@ -1,7 +1,8 @@
+from datetime import datetime, timedelta
+
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
 
 
 class TestHistory:
@@ -39,7 +40,13 @@ class TestHistory:
         v = pxt.create_view('view_of_test', t, comment='view of test table')
         r = v.history()
         print(r)
+        view_created_at = r['created_at'][0]
+        # created_at should be recent
+        assert view_created_at > datetime.now() - timedelta(seconds=30)
+        assert view_created_at < datetime.now()
+        assert r['inserts'][0] > 0
         assert len(r) == 1
+
         s = t.add_computed_column(c5=t.c1 + 20)
         self.pr_us(s, 'acc3')
         s = t.add_columns({'c6': pxt.String, 'c7': pxt.Int, 'c8': pxt.Float})
@@ -86,9 +93,9 @@ class TestHistory:
         print(r.schema)
         print(r)
 
-        with pytest.raises(excs.Error, match='Invalid value for'):
+        with pytest.raises(pxt.Error, match='Invalid value for'):
             t.history(n=0)
-        with pytest.raises(excs.Error, match='Invalid value for'):
+        with pytest.raises(pxt.Error, match='Invalid value for'):
             t.history(n=1.5)  # type: ignore[arg-type]
 
         r = t.history(n=3)

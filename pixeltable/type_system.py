@@ -5,6 +5,7 @@ import datetime
 import enum
 import io
 import json
+import types
 import typing
 import urllib.parse
 import urllib.request
@@ -291,7 +292,7 @@ class ColumnType:
 
     @classmethod
     def from_python_type(
-        cls, t: Union[type, _GenericAlias], nullable_default: bool = False, allow_builtin_types: bool = True
+        cls, t: type | _GenericAlias, nullable_default: bool = False, allow_builtin_types: bool = True
     ) -> Optional[ColumnType]:
         """
         Convert a Python type into a Pixeltable `ColumnType` instance.
@@ -307,10 +308,10 @@ class ColumnType:
         """
         origin = typing.get_origin(t)
         type_args = typing.get_args(t)
-        if origin is typing.Union:
+        if origin in (typing.Union, types.UnionType):
             # Check if `t` has the form Optional[T].
             if len(type_args) == 2 and type(None) in type_args:
-                # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
+                # `t` is a type of the form Optional[T] (equivalently, T | None or None | T).
                 # We treat it as the underlying type but with nullable=True.
                 underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
                 underlying = cls.from_python_type(underlying_py_type, allow_builtin_types=allow_builtin_types)
@@ -360,10 +361,7 @@ class ColumnType:
 
     @classmethod
     def normalize_type(
-        cls,
-        t: Union[ColumnType, type, _AnnotatedAlias],
-        nullable_default: bool = False,
-        allow_builtin_types: bool = True,
+        cls, t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True
     ) -> ColumnType:
         """
         Convert any type recognizable by Pixeltable to its corresponding ColumnType.
@@ -388,7 +386,7 @@ class ColumnType:
     ]
 
     @classmethod
-    def __raise_exc_for_invalid_type(cls, t: Union[type, _AnnotatedAlias]) -> None:
+    def __raise_exc_for_invalid_type(cls, t: type | _AnnotatedAlias) -> None:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
             if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
@@ -404,7 +402,7 @@ class ColumnType:
         return cls.from_python_type(py_type) if py_type is not None else None
 
     @classmethod
-    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> Union[type, _GenericAlias, None]:
+    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> type | _GenericAlias | None:
         if 'type' in schema:
             if schema['type'] == 'null':
                 return type(None)

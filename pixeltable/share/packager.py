@@ -1,7 +1,6 @@
 import base64
 import datetime
 import io
-import itertools
 import json
 import logging
 import tarfile
@@ -237,8 +236,7 @@ class TablePackager:
         - Videos are replaced by their first frame and resized as above
         - Documents are replaced by a thumbnail as a base64-encoded webp
         """
-        # First 8 columns
-        preview_cols = dict(itertools.islice(self.table._get_schema().items(), 0, 8))
+        preview_cols = self.table._get_schema()
         select_list = [self.table[col_name] for col_name in preview_cols]
         # First 5 rows
         rows = list(self.table.select(*select_list).head(n=5))
@@ -369,7 +367,7 @@ class TableRestorer:
         with cat.begin_xact(for_write=True):
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
-            cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
+            cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
 
             # Now we need to load data for replica_tbl and its ancestors, except that we skip
             # replica_tbl itself if it's a pure snapshot.
@@ -461,42 +459,51 @@ class TableRestorer:
             for col_name, col in temp_cols.items()
             if col_name not in system_col_names and col_name not in media_col_names
         ]
-        mismatch_predicates = [store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)]
-        mismatch_clause = sql.or_(*mismatch_predicates)
 
-        # This query looks for rows that have matching primary keys (rowid + pos_k + v_min), but differ in at least
-        # one value column. Pseudo-SQL:
-        #
-        # SELECT store_tbl.col_0, ..., store_tbl.col_n, temp_tbl.col_0, ...,  temp_tbl.col_n
-        # FROM store_tbl, temp_tbl
-        # WHERE store_tbl.rowid = temp_tbl.rowid
-        #     AND store_tbl.pos_0 = temp_tbl.pos_0
-        #     AND ... AND store_tbl.pos_k = temp_tbl.pos_k
-        #     AND store_tbl.v_min = temp_tbl.v_min
-        #     AND (
-        #         store_tbl.col_0 != temp_tbl.col_0
-        #         OR store_tbl.col_1 != temp_tbl.col_1
-        #         OR ... OR store_tbl.col_n != temp_tbl.col_n
-        #     )
-        #
-        # The value column comparisons (store_tbl.col_0 != temp_tbl.col_0, etc.) will always be false for rows where
-        # either column is NULL; this is what we want, since it may indicate a column that is present in one version
-        # but not the other.
-        q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
-        _logger.debug(q.compile())
-        result = conn.execute(q)
-        if result.rowcount > 0:
-            _logger.debug(
-                f'Data corruption error between {temp_sa_tbl_name!r} and {store_sa_tbl_name!r}: '
-                f'{result.rowcount} inconsistent row(s).'
-            )
-            row = result.first()
-            _logger.debug('Example mismatch:')
-            _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
-            _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
-            raise excs.Error(
-                'Data corruption error: the replica data are inconsistent with data retrieved from a previous replica.'
-            )
+        q: sql.Executable
+
+        assert len(value_store_cols) == len(value_temp_cols)
+        if len(value_store_cols) > 0:
+            mismatch_predicates = [
+                store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)
+            ]
+            mismatch_clause = sql.or_(*mismatch_predicates)
+
+            # This query looks for rows that have matching primary keys (rowid + pos_k + v_min), but differ in at least
+            # one value column. Pseudo-SQL:
+            #
+            # SELECT store_tbl.col_0, ..., store_tbl.col_n, temp_tbl.col_0, ...,  temp_tbl.col_n
+            # FROM store_tbl, temp_tbl
+            # WHERE store_tbl.rowid = temp_tbl.rowid
+            #     AND store_tbl.pos_0 = temp_tbl.pos_0
+            #     AND ... AND store_tbl.pos_k = temp_tbl.pos_k
+            #     AND store_tbl.v_min = temp_tbl.v_min
+            #     AND (
+            #         store_tbl.col_0 != temp_tbl.col_0
+            #         OR store_tbl.col_1 != temp_tbl.col_1
+            #         OR ... OR store_tbl.col_n != temp_tbl.col_n
+            #     )
+            #
+            # The value column comparisons (store_tbl.col_0 != temp_tbl.col_0, etc.) will always be false for rows where
+            # either column is NULL; this is what we want, since it may indicate a column that is present in one version
+            # but not the other.
+            q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
+            _logger.debug(q.compile())
+            result = conn.execute(q)
+            if result.rowcount > 0:
+                _logger.debug(
+                    f'Data corruption error between {temp_sa_tbl_name!r} and {store_sa_tbl_name!r}: '
+                    f'{result.rowcount} inconsistent row(s).'
+                )
+                row = result.first()
+                _logger.debug('Example mismatch:')
+                _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
+                _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
+                raise excs.Error(
+                    'Data corruption error: '
+                    'the replica data are inconsistent with data retrieved from a previous replica.'
+                )
+
         _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')
 
         # Now rectify the v_max values in the temporary table.
@@ -572,16 +579,18 @@ class TableRestorer:
         for col_name in pydict:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
-        media_col_ids: dict[str, int] = {}
+        media_cols: dict[str, catalog.Column] = {}
         for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
-                media_col_ids[col.store_name()] = col.id
+                assert tv.id == col.tbl.id
+                assert tv.version == col.tbl.version
+                media_cols[col.store_name()] = col
 
         row_count = len(next(iter(pydict.values())))
         rows: list[dict[str, Any]] = []
         for i in range(row_count):
             row = {
-                col_name: self.__from_pa_value(tv, col_vals[i], sql_types[col_name], media_col_ids.get(col_name))
+                col_name: self.__from_pa_value(col_vals[i], sql_types[col_name], media_cols.get(col_name))
                 for col_name, col_vals in pydict.items()
             }
             rows.append(row)
@@ -589,19 +598,19 @@ class TableRestorer:
         return rows
 
     def __from_pa_value(
-        self, tv: catalog.TableVersion, val: Any, sql_type: sql.types.TypeEngine[Any], media_col_id: Optional[int]
+        self, val: Any, sql_type: sql.types.TypeEngine[Any], media_col: Optional[catalog.Column]
     ) -> Any:
         if val is None:
             return None
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
-        if media_col_id is not None:
-            assert isinstance(val, str)
-            return self.__relocate_media_file(tv, media_col_id, val)
+        if media_col is not None:
+            return self.__relocate_media_file(media_col, val)
         return val
 
-    def __relocate_media_file(self, tv: catalog.TableVersion, media_col_id: int, url: str) -> str:
+    def __relocate_media_file(self, media_col: catalog.Column, url: str) -> str:
         # If this is a pxtmedia:// URL, relocate it
+        assert isinstance(url, str)
         parsed_url = urllib.parse.urlparse(url)
         assert parsed_url.scheme != 'file'  # These should all have been converted to pxtmedia:// URLs
         if parsed_url.scheme == 'pxtmedia':
@@ -610,7 +619,7 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, tv.id, media_col_id, tv.version)
+                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, media_col)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url

@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
@@ -80,43 +80,70 @@ class Table(SchemaObject):
         conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     # this is duplicated from SchemaObject so that our API docs show the docstring for Table
-    def get_metadata(self) -> dict[str, Any]:
+    def get_metadata(self) -> 'TableMetadata':
         """
         Retrieves metadata associated with this table.
 
         Returns:
-            A dictionary containing the metadata, in the following format:
-
-                ```python
-                {
-                    'base': None,  # If this is a view or snapshot, will contain the name of its base table
-                    'schema': {
-                        'col1': StringType(),
-                        'col2': IntType(),
-                    },
-                    'is_replica': False,
-                    'version': 22,
-                    'schema_version': 1,
-                    'comment': '',
-                    'num_retained_versions': 10,
-                    'is_view': False,
-                    'is_snapshot': False,
-                    'media_validation': 'on_write',
-                }
-                ```
+            A [TableMetadata][pixeltable.TableMetadata] instance containing this table's metadata.
         """
-        return super().get_metadata()
+        from pixeltable.catalog import retry_loop
 
-    def _get_metadata(self) -> dict[str, Any]:
-        md = super()._get_metadata()
-        md['schema'] = self._get_schema()
-        md['is_replica'] = self._tbl_version_path.is_replica()
-        md['version'] = self._get_version()
-        md['schema_version'] = self._tbl_version_path.schema_version()
-        md['comment'] = self._get_comment()
-        md['num_retained_versions'] = self._get_num_retained_versions()
-        md['media_validation'] = self._get_media_validation().name.lower()
-        return md
+        @retry_loop(for_write=False)
+        def op() -> 'TableMetadata':
+            return self._get_metadata()
+
+        return op()
+
+    def _get_metadata(self) -> 'TableMetadata':
+        columns = self._tbl_version_path.columns()
+        column_info: dict[str, ColumnMetadata] = {}
+        for col in columns:
+            column_info[col.name] = ColumnMetadata(
+                name=col.name,
+                type_=col.col_type._to_str(as_schema=True),
+                version_added=col.schema_version_add,
+                is_stored=col.is_stored,
+                is_primary_key=col.is_pk,
+                media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
+                computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
+            )
+        # Pure snapshots have no indices
+        indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}
+        index_info: dict[str, IndexMetadata] = {}
+        for info in indices:
+            if isinstance(info.idx, index.EmbeddingIndex):
+                embeddings: list[str] = []
+                if info.idx.string_embed is not None:
+                    embeddings.append(str(info.idx.string_embed))
+                if info.idx.image_embed is not None:
+                    embeddings.append(str(info.idx.image_embed))
+                index_info[info.name] = IndexMetadata(
+                    name=info.name,
+                    columns=[info.col.name],
+                    index_type='embedding',
+                    parameters=EmbeddingIndexParams(
+                        metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
+                        embeddings=embeddings,
+                    ),
+                )
+        return TableMetadata(
+            name=self._name,
+            path=self._path(),
+            columns=column_info,
+            indices=index_info,
+            is_replica=self._tbl_version_path.is_replica(),
+            is_view=False,
+            is_snapshot=False,
+            version=self._get_version(),
+            version_created=datetime.datetime.fromtimestamp(
+                self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc
+            ),
+            schema_version=self._tbl_version_path.schema_version(),
+            comment=self._get_comment(),
+            media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
+            base=None,
+        )
 
     def _get_version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
@@ -449,7 +476,7 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]],
+        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
@@ -523,7 +550,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr],
+        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -768,7 +795,7 @@ class Table(SchemaObject):
             cls._verify_column(col)
             column_names.add(col.name)
 
-    def drop_column(self, column: Union[str, ColumnRef], if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+    def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
 
         Args:
@@ -890,7 +917,7 @@ class Table(SchemaObject):
 
     def add_embedding_index(
         self,
-        column: Union[str, ColumnRef],
+        column: str | ColumnRef,
         *,
         idx_name: Optional[str] = None,
         embedding: Optional[pxt.Function] = None,
@@ -1017,7 +1044,7 @@ class Table(SchemaObject):
     def drop_embedding_index(
         self,
         *,
-        column: Union[str, ColumnRef, None] = None,
+        column: str | ColumnRef | None = None,
         idx_name: Optional[str] = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
@@ -1077,7 +1104,7 @@ class Table(SchemaObject):
 
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
 
-    def _resolve_column_parameter(self, column: Union[str, ColumnRef]) -> Column:
+    def _resolve_column_parameter(self, column: str | ColumnRef) -> Column:
         """Resolve a column parameter to a Column object"""
         col: Column = None
         if isinstance(column, str):
@@ -1096,7 +1123,7 @@ class Table(SchemaObject):
     def drop_index(
         self,
         *,
-        column: Union[str, ColumnRef, None] = None,
+        column: str | ColumnRef | None = None,
         idx_name: Optional[str] = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
@@ -1415,7 +1442,7 @@ class Table(SchemaObject):
             return result
 
     def recompute_columns(
-        self, *columns: Union[str, ColumnRef], errors_only: bool = False, cascade: bool = True
+        self, *columns: str | ColumnRef, errors_only: bool = False, cascade: bool = True
     ) -> UpdateStatus:
         """Recompute the values in one or more computed columns of this table.
 
@@ -1527,11 +1554,7 @@ class Table(SchemaObject):
             env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
     def unlink_external_stores(
-        self,
-        stores: Optional[str | list[str]] = None,
-        *,
-        delete_external_data: bool = False,
-        ignore_errors: bool = False,
+        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
     ) -> None:
         """
         Unlinks this table's external stores.
@@ -1573,7 +1596,7 @@ class Table(SchemaObject):
                 env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store_str}')
 
     def sync(
-        self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True
+        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
     ) -> UpdateStatus:
         """
         Synchronizes this table with its linked external stores.
@@ -1651,7 +1674,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         if n is None:
-            n = 1000_000_000
+            n = 1_000_000_000
         if not isinstance(n, int) or n < 1:
             raise excs.Error(f'Invalid value for n: {n}')
 
@@ -1703,3 +1726,72 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
         if self._tbl_version_path.is_replica():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')
+
+
+class ColumnMetadata(TypedDict):
+    """Metadata for a column of a Pixeltable table."""
+
+    name: str
+    """The name of the column."""
+    type_: str
+    """The type specifier of the column."""
+    version_added: int
+    """The table version when this column was added."""
+    is_stored: bool
+    """`True` if this is a stored column; `False` if it is dynamically computed."""
+    is_primary_key: bool
+    """`True` if this column is part of the table's primary key."""
+    media_validation: Optional[Literal['on_read', 'on_write']]
+    """The media validation policy for this column."""
+    computed_with: Optional[str]
+    """Expression used to compute this column; `None` if this is not a computed column."""
+
+
+class IndexMetadata(TypedDict):
+    """Metadata for a column of a Pixeltable table."""
+
+    name: str
+    """The name of the index."""
+    columns: list[str]
+    """The table columns that are indexed."""
+    index_type: Literal['embedding']
+    """The type of index (currently only `'embedding'` is supported, but others will be added in the future)."""
+    parameters: EmbeddingIndexParams
+
+
+class EmbeddingIndexParams(TypedDict):
+    metric: Literal['cosine', 'ip', 'l2']
+    """Index metric."""
+    embeddings: list[str]
+    """List of embeddings defined for this index."""
+
+
+class TableMetadata(TypedDict):
+    """Metadata for a Pixeltable table."""
+
+    name: str
+    """The name of the table (ex: `'my_table'`)."""
+    path: str
+    """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
+    columns: dict[str, ColumnMetadata]
+    """Column metadata for all of the visible columns of the table."""
+    indices: dict[str, IndexMetadata]
+    """Index metadata for all of the indices of the table."""
+    is_replica: bool
+    """`True` if this table is a replica of another (shared) table."""
+    is_view: bool
+    """`True` if this table is a view."""
+    is_snapshot: bool
+    """`True` if this table is a snapshot."""
+    version: int
+    """The current version of the table."""
+    version_created: datetime.datetime
+    """The timestamp when this table version was created."""
+    schema_version: int
+    """The current schema version of the table."""
+    comment: Optional[str]
+    """User-provided table comment, if one exists."""
+    media_validation: Literal['on_read', 'on_write']
+    """The media validation policy for this table."""
+    base: Optional[str]
+    """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""

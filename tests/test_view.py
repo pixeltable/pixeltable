@@ -6,10 +6,17 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs
+from pixeltable.catalog import Catalog
 from pixeltable.func import Batch
 
-from .utils import ReloadTester, assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
+from .utils import (
+    ReloadTester,
+    assert_resultset_eq,
+    assert_table_metadata_eq,
+    create_test_tbl,
+    reload_catalog,
+    validate_update_status,
+)
 
 logger = logging.getLogger('pixeltable')
 
@@ -46,14 +53,14 @@ class TestView:
     def test_errors(self, reset_db: None) -> None:
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
-        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot insert into a view."):
+        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert([{'bad_col': 1}])
-        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot insert into a view."):
+        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot insert into a view."):
             _ = v.insert(bad_col=1)
-        with pytest.raises(excs.Error, match=r"view 'test_view': Cannot delete from a view."):
+        with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot delete from a view."):
             _ = v.delete()
 
-        with pytest.raises(excs.Error, match=r'Cannot use `create_view` after `join`.'):
+        with pytest.raises(pxt.Error, match=r'Cannot use `create_view` after `join`.'):
             u = pxt.create_table('joined_tbl', {'c1': pxt.String})
             join_df = t.join(u, on=t.c1 == u.c1)
             _ = pxt.create_view('join_view', join_df)
@@ -129,17 +136,17 @@ class TestView:
 
         # test delete view
         pxt.drop_table('test_view')
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.get_table('test_view')
         assert 'does not exist' in str(exc_info.value)
         reload_catalog()
         # still true after reload
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.get_table('test_view')
         assert 'does not exist' in str(exc_info.value)
 
         t = pxt.get_table('test_tbl')
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
@@ -150,12 +157,12 @@ class TestView:
         id_before = v._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('test_view', t, if_exists='invalid')  # type: ignore[arg-type]
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
         # scenario 1: a view exists at the path already
-        with pytest.raises(excs.Error, match='is an existing view'):
+        with pytest.raises(pxt.Error, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v2 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -169,7 +176,7 @@ class TestView:
 
         # scenario 2: a view exists at the path, but has dependency
         _v_on_v = pxt.create_view('test_view_on_view', v2)
-        with pytest.raises(excs.Error, match='is an existing view'):
+        with pytest.raises(pxt.Error, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v3 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -178,7 +185,7 @@ class TestView:
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v3 = pxt.create_view('test_view', t, if_exists='replace')
         err_msg = str(exc_info.value).lower()
         assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
@@ -192,10 +199,10 @@ class TestView:
 
         # scenario 3: path exists but is not a view
         _ = pxt.create_table('not_view', {'c1': pxt.String})
-        with pytest.raises(excs.Error, match='is an existing table'):
+        with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_view('not_view', t)
         for if_exists in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 _ = pxt.create_view('not_view', t, if_exists=if_exists)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a view' in err_msg
@@ -206,14 +213,14 @@ class TestView:
         _ = reload_tester.run_query(v3.select())
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(self, reset_db: None, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_to_view(self, reset_db: None, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test add_column* methods for views"""
         t = test_tbl
         t_c1_val0 = t.select(t.c1).order_by(t.c1).collect()[0]['c1']
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
-        with pytest.raises(excs.Error, match=r"Column 'c1' already exists in the base table"):
+        with pytest.raises(pxt.Error, match=r"Column 'c1' already exists in the base table"):
             pxt.create_view('test_view', t, additional_columns={'c1': pxt.Int})
 
         # create a view and add a column with default value
@@ -234,7 +241,7 @@ class TestView:
         reload_tester.run_reload_test()
 
     def _test_add_column_if_exists(
-        self, v: catalog.Table, t: catalog.Table, col_name: str, orig_val: str, is_base_column: bool
+        self, v: pxt.Table, t: pxt.Table, col_name: str, orig_val: str, is_base_column: bool
     ) -> None:
         """Test if_exists parameter of the add column methods for views"""
         non_existing_col1 = 'non_existing1_' + col_name
@@ -245,22 +252,22 @@ class TestView:
 
         # invalid if_exists value is rejected
         expected_err = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
-        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
             v.add_column(**{col_name: pxt.Int}, if_exists='invalid')
-        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='invalid')
-        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err)):
             v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
         assert col_name in v.columns()
         assert v.select().collect()[0][col_name] == orig_val
 
         # by default, raises an error if the column already exists
         expected_err = f"Duplicate column name: '{col_name}'"
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=expected_err):
             v.add_column(**{col_name: pxt.Int})
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=expected_err):
             v.add_computed_column(**{col_name: t.c2 + t.c3})
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=expected_err):
             v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String})
         assert col_name in v.columns()
         assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
@@ -281,19 +288,19 @@ class TestView:
         # if_exists='replace' will replace the column if it already exists.
         # for a column specific to view. For a base table column, it will raise an error.
         if is_base_column:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 v.add_column(**{col_name: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
             assert v.select().collect()[0][col_name] == orig_val
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 v.add_columns({col_name: pxt.String, non_existing_col3: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
@@ -318,21 +325,21 @@ class TestView:
             v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
             assert v.select(getattr(v, non_existing_col5)).collect()[0][non_existing_col5] == row0[col_name] + 12.3
             expected_err = f'Column {col_name!r} already exists and has dependents.'
-            with pytest.raises(excs.Error, match=expected_err):
+            with pytest.raises(pxt.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
     def test_from_dataframe(self, reset_db: None) -> None:
         t = self.create_tbl()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_view('test_view', t.group_by(t.c2))
         assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_view('test_view', t.order_by(t.c2))
         assert 'Cannot use `create_view` after `order_by`' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_view('test_view', t.limit(10))
         assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
 
@@ -788,11 +795,11 @@ class TestView:
         s = pxt.create_snapshot('test_snap', t)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s, additional_columns={'v1': t.c3 * 2.0})
         assert 'value expression cannot be computed in the context of the base test_tbl' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s.where(t.c2 < 10))
         assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
 
@@ -801,8 +808,8 @@ class TestView:
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._get_schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
-        with catalog.Catalog.get().begin_xact(for_write=False):
-            _ = catalog.Catalog.get().load_replica_md(view_s)
+        with Catalog.get().begin_xact(for_write=False):
+            _ = Catalog.get().load_replica_md(view_s)
         assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
@@ -847,6 +854,252 @@ class TestView:
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
         check(s, v, view_s)
+
+    def test_table_time_travel(self, reset_db: None) -> None:
+        pxt.create_dir('dir')
+        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        assert t.get_metadata()['version'] == 0
+        t.insert(c1=1)
+        t.insert(c1=2)
+        t.add_column(c2=pxt.String)
+        t.insert({'c1': i, 'c2': f'str{i}'} for i in range(3, 10))
+        assert t.get_metadata()['version'] == 4
+        t.drop_column('c1')
+        t.rename_column('c2', 'balloon')
+        t.insert({'balloon': f'str{i}'} for i in range(10, 20))
+        assert t.get_metadata()['version'] == 7
+
+        # Check metadata
+        ver = [pxt.get_table(f'dir.test_tbl:{version}') for version in range(0, 8)]
+        for i in range(len(ver)):
+            assert isinstance(ver[i], pxt.View)
+            vmd = ver[i].get_metadata()
+            expected_schema: dict[str, tuple[str, int]]
+            if i < 3:
+                expected_schema = {'c1': ('Int', 0)}
+                expected_schema_version = 0
+            elif i < 5:
+                expected_schema = {'c1': ('Int', 0), 'c2': ('String', 3)}
+                expected_schema_version = 3
+            elif i < 6:
+                expected_schema = {'c2': ('String', 3)}
+                expected_schema_version = 5
+            else:
+                expected_schema = {'balloon': ('String', 3)}
+                expected_schema_version = 6
+            assert_table_metadata_eq(
+                {
+                    'base': None,
+                    'columns': {
+                        name: {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': 'on_write',
+                            'name': name,
+                            'type_': type_,
+                            'version_added': version_added,
+                        }
+                        for name, (type_, version_added) in expected_schema.items()
+                    },
+                    'comment': '',
+                    'indices': {},
+                    'is_replica': False,
+                    'is_snapshot': True,
+                    'is_view': True,
+                    'media_validation': 'on_write',
+                    'name': f'test_tbl:{i}',
+                    'path': f'dir.test_tbl:{i}',
+                    'schema_version': expected_schema_version,
+                    'version': i,
+                },
+                vmd,
+            )
+
+        res = [list(ver[i].head(100)) for i in range(len(ver))]
+        assert res[0] == []
+        assert res[1] == [{'c1': 1}]
+        assert res[2] == [{'c1': 1}, {'c1': 2}]
+        assert res[3] == [{'c1': 1, 'c2': None}, {'c1': 2, 'c2': None}]
+        assert res[4] == res[3] + [{'c1': i, 'c2': f'str{i}'} for i in range(3, 10)]
+        assert res[5] == [{'c2': r['c2']} for r in res[4]]
+        assert res[6] == [{'balloon': r['c2']} for r in res[5]]
+        assert res[7] == res[6] + [{'balloon': f'str{i}'} for i in range(10, 20)]
+
+    def test_view_time_travel(self, reset_db: None) -> None:
+        pxt.create_dir('dir')
+        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        assert t.get_metadata()['version'] == 0
+        t.insert(c1=1)
+        t.insert(c1=2)
+        t.add_column(c2=pxt.String)
+        t.insert({'c1': i, 'c2': f'str{i}'} for i in range(3, 10))
+        assert t.get_metadata()['version'] == 4
+        v = pxt.create_view('dir.test_view', t.where(t.c1 % 2 == 0))
+        assert v.get_metadata()['version'] == 0
+        v.add_computed_column(c3=(v.c1 // 2))
+        vv = pxt.create_view('dir.test_subview', v.where(v.c1 % 3 == 0))
+        assert vv.get_metadata()['version'] == 0
+        v.add_column(c4=pxt.Int)
+        assert v.get_metadata()['version'] == 2
+        assert vv.get_metadata()['version'] == 0
+        t.drop_column('c2')
+        vv.add_column(c5=pxt.Float)
+        assert vv.get_metadata()['version'] == 1
+        t.rename_column('c1', 'balloon')
+        t.insert({'balloon': i} for i in range(10, 20))
+        assert v.get_metadata()['version'] == 3
+        assert vv.get_metadata()['version'] == 2
+        v.rename_column('c3', 'hamburger')
+        v.update({'c4': v.hamburger + 91})
+        assert t.get_metadata()['version'] == 7
+        assert v.get_metadata()['version'] == 5
+        assert vv.get_metadata()['version'] == 2
+        vv.update({'c5': vv.c4 / 5.0})
+        assert vv.get_metadata()['version'] == 3
+
+        # Check view metadata
+        ver = [pxt.get_table(f'dir.test_view:{version}') for version in range(6)]
+        for i in range(len(ver)):
+            assert isinstance(ver[i], pxt.View)
+            vmd = ver[i].get_metadata()
+            expected_schema: dict[str, tuple[str, int, str | None]]
+            if i == 0:
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None)}
+                expected_schema_version = 0
+                expected_base_version = 4
+            elif i == 1:
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema_version = 1
+                expected_base_version = 4
+            elif i == 2:
+                expected_schema = {
+                    'c1': ('Int', 0, None),
+                    'c2': ('String', 3, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
+                }
+                expected_schema_version = 2
+                expected_base_version = 4
+            elif i == 3:
+                expected_schema = {
+                    'balloon': ('Int', 0, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
+                }
+                expected_schema_version = 2
+                expected_base_version = 7
+            else:
+                expected_schema = {
+                    'balloon': ('Int', 0, None),
+                    'c4': ('Int', 2, None),
+                    'hamburger': ('Int', 1, 'balloon // 2'),
+                }
+                expected_schema_version = 4
+                expected_base_version = 7
+
+            assert_table_metadata_eq(
+                {
+                    'base': f'dir.test_tbl:{expected_base_version}',
+                    'columns': {
+                        name: {
+                            'computed_with': computed_with,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': 'on_write',
+                            'name': name,
+                            'type_': type_,
+                            'version_added': version_added,
+                        }
+                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                    },
+                    'comment': '',
+                    'indices': {},
+                    'is_replica': False,
+                    'is_snapshot': True,
+                    'is_view': True,
+                    'media_validation': 'on_write',
+                    'name': f'test_view:{i}',
+                    'path': f'dir.test_view:{i}',
+                    'schema_version': expected_schema_version,
+                    'version': i,
+                },
+                vmd,
+            )
+
+        # Check view data
+        res = [list(ver[i].head(100)) for i in range(len(ver))]
+        assert res[0] == [{'c1': 2, 'c2': None}] + [{'c1': i, 'c2': f'str{i}'} for i in range(4, 10, 2)]
+        assert res[1] == [d | {'c3': d['c1'] // 2} for d in res[0]]
+        assert res[2] == [d | {'c4': None} for d in res[1]]
+        assert res[3] == [{'balloon': i, 'c3': i // 2, 'c4': None} for i in range(2, 20, 2)]
+        assert res[4] == [{'balloon': i, 'hamburger': i // 2, 'c4': None} for i in range(2, 20, 2)]
+        assert res[5] == [{'balloon': i, 'hamburger': i // 2, 'c4': i // 2 + 91} for i in range(2, 20, 2)]
+
+        # Check subview metadata
+        ver = [pxt.get_table(f'dir.test_subview:{version}') for version in range(4)]
+        for i in range(len(ver)):
+            assert isinstance(ver[i], pxt.View)
+            vmd = ver[i].get_metadata()
+            if i == 0:
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema_version = 0
+                expected_base_version = 1
+            elif i == 1:
+                expected_schema = {
+                    'c1': ('Int', 0, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
+                    'c5': ('Float', 1, None),
+                }
+                expected_schema_version = 1
+                expected_base_version = 2
+            elif i == 2:
+                expected_schema = {
+                    'balloon': ('Int', 0, None),
+                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c4': ('Int', 2, None),
+                    'c5': ('Float', 1, None),
+                }
+                expected_schema_version = 1
+                expected_base_version = 3
+            elif i == 3:
+                expected_schema = {
+                    'balloon': ('Int', 0, None),
+                    'c4': ('Int', 2, None),
+                    'hamburger': ('Int', 1, 'balloon // 2'),
+                    'c5': ('Float', 1, None),
+                }
+                expected_schema_version = 1
+                expected_base_version = 5
+            assert_table_metadata_eq(
+                {
+                    'base': f'dir.test_view:{expected_base_version}',
+                    'columns': {
+                        name: {
+                            'computed_with': computed_with,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': 'on_write',
+                            'name': name,
+                            'type_': type_,
+                            'version_added': version_added,
+                        }
+                        for name, (type_, version_added, computed_with) in expected_schema.items()
+                    },
+                    'comment': '',
+                    'indices': {},
+                    'is_replica': False,
+                    'is_snapshot': True,
+                    'is_view': True,
+                    'media_validation': 'on_write',
+                    'name': f'test_subview:{i}',
+                    'path': f'dir.test_subview:{i}',
+                    'schema_version': expected_schema_version,
+                    'version': i,
+                },
+                vmd,
+            )
 
     def test_column_defaults(self, reset_db: None) -> None:
         """
