@@ -258,41 +258,49 @@ class DataRow:
         self.has_val[idx] = True
 
     def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
-        """Save or discard the in-memory value (required to be a PIL.Image.Image)"""
+        if self.check_needs_saved(index, col):
+            assert col is not None
+            self.file_urls[index] = self.save_media_object(index, col)
+
+    def check_needs_saved(self, index: int, col: Optional[catalog.Column] = None) -> bool:
+        """Return true if the media object in the column needs to be saved, discard unneeded values"""
         if self.vals[index] is None:
-            return
+            return False
+
+        if self.file_urls[index] is not None:
+            return False
+
         assert self.excs[index] is None
         if self.file_paths[index] is None:
             if col is not None:
-                image = self.vals[index]
-                format = None
-                if isinstance(image, PIL.Image.Image):
-                    # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-                    # In that case, use WebP instead.
-                    format = 'webp' if image.has_transparency_data else 'jpeg'
-                filepath, url = MediaStore.get().save_media_object(image, col, format=format)
-                self.file_paths[index] = str(filepath)
-                self.file_urls[index] = url
+                # This is a media object that needs to be saved
+                return True
             else:
-                # we discard the content of this cell
+                # This is a media object that we don't care about, so we discard it
                 self.has_val[index] = False
         else:
             # we already have a file for this image, nothing left to do
             pass
-        self.vals[index] = None
 
-    def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
-        """If a media url refers to data in a temporary file, move the data to a MediaStore"""
-        if self.file_urls[index] is None:
-            return
-        assert self.excs[index] is None
+        self.vals[index] = None
+        return False
+
+    def save_media_object(self, index: int, col: catalog.Column, to_temp: bool = False) -> str:
+        """Save the media object in the column to the column MediaStore file destination or TempStore"""
         assert col.col_type.is_media_type()
-        src_path = TempStore.resolve_url(self.file_urls[index])
-        if src_path is None:
-            # The media url does not point to a temporary file, leave it as is
-            return
-        new_file_url = MediaStore.get().relocate_local_media_file(src_path, col)
-        self.file_urls[index] = new_file_url
+        val = self.vals[index]
+        format = None
+        if isinstance(val, PIL.Image.Image):
+            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+            # In that case, use WebP instead.
+            format = 'webp' if val.has_transparency_data else 'jpeg'
+        if to_temp:
+            filepath, url = TempStore.save_media_object(val, col, format=format)
+        else:
+            filepath, url = MediaStore.get(col.destination).save_media_object(val, col, format=format)
+        self.file_paths[index] = str(filepath) if filepath is not None else None
+        self.vals[index] = None
+        return url
 
     @property
     def rowid(self) -> tuple[int, ...]:

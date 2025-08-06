@@ -11,8 +11,8 @@ from uuid import UUID
 
 from pixeltable import exprs
 from pixeltable.utils.media_store import MediaStore, TempStore
-# from pixeltable.utils.s3 import S3ClientContainer
 
+# from pixeltable.utils.s3 import S3ClientContainer
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -47,11 +47,11 @@ class ObjectStoreSaveNode(ExecNode):
         """Specify the source and destination for a WorkItem"""
 
         src_path: str  # source of the file to be processed
-        destination: str  # destination URI for the file to be processed
+        destination: Optional[str]  # destination URI for the file to be processed
 
     class WorkItem(NamedTuple):
         src_path: Path
-        destination: str
+        destination: Optional[str]
         info: exprs.ColumnSlotIdx  # column info for the file being processed
         destination_count: int = 1  # number of unique destinations for this file
 
@@ -60,7 +60,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
-#    boto_client_source: S3ClientContainer
+    #    boto_client_source: S3ClientContainer
 
     # execution state
     num_returned_rows: int
@@ -85,7 +85,7 @@ class ObjectStoreSaveNode(ExecNode):
         row: exprs.DataRow
         idx: Optional[int]  # position in input stream; None if we don't retain input order
         num_missing: int  # number of references to media files in this row
-        multiple_destinations: list[Path]  # paths with multiple destinations, e.g., S3 bucket and local file system
+        delete_destinations: list[Path]  # paths to delete after all copies are complete
 
     def __init__(
         self, tbl_id: UUID, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode, retain_input_order: bool = True
@@ -131,8 +131,6 @@ class ObjectStoreSaveNode(ExecNode):
                     input_batch = await self.get_input_batch(input_iter)
                     if input_batch is not None:
                         self.__process_input_batch(input_batch, executor)
-
-                print(f'\n===============>>> done={self.input_finished}, queued_work={self.queued_work}\n')
 
                 # Wait for enough completions to enable more queueing or if we're done
                 while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (self.input_finished and self.queued_work > 0):
@@ -191,8 +189,8 @@ class ObjectStoreSaveNode(ExecNode):
                 state.num_missing -= 1
                 if state.num_missing == 0:
                     # All operations for this row are complete. Delete all files which had multiple destinations
-                    for path in state.multiple_destinations:
-                        TempStore.delete_media_file(path)
+                    for src_path in state.delete_destinations:
+                        TempStore.delete_media_file(src_path)
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
@@ -208,20 +206,33 @@ class ObjectStoreSaveNode(ExecNode):
             unique_destinations: dict[Path, int] = defaultdict(int)  # destination -> count of unique destinations
 
             for info in self.file_col_info:
-                url = row.file_urls[info.slot_idx]
+                col, index = info
+                # we may need to store this imagehave yet to store this image
+                if row.check_needs_saved(index, col):
+                    row.file_urls[index] = row.save_media_object(index, col, True)
+
+                url = row.file_urls[index]
                 if url is None:
                     # nothing to do
                     continue
 
-                assert row.excs[info.slot_idx] is None
-                assert info.col.col_type.is_media_type()
+                assert row.excs[index] is None
+                assert col.col_type.is_media_type()
 
-                src_path = TempStore.resolve_url(url)
-                if src_path is None:
-                    # The media url does not point to a temporary file, leave it as is
+                destination = info.col.destination
+                if MediaStore.get(destination).resolve_url(url) is not None:
+                    # The url already points to the correct destination
                     continue
 
-                destination = ''  # Placeholder for destination URI, e.g., S3 bucket or path
+                src_path = MediaStore.file_url_to_path(url)
+                if src_path is None:
+                    # The url does not point to a local file, leave it where it is
+                    continue
+
+                if destination is None and not TempStore.contains_path(src_path):
+                    # Do not copy local file URLs to the MediaStore
+                    continue
+
                 work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination)
                 locations = self.in_flight_work.get(work_designator)
                 if locations is not None:
@@ -236,10 +247,10 @@ class ObjectStoreSaveNode(ExecNode):
                 num_missing += 1
                 unique_destinations[src_path] += 1
 
+            # Update work items to reflect the number of unique destinations
             new_to_do = []
-            multiple_destinations = []
             for work_item in row_to_do:
-                if unique_destinations[work_item.src_path] == 1:
+                if unique_destinations[work_item.src_path] == 1 and TempStore.contains_path(work_item.src_path):
                     new_to_do.append(work_item)
                 else:
                     new_to_do.append(
@@ -247,15 +258,16 @@ class ObjectStoreSaveNode(ExecNode):
                             work_item.src_path,
                             work_item.destination,
                             work_item.info,
-                            destination_count=unique_destinations[work_item.src_path],
+                            destination_count=unique_destinations[work_item.src_path]
+                            + 1,  # +1 for the TempStore destination
                         )
                     )
-                    multiple_destinations.append(work_item.src_path)
+            delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]
             row_to_do = new_to_do
 
             if len(row_to_do) > 0:
                 self.in_flight_rows[id(row)] = self.RowState(
-                    row, row_idx, num_missing, multiple_destinations=multiple_destinations
+                    row, row_idx, num_missing, delete_destinations=delete_destinations
                 )
                 work_to_do.extend(row_to_do)
             else:
@@ -273,13 +285,12 @@ class ObjectStoreSaveNode(ExecNode):
 
         src_path = work_item.src_path
         destination = work_item.destination
-        assert destination == ''
         col = work_item.info.col
         try:
             if work_item.destination_count > 1:
-                new_file_url = MediaStore.get().copy_local_media_file(src_path, col)
+                new_file_url = MediaStore.get(destination).copy_local_media_file(src_path, col)
             else:
-                new_file_url = MediaStore.get().relocate_local_media_file(src_path, col)
+                new_file_url = MediaStore.get(destination).relocate_local_media_file(src_path, col)
             return new_file_url, None
         except Exception as e:
             _logger.debug(f'Failed to move/copy {src_path}: {e}', exc_info=e)

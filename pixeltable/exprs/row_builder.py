@@ -474,11 +474,6 @@ class RowBuilder:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                if col.col_type.is_media_type():
-                    if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
-                        # we have yet to store this image
-                        data_row.flush_img(slot_idx, col)
-                #                    data_row.move_tmp_media_file(slot_idx, col)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
