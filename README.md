@@ -5,14 +5,13 @@
 
 <h2>Declarative Data Infrastructure for Multimodal AI Apps</h2>
 
-Pixeltable is the only Python library providing incremental storage, transformation, indexing, and orchestration of multimodal data.
-
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
 ![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-E5DDD4)
 <br>
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
-[![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
+[![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
+[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![My Discord (1306431018890166272)](https://img.shields.io/badge/💬-Discord-%235865F2.svg)](https://discord.gg/QPyqFYx2UN)
 
@@ -33,13 +32,16 @@ Pixeltable is the only Python library providing incremental storage, transformat
 pip install pixeltable
 ```
 
-**Pixeltable unifies multimodal data storage, retrieval and orchestration.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup. All media  (videos, images, audio) resides in ext. files, and Pixeltable stores references to those. Files can be local/remote (e.g. S3). For the latter, Pixeltable caches the [files locally on access](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb).
+**Pixeltable unifies storage, retrieval, and orchestration for multimodal data.**
+It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace.
+
+## Pixeltable Demo
 
 https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
 
 ## Quick Start
 
-With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**.
+With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**. Focus on your application logic, not the data plumbing.
 
 ```python
 
@@ -58,7 +60,7 @@ from pixeltable.functions import huggingface
 # Object detection with automatic model management
 t.add_computed_column(
     detections=huggingface.detr_for_object_detection(
-        t.input_image, 
+        t.input_image,
         model_id='facebook/detr-resnet-50'
     )
 )
@@ -67,7 +69,7 @@ t.add_computed_column(
 t.add_computed_column(detections_text=t.detections.label_text)
 
 # OpenAI Vision API integration with built-in rate limiting and async managemennt
-from pixeltable.functions import openai         
+from pixeltable.functions import openai
 
 t.add_computed_column(
     vision=openai.vision(
@@ -77,10 +79,12 @@ t.add_computed_column(
     )
 )
 
-# Insert data - automatically triggers computation of all computed columns
+# Insert data directly from an external URL
+# Automatically triggers computation of all computed columns
 t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
 
 # Query - All data, metadata, and computed results are persistently stored
+# Structured and unstructured data are returned side-by-side
 results = t.select(
     t.input_image,
     t.detections_text,
@@ -95,19 +99,24 @@ results = t.select(
 *   **AI Model Integration:** Runs inference ([embeddings](https://docs.pixeltable.com/docs/datastore/embedding-index), [object detection](https://docs.pixeltable.com/docs/examples/vision/yolox), [LLMs](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers)) as part of the data pipeline.
 *   **Indexing & Retrieval:** Creates and manages vector indexes for fast [semantic search](https://docs.pixeltable.com/docs/datastore/embedding-index#phase-3%3A-query) alongside traditional filtering.
 *   **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/docs/overview/quick-start) what's necessary when data or code changes, saving time and cost.
-*   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility.
+*   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility. See below for an example that uses "time travel" to query an older version of a table.
 
-**Focus on your application logic, not the infrastructure.**
+Pixeltable can ingest data from local storage or directly from a URL. When external media files are referenced by URL, as in the `insert` statement above, Pixeltable caches them locally before processing. See the [Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb) notebook for more details.
 
+## 🗄️ Where Did My Data Go?
+
+Pixeltable workloads generate various outputs, including both structured outputs (such as bounding boxes for detected objects) and/or unstructured outputs (such as generated images or video). By default, everything resides in your Pixeltable user directory at `~/.pixeltable`. Structured data is stored in a Postgres instance in `~/.pixeltable`. Generated media (images, video, audio, documents) are stored outside the Postgres database, in separate flat files in `~/.pixeltable/media`. Those media files are referenced by URL in the database, and Pixeltable provides the "glue" for a unified table interface over both structured and unstructured data.
+
+In general, the user is not expected to interact directly with the data in `~/.pixeltable`; the data store is fully managed by Pixeltable and is intended to be accessed through the Pixeltable Python SDK.
 
 ## ⚖️ Key Principles
 
 * **[Unified Multimodal Interface:](https://docs.pixeltable.com/docs/datastore/tables-and-operations)** `pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
   ```python
   t = pxt.create_table(
-    'media', 
+    'media',
     {
-        'img': pxt.Image, 
+        'img': pxt.Image,
         'video': pxt.Video
     }
   )
@@ -125,7 +134,7 @@ results = t.select(
 * **[Built-in Vector Search:](https://docs.pixeltable.com/docs/datastore/embedding-index)** Add embedding indexes and perform similarity searches directly on tables/views.
   ```python
   t.add_embedding_index(
-    'img', 
+    'img',
     embedding=clip.using(
         model_id='openai/clip-vit-base-patch32'
     )
@@ -137,10 +146,10 @@ results = t.select(
 * **[On-the-Fly Data Views:](https://docs.pixeltable.com/docs/datastore/views)** Create virtual tables using iterators for efficient processing without data duplication.
   ```python
   frames = pxt.create_view(
-    'frames', 
-    videos, 
+    'frames',
+    videos,
     iterator=FrameIterator.create(
-        video=videos.video, 
+        video=videos.video,
         fps=1
     )
   )
@@ -173,20 +182,28 @@ results = t.select(
   )
   ```
 
-* **[Persistent & Versioned:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data, metadata, and computed results are automatically stored.
+* **[Data Persistence:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data, metadata, and computed results are automatically stored and versioned.
   ```python
-  t.revert()  # Revert to a previous version
-  stored_table = pxt.get_table('my_existing_table')  # Retrieve persisted table
+  t = pxt.get_table('my_table')  # Get a handle to an existing table
+  t.select(t.account, t.balance).collect()  # Query its contents
+  t.revert()  # Undo the last modification to the table and restore its previous state
+  ```
+
+* **[Time Travel:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** By default, Pixeltable preserves the full change history of each table, and any prior version can be selected and queried.
+  ```python
+  t.history()  # Display a human-readable list of all prior versions of the table
+  old_version = pxt.get_table('my_table:472')  # Get a handle to a specific version of a table
+  old_version.select(t.account, t.balance).collect()  # Query the older version
   ```
 
 * **[SQL-like Python Querying:](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting)** Familiar syntax combined with powerful AI capabilities.
   ```python
   results = (
-    t.where(t.score > 0.8)
-    .order_by(t.timestamp)
-    .select(t.image, score=t.score)
-    .limit(10)
-    .collect()
+      t.where(t.score > 0.8)
+      .order_by(t.timestamp)
+      .select(t.image, score=t.score)
+      .limit(10)
+      .collect()
   )
   ```
 
@@ -204,8 +221,8 @@ import pixeltable as pxt
 
 # Create a table
 t = pxt.create_table(
-    'films', 
-    {'name': pxt.String, 'revenue': pxt.Float, 'budget': pxt.Float}, 
+    'films',
+    {'name': pxt.String, 'revenue': pxt.Float, 'budget': pxt.Float},
     if_exists="replace"
 )
 
@@ -353,13 +370,13 @@ qa.add_computed_column(context=get_relevant_context(qa.prompt))
 qa.add_computed_column(
     final_prompt=pxtf.string.format(
         """
-        PASSAGES: 
+        PASSAGES:
         {0}
-        
-        QUESTION: 
+
+        QUESTION:
         {1}
-        """, 
-        qa.context, 
+        """,
+        qa.context,
         qa.prompt
     )
 )

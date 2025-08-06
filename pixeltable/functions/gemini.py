@@ -40,7 +40,7 @@ async def generate_content(
     <https://ai.google.dev/gemini-api/docs/text-generation>
 
     Request throttling:
-    Applies the rate limit set in the config (section `gemini`, key `rate_limit`). If no rate
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
     limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
@@ -127,6 +127,10 @@ async def generate_images(prompt: str, *, model: str, config: Optional[dict] = N
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
 
+    Request throttling:
+    Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install google-genai`
@@ -167,6 +171,10 @@ async def generate_videos(
     """
     Generates videos based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video-generation>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
