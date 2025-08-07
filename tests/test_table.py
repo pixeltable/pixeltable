@@ -544,7 +544,7 @@ class TestTable:
             'i': pxt.Required[pxt.Int],
             'f': pxt.Required[pxt.Float],
             'b': pxt.Required[pxt.Bool],
-            'j': pxt.Required[pxt.Json],
+            't': pxt.Required[pxt.Timestamp],
         }
         t = pxt.create_table('test_pydantic_basic', schema)
         t.add_computed_column(c1=t.i + 1)
@@ -555,16 +555,17 @@ class TestTable:
             i: int
             f: float
             b: bool
-            j: dict[str, Any]
+            t: datetime.datetime
             opt_s: str | None = None
 
+        now = datetime.datetime.now()
         rows1 = [
             TestModel1(
                 s=f'str_{i}',
                 i=i,
                 f=i * 1.0,
                 b=i % 2 == 0,
-                j={'key': f'val_{i}'},
+                t=now + datetime.timedelta(hours=i),
                 opt_s=f'opt_{i}' if i % 2 == 0 else None,
             )
             for i in range(100)
@@ -581,9 +582,9 @@ class TestTable:
             i: int | None = None
             f: float | None = None
             b: bool | None = None
-            j: dict[str, Any] | None = None
+            t: datetime.datetime | None = None
 
-        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, j={'key': f'val_{i}'}) for i in range(100)]
+        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
 
         status = t.insert(rows2)
         assert status.num_rows == 100
@@ -592,7 +593,7 @@ class TestTable:
 
         # missing required keys in input
         with pytest.raises(pxt.Error, match="Missing required column 's'"):
-            rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, j={'key': f'val_{i}'}) for i in range(100)]
+            rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
             _ = t.insert(rows3)
 
         # mixed models
@@ -607,11 +608,11 @@ class TestTable:
                 i: int
                 f: float
                 b: bool
-                j: dict[str, Any]
+                t: datetime.datetime
                 opt_s: Optional[str] = None
                 c1: int
 
-            _ = t.insert([BadModel1(s='str_0', i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0', c1=1)])
+            _ = t.insert([BadModel1(s='str_0', i=0, f=0.0, b=False, t=now, opt_s='opt_0', c1=1)])
 
         # missing required column
         with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
@@ -620,10 +621,10 @@ class TestTable:
                 i: int
                 f: float
                 b: bool
-                j: dict[str, Any]
+                t: datetime.datetime
                 opt_s: Optional[str] = None
 
-            _ = t.insert([BadModel2(i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+            _ = t.insert([BadModel2(i=0, f=0.0, b=False, t=now, opt_s='opt_0')])
 
         # incompatible field type
         with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
@@ -633,10 +634,10 @@ class TestTable:
                 i: str
                 f: float
                 b: bool
-                j: dict[str, Any]
+                t: datetime.datetime
                 opt_s: Optional[str] = None
 
-            _ = t.insert([BadModel3(s='str_0', i='0', f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+            _ = t.insert([BadModel3(s='str_0', i='0', f=0.0, b=False, t=now, opt_s='opt_0')])
 
         # bad field type
         with pytest.raises(pxt.Error, match="cannot infer Pixeltable type for column 's'"):
@@ -646,16 +647,13 @@ class TestTable:
                 i: int
                 f: float
                 b: bool
-                j: dict[str, Any]
+                t: datetime.datetime
                 opt_s: Optional[str] = None
 
-            _ = t.insert([BadModel4(s={1, 2, 3}, i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+            _ = t.insert([BadModel4(s={1, 2, 3}, i=0, f=0.0, b=False, t=now, opt_s='opt_0')])
 
     def test_insert_nested_pydantic(self, reset_db: None) -> None:
-        schema = {
-            's': pxt.Required[pxt.String],
-            'j': pxt.Required[pxt.Json],
-        }
+        schema = {'s': pxt.Required[pxt.String], 'j': pxt.Required[pxt.Json]}
         t = pxt.create_table('test_nested_pydantic', schema)
 
         class M1(pydantic.BaseModel):
@@ -671,7 +669,8 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
-        assert t.where(t.i < 50).count() == 50
+        rs = t.select(t.s, i=t.j.i).collect()
+        assert rs['s'] == [f'str_{i}' for i in rs['i']]
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.

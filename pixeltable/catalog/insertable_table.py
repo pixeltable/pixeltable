@@ -11,6 +11,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.pydantic import is_json_convertible
 
 from .globals import MediaValidation
 from .table import Table
@@ -278,12 +279,19 @@ class InsertableTable(Table):
                 raise excs.Error(
                     f'Pydantic model {model.__name__}: cannot infer Pixeltable type for column {field_name!r}'
                 )
-            if pxt_col_type.is_scalar_type() and not pxt_col_type.is_supertype_of(
-                inferred_pxt_type, ignore_nullable=True
-            ):
+            if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
                 raise excs.Error(
                     f'Pydantic model {model.__name__} has incompatible type ({model_type.__name__}) '
                     f'for column {field_name!r} ({pxt_col_type})'
+                )
+            if (
+                isinstance(model_type, type)
+                and issubclass(model_type, pydantic.BaseModel)
+                and not is_json_convertible(model_type)
+            ):
+                raise excs.Error(
+                    f'Pydantic model {model.__name__} has field {field_name!r} with nested model '
+                    f'{model_type.__name__}, which is not JSON-convertible'
                 )
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:

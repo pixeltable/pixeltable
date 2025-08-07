@@ -1293,7 +1293,7 @@ class Table(SchemaObject):
 
         ```python
         insert(
-            rows: Iterable[BaseModel],
+            rows: Sequence[BaseModel],
             /,
             *,
             on_error: Literal['abort', 'ignore'] = 'abort',
@@ -1355,8 +1355,7 @@ class Table(SchemaObject):
 
             Insert Pydantic model instances:
 
-            >>> from pydantic import BaseModel
-            ... class MyModel(BaseModel):
+            >>> class MyModel(pydantic.BaseModel):
             ...     a: int
             ...     b: int
             ...
