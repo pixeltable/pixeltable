@@ -2,27 +2,23 @@ from __future__ import annotations
 
 import abc
 import builtins
+import datetime
 import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
-
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-import datetime
 from uuid import UUID
 
 import pandas as pd
+import pydantic
 import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
-
-from ..exprs import ColumnRef
-from ..utils.description_helper import DescriptionHelper
-from ..utils.filecache import FileCache
 from .column import Column
 from .globals import (
     _ROWID_COLUMN_NAME,
@@ -36,9 +32,13 @@ from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .update_status import UpdateStatus
+from ..exprs import ColumnRef
+from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 
 if TYPE_CHECKING:
     import torch.utils.data
+    from pydantic import BaseModel
 
     import pixeltable.plan
     from pixeltable.globals import TableDataSource
@@ -306,6 +306,106 @@ class Table(SchemaObject):
     def _get_schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
+
+    def _validate_pydantic_model(self, model: 'type[BaseModel]') -> None:
+        """
+        Check if a Pydantic model is compatible with this table for insert operations.
+
+        A model is compatible if:
+        - All required table columns have corresponding model fields with compatible types
+        - Model does not define fields for computed columns
+        - Model field types are compatible with table column types
+        """
+        assert isinstance(model, type) and issubclass(model, pydantic.BaseModel)
+
+        schema = self._get_schema()
+        required_cols = set(self._tbl_version.get().get_required_col_names())
+        computed_cols = set(self._tbl_version.get().get_computed_col_names())
+        model_fields = model.model_fields
+        model_field_names = set(model_fields.keys())
+
+        missing_required = required_cols - model_field_names
+        if missing_required:
+            raise excs.Error(
+                f'Pydantic model {model.__name__} is missing required columns: '
+                f'{", ".join(f"{col_name!r}" for col_name in missing_required)}'
+            )
+
+        computed_in_model = computed_cols & model_field_names
+        if computed_in_model:
+            raise excs.Error(
+                f'Pydantic model {model.__name__} has fields for computed columns: '
+                f'{", ".join(f"{col_name!r}" for col_name in computed_in_model)}'
+            )
+
+        # validate type compatibility
+        common_fields = model_field_names & set(schema.keys())
+        for field_name in common_fields:
+            pxt_col_type = schema[field_name]
+            model_field = model_fields[field_name]
+            model_type = model_field.annotation
+
+            # we ignore nullability: we want to accept optional model fields for required table columns, as long as
+            # the model instances provide a non-null value
+            inferred_pxt_type = ts.ColumnType.from_python_type(model_type)
+            if inferred_pxt_type is None or not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
+                raise excs.Error(
+                    f'Pydantic model {model.__name__} has incompatible type ({model_type.__name__}) '
+                    f'for column {field_name!r} ({pxt_col_type})'
+                )
+
+    # def _is_type_compatible(self, pxt_type: ts.ColumnType, python_type: Any) -> bool:
+    #     """Check if a Pixeltable column type is compatible with a Python/Pydantic type annotation."""
+    #
+    #     # Handle Optional types (Union[T, None])
+    #     origin = typing.get_origin(python_type)
+    #     if origin is typing.Union:
+    #         args = typing.get_args(python_type)
+    #         # Check if it's Optional (Union with None)
+    #         if len(args) == 2 and type(None) in args:
+    #             inner_type = args[0] if args[1] is type(None) else args[1]
+    #             # If Pixeltable column is nullable, check inner type compatibility
+    #             if pxt_type.nullable:
+    #                 return self._is_type_compatible(pxt_type.copy(nullable=False), inner_type)
+    #             else:
+    #                 # Required column but optional model field - incompatible
+    #                 return False
+    #         # Other Union types are not directly supported
+    #         return False
+    #
+    #     # Handle generic types like List, Dict
+    #     if origin is not None:
+    #         if origin in (list, typing.List):
+    #             # Array types
+    #             return pxt_type.type_enum == ts.ColumnType.Type.ARRAY
+    #         elif origin in (dict, typing.Dict):
+    #             # JSON types
+    #             return pxt_type.type_enum == ts.ColumnType.Type.JSON
+    #         # Other generic types
+    #         return False
+    #
+    #     # Map Pixeltable types to Python types
+    #     type_mapping = {
+    #         ts.ColumnType.Type.STRING: str,
+    #         ts.ColumnType.Type.INT: int,
+    #         ts.ColumnType.Type.FLOAT: float,
+    #         ts.ColumnType.Type.BOOL: bool,
+    #         ts.ColumnType.Type.TIMESTAMP: (datetime.datetime,),
+    #         ts.ColumnType.Type.DATE: (datetime.date,),
+    #         ts.ColumnType.Type.JSON: (dict, list, str, int, float, bool),
+    #     }
+    #
+    #     expected_types = type_mapping.get(pxt_type.type_enum)
+    #     if expected_types is None:
+    #         # Media types (Image, Video, Audio, Document) and other special types
+    #         # For now, accept any type for these - they will be validated during insert
+    #         return True
+    #
+    #     # Check if python_type matches expected type(s)
+    #     if isinstance(expected_types, tuple):
+    #         return python_type in expected_types
+    #     else:
+    #         return python_type == expected_types
 
     def get_base_table(self) -> Optional['Table']:
         return self._get_base_table()
@@ -1329,6 +1429,34 @@ class Table(SchemaObject):
             Insert rows from a CSV file:
 
             >>> tbl.insert(source='path/to/file.csv')
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def insert_pydantic(self, rows: Iterable['BaseModel']) -> UpdateStatus:
+        """Insert rows from Pydantic model instances into this table.
+
+        Args:
+            rows: An iterable of Pydantic BaseModel instances to insert. All instances must be of the same
+                Pydantic model type, which must be compatible with this table's schema.
+
+        Returns:
+            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
+
+        Raises:
+            Error: If the Pydantic model is not compatible with this table's schema, or if media data
+                validation fails for filename strings.
+
+        Examples:
+            Insert Pydantic model instances into a table:
+
+            >>> from pydantic import BaseModel
+            ... class MyModel(BaseModel):
+            ...     name: str
+            ...     age: int
+            ...
+            ... models = [MyModel(name='Alice', age=30), MyModel(name='Bob', age=25)]
+            ... tbl.insert_pydantic(models)
         """
         raise NotImplementedError
 

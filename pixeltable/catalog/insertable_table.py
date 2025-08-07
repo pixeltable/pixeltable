@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, overload
 from uuid import UUID
+
+import pydantic
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
-
 from .globals import MediaValidation
 from .table import Table
 from .table_version import TableVersion
@@ -184,32 +185,31 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def _validate_input_rows(self, rows: list[dict[str, Any]]) -> None:
-        """Verify that the input rows match the table schema"""
-        valid_col_names = set(self._get_schema().keys())
-        reqd_col_names = set(self._tbl_version_path.tbl_version.get().get_required_col_names())
-        computed_col_names = set(self._tbl_version_path.tbl_version.get().get_computed_col_names())
-        for row in rows:
-            assert isinstance(row, dict)
-            col_names = set(row.keys())
-            if len(reqd_col_names - col_names) > 0:
-                raise excs.Error(f'Missing required column(s) ({", ".join(reqd_col_names - col_names)}) in row {row}')
+    def insert_pydantic(self, rows: Iterable[pydantic.BaseModel]) -> UpdateStatus:
 
-            for col_name, val in row.items():
-                if col_name not in valid_col_names:
-                    raise excs.Error(f'Unknown column name {col_name!r} in row {row}')
-                if col_name in computed_col_names:
-                    raise excs.Error(f'Value for computed column {col_name!r} in row {row}')
+        from pixeltable.catalog import Catalog
 
-                # validate data
-                col = self._tbl_version_path.get_column(col_name)
-                try:
-                    # basic sanity checks here
-                    checked_val = col.col_type.create_literal(val)
-                    row[col_name] = checked_val
-                except TypeError as e:
-                    msg = str(e)
-                    raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
+        rows_list = list(rows)
+        if not rows_list:
+            return UpdateStatus()
+
+        model_class = type(rows_list[0])
+        self._validate_pydantic_model(model_class)
+        pxt_rows = [row.model_dump() for row in rows_list]
+        # explicitly check that all required columns are present and non-None in the rows, because we ignore nullability
+        # when validating the pydantic model
+        reqd_col_names = [col.name for col in self._tbl_version_path.columns() if col.is_required_for_insert]
+        for i, pxt_row in enumerate(pxt_rows):
+            for col_name in reqd_col_names:
+                if pxt_row.get(col_name) is None:
+                    raise excs.Error(f'Missing required column {col_name!r} in {repr(rows_list[i])}')
+
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            status = self._tbl_version.get().insert(rows=pxt_rows, df=None, print_stats=False, fail_on_exception=True)
+
+        Env.get().console_logger.info(status.insert_msg)
+        FileCache.get().emit_eviction_warnings()
+        return status
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
