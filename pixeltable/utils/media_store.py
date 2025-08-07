@@ -47,11 +47,6 @@ class MediaStore:
             return MediaStore(env.Env.get().media_dir)
         raise NotImplementedError
 
-    @property
-    def _media_dir(self) -> Path:
-        """Returns the media directory path."""
-        return self.__base_dir
-
     @classmethod
     def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: Optional[str]) -> Path:
         """Save a media binary data to a file in a MediaStore. format is ignored for binary data."""
@@ -81,7 +76,7 @@ class MediaStore:
         the environment's media_dir.
         """
         id_hex = uuid.uuid4().hex
-        parent = self._media_dir / tbl_id.hex / id_hex[:2] / id_hex[:4]
+        parent = self.__base_dir / tbl_id.hex / id_hex[:2] / id_hex[:4]
         parent.mkdir(parents=True, exist_ok=True)
         return parent / f'{tbl_id.hex}_{col_id}_{tbl_version}_{id_hex}{ext or ""}'
 
@@ -114,7 +109,7 @@ class MediaStore:
             # remote url
             return None
         src_path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-        if not src_path.startswith(str(self._media_dir)):
+        if not src_path.startswith(str(self.__base_dir)):
             # not a tmp file
             return None
         return Path(src_path)
@@ -158,12 +153,12 @@ class MediaStore:
         assert tbl_id is not None
         if tbl_version is None:
             # Remove the entire folder for this table id.
-            path = self._media_dir / tbl_id.hex
+            path = self.__base_dir / tbl_id.hex
             if path.exists():
                 shutil.rmtree(path)
         else:
             # Remove only the elements for the specified tbl_version.
-            paths = glob.glob(str(self._media_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*_{tbl_version}_*', recursive=True)
+            paths = glob.glob(str(self.__base_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*_{tbl_version}_*', recursive=True)
             for p in paths:
                 os.remove(p)
 
@@ -172,13 +167,13 @@ class MediaStore:
         Return number of files for given tbl_id.
         """
         if tbl_id is None:
-            paths = glob.glob(str(self._media_dir / '*'), recursive=True)
+            paths = glob.glob(str(self.__base_dir / '*'), recursive=True)
         else:
-            paths = glob.glob(str(self._media_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*', recursive=True)
+            paths = glob.glob(str(self.__base_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*', recursive=True)
         return len(paths)
 
     def stats(self) -> list[tuple[UUID, int, int, int]]:
-        paths = glob.glob(str(self._media_dir) + '/**', recursive=True)
+        paths = glob.glob(str(self.__base_dir) + '/**', recursive=True)
         # key: (tbl_id, col_id), value: (num_files, size)
         d: dict[tuple[UUID, int], list[int]] = defaultdict(lambda: [0, 0])
         for p in paths:
@@ -200,9 +195,9 @@ class TempStore:
     A temporary store for files of data that are not yet persisted to their destination(s).
     A destination is typically either a MediaStore (local persisted files) or a cloud object store.
 
-    The TempStore class has no internal state, it provides functionality to manage temporary files
+    The TempStore class has no internal state. It provides functionality to manage temporary files
     in the env.Env.get().tmp_dir directory.
-    It reuses some of the MediaStore functionality to create unique file names.
+    It reuses some of the MediaStore functionality to create unique file names and save objects.
     """
 
     @classmethod
