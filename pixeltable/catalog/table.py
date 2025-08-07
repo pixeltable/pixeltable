@@ -7,7 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, Sequence, TypedDict, overload
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from uuid import UUID
 
@@ -1308,7 +1308,7 @@ class Table(SchemaObject):
     @overload
     def insert(
         self,
-        rows: Iterable[pydantic.BaseModel],
+        rows: Sequence[pydantic.BaseModel],
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
@@ -1318,7 +1318,7 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def insert(
         self,
-        source: Optional[TableDataSource | Iterable[pydantic.BaseModel]] = None,
+        source: Optional[TableDataSource | Sequence[pydantic.BaseModel]] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,

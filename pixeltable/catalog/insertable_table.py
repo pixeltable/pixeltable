@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, overload
 from uuid import UUID
 
 import pydantic
@@ -127,7 +127,7 @@ class InsertableTable(Table):
     @overload
     def insert(
         self,
-        rows: Iterable[pydantic.BaseModel],
+        rows: Sequence[pydantic.BaseModel],
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
@@ -136,7 +136,7 @@ class InsertableTable(Table):
 
     def insert(
         self,
-        source: Optional[TableDataSource | Iterable[pydantic.BaseModel]] = None,
+        source: Optional[TableDataSource | Sequence[pydantic.BaseModel]] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -154,28 +154,20 @@ class InsertableTable(Table):
                 source = [kwargs]
                 kwargs = None
             
-            # Check if source is an iterable of Pydantic BaseModel instances
-            if source is not None and hasattr(source, '__iter__') and not isinstance(source, (str, bytes, dict)):
-                try:
-                    # Peek at first item to check if it's a BaseModel
-                    source_iter = iter(source)
-                    first_item = next(source_iter)
-                    if isinstance(first_item, pydantic.BaseModel):
-                        # This is a Pydantic model iterable, handle it directly
-                        from itertools import chain
-                        full_source = chain([first_item], source_iter)
-                        status = self._insert_pydantic_internal(list(full_source), print_stats=print_stats)
-                        Env.get().console_logger.info(status.insert_msg)
-                        FileCache.get().emit_eviction_warnings()
-                        return status
-                except StopIteration:
-                    # Empty iterable - check if it's a list (which could be empty Pydantic models)
-                    if isinstance(source, list):
-                        # Handle empty list as Pydantic models
-                        status = self._insert_pydantic_internal([], print_stats=print_stats)
-                        Env.get().console_logger.info(status.insert_msg)
-                        FileCache.get().emit_eviction_warnings()
-                        return status
+            # Check if source is a sequence of Pydantic BaseModel instances
+            if isinstance(source, Sequence) and not isinstance(source, (str, bytes)):
+                if len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
+                    # Non-empty sequence of Pydantic models
+                    status = self._insert_pydantic(source, print_stats=print_stats)
+                    Env.get().console_logger.info(status.insert_msg)
+                    FileCache.get().emit_eviction_warnings()
+                    return status
+                elif len(source) == 0:
+                    # Empty sequence - handle as empty Pydantic models
+                    status = self._insert_pydantic(source, print_stats=print_stats)
+                    Env.get().console_logger.info(status.insert_msg)
+                    FileCache.get().emit_eviction_warnings()
+                    return status
 
             tds = UnkTableDataConduit(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
@@ -218,7 +210,7 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def _insert_pydantic_internal(self, rows: list[pydantic.BaseModel], print_stats: bool = False) -> UpdateStatus:
+    def _insert_pydantic(self, rows: Sequence[pydantic.BaseModel], print_stats: bool = False) -> UpdateStatus:
         """Internal method to handle Pydantic model insertion."""
         if not rows:
             return UpdateStatus()
