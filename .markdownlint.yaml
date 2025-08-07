@@ -12,6 +12,9 @@ MD026: false
 # (allow inline HTML)
 MD033: false
 
+# MD034/no-bare-urls
+MD034: false
+
 # MD041/first-line-h1
 # (don't enforce that first line is a top-level heading)
 MD041: false
