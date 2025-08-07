@@ -10,6 +10,7 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
+from pixeltable.metadata import schema
 
 from .globals import MediaValidation, is_valid_identifier
 
@@ -125,6 +126,54 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
+
+    def to_md(self, pos: Optional[int] = None) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
+        """Returns the Column and optional SchemaColumn metadata for this Column."""
+        assert self.is_pk is not None
+        col_md = schema.ColumnMd(
+            id=self.id,
+            col_type=self.col_type.as_dict(),
+            is_pk=self.is_pk,
+            schema_version_add=self.schema_version_add,
+            schema_version_drop=self.schema_version_drop,
+            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
+            stored=self.stored,
+        )
+        if pos is None:
+            return col_md, None
+        assert self.name is not None, 'Column name must be set for user-facing columns'
+        sch_md = schema.SchemaColumn(
+            name=self.name,
+            pos=pos,
+            media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
+        )
+        return col_md, sch_md
+
+    @classmethod
+    def from_md(
+        cls, col_md: schema.ColumnMd, tbl: TableVersion, schema_col_md: Optional[schema.SchemaColumn]
+    ) -> Column:
+        """Create a Column from a ColumnMd."""
+        assert col_md.id is not None
+        col_name = schema_col_md.name if schema_col_md is not None else None
+        media_val = (
+            MediaValidation[schema_col_md.media_validation.upper()]
+            if schema_col_md is not None and schema_col_md.media_validation is not None
+            else None
+        )
+        col = cls(
+            col_id=col_md.id,
+            name=col_name,
+            col_type=ts.ColumnType.from_dict(col_md.col_type),
+            is_pk=col_md.is_pk,
+            stored=col_md.stored,
+            media_validation=media_val,
+            schema_version_add=col_md.schema_version_add,
+            schema_version_drop=col_md.schema_version_drop,
+            value_expr_dict=col_md.value_expr,
+            tbl=tbl,
+        )
+        return col
 
     def init_value_expr(self) -> None:
         from pixeltable import exprs

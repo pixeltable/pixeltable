@@ -1,10 +1,10 @@
 import ast
 import inspect
 import warnings
-from typing import Union
 
 import griffe.expressions
 from griffe import Extension, Function, Object, ObjectNode, dynamic_import  # type: ignore[attr-defined]
+from griffe.dataclasses import Parameters
 from mkdocstrings_handlers.python import rendering
 
 import pixeltable as pxt
@@ -15,7 +15,7 @@ logger = griffe.get_logger(__name__)  # type: ignore[attr-defined]
 class PxtGriffeExtension(Extension):
     """Implementation of a Pixeltable custom griffe extension."""
 
-    def on_instance(self, node: Union[ast.AST, ObjectNode], obj: Object) -> None:
+    def on_instance(self, node: ast.AST | ObjectNode, obj: Object) -> None:
         if obj.docstring is None:
             # Skip over entities without a docstring
             return
@@ -42,7 +42,10 @@ class PxtGriffeExtension(Extension):
         assert isinstance(udf, pxt.Function)
         # Convert the return type to a Pixeltable type reference
         func.returns = str(udf.signatures[0].get_return_type())
-        # Convert the parameter types to Pixeltable type references
+        # Convert the parameter types to Pixeltable type references; first, get rid of system parameters
+        # (those starting with '_')
+        user_params = [param for param in func.parameters if not param.name.startswith('_')]
+        func.parameters = Parameters(*user_params)
         for griffe_param in func.parameters:
             assert isinstance(griffe_param.annotation, griffe.expressions.Expr)
             if griffe_param.name not in udf.signatures[0].parameters:

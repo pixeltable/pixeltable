@@ -17,7 +17,6 @@ import types
 import typing
 import uuid
 import warnings
-from abc import abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -102,6 +101,8 @@ class Env:
     def _init_env(cls, reinit_db: bool = False) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
+        if cls._instance is not None:
+            cls._instance._clean_up()
         cls._instance = None
         env = Env()
         env._set_up(reinit_db=reinit_db)
@@ -247,7 +248,7 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
+                self._current_isolation_level = 'SERIALIZABLE'
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
                     sql.orm.Session(conn) as session,
@@ -486,7 +487,7 @@ class Env:
                 raise excs.Error(error)
             self._logger.info(f'Using database at: {self.db_url}')
         else:
-            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+            self._db_name = config.get_string_value('db') or 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             # cleanup_mode=None will leave the postgres process running after Python exits
             # cleanup_mode='stop' will terminate the postgres process when Python exits
@@ -558,6 +559,14 @@ class Env:
         finally:
             engine.dispose()
 
+    def _pgserver_terminate_connections_stmt(self) -> str:
+        return f"""
+                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                FROM pg_stat_activity
+                WHERE pg_stat_activity.datname = '{self._db_name}'
+                AND pid <> pg_backend_pid()
+            """
+
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
@@ -566,13 +575,7 @@ class Env:
             with engine.begin() as conn:
                 # terminate active connections
                 if self._db_server is not None:
-                    stmt = f"""
-                        SELECT pg_terminate_backend(pg_stat_activity.pid)
-                        FROM pg_stat_activity
-                        WHERE pg_stat_activity.datname = '{self._db_name}'
-                        AND pid <> pg_backend_pid()
-                    """
-                    conn.execute(sql.text(stmt))
+                    conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
                 # drop db
                 stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
@@ -816,6 +819,63 @@ class Env:
         except Exception as exc:
             raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
+    def _clean_up(self) -> None:
+        """
+        Internal cleanup method that properly closes all resources and resets state.
+        This is called before destroying the singleton instance.
+        """
+        assert self._current_session is None
+        assert self._current_conn is None
+
+        # Stop HTTP server
+        if self._httpd is not None:
+            try:
+                self._httpd.shutdown()
+                self._httpd.server_close()
+            except Exception as e:
+                _logger.warning(f'Error stopping HTTP server: {e}')
+
+        # First terminate all connections to the database
+        if self._db_server is not None:
+            assert self._dbms is not None
+            assert self._db_name is not None
+            try:
+                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+                try:
+                    with temp_engine.begin() as conn:
+                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
+                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
+                except Exception as e:
+                    _logger.warning(f'Error terminating database connections: {e}')
+                finally:
+                    temp_engine.dispose()
+            except Exception as e:
+                _logger.warning(f'Error stopping database server: {e}')
+
+        # Dispose of SQLAlchemy engine (after stopping db server)
+        if self._sa_engine is not None:
+            try:
+                self._sa_engine.dispose()
+            except Exception as e:
+                _logger.warning(f'Error disposing engine: {e}')
+
+        # Close event loop
+        if self._event_loop is not None:
+            try:
+                if self._event_loop.is_running():
+                    self._event_loop.stop()
+                self._event_loop.close()
+            except Exception as e:
+                _logger.warning(f'Error closing event loop: {e}')
+
+        # Remove logging handlers
+        for handler in self._logger.handlers[:]:
+            try:
+                handler.close()
+                self._logger.removeHandler(handler)
+            except Exception as e:
+                _logger.warning(f'Error removing handler: {e}')
+
 
 def register_client(name: str) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.
@@ -890,6 +950,10 @@ class RateLimitsInfo:
     get_request_resources: Callable[..., dict[str, int]]
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
+    has_exc: bool = False
+
+    def debug_str(self) -> str:
+        return ','.join(info.debug_str() for info in self.resource_limits.values())
 
     def is_initialized(self) -> bool:
         return len(self.resource_limits) > 0
@@ -897,7 +961,7 @@ class RateLimitsInfo:
     def reset(self) -> None:
         self.resource_limits.clear()
 
-    def record(self, **kwargs: Any) -> None:
+    def record(self, reset_exc: bool = False, **kwargs: Any) -> None:
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         if len(self.resource_limits) == 0:
             self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items() if v is not None}
@@ -908,14 +972,30 @@ class RateLimitsInfo:
                     f'reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}'
                 )
         else:
+            if self.has_exc and not reset_exc:
+                # ignore updates until we're asked to reset
+                _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
+                return
+            self.has_exc = False
             for k, v in kwargs.items():
                 if v is not None:
                     self.resource_limits[k].update(now, *v)
 
-    @abstractmethod
+    def record_exc(self, exc: Exception) -> None:
+        """Update self.resource_limits based on the exception headers"""
+        self.has_exc = True
+
     def get_retry_delay(self, exc: Exception) -> Optional[float]:
         """Returns number of seconds to wait before retry, or None if not retryable"""
-        pass
+        if len(self.resource_limits) == 0:
+            return 1.0
+        # we're looking for the maximum delay across all depleted resources
+        max_delay = 0.0
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        for limit_info in self.resource_limits.values():
+            if limit_info.remaining < 0.05 * limit_info.limit:
+                max_delay = max(max_delay, (limit_info.reset_at - now).total_seconds())
+        return max_delay if max_delay > 0 else None
 
 
 @dataclass
@@ -928,9 +1008,15 @@ class RateLimitInfo:
     remaining: int
     reset_at: datetime.datetime
 
+    def debug_str(self) -> str:
+        return (
+            f'{self.resource}@{self.recorded_at.strftime(TIME_FORMAT)}: '
+            f'{self.limit}/{self.remaining}/{self.reset_at.strftime(TIME_FORMAT)}'
+        )
+
     def update(self, recorded_at: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None:
         # we always update everything, even though responses may come back out-of-order: we can't use reset_at to
-        # determine order, because it doesn't increase monotonically (the reeset duration shortens as output_tokens
+        # determine order, because it doesn't increase monotonically (the reset duration shortens as output_tokens
         # are freed up - going from max to actual)
         self.recorded_at = recorded_at
         self.limit = limit
@@ -942,3 +1028,16 @@ class RateLimitInfo:
             f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} '
             f'reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}'
         )
+
+
+@dataclass
+class RuntimeCtx:
+    """
+    Container for runtime data provided by the execution system to udfs.
+
+    Udfs that accept the special _runtime_ctx parameter receive an instance of this class.
+    """
+
+    # Indicates a retry attempt following a rate limit error (error code: 429). Requires a 'rate-limits' resource pool.
+    # If True, call RateLimitsInfo.record() with reset_exc=True.
+    is_retry: bool = False

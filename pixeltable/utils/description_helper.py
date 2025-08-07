@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Optional, Union
+from typing import Optional
 
 import pandas as pd
 from pandas.io.formats.style import Styler
@@ -7,7 +7,7 @@ from pandas.io.formats.style import Styler
 
 @dataclasses.dataclass
 class _Descriptor:
-    body: Union[str, pd.DataFrame]
+    body: str | pd.DataFrame
     # The remaining fields only affect the behavior if `body` is a pd.DataFrame.
     show_index: bool
     show_header: bool
@@ -33,7 +33,7 @@ class DescriptionHelper:
 
     def append(
         self,
-        descriptor: Union[str, pd.DataFrame],
+        descriptor: str | pd.DataFrame,
         show_index: bool = False,
         show_header: bool = True,
         styler: Optional[Styler] = None,

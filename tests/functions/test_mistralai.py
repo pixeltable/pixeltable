@@ -3,12 +3,11 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestMistral:
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistralai')
@@ -38,7 +37,6 @@ class TestMistral:
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.skip(reason="Disabled until we figure out why it's failing")
     def test_fim_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
@@ -50,12 +48,14 @@ class TestMistral:
             output2=fim_completions(
                 prompt=t.input,
                 model='codestral-latest',
-                temperature=0.8,
-                top_p=0.95,
-                max_tokens=300,
-                stop=['def'],
-                random_seed=4171780,
-                suffix=t.suffix,
+                model_kwargs={
+                    'temperature': 0.8,
+                    'top_p': 0.95,
+                    'max_tokens': 300,
+                    'stop': ['def'],
+                    'random_seed': 4171780,
+                    'suffix': t.suffix,
+                },
             )
         )
         status = t.insert(

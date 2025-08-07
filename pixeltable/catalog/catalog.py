@@ -103,7 +103,7 @@ def retry_loop(
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
-                except sql.exc.DBAPIError as e:
+                except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -189,12 +189,10 @@ class Catalog:
     @classmethod
     def clear(cls) -> None:
         """Remove the instance. Used for testing."""
-        # invalidate all existing instances to force reloading of metadata
-        for tbl_version in cls._instance._tbl_versions.values():
-            # _logger.debug(
-            #     f'Invalidating table version {tbl_version.id}:{tbl_version.effective_version} ({id(tbl_version):x})'
-            # )
-            tbl_version.is_validated = False
+        if cls._instance is not None:
+            # invalidate all existing instances to force reloading of metadata
+            for tbl_version in cls._instance._tbl_versions.values():
+                tbl_version.is_validated = False
         cls._instance = None
 
     def __init__(self) -> None:
@@ -356,7 +354,7 @@ class Catalog:
                             # raise to abort the transaction
                             raise
 
-                        except sql.exc.DBAPIError as e:
+                        except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                             has_exc = True
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
@@ -380,7 +378,7 @@ class Catalog:
                     # we got this exception after getting the initial table locks and therefore need to abort
                     raise
 
-            except sql.exc.DBAPIError as e:
+            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
                 has_exc = True
                 # we got some db error during the actual operation (not just while trying to get locks on the metadata
                 # records): we convert these into Errors, if asked to do so, and abort

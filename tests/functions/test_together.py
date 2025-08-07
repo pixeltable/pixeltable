@@ -2,12 +2,11 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestTogether:
     def test_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
@@ -83,7 +82,7 @@ class TestTogether:
         from pixeltable.functions.together import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-32k-retrieval'))
+        t.add_computed_column(embed=embeddings(input=t.input, model='BAAI/bge-base-en-v1.5'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 

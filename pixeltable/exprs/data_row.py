@@ -395,6 +395,19 @@ class DataRow:
                 return {k: cls.__unpack_json(v, tf) for k, v in element.items()}
         return element
 
+    def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
+        """If a media url refers to data in a temporary file, move the data to the MediaStore"""
+        if self.file_urls[index] is None:
+            return
+        assert self.excs[index] is None
+        assert col.col_type.is_media_type()
+        src_path = MediaStore.resolve_tmp_url(self.file_urls[index])
+        if src_path is None:
+            # The media url does not point to a temporary file, leave it as is
+            return
+        new_file_url = MediaStore.relocate_local_media_file(src_path, col)
+        self.file_urls[index] = new_file_url
+
     @property
     def rowid(self) -> tuple[int, ...]:
         return self.pk[:-1]

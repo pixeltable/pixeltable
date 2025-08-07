@@ -1,5 +1,5 @@
 import os
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -17,7 +17,7 @@ def import_pandas(
     df: pd.DataFrame,
     *,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
 ) -> pxt.Table:
@@ -55,9 +55,9 @@ def import_pandas(
 
 def import_csv(
     tbl_name: str,
-    filepath_or_buffer: Union[str, os.PathLike],
+    filepath_or_buffer: str | os.PathLike,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     **kwargs: Any,
@@ -84,10 +84,10 @@ def import_csv(
 
 def import_excel(
     tbl_name: str,
-    io: Union[str, os.PathLike],
+    io: str | os.PathLike,
     *,
     schema_overrides: Optional[dict[str, Any]] = None,
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     **kwargs: Any,

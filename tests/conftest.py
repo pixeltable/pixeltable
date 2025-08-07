@@ -12,8 +12,7 @@ from filelock import FileLock
 from sqlalchemy import orm
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
-from pixeltable import catalog, exprs, func
+from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -69,9 +68,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
+    os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
 
-    for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA'):
-        print(f'{var:17} = {os.environ[var]}')
+    for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA', 'FIFTYONE_DATABASE_DIR'):
+        print(f'{var:21} = {os.environ[var]}')
 
     # Ensure the shared home directory exists.
     shared_home.mkdir(parents=True, exist_ok=True)
@@ -137,7 +137,7 @@ def clean_db(restore_md_tables: bool = True) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(reset_db: None) -> catalog.Table:
+def test_tbl(reset_db: None) -> pxt.Table:
     return create_test_tbl()
 
 
@@ -147,7 +147,7 @@ def reload_tester(init_env: None) -> ReloadTester:
 
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
+def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
     t = test_tbl
     return [
         t.c1,
@@ -182,17 +182,17 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(reset_db: None) -> catalog.Table:
+def all_datatypes_tbl(reset_db: None) -> pxt.Table:
     return create_all_datatypes_tbl()
 
 
 @pytest.fixture(scope='function')
-def img_tbl(reset_db: None) -> catalog.Table:
+def img_tbl(reset_db: None) -> pxt.Table:
     return create_img_tbl('test_img_tbl')
 
 
 @pytest.fixture(scope='function')
-def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
+def img_tbl_exprs(indexed_img_tbl: pxt.Table) -> list[exprs.Expr]:
     t = indexed_img_tbl
     return [
         t.img.width,
@@ -206,18 +206,18 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def multi_img_tbl_exprs(multi_idx_img_tbl: catalog.Table) -> list[exprs.Expr]:
+def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
     t = multi_idx_img_tbl
     return [t.img.similarity('red truck', idx='img_idx1'), t.img.similarity('red truck', idx='img_idx2')]
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(reset_db: None) -> catalog.Table:
+def small_img_tbl(reset_db: None) -> pxt.Table:
     return create_img_tbl('small_img_tbl', num_rows=40)
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
+def indexed_img_tbl(reset_db: None, clip_embed: pxt.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
@@ -225,7 +225,7 @@ def indexed_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
+def multi_idx_img_tbl(reset_db: None, clip_embed: pxt.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
     t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
@@ -247,17 +247,26 @@ def _retry_hf(fn: Callable) -> Callable:
 
 @pytest.fixture(scope='session')
 @_retry_hf
-def clip_embed() -> func.Function:
-    return clip.using(model_id='openai/clip-vit-base-patch32')
+def clip_embed() -> pxt.Function:
+    try:
+        return clip.using(model_id='openai/clip-vit-base-patch32')
+    except ImportError:
+        return None  # Any time this happens, the test wil be skipped anyway.
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
-def e5_embed() -> func.Function:
-    return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+def e5_embed() -> pxt.Function:
+    try:
+        return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    except ImportError:
+        return None
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
-def all_mpnet_embed() -> func.Function:
-    return sentence_transformer.using(model_id='all-mpnet-base-v2')
+def all_mpnet_embed() -> pxt.Function:
+    try:
+        return sentence_transformer.using(model_id='all-mpnet-base-v2')
+    except ImportError:
+        return None

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, NamedTuple, Optional, Union
 
 import pandas as pd
 from pandas.io.formats.style import Styler
@@ -27,8 +27,8 @@ if TYPE_CHECKING:
         RowData,  # list of dictionaries
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
-        'datasets.Dataset',
-        'datasets.DatasetDict',  # Huggingface datasets
+        datasets.Dataset,
+        datasets.DatasetDict,  # Huggingface datasets
     ]
 
 
@@ -51,7 +51,7 @@ def create_table(
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     on_error: Literal['abort', 'ignore'] = 'abort',
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -197,7 +197,7 @@ def create_table(
 
 def create_view(
     path: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     is_snapshot: bool = False,
@@ -317,7 +317,7 @@ def create_view(
 
 def create_snapshot(
     path_str: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
@@ -396,7 +396,12 @@ def create_snapshot(
     )
 
 
-def create_replica(destination: str, source: Union[str, catalog.Table]) -> Optional[catalog.Table]:
+def create_replica(
+    destination: str,
+    source: str | catalog.Table,
+    bucket_name: str | None = None,
+    access: Literal['public', 'private'] = 'private',
+) -> Optional[catalog.Table]:
     """
     Create a replica of a table. Can be used either to create a remote replica of a local table, or to create a local
     replica of a remote table. A given table can have at most one replica per Pixeltable instance.
@@ -405,6 +410,12 @@ def create_replica(destination: str, source: Union[str, catalog.Table]) -> Optio
         destination: Path where the replica will be created. Can be either a local path such as `'my_dir.my_table'`, or
             a remote URI such as `'pxt://username/mydir.my_table'`.
         source: Path to the source table, or (if the source table is a local table) a handle to the source table.
+        bucket_name: The name of the pixeltable cloud-registered bucket to use to store replica's data.
+            If no `bucket_name` is provided, the default Pixeltable storage bucket will be used.
+        access: Access control for the replica.
+
+            - `'public'`: Anyone can access this replica.
+            - `'private'`: Only the owner can access.
     """
     remote_dest = destination.startswith('pxt://')
     remote_source = isinstance(source, str) and source.startswith('pxt://')
@@ -414,7 +425,7 @@ def create_replica(destination: str, source: Union[str, catalog.Table]) -> Optio
     if remote_dest:
         if isinstance(source, str):
             source = get_table(source)
-        share.push_replica(destination, source)
+        share.push_replica(destination, source, bucket_name, access)
         return None
     else:
         assert isinstance(source, str)
@@ -484,7 +495,7 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(
-    table: Union[str, catalog.Table], force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
+    table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
     """Drop a table, view, or snapshot.
 
@@ -532,6 +543,57 @@ def drop_table(
     path_obj = catalog.Path.parse(tbl_path)
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+
+
+def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
+    """Get the contents of a Pixeltable directory.
+
+    Args:
+        dir_path: Path to the directory. Defaults to the root directory.
+        recursive: If `False`, returns only those tables and directories that are directly contained in specified
+            directory; if `True`, returns all tables and directories that are descendants of the specified directory,
+            recursively.
+
+    Returns:
+        A [`DirContents`][pixeltable.DirContents] object representing the contents of the specified directory.
+
+    Raises:
+        Error: If the path does not exist or does not designate a directory.
+
+    Examples:
+        Get contents of top-level directory:
+
+        >>> pxt.get_dir_contents()
+
+        Get contents of 'dir1':
+
+        >>> pxt.get_dir_contents('dir1')
+    """
+    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
+    catalog_entries = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    dirs: list[str] = []
+    tables: list[str] = []
+    _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
+    dirs.sort()
+    tables.sort()
+    return DirContents(dirs, tables)
+
+
+def _assemble_dir_contents(
+    dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], dirs: list[str], tables: list[str]
+) -> None:
+    for name, entry in catalog_entries.items():
+        if name.startswith('_'):
+            continue  # Skip system paths
+        path = f'{dir_path}.{name}' if len(dir_path) > 0 else name
+        if entry.dir is not None:
+            dirs.append(path)
+            if entry.dir_entries is not None:
+                _assemble_dir_contents(path, entry.dir_entries, dirs, tables)
+        else:
+            assert entry.table is not None
+            assert not entry.dir_entries
+            tables.append(path)
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
@@ -667,8 +729,8 @@ def ls(path: str = '') -> pd.DataFrame:
     This function returns a Pandas DataFrame representing a human-readable listing of the specified directory,
     including various attributes such as version and base table, as appropriate.
 
-    To get a programmatic list of tables and/or directories, use [list_tables()][pixeltable.list_tables] and/or
-    [list_dirs()][pixeltable.list_dirs] instead.
+    To get a programmatic list of the directory's contents, use [get_dir_contents()][pixeltable.get_dir_contents]
+    instead.
     """
     from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
@@ -701,7 +763,7 @@ def ls(path: str = '') -> pd.DataFrame:
                     kind = 'view'
                 else:
                     kind = 'table'
-                version = '' if kind == 'snapshot' else md['version']
+                version = '' if kind == 'snapshot' else str(md['version'])
                 if md['is_replica']:
                     kind = f'{kind}-replica'
             rows.append([name, kind, version, base])
@@ -798,7 +860,7 @@ def list_functions() -> Styler:
     return pd_df.hide(axis='index')
 
 
-def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
+def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     """
     Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as an input into an
     LLM tool-calling API. To use one or more UDFs as tools, wrap them in a `pxt.tools` call and pass the return value
@@ -875,3 +937,14 @@ def configure_logging(
 
 def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
+
+
+class DirContents(NamedTuple):
+    """
+    Represents the contents of a Pixeltable directory.
+    """
+
+    dirs: list[str]
+    """List of directory paths contained in this directory."""
+    tables: list[str]
+    """List of table paths contained in this directory."""

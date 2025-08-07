@@ -92,10 +92,10 @@ class TablePackager:
         self.bundle_path = self.__build_tarball()
 
         _logger.info('Extracting preview data.')
-        self.md['count'] = self.table.count()
+        self.md['row_count'] = self.table.count()
         preview_header, preview = self.__extract_preview_data()
         self.md['preview_header'] = preview_header
-        self.md['preview'] = preview
+        self.md['preview_data'] = preview
 
         _logger.info(f'Packaging complete: {self.bundle_path}')
         return self.bundle_path
@@ -459,42 +459,51 @@ class TableRestorer:
             for col_name, col in temp_cols.items()
             if col_name not in system_col_names and col_name not in media_col_names
         ]
-        mismatch_predicates = [store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)]
-        mismatch_clause = sql.or_(*mismatch_predicates)
 
-        # This query looks for rows that have matching primary keys (rowid + pos_k + v_min), but differ in at least
-        # one value column. Pseudo-SQL:
-        #
-        # SELECT store_tbl.col_0, ..., store_tbl.col_n, temp_tbl.col_0, ...,  temp_tbl.col_n
-        # FROM store_tbl, temp_tbl
-        # WHERE store_tbl.rowid = temp_tbl.rowid
-        #     AND store_tbl.pos_0 = temp_tbl.pos_0
-        #     AND ... AND store_tbl.pos_k = temp_tbl.pos_k
-        #     AND store_tbl.v_min = temp_tbl.v_min
-        #     AND (
-        #         store_tbl.col_0 != temp_tbl.col_0
-        #         OR store_tbl.col_1 != temp_tbl.col_1
-        #         OR ... OR store_tbl.col_n != temp_tbl.col_n
-        #     )
-        #
-        # The value column comparisons (store_tbl.col_0 != temp_tbl.col_0, etc.) will always be false for rows where
-        # either column is NULL; this is what we want, since it may indicate a column that is present in one version
-        # but not the other.
-        q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
-        _logger.debug(q.compile())
-        result = conn.execute(q)
-        if result.rowcount > 0:
-            _logger.debug(
-                f'Data corruption error between {temp_sa_tbl_name!r} and {store_sa_tbl_name!r}: '
-                f'{result.rowcount} inconsistent row(s).'
-            )
-            row = result.first()
-            _logger.debug('Example mismatch:')
-            _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
-            _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
-            raise excs.Error(
-                'Data corruption error: the replica data are inconsistent with data retrieved from a previous replica.'
-            )
+        q: sql.Executable
+
+        assert len(value_store_cols) == len(value_temp_cols)
+        if len(value_store_cols) > 0:
+            mismatch_predicates = [
+                store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)
+            ]
+            mismatch_clause = sql.or_(*mismatch_predicates)
+
+            # This query looks for rows that have matching primary keys (rowid + pos_k + v_min), but differ in at least
+            # one value column. Pseudo-SQL:
+            #
+            # SELECT store_tbl.col_0, ..., store_tbl.col_n, temp_tbl.col_0, ...,  temp_tbl.col_n
+            # FROM store_tbl, temp_tbl
+            # WHERE store_tbl.rowid = temp_tbl.rowid
+            #     AND store_tbl.pos_0 = temp_tbl.pos_0
+            #     AND ... AND store_tbl.pos_k = temp_tbl.pos_k
+            #     AND store_tbl.v_min = temp_tbl.v_min
+            #     AND (
+            #         store_tbl.col_0 != temp_tbl.col_0
+            #         OR store_tbl.col_1 != temp_tbl.col_1
+            #         OR ... OR store_tbl.col_n != temp_tbl.col_n
+            #     )
+            #
+            # The value column comparisons (store_tbl.col_0 != temp_tbl.col_0, etc.) will always be false for rows where
+            # either column is NULL; this is what we want, since it may indicate a column that is present in one version
+            # but not the other.
+            q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
+            _logger.debug(q.compile())
+            result = conn.execute(q)
+            if result.rowcount > 0:
+                _logger.debug(
+                    f'Data corruption error between {temp_sa_tbl_name!r} and {store_sa_tbl_name!r}: '
+                    f'{result.rowcount} inconsistent row(s).'
+                )
+                row = result.first()
+                _logger.debug('Example mismatch:')
+                _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
+                _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
+                raise excs.Error(
+                    'Data corruption error: '
+                    'the replica data are inconsistent with data retrieved from a previous replica.'
+                )
+
         _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')
 
         # Now rectify the v_max values in the temporary table.

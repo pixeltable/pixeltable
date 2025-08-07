@@ -4,7 +4,7 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Optional, Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Optional, _GenericAlias  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -16,7 +16,6 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable import catalog, exceptions as excs, func
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
@@ -96,23 +95,23 @@ class TestTable:
         tbl = pxt.create_table('test', schema)
         _ = pxt.create_table('dir1.test', schema)
 
-        with pytest.raises(excs.Error, match='Invalid path: 1test'):
+        with pytest.raises(pxt.Error, match='Invalid path: 1test'):
             pxt.create_table('1test', schema)
-        with pytest.raises(excs.Error, match='Invalid path: bad name'):
+        with pytest.raises(pxt.Error, match='Invalid path: bad name'):
             pxt.create_table('bad name', {'c1': pxt.String})
-        with pytest.raises(excs.Error, match='Versioned path not allowed here: test:120'):
+        with pytest.raises(pxt.Error, match='Versioned path not allowed here: test:120'):
             pxt.create_table('test:120', schema)
-        with pytest.raises(excs.Error, match='is an existing table'):
+        with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_table('test', schema)
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             pxt.create_table('dir2.test2', schema)
 
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')
 
-        with pytest.raises(excs.Error, match='Invalid path: 1dir'):
+        with pytest.raises(pxt.Error, match='Invalid path: 1dir'):
             pxt.list_tables('1dir')
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             pxt.list_tables('dir2')
 
         # test loading with new client
@@ -121,7 +120,7 @@ class TestTable:
         reload_tester.run_reload_test()
 
         tbl = pxt.get_table('test')
-        assert isinstance(tbl, catalog.InsertableTable)
+        assert isinstance(tbl, pxt.catalog.InsertableTable)
         tbl.add_column(c5=pxt.Int)
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
@@ -131,22 +130,22 @@ class TestTable:
         pxt.drop_table('test2')
         pxt.drop_table('dir1.test')
 
-        with pytest.raises(excs.Error, match="Path 'test' does not exist"):
+        with pytest.raises(pxt.Error, match="Path 'test' does not exist"):
             pxt.drop_table('test')
-        with pytest.raises(excs.Error, match=r"Path 'dir1.test2' does not exist"):
+        with pytest.raises(pxt.Error, match=r"Path 'dir1.test2' does not exist"):
             pxt.drop_table('dir1.test2')
-        with pytest.raises(excs.Error, match=r'Invalid path: .test2'):
+        with pytest.raises(pxt.Error, match=r'Invalid path: .test2'):
             pxt.drop_table('.test2')
-        with pytest.raises(excs.Error, match='Versioned path not allowed here: test2:120'):
+        with pytest.raises(pxt.Error, match='Versioned path not allowed here: test2:120'):
             pxt.drop_table('test2:120')
 
-        with pytest.raises(excs.Error, match="'pos' is a reserved name in Pixeltable"):
+        with pytest.raises(pxt.Error, match="'pos' is a reserved name in Pixeltable"):
             pxt.create_table('bad_col_name', {'pos': pxt.Int})
 
-        with pytest.raises(excs.Error, match="'add_column' is a reserved name in Pixeltable"):
+        with pytest.raises(pxt.Error, match="'add_column' is a reserved name in Pixeltable"):
             pxt.create_table('test', {'add_column': pxt.Int})
 
-        with pytest.raises(excs.Error, match="'insert' is a reserved name in Pixeltable"):
+        with pytest.raises(pxt.Error, match="'insert' is a reserved name in Pixeltable"):
             pxt.create_table('test', {'insert': pxt.Int})
 
     def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
@@ -159,16 +158,16 @@ class TestTable:
         assert len(res_before) == 5
 
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', schema, if_exists='invalid')  # type: ignore[arg-type]
         assert (
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         )
 
         # scenario 1: a table exists at the path already
-        with pytest.raises(excs.Error, match='is an existing'):
+        with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_table('test', schema)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_table('test', schema)
         assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 5
@@ -199,7 +198,7 @@ class TestTable:
         assert len(view.select().collect()) == 3
 
         # scenario 2: a table exists at the path, but has dependency
-        with pytest.raises(excs.Error, match='is an existing'):
+        with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_table('test', schema)
         assert len(tbl.select().collect()) == 3
         # if_exists='ignore' should return the existing table
@@ -209,7 +208,7 @@ class TestTable:
         assert len(tbl2.select().collect()) == 3
         # if_exists='replace' cannot drop a table with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', schema, if_exists='replace')
         err_msg = str(exc_info.value).lower()
         assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
@@ -225,12 +224,12 @@ class TestTable:
 
         pxt.create_dir('dir1')
         # scenario 3: path exists but is not a table
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_table('dir1', schema)
         assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 1
         for _ie in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 pxt.create_table('dir1', schema, if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a table' in err_msg
@@ -249,13 +248,16 @@ class TestTable:
         t = pxt.create_table('test', schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    def test_names(self, reset_db: None) -> None:
+    def test_table_metadata(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('transformers')  # we need a `clip_embed` instance to test index metadata
+
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
         for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
+            view.add_embedding_index('col', embedding=clip_embed)
             puresnap_path = f'{tbl_path}_puresnap'
             puresnap = pxt.create_snapshot(puresnap_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap_path = f'{tbl_path}_snap'
@@ -272,15 +274,25 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': None,
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': False,
                     'is_snapshot': False,
                     'is_replica': False,
                     'name': 'test',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': tbl_path,
-                    'schema': tbl._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                 },
@@ -290,17 +302,40 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': tbl_path,
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {
+                        'idx0': {
+                            'columns': ['col'],
+                            'index_type': 'embedding',
+                            'name': 'idx0',
+                            'parameters': {
+                                'embeddings': [
+                                    "clip(text, model_id='openai/clip-vit-base-patch32')",
+                                    "clip(image, model_id='openai/clip-vit-base-patch32')",
+                                ],
+                                'metric': 'cosine',
+                            },
+                        }
+                    },
                     'is_view': True,
                     'is_snapshot': False,
                     'is_replica': False,
                     'name': 'test_view',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': view_path,
-                    'schema': view._get_schema(),
-                    'schema_version': 0,
-                    'version': 0,
+                    'schema_version': 1,
+                    'version': 1,
                 },
                 view.get_metadata(),
             )
@@ -308,15 +343,25 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': f'{tbl_path}:0',
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        }
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
                     'name': 'test_puresnap',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': puresnap_path,
-                    'schema': puresnap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                 },
@@ -326,15 +371,34 @@ class TestTable:
             assert_table_metadata_eq(
                 {
                     'base': f'{tbl_path}:0',
+                    'columns': {
+                        'col': {
+                            'computed_with': None,
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col',
+                            'type_': 'String',
+                            'version_added': 0,
+                        },
+                        'col2': {
+                            'computed_with': "col + 'x'",
+                            'is_primary_key': False,
+                            'is_stored': True,
+                            'media_validation': media_val,
+                            'name': 'col2',
+                            'type_': 'String',
+                            'version_added': 0,
+                        },
+                    },
                     'comment': '',
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'is_replica': False,
                     'name': 'test_snap',
-                    'num_retained_versions': 10,
                     'media_validation': media_val,
                     'path': snap_path,
-                    'schema': snap._get_schema(),
                     'schema_version': 0,
                     'version': 0,
                 },
@@ -359,11 +423,11 @@ class TestTable:
         assert v.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
         assert v.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_table('validation_error', {'img': pxt.Image}, media_validation='wrong_value')  # type: ignore[arg-type]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
@@ -459,7 +523,7 @@ class TestTable:
         assert t2._get_schema() == df2.schema
         assert t2.collect() == df2.collect()
 
-        with pytest.raises(excs.Error, match='must be a non-empty dictionary'):
+        with pytest.raises(pxt.Error, match='must be a non-empty dictionary'):
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
 
     def test_insert_df(self, test_tbl: pxt.Table) -> None:
@@ -475,7 +539,7 @@ class TestTable:
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
     def test_schema_types(self, reset_db: None) -> None:
-        test_columns: dict[str, Union[type, _GenericAlias]] = {
+        test_columns: dict[str, type | _GenericAlias] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
             'int_col': pxt.Int,
@@ -586,48 +650,48 @@ class TestTable:
         assert list(df['Type']) == expected_strings + expected_strings
 
     def test_empty_table(self, reset_db: None) -> None:
-        with pytest.raises(excs.Error, match='must be a non-empty dictionary'):
+        with pytest.raises(pxt.Error, match='must be a non-empty dictionary'):
             pxt.create_table('empty_table', {})
 
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         pxt.drop_table('test_tbl')
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             _ = pxt.get_table('test_tbl')
         # TODO: deal with concurrent drop_table() in another process
-        # with pytest.raises(excs.Error, match='has been dropped') as exc_info:
+        # with pytest.raises(pxt.Error, match='has been dropped') as exc_info:
         #     _ = t.show(1)
 
     def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
         pxt.drop_table(t)
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             _ = pxt.get_table('test1')
-        # with pytest.raises(excs.Error) as exc_info:
+        # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test1 has been dropped' in str(exc_info.value).lower()
         t = pxt.create_table('test2', {'c1': pxt.String})
         t = pxt.get_table('test2')
         pxt.drop_table(t)
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             _ = pxt.get_table('test2')
-        # with pytest.raises(excs.Error) as exc_info:
+        # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test2 has been dropped' in str(exc_info.value).lower()
         t = pxt.create_table('test3', {'c1': pxt.String})
         v = pxt.create_view('view3', t)
         pxt.drop_table(v)
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             _ = pxt.get_table('view3')
-        # with pytest.raises(excs.Error) as exc_info:
+        # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
         # assert 'view view3 has been dropped' in str(exc_info.value).lower()
         _ = pxt.get_table('test3')
         v = pxt.create_view('view4', t)
         v = pxt.get_table('view4')
         pxt.drop_table(v)
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             _ = pxt.get_table('view4')
-        # with pytest.raises(excs.Error) as exc_info:
+        # with pytest.raises(pxt.Error) as exc_info:
         #     _ = v.show(1)
         # assert 'view view4 has been dropped' in str(exc_info.value).lower()
         _ = pxt.get_table('test3')
@@ -667,15 +731,15 @@ class TestTable:
         table_list = pxt.list_tables()
         assert non_existing_t not in table_list
         # invalid if_not_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.drop_table(non_existing_t, if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         # if_not_exists='error' should raise an error if the table exists
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             pxt.drop_table(non_existing_t, if_not_exists='error')
         # default behavior is to raise an error if the table does not exist
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             pxt.drop_table(non_existing_t)
         # if_not_exists='ignore' should not raise an error
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
@@ -726,35 +790,35 @@ class TestTable:
         assert MediaStore.count(tbl._id) == 0
 
     def test_schema_spec(self, reset_db: None) -> None:
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c 1': pxt.Int})
         assert 'invalid column name' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {}})
         assert "'type' or 'value' must be specified" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'xyz': pxt.Int}})
         assert "invalid key 'xyz'" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'stored': True}})
         assert "'type' or 'value' must be specified" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': 'string'}})
         assert 'must be a type or ColumnType' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})
         assert "'type' is redundant" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': pytest}})
         assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
 
             def f() -> float:
                 return 1.0
@@ -762,27 +826,27 @@ class TestTable:
             pxt.create_table('test', {'c1': {'value': f}})
         assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})
         assert '"stored" must be a bool' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key='c2')
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c1', 'c2'])
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=['c2'])
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=0)  # type: ignore[arg-type]
         assert 'primary_key must be a' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': pxt.String}, primary_key='c1')
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
@@ -796,7 +860,7 @@ class TestTable:
             (dict, 'dict', 'pxt.Json'),
             (PIL.Image.Image, 'PIL.Image.Image', 'pxt.Image'),
         ]:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 pxt.create_table('test', {'c1': badtype})
             assert f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead' in str(
                 exc_info.value
@@ -812,7 +876,7 @@ class TestTable:
 
         # Mode 1: Validation error on bad input (default)
         # we ignore the exact error here, because it depends on the media type
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             tbl.insert(rows, on_error='abort')
 
         # Mode 2: ignore_errors=True, store error information in table
@@ -869,7 +933,7 @@ class TestTable:
             t.insert(json_col={'a': 'apples'})  # Missing required field
         assert "'b' is a required property" in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.update({'json_col': {'a': 'apples'}})  # Validation error on update
         assert 'is not compatible with the type of column json_col' in str(exc_info.value)
 
@@ -1043,14 +1107,14 @@ class TestTable:
         tbl.revert()
         assert MediaStore.count(view._id) == 0
 
-        with pytest.raises(excs.Error, match=r'because the following columns depend on it:\nc1'):
+        with pytest.raises(pxt.Error, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
-        with pytest.raises(excs.Error, match=r'because the following columns depend on it:\nc5'):
+        with pytest.raises(pxt.Error, match=r'because the following columns depend on it:\nc5'):
             view.drop_column('frame_idx')
 
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
-        with pytest.raises(excs.Error, match='has dependents'):
+        with pytest.raises(pxt.Error, match='has dependents'):
             pxt.drop_table('test_tbl')
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
@@ -1137,12 +1201,12 @@ class TestTable:
         assert status.num_excs == 0
 
         # empty input
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.insert([])
         assert 'Unsupported data source type' in str(exc_info.value)
 
         # missing column
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # drop first column
             col_names = list(rows[0].keys())[1:]
             new_rows = [{col_name: row[col_name] for col_name in col_names} for row in rows]
@@ -1155,41 +1219,41 @@ class TestTable:
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
             t = pxt.create_table(tbl_name, {col_name: col_type})
-            with pytest.raises(excs.Error, match=r'expected|not a valid Pixeltable JSON object') as exc_info:
+            with pytest.raises(pxt.Error, match=r'expected|not a valid Pixeltable JSON object') as exc_info:
                 t.insert({col_name: r[value_col_name]} for r in rows)
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.String})
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.insert(['1'])  # xtype: ignore[list-item]
         assert 'Unsupported data source type' in str(exc_info.value)
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.Required[pxt.String]})
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), pxt.Int]})  # type: ignore[misc]
-        with pytest.raises(excs.Error, match=r'expected numpy.ndarray\(\(2, 3\)'):
+        with pytest.raises(pxt.Error, match=r'expected numpy.ndarray\(\(2, 3\)'):
             t.insert(c5=np.ndarray((3, 2)))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int]})  # type: ignore[misc]
-        with pytest.raises(excs.Error, match=r'expected numpy.ndarray of dtype int64'):
+        with pytest.raises(pxt.Error, match=r'expected numpy.ndarray of dtype int64'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array})
-        with pytest.raises(excs.Error, match=r'expected numpy.ndarray, got'):
+        with pytest.raises(pxt.Error, match=r'expected numpy.ndarray, got'):
             t.insert(c5=8)
-        with pytest.raises(excs.Error, match='unsupported dtype'):
+        with pytest.raises(pxt.Error, match='unsupported dtype'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.complex128))  # unsupported dtype
 
         # test that insert skips expression evaluation for
@@ -1284,7 +1348,7 @@ class TestTable:
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
 
         # unknown primary key: raise error
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.batch_update([{'c1': 'eins', 'c2': 1}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='error')
         assert '1 row(s) not found' in str(exc_info.value).lower()
 
@@ -1319,17 +1383,17 @@ class TestTable:
         assert t.where(t.c2 == 1).collect()[0]['c3'] == 2.0
         assert t.where(t.c2 == 2).collect()[0]['c3'] == 3.0
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # can't mix _rowid with primary key
             _ = t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0, '_rowid': (1,)}])
         assert 'c1 is a primary key column' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # bad literal
             _ = t.batch_update([{'c2': 1, 'c3': 'a'}])
         assert "'a' is not a valid literal" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # missing primary key column
             t.batch_update([{'c1': '1', 'c3': 2.0}])
         assert 'primary key columns (c2) missing' in str(exc_info.value).lower()
@@ -1337,7 +1401,7 @@ class TestTable:
         # table without primary key
         t2 = pxt.create_table('no_pk', schema)
         validate_update_status(t2.insert(rows), expected_rows=10)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t2.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}])
         assert 'must have primary key for batch update' in str(exc_info.value).lower()
 
@@ -1427,44 +1491,44 @@ class TestTable:
         assert np.all(t.order_by(t.computed3).collect().to_pandas()['computed3'][:10] == pd.Series([3.0] * 10))
 
         # bad update spec
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.update({1: 1})  # type: ignore[dict-item]
         assert 'dict key' in str(excinfo.value)
 
         # unknown column
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.update({'unknown': 1})
         assert 'unknown unknown' in str(excinfo.value)
 
         # incompatible type
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.update({'c1': 1})
         assert 'not compatible' in str(excinfo.value)
 
         # can't update primary key
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.update({'c2': 1})
         assert 'primary key' in str(excinfo.value)
 
         # can't update computed column
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.update({'computed1': 1})
         assert 'is computed' in str(excinfo.value)
 
         # non-expr
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.update({'c3': lambda c3: math.sqrt(c3)})
         assert 'not a recognized' in str(excinfo.value)
 
         # non-Predicate filter
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)  # type: ignore[arg-type]
         assert 'predicate' in str(excinfo.value)
 
         img_t = small_img_tbl
 
         # filter not expressible in SQL
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
@@ -1505,14 +1569,14 @@ class TestTable:
         assert cnt == 1
 
         # non-Predicate filter
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t.delete(where=lambda c2: c2 == 10)  # type: ignore[arg-type]
         assert 'predicate' in str(excinfo.value)
 
         img_t = small_img_tbl
 
         # filter not expressible in SQL
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
@@ -1533,7 +1597,7 @@ class TestTable:
         assert status.num_excs == 0
 
         # unstored cols that compute window functions aren't currently supported
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             t.add_computed_column(c10=pxtf.sum(t.c1, group_by=t.c1), stored=False)
 
         # # Column.dependent_cols are computed correctly
@@ -1551,7 +1615,7 @@ class TestTable:
         _ = t.show()
 
         # not allowed to pass values for computed cols
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             rows2 = create_table_data(t, ['c1', 'c2', 'c3', 'c4'], num_rows=10)
             t.insert(rows2)
 
@@ -1573,7 +1637,7 @@ class TestTable:
         _ = t.collect().to_pandas()
 
         # can't drop c4: c5 depends on it
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             t.drop_column('c4')
         t.drop_column('c5')
         # now it works
@@ -1634,7 +1698,7 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, reset_db: None, test_tbl: catalog.Table) -> None:
+    def test_computed_col_exceptions(self, reset_db: None, test_tbl: pxt.Table) -> None:
         # exception during insert()
         schema = {'c2': pxt.Int}
         rows = list(test_tbl.select(test_tbl.c2).collect())
@@ -1652,12 +1716,12 @@ class TestTable:
         assert status.num_rows == 100
         assert status.num_excs == 0
 
-        with pytest.raises(excs.Error) as exc:
+        with pytest.raises(pxt.Error) as exc:
             t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert 'division by zero' in str(exc.value)
 
         # on_error='abort' is the default
-        with pytest.raises(excs.Error) as exc:
+        with pytest.raises(pxt.Error) as exc:
             t.add_computed_column(add1=self.f2(self.f1(t.c2)), on_error='abort')
         assert 'division by zero' in str(exc.value)
 
@@ -1683,7 +1747,7 @@ class TestTable:
         assert len(results.schema) == 1
         assert results.schema.get('cc1') is None
 
-    def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
+    def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool) -> None:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         status = t.insert(rows)
@@ -1742,7 +1806,7 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(self, reset_db: None, test_tbl: catalog.Table) -> None:
+    def test_computed_window_fn(self, reset_db: None, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -1776,11 +1840,11 @@ class TestTable:
         # can't revert past version 0
         t1.revert()
         t1.revert()
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
-    def test_add_column(self, test_tbl: catalog.Table) -> None:
+    def test_add_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.add_column(add1=pxt.Int)
@@ -1789,37 +1853,37 @@ class TestTable:
         t.add_column(id=pxt.String)
         assert len(t.columns()) == num_orig_cols + 3
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(add2=pxt.Required[pxt.Int])
         assert 'cannot add non-nullable' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(add2=pxt.Int, add3=pxt.String)
         assert 'requires exactly one keyword argument' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(pos=pxt.String)
         assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as excs_info:
+        with pytest.raises(pxt.Error) as excs_info:
             _ = t.add_column(add_column=pxt.Int)
         assert "'add_column' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
-        with pytest.raises(excs.Error) as excs_info:
+        with pytest.raises(pxt.Error) as excs_info:
             _ = t.add_column(insert=pxt.Int)
         assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
         # duplicate name
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(c1=pxt.Int)
         assert 'duplicate column name' in str(exc_info.value).lower()
 
         # 'stored' kwarg only applies to computed image columns
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.add_column(c5=pxt.Int, stored=False)
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.add_column(c5=pxt.Image, stored=False)
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.add_computed_column(c5=(t.c2 + t.c3), stored=False)
 
         # make sure this is still true after reloading the metadata
@@ -1900,24 +1964,24 @@ class TestTable:
         assert res['c2'] == [True, False, True, False, True]
 
         # bool columns do not accept other types.
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t3.insert(c2='T')
         assert 'error in column c2: expected bool, got str' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t3.insert(c2=4.5)
         assert 'error in column c2: expected bool, got float' in str(exc_info.value).lower()
 
         # test that int columns only accept int values, not bool
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t3.insert(c1=True)
         assert 'error in column c1: expected int, got bool' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t3.insert(c1=False)
         assert 'error in column c1: expected int, got bool' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t3.insert(c1='T')
         assert 'error in column c1: expected int, got str' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t3.insert(c1=4.5)
         assert 'error in column c1: expected int, got float' in str(exc_info.value).lower()
 
@@ -1933,7 +1997,7 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_add_column_if_exists(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_if_exists(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of add_column."""
         t = test_tbl
         orig_cnames = t.columns()
@@ -1941,27 +2005,27 @@ class TestTable:
 
         # invalid if_exists is rejected
         expected_err_str = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
-        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err_str)):
             t.add_column(non_existing_col1=pxt.Int, if_exists='invalid')
-        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err_str)):
             t.add_computed_column(non_existing_col1=t.c2 + t.c3, if_exists='invalid')
-        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
+        with pytest.raises(pxt.Error, match=re.escape(expected_err_str)):
             t.add_columns({'non_existing_col1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
         assert orig_cnames == t.columns()
 
         # if_exists='error' raises an error if the column already exists
         # by default, if_exists='error'
-        with pytest.raises(excs.Error, match="Duplicate column name: 'c1'"):
+        with pytest.raises(pxt.Error, match="Duplicate column name: 'c1'"):
             t.add_column(c1=pxt.Int)
-        with pytest.raises(excs.Error, match="Duplicate column name: 'c1'"):
+        with pytest.raises(pxt.Error, match="Duplicate column name: 'c1'"):
             t.add_computed_column(c1=t.c2 + t.c3)
-        with pytest.raises(excs.Error, match="Duplicate column name: 'c1'"):
+        with pytest.raises(pxt.Error, match="Duplicate column name: 'c1'"):
             t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String})
-        with pytest.raises(excs.Error, match="Duplicate column name: 'c1'"):
+        with pytest.raises(pxt.Error, match="Duplicate column name: 'c1'"):
             t.add_column(c1=pxt.Int, if_exists='error')
-        with pytest.raises(excs.Error, match="Duplicate column name: 'c1'"):
+        with pytest.raises(pxt.Error, match="Duplicate column name: 'c1'"):
             t.add_computed_column(c1=t.c2 + t.c3, if_exists='error')
-        with pytest.raises(excs.Error, match="Duplicate column name: 'c1'"):
+        with pytest.raises(pxt.Error, match="Duplicate column name: 'c1'"):
             t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
         assert orig_cnames == t.columns()
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
@@ -2015,7 +2079,7 @@ class TestTable:
 
         # replace will raise an error if the column has dependents
         t.add_computed_column(non_existing_col3=t.c1 + 10)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.add_column(c1=pxt.Int, if_exists='replace')
         error_msg = str(exc_info.value).lower()
         assert 'already exists' in error_msg and 'has dependents' in error_msg
@@ -2118,31 +2182,31 @@ class TestTable:
         assert status.num_excs == 0
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
 
-        with pytest.raises(excs.Error, match='Unknown column'):
+        with pytest.raises(pxt.Error, match='Unknown column'):
             t.recompute_columns('h')
-        with pytest.raises(excs.Error, match='is not a computed column'):
+        with pytest.raises(pxt.Error, match='is not a computed column'):
             t.recompute_columns(t.i)
-        with pytest.raises(excs.Error, match='of a snapshot'):
+        with pytest.raises(pxt.Error, match='of a snapshot'):
             s = pxt.create_snapshot('recompute_snap', t, additional_columns={'i4': t.i2 + 1})
             s.recompute_columns(s.i4)
-        with pytest.raises(excs.Error, match='At least one column must be specified'):
+        with pytest.raises(pxt.Error, match='At least one column must be specified'):
             t.recompute_columns()
-        with pytest.raises(excs.Error, match='Cannot use errors_only=True with multiple columns'):
+        with pytest.raises(pxt.Error, match='Cannot use errors_only=True with multiple columns'):
             t.recompute_columns(t.i1, t.s1, errors_only=True)
-        with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
+        with pytest.raises(pxt.Error, match='Cannot recompute column of a base'):
             v.recompute_columns(v.i1)
-        with pytest.raises(excs.Error, match='Cannot recompute column of a base'):
+        with pytest.raises(pxt.Error, match='Cannot recompute column of a base'):
             v.i1.recompute()
 
-    def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
+    def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
         # invalid if_not_exists parameter is rejected
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.drop_column(non_existing_col, if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         # if_not_exists='error' raises an error if the column does not exist
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.drop_column(non_existing_col, if_not_exists='error')
         err_msg = str(exc_info.value).lower()
         if isinstance(non_existing_col, str):
@@ -2152,7 +2216,7 @@ class TestTable:
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 
-    def test_drop_column(self, test_tbl: catalog.Table) -> None:
+    def test_drop_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         dummy_t = pxt.create_table('dummy', {'dummy_col': pxt.Int})
         num_orig_cols = len(t.columns())
@@ -2161,7 +2225,7 @@ class TestTable:
         assert 'c1' not in t.columns()
         with pytest.raises(AttributeError, match="Column 'c1' unknown"):
             _ = t.c1
-        with pytest.raises(excs.Error, match="Column 'c1' unknown"):
+        with pytest.raises(pxt.Error, match="Column 'c1' unknown"):
             t.drop_column('c1')
         # non-existing column by name - column was already dropped
         self.__test_drop_column_if_not_exists(t, 'c1')
@@ -2169,7 +2233,7 @@ class TestTable:
         # but of a different table
         self.__test_drop_column_if_not_exists(t, dummy_t.dummy_col)
         assert 'unknown' not in t.columns()
-        with pytest.raises(excs.Error, match="Column 'unknown' unknown"):
+        with pytest.raises(pxt.Error, match="Column 'unknown' unknown"):
             t.drop_column('unknown')
         with pytest.raises(AttributeError, match="Column 'unknown' unknown"):
             t.drop_column(t.unknown)
@@ -2215,10 +2279,10 @@ class TestTable:
         # drop_column is not allowed on a snapshot
         s1 = pxt.create_snapshot('s1', t, additional_columns={'s1': t.c3 + 1})
         assert 'c1' not in s1.columns()
-        with pytest.raises(excs.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
+        with pytest.raises(pxt.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('c1')
         assert 's1' in s1.columns()
-        with pytest.raises(excs.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
+        with pytest.raises(pxt.Error, match=r"snapshot 's1': Cannot drop columns from a snapshot."):
             s1.drop_column('s1')
         assert 's1' in s1.columns()
 
@@ -2228,7 +2292,7 @@ class TestTable:
         t2 = pxt.create_table('test2', {'c1': pxt.String, 'c2': pxt.String})
 
         # cannot pass another table's column reference
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t1.drop_column(t2.c2)
         assert 'unknown column: test2.c2' in str(exc_info.value).lower()
         assert 'c2' in t1.columns()
@@ -2246,7 +2310,7 @@ class TestTable:
         pxt.drop_table(t1)
         pxt.drop_table(t2)
 
-    def test_rename_column(self, test_tbl: catalog.Table) -> None:
+    def test_rename_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
         t.rename_column('c1', 'c1_renamed')
@@ -2261,13 +2325,13 @@ class TestTable:
         check_rename(t, 'c1_renamed', 'c1')
 
         # unknown column
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             t.rename_column('unknown', 'unknown_renamed')
         # bad name
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             t.rename_column('c2', 'bad name')
         # existing name
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             t.rename_column('c2', 'c3')
 
         # make sure this is still true after reloading the metadata
@@ -2286,14 +2350,14 @@ class TestTable:
         t = pxt.get_table(t._name)
         check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_add_computed_column(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         status = t.add_computed_column(add1=t.c2 + 10)
         assert status.num_excs == 0
         _ = t.show()
 
         # TODO(aaron-siegel): This has to be commented out. See explanation in test_exprs.py.
-        # with pytest.raises(excs.Error):
+        # with pytest.raises(pxt.Error):
         #     t.add_computed_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
@@ -2331,18 +2395,21 @@ class TestTable:
         t.add_computed_column(func=t.c2.upper())
         t.add_computed_column(func_r=t.c2_r.upper())
 
-        assert t.get_metadata()['schema'] == {
-            'c1': ts.IntType(nullable=True),
-            'c1_r': ts.IntType(nullable=False),
-            'c2': ts.StringType(nullable=True),
-            'c2_r': ts.StringType(nullable=False),
-            'arith': ts.IntType(nullable=True),
-            'arith_r': ts.IntType(nullable=False),
-            'func': ts.StringType(nullable=True),
-            'func_r': ts.StringType(nullable=False),
+        expected_schema = {
+            'c1': 'Int',
+            'c1_r': 'Required[Int]',
+            'c2': 'String',
+            'c2_r': 'Required[String]',
+            'arith': 'Int',
+            'arith_r': 'Required[Int]',
+            'func': 'String',
+            'func_r': 'Required[String]',
         }
+        metadata = t.get_metadata()
+        actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
+        assert expected_schema == actual_schema
 
-    def test_repr(self, test_tbl: catalog.Table, all_mpnet_embed: func.Function) -> None:
+    def test_repr(self, test_tbl: pxt.Table, all_mpnet_embed: pxt.Function) -> None:
         skip_test_if_not_installed('sentence_transformers')
 
         v = pxt.create_view('test_view', test_tbl)
@@ -2472,78 +2539,78 @@ class TestTable:
         unknown_tbl_msg = 'Table was dropped'
 
         # verify that queries and data changes fail with unkown_tbl_msg
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.delete(t.c1 > 3)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.insert([{'c1': 1, 'c2': 'abc'}])
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.update({'c1': 2})
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.batch_update([{'c1': 2, 'c2': 'f'}])
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.add_column(c2=pxt.Int)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.add_columns({'c2': pxt.Int})
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.add_computed_column(c3=t.c1 + 10)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.add_embedding_index('c2', string_embed=str.split)  # type: ignore[arg-type]
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.drop_embedding_index(column='c2', if_not_exists='ignore')
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.drop_index(column='c2')
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.drop_column('c1')
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.rename_column('c1', 'c1_renamed')
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.group_by(t.c1)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.select(t.c1)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.where(t.c1 > 3)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.order_by(t.c1)
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.collect()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.count()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.head()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.limit(1)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.tail()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.show()
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.describe()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.get_metadata()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.list_views()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = repr(t)
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t._repr_html_()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.external_stores()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.unlink_external_stores()
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.sync()
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_coco_dataset()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_pytorch_dataset()
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg):
+        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.revert()
 
     def test_array_columns(self, reset_db: None, reload_tester: ReloadTester) -> None:

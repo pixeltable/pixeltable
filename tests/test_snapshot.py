@@ -1,10 +1,9 @@
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, func
 
 from .utils import (
     ReloadTester,
@@ -20,7 +19,7 @@ class TestSnapshot:
     def run_basic_test(
         self,
         tbl: pxt.Table,
-        orig_query: Union[pxt.Table, pxt.DataFrame],
+        orig_query: pxt.Table | pxt.DataFrame,
         snap: pxt.Table,
         extra_items: dict[str, Any],
         reload_md: bool,
@@ -65,12 +64,12 @@ class TestSnapshot:
         tbl.revert()  # undo update()
         tbl.revert()  # undo insert()
         # can't revert a version referenced by a snapshot
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             tbl.revert()
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pytest.raises(excs.Error, match='has dependents'):
+        with pytest.raises(pxt.Error, match='has dependents'):
             pxt.drop_table(tbl_path)
 
         pxt.drop_table(snap_path)
@@ -97,7 +96,7 @@ class TestSnapshot:
                         else {}
                     )
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
-                    query: Union[pxt.Table, pxt.DataFrame] = tbl.where(tbl.c2 < 10) if has_filter else tbl
+                    query: pxt.Table | pxt.DataFrame = tbl.where(tbl.c2 < 10) if has_filter else tbl
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
                     self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 
@@ -118,7 +117,7 @@ class TestSnapshot:
         """
         id_before = s._id
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_snapshot(sname, t, if_exists='invalid')  # type: ignore[arg-type]
         assert (
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
@@ -151,7 +150,7 @@ class TestSnapshot:
         assert 'test_view_on_snapshot1' in pxt.list_tables()
         # if_exists='replace' cannot drop a snapshot with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_snapshot(sname, t, if_exists='replace')
         err_msg = str(exc_info.value).lower()
         assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
@@ -168,7 +167,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot('not_snapshot', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 pxt.create_snapshot('not_snapshot', t, if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
@@ -199,7 +198,7 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, reset_db: None, clip_embed: func.Function) -> None:
+    def test_errors(self, reset_db: None, clip_embed: pxt.Function) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_snapshot('snap', tbl)
         display_str = "snapshot 'snap'"
