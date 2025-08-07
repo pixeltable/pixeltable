@@ -2636,7 +2636,7 @@ class TestTable:
             for i in range(100)
         ]
 
-        status = t.insert_pydantic(rows1)
+        status = t.insert(rows1)
         assert status.num_rows == 100
         assert status.num_excs == 0
         assert t.where(t.i < 50).count() == 50
@@ -2656,30 +2656,27 @@ class TestTable:
                 f=i * 1.0,
                 b=i % 2 == 0,
                 j={'key': f'val_{i}'},
-                opt_s=f'opt_{i}' if i % 2 == 0 else None,
             )
             for i in range(100)
         ]
 
-        status = t.insert_pydantic(rows2)
+        status = t.insert(rows2)
         assert status.num_rows == 100
         assert status.num_excs == 0
         assert t.where(t.i < 50).count() == 100
 
         # missing required keys in input
-        with pytest.raises(pxt.Error, match="has fields for computed columns: 'c1'"):
+        with pytest.raises(pxt.Error, match="Missing required column 's'"):
             rows3 = [
                 TestModel2(
                     i=i,
                     f=i * 1.0,
                     b=i % 2 == 0,
                     j={'key': f'val_{i}'},
-                    opt_s=f'opt_{i}' if i % 2 == 0 else None,
                 )
                 for i in range(100)
             ]
-            status = t.insert_pydantic(rows3)
-            pass
+            status = t.insert(rows3)
 
         # value provided for computed column
         with pytest.raises(pxt.Error, match="has fields for computed columns: 'c1'"):
@@ -2693,7 +2690,7 @@ class TestTable:
                 opt_s: Optional[str] = None
                 c1: int
 
-            _ = t.insert_pydantic([BadModel1(s='str_0', i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0', c1=1)])
+            _ = t.insert([BadModel1(s='str_0', i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0', c1=1)])
 
         # missing required column
         with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
@@ -2705,7 +2702,7 @@ class TestTable:
                 j: dict[str, Any]
                 opt_s: Optional[str] = None
 
-            _ = t.insert_pydantic([BadModel2(i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+            _ = t.insert([BadModel2(i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
 
         # incompatible field type
         with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
@@ -2718,7 +2715,7 @@ class TestTable:
                 j: dict[str, Any]
                 opt_s: Optional[str] = None
 
-            _ = t.insert_pydantic([BadModel3(s='str_0', i='0', f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+            _ = t.insert([BadModel3(s='str_0', i='0', f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
 
     def test_insert_pydantic_validation(self, reset_db: None) -> None:
         """Test validation and error handling for insert_pydantic"""
@@ -2734,7 +2731,7 @@ class TestTable:
 
         models_incomplete = [IncompleteModel(name='Alice')]
         with pytest.raises(pxt.Error, match='missing required columns'):
-            t.insert_pydantic(models_incomplete)
+            t.insert(models_incomplete)
 
         # Test model with computed column field (should fail)
         class ModelWithComputed(pydantic.BaseModel):
@@ -2744,7 +2741,7 @@ class TestTable:
 
         models_with_computed = [ModelWithComputed(name='Bob', age=25, computed_field='invalid')]
         with pytest.raises(pxt.Error, match='fields for computed columns'):
-            t.insert_pydantic(models_with_computed)
+            t.insert(models_with_computed)
 
         # Test type incompatibility
         class IncompatibleModel(pydantic.BaseModel):
@@ -2753,10 +2750,10 @@ class TestTable:
 
         models_incompatible = [IncompatibleModel(name='Charlie', age='thirty')]
         with pytest.raises(pxt.Error, match='incompatible type'):
-            t.insert_pydantic(models_incompatible)
+            t.insert(models_incompatible)
 
         # Test empty input
-        status = t.insert_pydantic([])
+        status = t.insert([])
         assert status.num_rows == 0
         assert status.num_excs == 0
 
@@ -2766,7 +2763,7 @@ class TestTable:
             age: int
 
         valid_models = [ValidModel(name='Dave', age=35)]
-        status = t.insert_pydantic(valid_models)
+        status = t.insert(valid_models)
         assert status.num_rows == 1
         assert status.num_excs == 0
         assert t.count() == 1
@@ -2783,7 +2780,7 @@ class TestTable:
 
         # Test with a single model
         single_model = SimpleModel(name='Single', value=42)
-        status = t.insert_pydantic([single_model])
+        status = t.insert([single_model])
         assert status.num_rows == 1
         assert status.num_excs == 0
         assert t.count() == 1
@@ -2794,7 +2791,7 @@ class TestTable:
             SimpleModel(name='Second'),  # value is None
             SimpleModel(name='Third', value=3),
         ]
-        status = t.insert_pydantic(more_models)
+        status = t.insert(more_models)
         assert status.num_rows == 3
         assert status.num_excs == 0
         assert t.count() == 4  # 1 + 3 total

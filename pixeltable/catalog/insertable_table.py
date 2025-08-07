@@ -124,9 +124,19 @@ class InsertableTable(Table):
         self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
 
+    @overload
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        rows: Iterable[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+    ) -> UpdateStatus: ...
+
+    def insert(
+        self,
+        source: Optional[TableDataSource | Iterable[pydantic.BaseModel]] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -143,6 +153,29 @@ class InsertableTable(Table):
             if source is None:
                 source = [kwargs]
                 kwargs = None
+            
+            # Check if source is an iterable of Pydantic BaseModel instances
+            if source is not None and hasattr(source, '__iter__') and not isinstance(source, (str, bytes, dict)):
+                try:
+                    # Peek at first item to check if it's a BaseModel
+                    source_iter = iter(source)
+                    first_item = next(source_iter)
+                    if isinstance(first_item, pydantic.BaseModel):
+                        # This is a Pydantic model iterable, handle it directly
+                        from itertools import chain
+                        full_source = chain([first_item], source_iter)
+                        status = self._insert_pydantic_internal(list(full_source), print_stats=print_stats)
+                        Env.get().console_logger.info(status.insert_msg)
+                        FileCache.get().emit_eviction_warnings()
+                        return status
+                except StopIteration:
+                    # Empty iterable - check if it's a list (which could be empty Pydantic models)
+                    if isinstance(source, list):
+                        # Handle empty list as Pydantic models
+                        status = self._insert_pydantic_internal([], print_stats=print_stats)
+                        Env.get().console_logger.info(status.insert_msg)
+                        FileCache.get().emit_eviction_warnings()
+                        return status
 
             tds = UnkTableDataConduit(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
@@ -185,31 +218,74 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def insert_pydantic(self, rows: Iterable[pydantic.BaseModel]) -> UpdateStatus:
-
-        from pixeltable.catalog import Catalog
-
-        rows_list = list(rows)
-        if not rows_list:
+    def _insert_pydantic_internal(self, rows: list[pydantic.BaseModel], print_stats: bool = False) -> UpdateStatus:
+        """Internal method to handle Pydantic model insertion."""
+        if not rows:
             return UpdateStatus()
 
-        model_class = type(rows_list[0])
+        model_class = type(rows[0])
         self._validate_pydantic_model(model_class)
-        pxt_rows = [row.model_dump() for row in rows_list]
-        # explicitly check that all required columns are present and non-None in the rows, because we ignore nullability
-        # when validating the pydantic model
+        pxt_rows = [row.model_dump() for row in rows]
+        
+        # explicitly check that all required columns are present and non-None in the rows, 
+        # because we ignore nullability when validating the pydantic model
         reqd_col_names = [col.name for col in self._tbl_version_path.columns() if col.is_required_for_insert]
         for i, pxt_row in enumerate(pxt_rows):
             for col_name in reqd_col_names:
                 if pxt_row.get(col_name) is None:
-                    raise excs.Error(f'Missing required column {col_name!r} in {repr(rows_list[i])}')
+                    raise excs.Error(f'Missing required column {col_name!r} in {repr(rows[i])}')
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            status = self._tbl_version.get().insert(rows=pxt_rows, df=None, print_stats=False, fail_on_exception=True)
-
-        Env.get().console_logger.info(status.insert_msg)
-        FileCache.get().emit_eviction_warnings()
+        # Note: Transaction is already active when this method is called
+        status = self._tbl_version.get().insert(rows=pxt_rows, df=None, print_stats=print_stats, fail_on_exception=True)
         return status
+
+    def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
+        """
+        Check if a Pydantic model is compatible with this table for insert operations.
+
+        A model is compatible if:
+        - All required table columns have corresponding model fields with compatible types
+        - Model does not define fields for computed columns
+        - Model field types are compatible with table column types
+        """
+        assert isinstance(model, type) and issubclass(model, pydantic.BaseModel)
+
+        schema = self._get_schema()
+        required_cols = set(self._tbl_version.get().get_required_col_names())
+        computed_cols = set(self._tbl_version.get().get_computed_col_names())
+        model_fields = model.model_fields
+        model_field_names = set(model_fields.keys())
+
+        missing_required = required_cols - model_field_names
+        if missing_required:
+            raise excs.Error(
+                f'Pydantic model {model.__name__} is missing required columns: '
+                f'{", ".join(f"{col_name!r}" for col_name in missing_required)}'
+            )
+
+        computed_in_model = computed_cols & model_field_names
+        if computed_in_model:
+            raise excs.Error(
+                f'Pydantic model {model.__name__} has fields for computed columns: '
+                f'{", ".join(f"{col_name!r}" for col_name in computed_in_model)}'
+            )
+
+        # validate type compatibility
+        common_fields = model_field_names & set(schema.keys())
+        for field_name in common_fields:
+            pxt_col_type = schema[field_name]
+            model_field = model_fields[field_name]
+            model_type = model_field.annotation
+
+            # we ignore nullability: we want to accept optional model fields for required table columns, as long as
+            # the model instances provide a non-null value
+            inferred_pxt_type = ts.ColumnType.from_python_type(model_type)
+            if inferred_pxt_type is None or not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
+                raise excs.Error(
+                    f'Pydantic model {model.__name__} has incompatible type ({model_type.__name__}) '
+                    f'for column {field_name!r} ({pxt_col_type})'
+                )
+
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.

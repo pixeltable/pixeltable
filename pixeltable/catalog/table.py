@@ -12,8 +12,8 @@ from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from uuid import UUID
 
 import pandas as pd
-import pydantic
 import sqlalchemy as sql
+import pydantic
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
@@ -38,7 +38,6 @@ from ..utils.filecache import FileCache
 
 if TYPE_CHECKING:
     import torch.utils.data
-    from pydantic import BaseModel
 
     import pixeltable.plan
     from pixeltable.globals import TableDataSource
@@ -307,52 +306,6 @@ class Table(SchemaObject):
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
-    def _validate_pydantic_model(self, model: 'type[BaseModel]') -> None:
-        """
-        Check if a Pydantic model is compatible with this table for insert operations.
-
-        A model is compatible if:
-        - All required table columns have corresponding model fields with compatible types
-        - Model does not define fields for computed columns
-        - Model field types are compatible with table column types
-        """
-        assert isinstance(model, type) and issubclass(model, pydantic.BaseModel)
-
-        schema = self._get_schema()
-        required_cols = set(self._tbl_version.get().get_required_col_names())
-        computed_cols = set(self._tbl_version.get().get_computed_col_names())
-        model_fields = model.model_fields
-        model_field_names = set(model_fields.keys())
-
-        missing_required = required_cols - model_field_names
-        if missing_required:
-            raise excs.Error(
-                f'Pydantic model {model.__name__} is missing required columns: '
-                f'{", ".join(f"{col_name!r}" for col_name in missing_required)}'
-            )
-
-        computed_in_model = computed_cols & model_field_names
-        if computed_in_model:
-            raise excs.Error(
-                f'Pydantic model {model.__name__} has fields for computed columns: '
-                f'{", ".join(f"{col_name!r}" for col_name in computed_in_model)}'
-            )
-
-        # validate type compatibility
-        common_fields = model_field_names & set(schema.keys())
-        for field_name in common_fields:
-            pxt_col_type = schema[field_name]
-            model_field = model_fields[field_name]
-            model_type = model_field.annotation
-
-            # we ignore nullability: we want to accept optional model fields for required table columns, as long as
-            # the model instances provide a non-null value
-            inferred_pxt_type = ts.ColumnType.from_python_type(model_type)
-            if inferred_pxt_type is None or not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
-                raise excs.Error(
-                    f'Pydantic model {model.__name__} has incompatible type ({model_type.__name__}) '
-                    f'for column {field_name!r} ({pxt_col_type})'
-                )
 
     # def _is_type_compatible(self, pxt_type: ts.ColumnType, python_type: Any) -> bool:
     #     """Check if a Pixeltable column type is compatible with a Python/Pydantic type annotation."""
@@ -1352,10 +1305,20 @@ class Table(SchemaObject):
         self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
 
+    @overload
+    def insert(
+        self,
+        rows: Iterable[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+    ) -> UpdateStatus: ...
+
     @abc.abstractmethod
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: Optional[TableDataSource | Iterable[pydantic.BaseModel]] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -1364,9 +1327,9 @@ class Table(SchemaObject):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        """Inserts rows into this table. There are two mutually exclusive call patterns:
+        """Inserts rows into this table. There are three mutually exclusive call patterns:
 
-        To insert multiple rows at a time:
+        To insert multiple rows from various data sources:
 
         ```python
         insert(
@@ -1376,6 +1339,17 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any,
+        )```
+
+        To insert Pydantic model instances:
+
+        ```python
+        insert(
+            rows: Iterable[BaseModel],
+            /,
+            *,
+            on_error: Literal['abort', 'ignore'] = 'abort',
+            print_stats: bool = False,
         )```
 
         To insert just a single row, you can use the more concise syntax:
@@ -1390,6 +1364,7 @@ class Table(SchemaObject):
 
         Args:
             source: A data source from which data can be imported.
+            rows: (if inserting Pydantic models) An iterable of Pydantic BaseModel instances to insert.
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
                 (if inserting multiple rows) Additional keyword arguments are passed to the data source.
             source_format: A hint about the format of the source data
@@ -1429,34 +1404,16 @@ class Table(SchemaObject):
             Insert rows from a CSV file:
 
             >>> tbl.insert(source='path/to/file.csv')
-        """
-        raise NotImplementedError
 
-    @abc.abstractmethod
-    def insert_pydantic(self, rows: Iterable['BaseModel']) -> UpdateStatus:
-        """Insert rows from Pydantic model instances into this table.
-
-        Args:
-            rows: An iterable of Pydantic BaseModel instances to insert. All instances must be of the same
-                Pydantic model type, which must be compatible with this table's schema.
-
-        Returns:
-            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
-
-        Raises:
-            Error: If the Pydantic model is not compatible with this table's schema, or if media data
-                validation fails for filename strings.
-
-        Examples:
-            Insert Pydantic model instances into a table:
+            Insert Pydantic model instances:
 
             >>> from pydantic import BaseModel
             ... class MyModel(BaseModel):
-            ...     name: str
-            ...     age: int
+            ...     a: int
+            ...     b: int
             ...
-            ... models = [MyModel(name='Alice', age=30), MyModel(name='Bob', age=25)]
-            ... tbl.insert_pydantic(models)
+            ... models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
+            ... tbl.insert(models)
         """
         raise NotImplementedError
 
