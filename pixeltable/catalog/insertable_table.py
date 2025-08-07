@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, cast, overload
 from uuid import UUID
 
 import pydantic
@@ -11,6 +11,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
+
 from .globals import MediaValidation
 from .table import Table
 from .table_version import TableVersion
@@ -148,26 +149,26 @@ class InsertableTable(Table):
         from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
+        if source is not None and isinstance(source, Sequence) and len(source) == 0:
+            raise excs.Error('Cannot insert an empty sequence')
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             table = self
+
+            if source is not None and isinstance(source, Sequence) and isinstance(source[0], pydantic.BaseModel):
+                status = self._insert_pydantic(
+                    cast(Sequence[pydantic.BaseModel], source),  # needed for mypy
+                    print_stats=print_stats,
+                    fail_on_exception=fail_on_exception,
+                )
+                Env.get().console_logger.info(status.insert_msg)
+                FileCache.get().emit_eviction_warnings()
+                return status
+
             if source is None:
                 source = [kwargs]
                 kwargs = None
-            
-            # Check if source is a sequence of Pydantic BaseModel instances
-            if isinstance(source, Sequence) and not isinstance(source, (str, bytes)):
-                if len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
-                    # Non-empty sequence of Pydantic models
-                    status = self._insert_pydantic(source, print_stats=print_stats)
-                    Env.get().console_logger.info(status.insert_msg)
-                    FileCache.get().emit_eviction_warnings()
-                    return status
-                elif len(source) == 0:
-                    # Empty sequence - handle as empty Pydantic models
-                    status = self._insert_pydantic(source, print_stats=print_stats)
-                    Env.get().console_logger.info(status.insert_msg)
-                    FileCache.get().emit_eviction_warnings()
-                    return status
 
             tds = UnkTableDataConduit(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
@@ -180,7 +181,6 @@ class InsertableTable(Table):
             data_source.add_table_info(table)
             data_source.prepare_for_insert_into_table()
 
-            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
             return table.insert_table_data_source(
                 data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
             )
@@ -210,25 +210,27 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def _insert_pydantic(self, rows: Sequence[pydantic.BaseModel], print_stats: bool = False) -> UpdateStatus:
-        """Internal method to handle Pydantic model insertion."""
-        if not rows:
-            return UpdateStatus()
-
+    def _insert_pydantic(
+        self, rows: Sequence[pydantic.BaseModel], print_stats: bool = False, fail_on_exception: bool = True
+    ) -> UpdateStatus:
         model_class = type(rows[0])
         self._validate_pydantic_model(model_class)
         pxt_rows = [row.model_dump() for row in rows]
-        
-        # explicitly check that all required columns are present and non-None in the rows, 
+
+        # explicitly check that all required columns are present and non-None in the rows,
         # because we ignore nullability when validating the pydantic model
         reqd_col_names = [col.name for col in self._tbl_version_path.columns() if col.is_required_for_insert]
         for i, pxt_row in enumerate(pxt_rows):
+            if type(rows[i]) is not model_class:
+                raise excs.Error(f'Expected {model_class.__name__} instance, got {rows[i]!r}')
             for col_name in reqd_col_names:
                 if pxt_row.get(col_name) is None:
-                    raise excs.Error(f'Missing required column {col_name!r} in {repr(rows[i])}')
+                    raise excs.Error(f'Missing required column {col_name!r} in {rows[i]!r}')
 
         # Note: Transaction is already active when this method is called
-        status = self._tbl_version.get().insert(rows=pxt_rows, df=None, print_stats=print_stats, fail_on_exception=True)
+        status = self._tbl_version.get().insert(
+            rows=pxt_rows, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+        )
         return status
 
     def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
@@ -272,12 +274,17 @@ class InsertableTable(Table):
             # we ignore nullability: we want to accept optional model fields for required table columns, as long as
             # the model instances provide a non-null value
             inferred_pxt_type = ts.ColumnType.from_python_type(model_type)
-            if inferred_pxt_type is None or not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
+            if inferred_pxt_type is None:
+                raise excs.Error(
+                    f'Pydantic model {model.__name__}: cannot infer Pixeltable type for column {field_name!r}'
+                )
+            if pxt_col_type.is_scalar_type() and not pxt_col_type.is_supertype_of(
+                inferred_pxt_type, ignore_nullable=True
+            ):
                 raise excs.Error(
                     f'Pydantic model {model.__name__} has incompatible type ({model_type.__name__}) '
                     f'for column {field_name!r} ({pxt_col_type})'
                 )
-
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.

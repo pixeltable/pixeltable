@@ -537,6 +537,142 @@ class TestTable:
         t1.insert(df1)
         assert len(t1.collect()) == 2 * len(df1.collect())
 
+    def test_insert_pydantic_scalars(self, reset_db: None) -> None:
+        schema = {
+            's': pxt.Required[pxt.String],
+            'opt_s': pxt.String,
+            'i': pxt.Required[pxt.Int],
+            'f': pxt.Required[pxt.Float],
+            'b': pxt.Required[pxt.Bool],
+            'j': pxt.Required[pxt.Json],
+        }
+        t = pxt.create_table('test_pydantic_basic', schema)
+        t.add_computed_column(c1=t.i + 1)
+
+        # pydantic model matches schema exactly
+        class TestModel1(pydantic.BaseModel):
+            s: str
+            i: int
+            f: float
+            b: bool
+            j: dict[str, Any]
+            opt_s: str | None = None
+
+        rows1 = [
+            TestModel1(
+                s=f'str_{i}',
+                i=i,
+                f=i * 1.0,
+                b=i % 2 == 0,
+                j={'key': f'val_{i}'},
+                opt_s=f'opt_{i}' if i % 2 == 0 else None,
+            )
+            for i in range(100)
+        ]
+
+        status = t.insert(rows1)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 50
+
+        # optional fields are accepted if present in the input
+        class TestModel2(pydantic.BaseModel):
+            s: str | None = None
+            i: int | None = None
+            f: float | None = None
+            b: bool | None = None
+            j: dict[str, Any] | None = None
+
+        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, j={'key': f'val_{i}'}) for i in range(100)]
+
+        status = t.insert(rows2)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 100
+
+        # missing required keys in input
+        with pytest.raises(pxt.Error, match="Missing required column 's'"):
+            rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, j={'key': f'val_{i}'}) for i in range(100)]
+            _ = t.insert(rows3)
+
+        # mixed models
+        with pytest.raises(pxt.Error, match='Expected TestModel1 instance, got TestModel2'):
+            _ = t.insert(rows1 + rows2)
+
+        # value provided for computed column
+        with pytest.raises(pxt.Error, match="has fields for computed columns: 'c1'"):
+
+            class BadModel1(pydantic.BaseModel):
+                s: str
+                i: int
+                f: float
+                b: bool
+                j: dict[str, Any]
+                opt_s: Optional[str] = None
+                c1: int
+
+            _ = t.insert([BadModel1(s='str_0', i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0', c1=1)])
+
+        # missing required column
+        with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
+
+            class BadModel2(pydantic.BaseModel):
+                i: int
+                f: float
+                b: bool
+                j: dict[str, Any]
+                opt_s: Optional[str] = None
+
+            _ = t.insert([BadModel2(i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+
+        # incompatible field type
+        with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
+
+            class BadModel3(pydantic.BaseModel):
+                s: str
+                i: str
+                f: float
+                b: bool
+                j: dict[str, Any]
+                opt_s: Optional[str] = None
+
+            _ = t.insert([BadModel3(s='str_0', i='0', f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+
+        # bad field type
+        with pytest.raises(pxt.Error, match="cannot infer Pixeltable type for column 's'"):
+
+            class BadModel4(pydantic.BaseModel):
+                s: set[int]
+                i: int
+                f: float
+                b: bool
+                j: dict[str, Any]
+                opt_s: Optional[str] = None
+
+            _ = t.insert([BadModel4(s={1, 2, 3}, i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
+
+    def test_insert_nested_pydantic(self, reset_db: None) -> None:
+        schema = {
+            's': pxt.Required[pxt.String],
+            'j': pxt.Required[pxt.Json],
+        }
+        t = pxt.create_table('test_nested_pydantic', schema)
+
+        class M1(pydantic.BaseModel):
+            s: str
+            i: int
+
+        class M2(pydantic.BaseModel):
+            s: str
+            j: M1
+
+        rows = [M2(s=f'str_{i}', j=M1(s=f'str_{i}', i=i)) for i in range(100)]
+
+        status = t.insert(rows)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 50
+
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
     def test_schema_types(self, reset_db: None) -> None:
@@ -1202,9 +1338,8 @@ class TestTable:
         assert status.num_excs == 0
 
         # empty input
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Cannot insert an empty sequence'):
             t.insert([])
-        assert 'Unsupported data source type' in str(exc_info.value)
 
         # missing column
         with pytest.raises(pxt.Error) as exc_info:
@@ -2602,204 +2737,3 @@ class TestTable:
                 assert np.array_equal(a1, a2)
 
         reload_tester.run_reload_test()
-
-    def test_insert_pydantic(self, reset_db: None) -> None:
-        schema = {
-            's': pxt.Required[pxt.String],
-            'opt_s': pxt.String,
-            'i': pxt.Required[pxt.Int],
-            'f': pxt.Required[pxt.Float],
-            'b': pxt.Required[pxt.Bool],
-            'j': pxt.Required[pxt.Json],
-        }
-        t = pxt.create_table('test_pydantic_basic', schema)
-        t.add_computed_column(c1=t.i + 1)
-
-        # pydantic model matches schema exactly
-        class TestModel1(pydantic.BaseModel):
-            s: str
-            i: int
-            f: float
-            b: bool
-            j: dict[str, Any]
-            opt_s: str | None = None
-
-        rows1 = [
-            TestModel1(
-                s=f'str_{i}',
-                i=i,
-                f=i * 1.0,
-                b=i % 2 == 0,
-                j={'key': f'val_{i}'},
-                opt_s=f'opt_{i}' if i % 2 == 0 else None,
-            )
-            for i in range(100)
-        ]
-
-        status = t.insert(rows1)
-        assert status.num_rows == 100
-        assert status.num_excs == 0
-        assert t.where(t.i < 50).count() == 50
-
-        # optional fields are accepted if present in the input
-        class TestModel2(pydantic.BaseModel):
-            s: str | None = None
-            i: int | None = None
-            f: float | None = None
-            b: bool | None = None
-            j: dict[str, Any] | None = None
-
-        rows2 = [
-            TestModel2(
-                s=f'str_{i}',
-                i=i,
-                f=i * 1.0,
-                b=i % 2 == 0,
-                j={'key': f'val_{i}'},
-            )
-            for i in range(100)
-        ]
-
-        status = t.insert(rows2)
-        assert status.num_rows == 100
-        assert status.num_excs == 0
-        assert t.where(t.i < 50).count() == 100
-
-        # missing required keys in input
-        with pytest.raises(pxt.Error, match="Missing required column 's'"):
-            rows3 = [
-                TestModel2(
-                    i=i,
-                    f=i * 1.0,
-                    b=i % 2 == 0,
-                    j={'key': f'val_{i}'},
-                )
-                for i in range(100)
-            ]
-            status = t.insert(rows3)
-
-        # value provided for computed column
-        with pytest.raises(pxt.Error, match="has fields for computed columns: 'c1'"):
-
-            class BadModel1(pydantic.BaseModel):
-                s: str
-                i: int
-                f: float
-                b: bool
-                j: dict[str, Any]
-                opt_s: Optional[str] = None
-                c1: int
-
-            _ = t.insert([BadModel1(s='str_0', i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0', c1=1)])
-
-        # missing required column
-        with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
-
-            class BadModel2(pydantic.BaseModel):
-                i: int
-                f: float
-                b: bool
-                j: dict[str, Any]
-                opt_s: Optional[str] = None
-
-            _ = t.insert([BadModel2(i=0, f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
-
-        # incompatible field type
-        with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
-
-            class BadModel3(pydantic.BaseModel):
-                s: str
-                i: str
-                f: float
-                b: bool
-                j: dict[str, Any]
-                opt_s: Optional[str] = None
-
-            _ = t.insert([BadModel3(s='str_0', i='0', f=0.0, b=False, j={'key': 'val_0'}, opt_s='opt_0')])
-
-    def test_insert_pydantic_validation(self, reset_db: None) -> None:
-        """Test validation and error handling for insert_pydantic"""
-        schema = {'name': pxt.Required[pxt.String], 'age': pxt.Required[pxt.Int]}
-        t = pxt.create_table('test_pydantic_validation', schema)
-        # Add a computed column to test computed field validation
-        t.add_computed_column(computed_field=t.name)
-
-        # Test missing required field
-        class IncompleteModel(pydantic.BaseModel):
-            name: str
-            # Missing 'age' field
-
-        models_incomplete = [IncompleteModel(name='Alice')]
-        with pytest.raises(pxt.Error, match='missing required columns'):
-            t.insert(models_incomplete)
-
-        # Test model with computed column field (should fail)
-        class ModelWithComputed(pydantic.BaseModel):
-            name: str
-            age: int
-            computed_field: str
-
-        models_with_computed = [ModelWithComputed(name='Bob', age=25, computed_field='invalid')]
-        with pytest.raises(pxt.Error, match='fields for computed columns'):
-            t.insert(models_with_computed)
-
-        # Test type incompatibility
-        class IncompatibleModel(pydantic.BaseModel):
-            name: str
-            age: str  # Should be int, not str
-
-        models_incompatible = [IncompatibleModel(name='Charlie', age='thirty')]
-        with pytest.raises(pxt.Error, match='incompatible type'):
-            t.insert(models_incompatible)
-
-        # Test empty input
-        status = t.insert([])
-        assert status.num_rows == 0
-        assert status.num_excs == 0
-
-        # Test successful insertion with valid model
-        class ValidModel(pydantic.BaseModel):
-            name: str
-            age: int
-
-        valid_models = [ValidModel(name='Dave', age=35)]
-        status = t.insert(valid_models)
-        assert status.num_rows == 1
-        assert status.num_excs == 0
-        assert t.count() == 1
-
-    def test_insert_pydantic_edge_cases(self, reset_db: None) -> None:
-        """Test edge cases for insert_pydantic"""
-        schema = {'name': pxt.Required[pxt.String], 'value': pxt.Int}
-        t = pxt.create_table('test_pydantic_edge_cases', schema)
-
-        # Test with single model instance (not a list)
-        class SimpleModel(pydantic.BaseModel):
-            name: str
-            value: Optional[int] = None
-
-        # Test with a single model
-        single_model = SimpleModel(name='Single', value=42)
-        status = t.insert([single_model])
-        assert status.num_rows == 1
-        assert status.num_excs == 0
-        assert t.count() == 1
-
-        # Test with multiple models of same type
-        more_models = [
-            SimpleModel(name='First', value=1),
-            SimpleModel(name='Second'),  # value is None
-            SimpleModel(name='Third', value=3),
-        ]
-        status = t.insert(more_models)
-        assert status.num_rows == 3
-        assert status.num_excs == 0
-        assert t.count() == 4  # 1 + 3 total
-
-        # Verify all data
-        results = list(t.select().order_by(t.name).collect())
-        assert len(results) == 4
-        assert results[0]['name'] == 'First' and results[0]['value'] == 1
-        assert results[1]['name'] == 'Second' and results[1]['value'] is None
-        assert results[2]['name'] == 'Single' and results[2]['value'] == 42
-        assert results[3]['name'] == 'Third' and results[3]['value'] == 3
