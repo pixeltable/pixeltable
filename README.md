@@ -41,7 +41,10 @@ https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
 
 ## Quick Start
 
-With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**. Focus on your application logic, not the data plumbing.
+With Pixeltable, you define your *entire* data processing and AI workflow declaratively using
+**[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on
+**[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**.
+Focus on your application logic, not the data plumbing.
 
 ```python
 
@@ -94,124 +97,163 @@ results = t.select(
 
 ## ✨ What Happened?
 
-*   **Data Ingestion & Storage:** References [files](https://docs.pixeltable.com/docs/datastore/bringing-data) (images, videos, audio, docs) in place, handles structured data.
-*   **Transformation & Processing:** Applies *any* Python function ([UDFs](https://docs.pixeltable.com/docs/datastore/custom-functions)) or built-in operations ([chunking, frame extraction](https://docs.pixeltable.com/docs/datastore/iterators)) automatically.
-*   **AI Model Integration:** Runs inference ([embeddings](https://docs.pixeltable.com/docs/datastore/embedding-index), [object detection](https://docs.pixeltable.com/docs/examples/vision/yolox), [LLMs](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers)) as part of the data pipeline.
-*   **Indexing & Retrieval:** Creates and manages vector indexes for fast [semantic search](https://docs.pixeltable.com/docs/datastore/embedding-index#phase-3%3A-query) alongside traditional filtering.
-*   **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/docs/overview/quick-start) what's necessary when data or code changes, saving time and cost.
-*   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility. See below for an example that uses "time travel" to query an older version of a table.
+* **Data Ingestion & Storage:** References [files](https://docs.pixeltable.com/docs/datastore/bringing-data)
+    (images, videos, audio, docs) in place, handles structured data.
+* **Transformation & Processing:** Applies *any* Python function ([UDFs](https://docs.pixeltable.com/docs/datastore/custom-functions))
+    or built-in operations ([chunking, frame extraction](https://docs.pixeltable.com/docs/datastore/iterators)) automatically.
+* **AI Model Integration:** Runs inference ([embeddings](https://docs.pixeltable.com/docs/datastore/embedding-index),
+    [object detection](https://docs.pixeltable.com/docs/examples/vision/yolox),
+    [LLMs](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers)) as part of the data pipeline.
+* **Indexing & Retrieval:** Creates and manages vector indexes for fast
+    [semantic search](https://docs.pixeltable.com/docs/datastore/embedding-index#phase-3%3A-query)
+    alongside traditional filtering.
+* **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/docs/overview/quick-start) what's
+    necessary when data or code changes, saving time and cost.
+* **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility. See below for an example
+    that uses "time travel" to query an older version of a table.
 
-Pixeltable can ingest data from local storage or directly from a URL. When external media files are referenced by URL, as in the `insert` statement above, Pixeltable caches them locally before processing. See the [Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb) notebook for more details.
+Pixeltable can ingest data from local storage or directly from a URL. When external media files are referenced by URL,
+as in the `insert` statement above, Pixeltable caches them locally before processing. See the
+[Working with External Files](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb)
+notebook for more details.
 
 ## 🗄️ Where Did My Data Go?
 
-Pixeltable workloads generate various outputs, including both structured outputs (such as bounding boxes for detected objects) and/or unstructured outputs (such as generated images or video). By default, everything resides in your Pixeltable user directory at `~/.pixeltable`. Structured data is stored in a Postgres instance in `~/.pixeltable`. Generated media (images, video, audio, documents) are stored outside the Postgres database, in separate flat files in `~/.pixeltable/media`. Those media files are referenced by URL in the database, and Pixeltable provides the "glue" for a unified table interface over both structured and unstructured data.
+Pixeltable workloads generate various outputs, including both structured outputs (such as bounding boxes for detected
+objects) and/or unstructured outputs (such as generated images or video). By default, everything resides in your
+Pixeltable user directory at `~/.pixeltable`. Structured data is stored in a Postgres instance in `~/.pixeltable`.
+Generated media (images, video, audio, documents) are stored outside the Postgres database, in separate flat files in
+`~/.pixeltable/media`. Those media files are referenced by URL in the database, and Pixeltable provides the "glue" for
+a unified table interface over both structured and unstructured data.
 
-In general, the user is not expected to interact directly with the data in `~/.pixeltable`; the data store is fully managed by Pixeltable and is intended to be accessed through the Pixeltable Python SDK.
+In general, the user is not expected to interact directly with the data in `~/.pixeltable`; the data store is fully
+managed by Pixeltable and is intended to be accessed through the Pixeltable Python SDK.
 
 ## ⚖️ Key Principles
 
-* **[Unified Multimodal Interface:](https://docs.pixeltable.com/docs/datastore/tables-and-operations)** `pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
-  ```python
-  t = pxt.create_table(
-    'media',
-    {
-        'img': pxt.Image,
-        'video': pxt.Video
-    }
-  )
-  ```
+* **[Unified Multimodal Interface:](https://docs.pixeltable.com/docs/datastore/tables-and-operations)** `pxt.Image`,
+    `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
 
-* **[Declarative Computed Columns:](https://docs.pixeltable.com/docs/datastore/computed-columns)** Define processing steps once; they run automatically on new/updated data.
-  ```python
-  t.add_computed_column(
-    classification=huggingface.vit_for_image_classification(
-        t.image
+    ```python
+    t = pxt.create_table(
+        'media',
+        {
+            'img': pxt.Image,
+            'video': pxt.Video
+        }
     )
-  )
-  ```
+    ```
 
-* **[Built-in Vector Search:](https://docs.pixeltable.com/docs/datastore/embedding-index)** Add embedding indexes and perform similarity searches directly on tables/views.
-  ```python
-  t.add_embedding_index(
-    'img',
-    embedding=clip.using(
-        model_id='openai/clip-vit-base-patch32'
+* **[Declarative Computed Columns:](https://docs.pixeltable.com/docs/datastore/computed-columns)** Define processing
+    steps once; they run automatically on new/updated data.
+
+    ```python
+    t.add_computed_column(
+        classification=huggingface.vit_for_image_classification(
+            t.image
+        )
     )
-  )
+    ```
 
-  sim = t.img.similarity("cat playing with yarn")
-  ```
+* **[Built-in Vector Search:](https://docs.pixeltable.com/docs/datastore/embedding-index)** Add embedding indexes and
+    perform similarity searches directly on tables/views.
 
-* **[On-the-Fly Data Views:](https://docs.pixeltable.com/docs/datastore/views)** Create virtual tables using iterators for efficient processing without data duplication.
-  ```python
-  frames = pxt.create_view(
-    'frames',
-    videos,
-    iterator=FrameIterator.create(
-        video=videos.video,
-        fps=1
+    ```python
+    t.add_embedding_index(
+        'img',
+        embedding=clip.using(
+            model_id='openai/clip-vit-base-patch32'
+        )
     )
-  )
-  ```
 
-* **[Seamless AI Integration:](https://docs.pixeltable.com/docs/integrations/frameworks)** Built-in functions for OpenAI, Anthropic, Hugging Face, CLIP, YOLOX, and more.
-  ```python
-  t.add_computed_column(
-    response=openai.chat_completions(
-        messages=[{"role": "user", "content": t.prompt}]
+    sim = t.img.similarity("cat playing with yarn")
+    ```
+
+* **[On-the-Fly Data Views:](https://docs.pixeltable.com/docs/datastore/views)** Create virtual tables using iterators
+    for efficient processing without data duplication.
+
+    ```python
+    frames = pxt.create_view(
+        'frames',
+        videos,
+        iterator=FrameIterator.create(
+            video=videos.video,
+            fps=1
+        )
     )
-  )
-  ```
+    ```
 
-* **[Bring Your Own Code:](https://docs.pixeltable.com/docs/datastore/custom-functions)** Extend Pixeltable with simple Python User-Defined Functions.
-  ```python
-  @pxt.udf
-  def format_prompt(context: list, question: str) -> str:
-      return f"Context: {context}\nQuestion: {question}"
-  ```
+* **[Seamless AI Integration:](https://docs.pixeltable.com/docs/integrations/frameworks)** Built-in functions for
+    OpenAI, Anthropic, Hugging Face, CLIP, YOLOX, and more.
 
-* **[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/docs/examples/chat/tools)** Register `@pxt.udf` or `@pxt.query` functions as tools and orchestrate LLM-based tool use (incl. multimodal).
-  ```python
-  # Example tools: a UDF and a Query function for RAG
-  tools = pxt.tools(get_weather_udf, search_context_query)
+    ```python
+    t.add_computed_column(
+        response=openai.chat_completions(
+            messages=[{"role": "user", "content": t.prompt}]
+        )
+    )
+    ```
 
-  # LLM decides which tool to call; Pixeltable executes it
-  t.add_computed_column(
-       tool_output=invoke_tools(tools, t.llm_tool_choice)
-  )
-  ```
+* **[Bring Your Own Code:](https://docs.pixeltable.com/docs/datastore/custom-functions)** Extend Pixeltable with simple
+    Python User-Defined Functions.
 
-* **[Data Persistence:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data, metadata, and computed results are automatically stored and versioned.
-  ```python
-  t = pxt.get_table('my_table')  # Get a handle to an existing table
-  t.select(t.account, t.balance).collect()  # Query its contents
-  t.revert()  # Undo the last modification to the table and restore its previous state
-  ```
+    ```python
+    @pxt.udf
+    def format_prompt(context: list, question: str) -> str:
+        return f"Context: {context}\nQuestion: {question}"
+    ```
 
-* **[Time Travel:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** By default, Pixeltable preserves the full change history of each table, and any prior version can be selected and queried.
-  ```python
-  t.history()  # Display a human-readable list of all prior versions of the table
-  old_version = pxt.get_table('my_table:472')  # Get a handle to a specific version of a table
-  old_version.select(t.account, t.balance).collect()  # Query the older version
-  ```
+* **[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/docs/examples/chat/tools)** Register `@pxt.udf` or
+    `@pxt.query` functions as tools and orchestrate LLM-based tool use (incl. multimodal).
 
-* **[SQL-like Python Querying:](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting)** Familiar syntax combined with powerful AI capabilities.
-  ```python
-  results = (
-      t.where(t.score > 0.8)
-      .order_by(t.timestamp)
-      .select(t.image, score=t.score)
-      .limit(10)
-      .collect()
-  )
-  ```
+    ```python
+    # Example tools: a UDF and a Query function for RAG
+    tools = pxt.tools(get_weather_udf, search_context_query)
+
+    # LLM decides which tool to call; Pixeltable executes it
+    t.add_computed_column(
+        tool_output=invoke_tools(tools, t.llm_tool_choice)
+    )
+    ```
+
+* **[Data Persistence:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data,
+    metadata, and computed results are automatically stored and versioned.
+
+    ```python
+    t = pxt.get_table('my_table')  # Get a handle to an existing table
+    t.select(t.account, t.balance).collect()  # Query its contents
+    t.revert()  # Undo the last modification to the table and restore its previous state
+    ```
+
+* **[Time Travel:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** By default,
+    Pixeltable preserves the full change history of each table, and any prior version can be selected and queried.
+
+    ```python
+    t.history()  # Display a human-readable list of all prior versions of the table
+    old_version = pxt.get_table('my_table:472')  # Get a handle to a specific table version
+    old_version.select(t.account, t.balance).collect()  # Query the older version
+    ```
+
+* **[SQL-like Python Querying:](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting)** Familiar syntax
+    combined with powerful AI capabilities.
+
+    ```python
+    results = (
+        t.where(t.score > 0.8)
+        .order_by(t.timestamp)
+        .select(t.image, score=t.score)
+        .limit(10)
+        .collect()
+    )
+    ```
 
 ## 💡 Key Examples
 
-*(See the [Full Quick Start](https://docs.pixeltable.com/docs/overview/quick-start) or [Notebook Gallery](#-notebook-gallery) for more details)*
+*(See the [Full Quick Start](https://docs.pixeltable.com/docs/overview/quick-start) or
+[Notebook Gallery](#-notebook-gallery) for more details)*
 
 **1. Multimodal Data Store and Data Transformation (Computed Column):**
+
 ```bash
 pip install pixeltable
 ```
@@ -227,8 +269,8 @@ t = pxt.create_table(
 )
 
 t.insert([
-  {'name': 'Inside Out', 'revenue': 800.5, 'budget': 200.0},
-  {'name': 'Toy Story', 'revenue': 1073.4, 'budget': 200.0}
+    {'name': 'Inside Out', 'revenue': 800.5, 'budget': 200.0},
+    {'name': 'Toy Story', 'revenue': 1073.4, 'budget': 200.0}
 ])
 
 # Add a computed column for profit - runs automatically!
@@ -417,28 +459,34 @@ Explore Pixeltable's capabilities interactively:
 
 ## 🚨 Maintaining Production-Ready Multimodal AI Apps is Still Too Hard
 
-Building robust AI applications, especially [multimodal](https://docs.pixeltable.com/docs/datastore/bringing-data) ones, requires stitching together numerous tools:
-*   ETL pipelines for data loading and transformation.
-*   Vector databases for semantic search.
-*   Feature stores for ML models.
-*   Orchestrators for scheduling.
-*   Model serving infrastructure for inference.
-*   Separate systems for parallelization, caching, versioning, and lineage tracking.
+Building robust AI applications, especially [multimodal](https://docs.pixeltable.com/docs/datastore/bringing-data) ones,
+requires stitching together numerous tools:
+
+* ETL pipelines for data loading and transformation.
+* Vector databases for semantic search.
+* Feature stores for ML models.
+* Orchestrators for scheduling.
+* Model serving infrastructure for inference.
+* Separate systems for parallelization, caching, versioning, and lineage tracking.
 
 This complex "data plumbing" slows down development, increases costs, and makes applications brittle and hard to reproduce.
 
 ## 🔮 Roadmap (2025)
 
 ### Cloud Infrastructure and Deployment
+
 We're working on a hosted Pixeltable service that will:
 
-- Enable Multimodal Data Sharing of Pixeltable Tables and Views | [Waitlist](https://www.pixeltable.com/waitlist)
-- Provide a persistent cloud instance
-- Turn Pixeltable workflows (Tables, Queries, UDFs) into API endpoints/[MCP Servers](https://github.com/pixeltable/pixeltable-mcp-server)
+* Enable Multimodal Data Sharing of Pixeltable Tables and Views | [Waitlist](https://www.pixeltable.com/waitlist)
+* Provide a persistent cloud instance
+* Turn Pixeltable workflows (Tables, Queries, UDFs) into API endpoints/[MCP Servers](https://github.com/pixeltable/pixeltable-mcp-server)
 
 ## 🤝 Contributing
 
-We love contributions! Whether it's reporting bugs, suggesting features, improving documentation, or submitting code changes, please check out our [Contributing Guide](CONTRIBUTING.md) and join the [Discussions](https://github.com/pixeltable/pixeltable/discussions) or our [Discord Server](https://discord.gg/QPyqFYx2UN).
+We love contributions! Whether it's reporting bugs, suggesting features, improving documentation, or submitting code
+changes, please check out our [Contributing Guide](CONTRIBUTING.md) and join the
+[Discussions](https://github.com/pixeltable/pixeltable/discussions) or our
+[Discord Server](https://discord.gg/QPyqFYx2UN).
 
 ## 🏢 License
 
