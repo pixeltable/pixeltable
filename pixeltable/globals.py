@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         Path,  # OS paths, filenames, URLs
         Iterator[dict[str, Any]],  # iterator producing dictionaries of values
         RowData,  # list of dictionaries
+        # Sequence[pydantic.BaseModel],  # list of Pydantic models
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
         datasets.Dataset,

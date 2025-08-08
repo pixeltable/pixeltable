@@ -4,12 +4,13 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Optional, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Literal, Optional, _GenericAlias  # type: ignore[attr-defined]
 
 import av
 import numpy as np
 import pandas as pd
 import PIL
+import PIL.Image
 import pydantic
 import pytest
 from jsonschema.exceptions import ValidationError
@@ -545,6 +546,7 @@ class TestTable:
             'f': pxt.Required[pxt.Float],
             'b': pxt.Required[pxt.Bool],
             't': pxt.Required[pxt.Timestamp],
+            'r': pxt.Required[pxt.String],
         }
         t = pxt.create_table('test_pydantic_basic', schema)
         t.add_computed_column(c1=t.i + 1)
@@ -556,6 +558,7 @@ class TestTable:
             f: float
             b: bool
             t: datetime.datetime
+            r: Literal['abc', 'def']
             opt_s: str | None = None
 
         now = datetime.datetime.now()
@@ -566,6 +569,7 @@ class TestTable:
                 f=i * 1.0,
                 b=i % 2 == 0,
                 t=now + datetime.timedelta(hours=i),
+                r='abc' if i % 2 == 0 else 'def',
                 opt_s=f'opt_{i}' if i % 2 == 0 else None,
             )
             for i in range(100)
@@ -583,8 +587,9 @@ class TestTable:
             f: float | None = None
             b: bool | None = None
             t: datetime.datetime | None = None
+            r: Literal['abc', 'def'] | None = None
 
-        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
+        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc') for i in range(100)]
 
         status = t.insert(rows2)
         assert status.num_rows == 100
@@ -597,7 +602,7 @@ class TestTable:
             _ = t.insert(rows3)
 
         # mixed models
-        with pytest.raises(pxt.Error, match='Expected TestModel1 instance, got TestModel2'):
+        with pytest.raises(pxt.Error, match="Expected 'TestModel1' instance, got 'TestModel2'"):
             _ = t.insert(rows1 + rows2)
 
         # value provided for computed column
@@ -609,10 +614,11 @@ class TestTable:
                 f: float
                 b: bool
                 t: datetime.datetime
+                r: Literal['abc', 'def']
                 opt_s: Optional[str] = None
                 c1: int
 
-            _ = t.insert([BadModel1(s='str_0', i=0, f=0.0, b=False, t=now, opt_s='opt_0', c1=1)])
+            _ = t.insert([BadModel1(s='str_0', i=0, f=0.0, b=False, t=now, r='abc', opt_s='opt_0', c1=1)])
 
         # missing required column
         with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
@@ -622,9 +628,10 @@ class TestTable:
                 f: float
                 b: bool
                 t: datetime.datetime
+                r: Literal['abc', 'def']
                 opt_s: Optional[str] = None
 
-            _ = t.insert([BadModel2(i=0, f=0.0, b=False, t=now, opt_s='opt_0')])
+            _ = t.insert([BadModel2(i=0, f=0.0, b=False, t=now, r='abc', opt_s='opt_0')])
 
         # incompatible field type
         with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
@@ -635,9 +642,10 @@ class TestTable:
                 f: float
                 b: bool
                 t: datetime.datetime
+                r: Literal['abc', 'def']
                 opt_s: Optional[str] = None
 
-            _ = t.insert([BadModel3(s='str_0', i='0', f=0.0, b=False, t=now, opt_s='opt_0')])
+            _ = t.insert([BadModel3(s='str_0', i='0', f=0.0, b=False, t=now, r='abc', opt_s='opt_0')])
 
         # bad field type
         with pytest.raises(pxt.Error, match="cannot infer Pixeltable type for column 's'"):
@@ -648,29 +656,71 @@ class TestTable:
                 f: float
                 b: bool
                 t: datetime.datetime
+                r: Literal['abc', 'def']
                 opt_s: Optional[str] = None
 
-            _ = t.insert([BadModel4(s={1, 2, 3}, i=0, f=0.0, b=False, t=now, opt_s='opt_0')])
+            _ = t.insert([BadModel4(s={1, 2, 3}, i=0, f=0.0, b=False, t=now, r='abc', opt_s='opt_0')])
 
     def test_insert_nested_pydantic(self, reset_db: None) -> None:
         schema = {'s': pxt.Required[pxt.String], 'j': pxt.Required[pxt.Json]}
         t = pxt.create_table('test_nested_pydantic', schema)
 
+        class N(pydantic.BaseModel):
+            n: int
+
         class M1(pydantic.BaseModel):
             s: str
             i: int
+            h: Literal['abc', 'def']
+            u: int | str
+            r: list[int]
+            t: tuple[int, str]
+            d: dict[str, int]
+            n: N
 
         class M2(pydantic.BaseModel):
             s: str
             j: M1
 
-        rows = [M2(s=f'str_{i}', j=M1(s=f'str_{i}', i=i)) for i in range(100)]
+        rows = [
+            M2(
+                s=f'str_{i}',
+                j=M1(
+                    s=f'str_{i}',
+                    i=i,
+                    h='abc' if i % 2 == 0 else 'def',
+                    u=i if i % 2 == 0 else f'str_{i}',
+                    r=[i, i + 1],
+                    t=(i, f'str_{i}'),
+                    d={'a': i},
+                    n=N(n=i),
+                ),
+            )
+            for i in range(100)
+        ]
 
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
         rs = t.select(t.s, i=t.j.i).collect()
         assert rs['s'] == [f'str_{i}' for i in rs['i']]
+
+        # nested model with field that's not json-convertible
+        with pytest.raises(pxt.Error, match="field 'j' with nested model 'M3', which is not JSON-convertible"):
+
+            class M3(pydantic.BaseModel):
+                s: str
+                i: int
+                c: PIL.Image.Image
+
+                class Config:
+                    arbitrary_types_allowed = True
+
+            class M4(pydantic.BaseModel):
+                s: str
+                j: M3
+
+            _ = t.insert([M4(s='str_0', j=M3(s='str_0', i=0, c=PIL.Image.new('RGB', (100, 100))))])
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.

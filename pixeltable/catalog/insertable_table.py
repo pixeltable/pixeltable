@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, cast, overlo
 from uuid import UUID
 
 import pydantic
+import pydantic_core
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
@@ -216,17 +217,25 @@ class InsertableTable(Table):
     ) -> UpdateStatus:
         model_class = type(rows[0])
         self._validate_pydantic_model(model_class)
-        pxt_rows = [row.model_dump() for row in rows]
+        # convert rows one-by-one in order to be able to print meaningful error messages
+        pxt_rows: list[dict[str, Any]] = []
+        for i, row in enumerate(rows):
+            try:
+                pxt_rows.append(row.model_dump(mode='json'))
+            except pydantic_core.PydanticSerializationError as e:
+                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e!s}') from e
 
         # explicitly check that all required columns are present and non-None in the rows,
         # because we ignore nullability when validating the pydantic model
         reqd_col_names = [col.name for col in self._tbl_version_path.columns() if col.is_required_for_insert]
         for i, pxt_row in enumerate(pxt_rows):
             if type(rows[i]) is not model_class:
-                raise excs.Error(f'Expected {model_class.__name__} instance, got {rows[i]!r}')
+                raise excs.Error(
+                    f'Expected {model_class.__name__!r} instance, got {type(rows[i]).__name__!r} (in row {i})'
+                )
             for col_name in reqd_col_names:
                 if pxt_row.get(col_name) is None:
-                    raise excs.Error(f'Missing required column {col_name!r} in {rows[i]!r}')
+                    raise excs.Error(f'Missing required column {col_name!r} in row {i}')
 
         # Note: Transaction is already active when this method is called
         status = self._tbl_version.get().insert(
@@ -254,14 +263,14 @@ class InsertableTable(Table):
         missing_required = required_cols - model_field_names
         if missing_required:
             raise excs.Error(
-                f'Pydantic model {model.__name__} is missing required columns: '
+                f'Pydantic model {model.__name__!r} is missing required columns: '
                 f'{", ".join(f"{col_name!r}" for col_name in missing_required)}'
             )
 
         computed_in_model = computed_cols & model_field_names
         if computed_in_model:
             raise excs.Error(
-                f'Pydantic model {model.__name__} has fields for computed columns: '
+                f'Pydantic model {model.__name__!r} has fields for computed columns: '
                 f'{", ".join(f"{col_name!r}" for col_name in computed_in_model)}'
             )
 
@@ -277,11 +286,11 @@ class InsertableTable(Table):
             inferred_pxt_type = ts.ColumnType.from_python_type(model_type)
             if inferred_pxt_type is None:
                 raise excs.Error(
-                    f'Pydantic model {model.__name__}: cannot infer Pixeltable type for column {field_name!r}'
+                    f'Pydantic model {model.__name__!r}: cannot infer Pixeltable type for column {field_name!r}'
                 )
             if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
                 raise excs.Error(
-                    f'Pydantic model {model.__name__} has incompatible type ({model_type.__name__}) '
+                    f'Pydantic model {model.__name__!r} has incompatible type ({model_type.__name__}) '
                     f'for column {field_name!r} ({pxt_col_type})'
                 )
             if (
@@ -290,8 +299,8 @@ class InsertableTable(Table):
                 and not is_json_convertible(model_type)
             ):
                 raise excs.Error(
-                    f'Pydantic model {model.__name__} has field {field_name!r} with nested model '
-                    f'{model_type.__name__}, which is not JSON-convertible'
+                    f'Pydantic model {model.__name__!r} has field {field_name!r} with nested model '
+                    f'{model_type.__name__!r}, which is not JSON-convertible'
                 )
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
