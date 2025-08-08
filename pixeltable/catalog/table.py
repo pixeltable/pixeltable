@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import abc
 import builtins
+import datetime
 import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, Sequence, TypedDict, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-import datetime
 from uuid import UUID
 
 import pandas as pd
+import pydantic
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -1252,10 +1253,20 @@ class Table(SchemaObject):
         self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
 
+    @overload
+    def insert(
+        self,
+        rows: Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+    ) -> UpdateStatus: ...
+
     @abc.abstractmethod
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: Optional[TableDataSource | Sequence[pydantic.BaseModel]] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -1264,9 +1275,9 @@ class Table(SchemaObject):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        """Inserts rows into this table. There are two mutually exclusive call patterns:
+        """Inserts rows into this table. There are three mutually exclusive call patterns:
 
-        To insert multiple rows at a time:
+        To insert multiple rows from various data sources:
 
         ```python
         insert(
@@ -1276,6 +1287,17 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any,
+        )```
+
+        To insert Pydantic model instances:
+
+        ```python
+        insert(
+            rows: Sequence[BaseModel],
+            /,
+            *,
+            on_error: Literal['abort', 'ignore'] = 'abort',
+            print_stats: bool = False,
         )```
 
         To insert just a single row, you can use the more concise syntax:
@@ -1290,6 +1312,7 @@ class Table(SchemaObject):
 
         Args:
             source: A data source from which data can be imported.
+            rows: (if inserting Pydantic models) An iterable of Pydantic BaseModel instances to insert.
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
                 (if inserting multiple rows) Additional keyword arguments are passed to the data source.
             source_format: A hint about the format of the source data
@@ -1329,6 +1352,15 @@ class Table(SchemaObject):
             Insert rows from a CSV file:
 
             >>> tbl.insert(source='path/to/file.csv')
+
+            Insert Pydantic model instances:
+
+            >>> class MyModel(pydantic.BaseModel):
+            ...     a: int
+            ...     b: int
+            ...
+            ... models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
+            ... tbl.insert(models)
         """
         raise NotImplementedError
 
