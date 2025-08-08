@@ -792,7 +792,7 @@ class Planner:
     def _insert_prefetch_node(
         cls, tbl_id: UUID, expressions: Iterable[exprs.Expr], input_node: exec.ExecNode
     ) -> exec.ExecNode:
-        """Return a CachePrefetchNode if needed, otherwise return input"""
+        """Return a node to prefetch data if needed, otherwise return input"""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
         # aren't explicitly captured as dependencies
@@ -801,7 +801,7 @@ class Planner:
             return input_node
         # we need to prefetch external files for media column types
         file_col_info = [exprs.ColumnSlotIdx(e.col, e.slot_idx) for e in media_col_refs]
-        prefetch_node = exec.CachePrefetchNode(tbl_id, file_col_info, input_node)
+        prefetch_node = exec.ObjectStorePrefetchNode(tbl_id, file_col_info, input_node)
         return prefetch_node
 
     @classmethod
