@@ -1,0 +1,90 @@
+---
+title: "Understanding Pixeltable"
+description: "A comprehensive guide to Pixeltable's architecture, philosophy, and core concepts"
+---
+
+# Understanding Pixeltable
+
+Pixeltable is declarative data infrastructure for multimodal AI apps where tables store not just data, but workflows.
+
+## What makes Pixeltable different?
+
+Unlike traditional databases that store static data, Pixeltable tables store workflows. When you add a computed column, you're not just defining a transformation—you're creating a persistent, versioned workflow that automatically processes new data as it arrives.
+
+```python
+import pixeltable as pxt
+
+# Create a table that stores workflows, not just data
+t = pxt.create_table('videos', {'video': pxt.Video})
+
+# Add AI analysis as computed columns - these are workflows
+t.add_computed_column(
+    transcription=whisper.transcribe(t.video)
+)
+t.add_computed_column(
+    summary=openai.chat_completions(
+        model='gpt-4',
+        messages=[{'role': 'user', 'content': f'Summarize: {t.transcription}'}]
+    )
+)
+
+# Insert data - all workflows execute automatically
+t.insert([{'video': 'meeting.mp4'}])
+```
+
+Every time you insert a new video, both the transcription and summary are computed automatically. You never have a moment where the transcription is from an old version while the summary is from a new version.
+
+## The Architecture
+
+Pixeltable consists of several key layers that work together to provide declarative data infrastructure:
+
+### Query Engine & Execution
+The query engine translates high-level operations into execution plans, while the execution engine orchestrates function calls, manages caching, and ensures data consistency across multimodal transformations.
+
+### Function Ecosystem
+Pixeltable provides three types of functions:
+- **User-Defined Functions (UDFs)**: Custom Python functions you write
+- **AI Functions**: Pre-built integrations with models (OpenAI, Anthropic, local models)
+- **System Functions**: Built-in operations for media processing and data manipulation
+
+### Data & Schema Layer
+The data layer natively supports multimodal data types and treats functions as first-class citizens. Your data transformations aren't separate scripts—they're computed columns that live inside your tables and automatically update when source data changes.
+
+### Storage & Persistence
+Built on PostgreSQL with pgvector for vector operations, providing ACID transactions, version control, and built-in vector search capabilities.
+
+## Key Concepts
+
+### Declarative Workflows
+In Pixeltable, you define *what* transformations you want rather than *how* to execute them. The system handles orchestration, error handling, and optimization automatically.
+
+### Incremental Computation
+Pixeltable automatically tracks dependencies and only recomputes what's necessary when data or transformations change. This provides significant cost savings and performance improvements.
+
+### Multimodal Type System
+Native support for images, videos, audio, documents, and embeddings means you don't need separate storage solutions or complex data pipelines.
+
+### Version Control
+Every change is tracked with full lineage. You can revert operations, compare results across versions, and debug issues by examining historical state.
+
+## For AI-first applications
+
+Pixeltable is designed specifically for AI workflows with features that make building with LLMs and multimodal models easier and more reliable:
+
+1. **Function Orchestration**: AI function calls are automatically batched, cached, and retried. Rate limiting and error handling are built-in.
+
+2. **Incremental Computation**: Only recomputes what's necessary when data or code changes, saving time and cost.
+
+3. **Version Control**: Every change is tracked with full lineage for debugging and rollbacks.
+
+4. **Embedding Indexes**: Built-in vector search with automatic index maintenance.
+
+5. **Consistency Guarantees**: Ensures all computed values stay in sync across complex transformation pipelines.
+
+Together, these features mean you can build sophisticated AI applications with simple, maintainable code while Pixeltable handles the complex orchestration, caching, and consistency challenges in the background.
+
+## Learn more
+
+If you want to understand more about how Pixeltable works under the hood, explore our [technical deep-dives](/docs/examples/fundamentals) and [sample applications](/docs/examples).
+
+Now that you understand how Pixeltable fits into AI application architecture, let's walk through [building your first application](/docs/overview/quick-start).

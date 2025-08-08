@@ -1,0 +1,191 @@
+---
+title: "Voxel51"
+description: "Build image analysis workflows with Pixeltable and Voxel51 in two phases"
+icon: "camera"
+---
+
+# Building Voxel51 Analysis Apps
+
+Pixeltable's Voxel51 integration works in two phases:
+1. Define your processing workflow (once)
+2. Use and visualize your data (anytime)
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable fiftyone transformers
+    ```
+  </Step>
+
+  <Step title="Define Your Workflow" icon="diagram-project">
+    Create `table.py`:
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.huggingface import (
+        vit_for_image_classification,
+        detr_for_object_detection
+    )
+
+    # Initialize app structure
+    pxt.drop_dir('vision', force=True)
+    pxt.create_dir('vision')
+
+    # Create base table
+    images = pxt.create_table(
+        'vision.images', 
+        {'image': pxt.Image},
+        if_exists="ignore"
+    )
+
+    # Add model inference columns
+    images.add_computed_column(
+        classifications=vit_for_image_classification(
+            images.image, 
+            model_id='google/vit-base-patch16-224'
+        )
+    )
+
+    images.add_computed_column(
+        detections=detr_for_object_detection(
+            images.image, 
+            model_id='facebook/detr-resnet-50'
+        )
+    )
+
+    # Optional: Add additional model for comparison
+    images.add_computed_column(
+        detections_101=detr_for_object_detection(
+            images.image, 
+            model_id='facebook/detr-resnet-101'
+        )
+    )
+
+    # Define label conversion functions
+    @pxt.udf
+    def vit_to_fo(vit_labels: list) -> list:
+        """Convert ViT classification output to Voxel51 format"""
+        return [
+            {'label': label, 'confidence': score}
+            for label, score in zip(
+                vit_labels.label_text, 
+                vit_labels.scores
+            )
+        ]
+
+    @pxt.udf
+    def detr_to_fo(img: pxt.Image, detr_labels: dict) -> list:
+        """Convert DETR detection output to Voxel51 format"""
+        result = []
+        for label, box, score in zip(
+            detr_labels.label_text, 
+            detr_labels.boxes, 
+            detr_labels.scores
+        ):
+            # Convert DETR (x1,y1,x2,y2) to Voxel51 (x,y,w,h) format
+            fo_box = [
+                box[0] / img.width,
+                box[1] / img.height,
+                (box[2] - box[0]) / img.width,
+                (box[3] - box[1]) / img.height,
+            ]
+            result.append({
+                'label': label, 
+                'bounding_box': fo_box, 
+                'confidence': score
+            })
+        return result
+    ```
+  </Step>
+
+  <Step title="Use Your App" icon="play">
+    Create `app.py`:
+    ```python
+    import pixeltable as pxt
+    import fiftyone as fo
+
+    # Connect to your table
+    images = pxt.get_table("vision.images")
+
+    # Insert some images
+    url_prefix = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images'
+    urls = [
+        f'{url_prefix}/000000000019.jpg',
+        f'{url_prefix}/000000000025.jpg',
+        f'{url_prefix}/000000000030.jpg',
+        f'{url_prefix}/000000000034.jpg',
+    ]
+
+    images.insert({'image': url} for url in urls)
+
+    # Export to Voxel51 with multiple label sets
+    fo_dataset = pxt.io.export_images_as_fo_dataset(
+        images,
+        images.image,
+        classifications=vit_to_fo(images.classifications),
+        detections={
+            'detections_50': detr_to_fo(images.image, images.detections),
+            'detections_101': detr_to_fo(images.image, images.detections_101)
+        }
+    )
+
+    # Launch Voxel51 visualization
+    session = fo.launch_app(fo_dataset)
+    ```
+  </Step>
+</Steps>
+
+## Key Features
+
+<CardGroup cols={1}>
+  <Card title="Integrated Models" icon="brain">
+    Built-in support for popular vision models:
+    ```python
+    classifications=vit_for_image_classification(
+        images.image,
+        model_id='google/vit-base-patch16-224'
+    )
+    ```
+  </Card>
+
+  <Card title="Multiple Label Sets" icon="tags">
+    Compare different models side-by-side:
+    ```python
+    detections={
+        'detections_50': detr_to_fo(...),
+        'detections_101': detr_to_fo(...)
+    }
+    ```
+  </Card>
+
+  <Card title="Interactive Visualization" icon="chart-mixed">
+    Launch Voxel51's powerful interface:
+    ```python
+    session = fo.launch_app(fo_dataset)
+    ```
+  </Card>
+</CardGroup>
+
+## Supported Label Types
+
+<AccordionGroup>
+  <Accordion title="Classifications" icon="tag">
+    Single-label or multi-label image classifications:
+    ```python
+    {
+        'label': 'cat',
+        'confidence': 0.95
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Detections" icon="box">
+    Object detection with bounding boxes:
+    ```python
+    {
+        'label': 'person',
+        'bounding_box': [x, y, w, h],
+        'confidence': 0.98
+    }
+    ```
+  </Accordion>
+</AccordionGroup>

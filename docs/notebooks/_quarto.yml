@@ -1,0 +1,37 @@
+project:
+  type: default
+  output-dir: ../mintlify/docs/notebooks
+
+format:
+  docusaurus-md:
+    # Output MDX files directly
+    output-ext: mdx
+
+    # Test with both echo and output true
+    echo: true
+    output: true
+    warning: false
+    error: false
+
+    # Preserve YAML frontmatter
+    preserve-yaml: true
+
+    # Structure settings
+    standalone: false
+    toc: false
+    wrap: auto
+
+    # ENHANCED media handling
+    fig-format: png
+    fig-dpi: 300
+    fig-path: images/
+
+    # Extract media from notebooks - needs to be a path string
+    extract-media: images/
+
+    # Resource paths for finding images
+    resource-path: [".", "images/", "../images/"]
+    default-image-extension: png
+
+    # Markdown headings
+    markdown-headings: atx

@@ -114,16 +114,127 @@ def robust_bert_embed(text: str) -> pxt.Array[(512,), pxt.Float]:
         raise
 ```
 
+## Custom Model Examples
+
+<AccordionGroup>
+  <Accordion title="PyTorch Model">
+    ```python
+    import torch
+    from transformers import AutoTokenizer, AutoModel
+    
+    @pxt.udf
+    def pytorch_embed(text: str) -> pxt.Array[(768,), pxt.Float]:
+        if not hasattr(pytorch_embed, 'model'):
+            pytorch_embed.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+            pytorch_embed.model = AutoModel.from_pretrained('bert-base-uncased')
+        
+        inputs = pytorch_embed.tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+        with torch.no_grad():
+            outputs = pytorch_embed.model(**inputs)
+            # Use CLS token embedding
+            embedding = outputs.last_hidden_state[:, 0, :].squeeze()
+        
+        return embedding.numpy()
+    ```
+  </Accordion>
+
+  <Accordion title="OpenAI Embeddings">
+    ```python
+    import openai
+    
+    @pxt.udf
+    def openai_embed(text: str) -> pxt.Array[(1536,), pxt.Float]:
+        """OpenAI text-embedding-3-small"""
+        response = openai.embeddings.create(
+            model="text-embedding-3-small",
+            input=text
+        )
+        return response.data[0].embedding
+    ```
+  </Accordion>
+
+  <Accordion title="Sentence Transformers">
+    ```python
+    from sentence_transformers import SentenceTransformer
+    
+    @pxt.udf
+    def sbert_embed(text: str) -> pxt.Array[(384,), pxt.Float]:
+        if not hasattr(sbert_embed, 'model'):
+            sbert_embed.model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        embedding = sbert_embed.model.encode(text)
+        return embedding
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Integration with Embedding Indexes
+
+Once you have a custom embedding function, you can use it with Pixeltable's embedding indexes:
+
+```python
+# Create table
+docs = pxt.create_table('documents', {
+    'text': pxt.String,
+    'title': pxt.String
+})
+
+# Add embedding index using custom function
+docs.add_embedding_index('text', string_embed=custom_bert_embed)
+
+# Insert some documents
+docs.insert([
+    {'text': 'Machine learning is fascinating', 'title': 'ML Article'},
+    {'text': 'Deep learning transforms AI', 'title': 'DL Guide'}
+])
+
+# Perform similarity search
+results = (
+    docs.order_by(docs.text.similarity('artificial intelligence'))
+    .limit(5)
+    .select(docs.title, docs.text)
+    .collect()
+)
+```
+
+## Performance Tips
+
+<Steps>
+  <Step title="Model Caching">
+    Always cache model instances using function attributes to avoid reloading
+  </Step>
+  
+  <Step title="Batch Processing">
+    Use Pixeltable's `@pxt.udf(batch_size=N)` for better throughput
+  </Step>
+  
+  <Step title="GPU Utilization">
+    Move models to GPU if available: `model.to('cuda')`
+  </Step>
+
+  <Step title="Error Handling">
+    Implement robust error handling for production stability
+  </Step>
+</Steps>
+
 ## Additional Resources
 
 <CardGroup cols={3}>
   <Card title="UDF Guide" icon="book" href="/docs/datastore/custom-functions">
     Complete UDF documentation
   </Card>
-  <Card title="Embedding Examples" icon="code" href="/docs/datastore/vector-database">
-    More embedding examples
+  <Card title="Vector Database" icon="database" href="/docs/datastore/vector-database">
+    Embedding index examples
   </Card>
   <Card title="Model Hub" icon="box" href="https://huggingface.co/models">
     Find embedding models
   </Card>
 </CardGroup>
+
+<Tip>
+Start with built-in Hugging Face models before creating custom embeddings. Use custom models when you need specific architectures or fine-tuned models for your domain.
+</Tip>
+
+<Note>
+Need help with custom embeddings? Join our [Discord community](https://discord.com/invite/QPyqFYx2UN) for support and examples.
+</Note>

@@ -1,0 +1,91 @@
+---
+title: 'AI/ML Integration Ecosystem'
+description: 'Built-in integrations for AI/ML workflows'
+icon: 'toolbox'
+---
+
+## Cloud LLM Providers
+
+- **[Anthropic Claude](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-anthropic.ipynb)** - Advanced language understanding and generation with multimodal capabilities
+- **[AWS Bedrock](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb)** - Variety of AI models through AWS Bedrock's unified API
+- **[DeepSeek](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-deepseek.ipynb)** - Powerful language and code models for text and code generation
+- **[Fireworks](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fireworks.ipynb)** - Optimized model inference infrastructure
+- **[Google Gemini](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-gemini.ipynb)** - State-of-the-art multimodal AI capabilities
+- **[Groq](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-groq.ipynb)** - High-performance models for text generation
+- **[Mistral AI](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-mistralai.ipynb)** - Efficient language models for various NLP tasks
+- **[OpenAI](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb)** - GPT models for text generation, embeddings, and image analysis
+- **[Together AI](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-together.ipynb)** - Access a variety of open-source models through Together AI's platform
+
+## Local LLM Runtimes
+
+- **[Llama.cpp](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-llama-cpp.ipynb)** - High-performance C++ implementation for running LLMs on CPU and GPU
+- **[Ollama](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-ollama.ipynb)** - Easy-to-use toolkit for running and managing open-source models locally
+
+## Model Hubs
+
+- **[Hugging Face Hub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-hugging-face.ipynb)** - Access thousands of pre-trained models across vision, text, and audio domains
+- **[Replicate](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-replicate.ipynb)** - Deploy and run ML models through Replicate's cloud infrastructure
+
+## Computer Vision & Audio
+
+- **[Voxel51](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fiftyone.ipynb)** - Advanced video and image dataset management with Voxel51
+- **[Whisper/WhisperX](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-whisper.ipynb)** - High-quality speech recognition and transcription using OpenAI's Whisper models
+- **[YOLOX](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-yolox.ipynb)** - State-of-the-art object detection with YOLOX models
+
+## Annotation & Data Tools
+
+- **[Label Studio](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/using-label-studio-with-pixeltable.ipynb)** - Comprehensive platform for data annotation and labeling workflows
+- **[Pandas](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb)** - Import and export from and to Pandas DataFrames when needed
+
+## Custom Integrations
+
+- **[Custom Embedding Models](/docs/tutorials/integrations/custom-embedding-models)** - Integrate your own embedding models with Pixeltable's vector database
+
+## 💀 Quick Examples 💀
+
+<AccordionGroup>
+  <Accordion title="LLM Integration">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+
+    # Create a table with computed column for OpenAI completion
+    table = pxt.create_table('responses', {'prompt': pxt.String})
+
+    table.add_computed_column(
+        response=openai.chat_completions(
+            messages=[{'role': 'user', 'content': table.prompt}],
+            model='gpt-4o-mini'
+        )
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Computer Vision">
+    ```python
+    from pixeltable.functions.yolox import yolox
+    
+    # Add object detection to video frames
+    frames_view.add_computed_column(
+        detections=yolox(
+            frames_view.frame,
+            model_id='yolox_l'
+        )
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Audio Processing">
+    ```python
+    from pixeltable.functions import openai
+    
+    # Transcribe audio files
+    audio_table.add_computed_column(
+        transcription=openai.transcriptions(
+            audio=audio_table.file,
+            model='whisper-1'
+        )
+    )
+    ```
+  </Accordion>
+</AccordionGroup>

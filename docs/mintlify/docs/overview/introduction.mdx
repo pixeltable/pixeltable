@@ -1,0 +1,86 @@
+---
+title: 'Introduction'
+description: 'Welcome to Pixeltable! Whether you are an AI engineer, researcher, or creative coder, this guide will help you understand what Pixeltable is and how it can transform your multimodal AI applications.'
+icon: "rocket"
+---
+
+**Hello! You've found our documentation!**
+
+If you are new to Pixeltable, you likely have some questions. You might be wondering what exactly Pixeltable is, why you would want to use it, what it is good for, and if it's right for your project or your company's data.
+
+You've come to the right place.
+
+On this page we'll cover the high-level view of Pixeltable and give you a good understanding of how our software is organized.
+
+Perhaps the first thing you should know about Pixeltable is that it is unique. We've taken the reliability and power of a Postgres database and paired it with an elegant, declarative Python framework then made it simple (dare we say, fun?) to drop in *any* processing libraries or AI models of your choice.
+
+The result? A stable backbone for the most demanding AI-enabled multimedia applications and processing pipelines that's also easy to learn and use.
+
+If you're new to building AI enabled media applications and pipelines, we have probably already solved problems for you that you haven't dreamt of yet. If you're a more seasoned developer, you will appreciate the power, stability and *sensibility* of Pixeltable.
+
+## So … What is Pixeltable?
+
+Pixeltable is a database built for AI applications that work with images, videos, audio, documents, and other media files. If you're building something that stores media and uses AI to transform that media, Pixeltable is designed for you.
+
+Think of it this way: traditional databases are great for storing structured data like user accounts and transaction records. But when you want to store a video, extract its audio, transcribe it with Whisper, and then summarize the transcript with GPT-4 - suddenly you need a complex pipeline of separate tools, APIs, and custom scripts.
+
+**Pixeltable makes this simple. You define your AI workflow once, and it runs automatically on all your data.**
+
+[PLACEHOLDER: Simple diagram showing "Video Upload → Audio Extract → Transcribe → Summarize → Done" vs traditional pipeline complexity]
+
+Here's what that looks like in practice:
+
+```python
+# Create a table for video analysis
+videos = pxt.create_table('videos', {
+    'video': pxt.Video,
+    'title': pxt.String
+})
+
+# Define your AI workflow as computed columns
+videos.add_computed_column(
+    transcript=whisper.transcriptions(
+        audio=pxt.functions.video.extract_audio(videos.video)
+    )
+)
+
+videos.add_computed_column(
+    summary=openai.chat_completions(
+        model='gpt-4o-mini', 
+        messages=[{'role': 'user', 'content': f'Summarize: {videos.transcript.text}'}]
+    )
+)
+
+# Now every video you insert gets automatically processed
+videos.insert({'video': 'my-video.mp4', 'title': 'Tutorial Video'})
+# ↑ This triggers the entire workflow automatically
+```
+
+## The Big Picture
+
+Perhaps the best way to get the 'big picture' of Pixeltable, is with an actual big picture:
+
+[PLACEHOLDER: Excalidraw diagram of a table grid, surrounded with features from the previous mermaid chart. Table has 2-3 highlighted columns on the right with diffuse images, 3 robot heads above representing AI models/orchestration, and a big image with arrow on left representing ingestion]
+
+The easiest way to think of Pixeltable is a collection of tables like the one above. The table pictured here is for images, but this table could also hold references to video, audio, or text documents.
+
+Notice those columns to the right? Each of those is a _computed column_, representing a transformation of the original media data. This transformation could be the resulting data from an interaction with an AI model or a function of your choice. We call these, appropriately, _User Defined Functions_ or _UDFs_ for short. Remember that one, because we'll be discussing UDFs throughout the documentation.
+
+Our metal friends along the top represent the Pixeltable _orchestration_ layer. Under the hood, our database has been fine-tuned to process transformations precisely and efficiently resulting in applications capable of running at Postgres speed and scale.
+
+But here's where Pixeltable gets really smart: it remembers everything. Once a computed column processes your data, the results are cached. Change your source image? Only the affected computed columns update. Add new data? Only the new rows get processed. This intelligent updating system is what we call _incremental computation_.
+
+And because Pixeltable understands embeddings and vectors natively, you get semantic search and similarity matching built right in - no separate vector database required. We call this _multimodal indexing_.
+
+[PLACEHOLDER: Second diagram showing a table with some rows highlighted/updating while others stay cached, illustrating incremental computation]
+
+The system automatically figures out what needs to be recomputed and what can stay the same. It tracks all the relationships between your data and computed columns through what we call _dependency management_ - think of it as a smart web that knows when something upstream changes.
+
+[PLACEHOLDER: Third diagram showing dependency arrows between columns, maybe with one source change rippling through to only the connected computed columns]
+
+---
+
+**Next sections to add:**
+- Key concepts and terminology
+- When to use Pixeltable
+- Getting started links

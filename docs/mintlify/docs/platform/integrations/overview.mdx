@@ -1,0 +1,48 @@
+---
+title: "Overview"
+description: "Comprehensive guide to Pixeltable's built-in AI and ML model integrations"
+---
+
+# Overview
+
+Pixeltable provides extensive built-in integrations with leading AI and ML services, local runtimes, and specialized tools to accelerate your multimodal AI development.
+
+## Overview
+
+This section covers all of Pixeltable's native integrations, organized by category:
+
+## Cloud LLM Providers
+Access the latest language models from leading cloud providers with unified APIs and automatic optimization.
+
+## Local LLM Runtimes  
+Run open-source models locally with high-performance runtimes for privacy and cost control.
+
+## Model Hubs
+Connect to vast libraries of pre-trained models for specialized tasks across domains.
+
+## Computer Vision & Audio
+Leverage state-of-the-art models for image analysis, object detection, and audio processing.
+
+## Annotation & Data Tools
+Integrate with professional annotation platforms and data management tools.
+
+## Custom Integrations
+Build your own integrations with custom embedding models and specialized workflows.
+
+## Getting Started
+
+Each integration is designed to work seamlessly with Pixeltable's declarative approach. Simply import the integration and use it in computed columns for automatic processing of your data.
+
+```python
+import pixeltable as pxt
+from pixeltable.functions import openai
+
+# Create table with built-in integration
+t = pxt.create_table('content', {'text': pxt.String})
+t.add_computed_column(
+    summary=openai.chat_completions(
+        model='gpt-4', 
+        messages=[{'role': 'user', 'content': f'Summarize: {t.text}'}]
+    )
+)
+```

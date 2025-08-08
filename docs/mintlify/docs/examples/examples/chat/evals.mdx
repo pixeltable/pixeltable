@@ -1,0 +1,234 @@
+---
+title: "Evaluations"
+description: "Add automated quality assessment to your AI applications using LLM-based evaluation"
+icon: "gavel"
+---
+
+# LLM Judge
+
+Learn how to add automated quality assessment to your AI applications using LLM-based evaluation. The judge works in two phases:
+1. Define your evaluation structure and criteria
+2. Use the judge to assess AI responses
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable openai
+    ```
+  </Step>
+
+  <Step title="Define Your Evaluation Structure" icon="scale-balanced">
+    Create `table.py`:
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+
+    # Initialize app structure
+    pxt.drop_dir("evaluations", force=True)
+    pxt.create_dir("evaluations")
+
+    # Define data schema with evaluation criteria
+    conversations = pxt.create_table(
+        "evaluations.conversations", 
+        {
+            "prompt": pxt.String,
+            "expected_criteria": pxt.String
+        }, 
+        if_exists="ignore"
+    )
+
+    # Configure processing workflow
+    conversations.add_computed_column(
+        messages=[{"role": "user", "content": conversations.prompt}]
+    )
+
+    conversations.add_computed_column(
+        response=openai.chat_completions(
+            messages=conversations.messages,
+            model="gpt-4o-mini",
+        )
+    )
+
+    conversations.add_computed_column(
+        answer=conversations.response.choices[0].message.content
+    )
+
+    # Add judge evaluation workflow
+    judge_prompt_template = """
+    You are an expert judge evaluating AI responses. Your task is to evaluate the following response based on the given criteria.
+
+    Original Prompt: {prompt}
+    Expected Criteria: {criteria}
+    AI Response: {response}
+
+    Please evaluate the response on a scale of 1-10 and provide a brief explanation.
+    Format your response as:
+    Score: [1-10]
+    Explanation: [Your explanation]
+    """
+
+    conversations.add_computed_column(
+        judge_prompt=judge_prompt_template.format(
+            prompt=conversations.prompt,
+            criteria=conversations.expected_criteria,
+            response=conversations.answer
+        )
+    )
+
+    conversations.add_computed_column(
+        judge_response=openai.chat_completions(
+            messages=[
+                {"role": "system", "content": "You are an expert judge evaluating AI responses."},
+                {"role": "user", "content": conversations.judge_prompt}
+            ],
+            model="gpt-4o-mini",
+        )
+    )
+
+    conversations.add_computed_column(
+        evaluation=conversations.judge_response.choices[0].message.content
+    )
+
+    # Add score extraction
+    @pxt.udf
+    def extract_score(evaluation: str) -> float:
+        try:
+            score_line = [line for line in evaluation.split('\n') if line.startswith('Score:')][0]
+            return float(score_line.split(':')[1].strip())
+        except:
+            return 0.0
+
+    conversations.add_computed_column(
+        score=extract_score(conversations.evaluation)
+    )
+    ```
+  </Step>
+
+  <Step title="Use Your Judge" icon="play">
+    Create `app.py`:
+    ```python
+    import pixeltable as pxt
+
+    def run_evaluation():
+        # Connect to your app
+        conversations = pxt.get_table("evaluations.conversations")
+
+        # Example prompts with evaluation criteria
+        test_cases = [
+            {
+                "prompt": "Write a haiku about dogs.",
+                "expected_criteria": """
+                The response should:
+                1) Follow 5-7-5 syllable pattern
+                2) Be about dogs
+                3) Use vivid imagery
+                """
+            },
+            {
+                "prompt": "Explain quantum computing to a 10-year-old.",
+                "expected_criteria": """
+                The response should:
+                1) Use age-appropriate language
+                2) Use relevant analogies
+                3) Be engaging and clear
+                """
+            }
+        ]
+
+        # Insert test cases
+        conversations.insert(test_cases)
+
+        # Get results with evaluations
+        results = conversations.select(
+            conversations.prompt,
+            conversations.answer,
+            conversations.evaluation,
+            conversations.score
+        ).collect().to_pandas()
+
+        # Print results
+        for idx, row in results.iterrows():
+            print(f"\nTest Case {idx + 1}")
+            print("=" * 50)
+            print(f"Prompt: {row['prompt']}")
+            print(f"\nResponse: {row['answer']}")
+            print(f"\nEvaluation:\n{row['evaluation']}")
+            print(f"Score: {row['score']}")
+            print("=" * 50)
+
+    if __name__ == "__main__":
+        run_evaluation()
+    ```
+  </Step>
+</Steps>
+
+## Key Features
+
+<CardGroup cols={1}>
+  <Card title="Structured Evaluation" icon="list-check">
+    Define specific criteria for each prompt to ensure consistent evaluation standards
+  </Card>
+  <Card title="Numerical Scoring" icon="star">
+    Get quantitative scores (1-10) along with qualitative feedback
+  </Card>
+  <Card title="Detailed Feedback" icon="comment">
+    Receive detailed explanations for each evaluation score
+  </Card>
+  <Card title="Persistent Storage" icon="database">
+    Automatically store all evaluations for analysis and tracking
+  </Card>
+</CardGroup>
+
+## Customization Options
+
+<AccordionGroup>
+  <Accordion title="Evaluation Criteria" icon="list">
+    Customize the evaluation criteria based on your needs:
+    ```python
+    test_case = {
+        "prompt": "Your prompt here",
+        "expected_criteria": """
+        The response should:
+        1) [Your first criterion]
+        2) [Your second criterion]
+        3) [Your third criterion]
+        """
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Scoring System" icon="star">
+    Modify the scoring system by updating the judge prompt template:
+    ```python
+    judge_prompt_template = """
+    ... [Your custom evaluation instructions] ...
+    Please evaluate on a scale of [your scale] based on:
+    - [Criterion 1]
+    - [Criterion 2]
+    Format: 
+    Score: [score]
+    Explanation: [details]
+    """
+    ```
+  </Accordion>
+
+  <Accordion title="Model Selection" icon="robot">
+    Choose different models for response generation and evaluation:
+    ```python
+    conversations.add_computed_column(
+        judge_response=openai.chat_completions(
+            messages=messages,
+            model="your-chosen-model"  # Change model here
+        )
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+1. **Clear Criteria**: Define specific, measurable criteria for each prompt
+2. **Consistent Scale**: Use a consistent scoring scale across all evaluations
+3. **Detailed Feedback**: Request specific explanations for scores
+4. **Regular Monitoring**: Track scores over time to identify patterns
+5. **Iterative Improvement**: Use feedback to refine prompts and criteria
