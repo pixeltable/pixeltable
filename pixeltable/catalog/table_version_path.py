@@ -190,7 +190,11 @@ class TableVersionPath:
         col = self._cached_tbl_version.cols_by_name.get(name)
         if col is not None:
             return col
-        elif self.base is not None and (include_bases or self._cached_tbl_version.include_base_columns):
+        elif (
+            include_bases is not False
+            and self.base is not None
+            and (include_bases or self._cached_tbl_version.include_base_columns)
+        ):
             return self.base.get_column(name)
         else:
             return None
