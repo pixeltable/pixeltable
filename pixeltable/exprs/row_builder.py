@@ -86,6 +86,8 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
+    stored_img_cols: list[exprs.ColumnSlotIdx]
+    stored_media_cols: list[exprs.ColumnSlotIdx]
 
     @dataclass
     class EvalCtx:
@@ -242,6 +244,10 @@ class RowBuilder:
             e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
+
+        stored_col_info = self.output_slot_idxs()
+        self.stored_img_cols = [info for info in stored_col_info if info.col.col_type.is_image_type()]
+        self.stored_media_cols = [info for info in stored_col_info if info.col.col_type.is_media_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
