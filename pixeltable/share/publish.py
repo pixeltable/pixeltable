@@ -14,6 +14,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.media_store import TempStore
 
 from .packager import TablePackager, TableRestorer
 
@@ -127,7 +128,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
     elif parsed_location.scheme == 'https':
-        bundle_path = Path(Env.get().create_tmp_path())
+        bundle_path = TempStore.create_path()
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
@@ -153,7 +154,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']
 
-    bundle_path = Path(Env.get().create_tmp_path())
+    bundle_path = TempStore.create_path()
     progress_bar = tqdm(
         desc='Downloading',
         total=bundle_size,

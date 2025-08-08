@@ -100,7 +100,7 @@ def reset_db(init_env: None) -> None:
     Env.get().default_time_zone = None
     Env.get().user = None
     # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
-    # Env.get().clear_tmp_dir()
+    # TempStore.clear()
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
