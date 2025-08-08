@@ -10,7 +10,7 @@ import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 from uuid import UUID
 
 import PIL.Image
@@ -39,6 +39,52 @@ class MediaStore:
         """Initialize a MediaStore with a base directory."""
         assert isinstance(base_dir, Path), 'Base directory must be a Path instance.'
         self.__base_dir = base_dir
+
+    @staticmethod
+    def validate_destination(col_name: str, dest: Union[str, Path]) -> str:
+        """Convert a Column destination parameter to a URI, else raise errors."""
+        if isinstance(dest, Path):
+            dest_path = dest
+        elif not isinstance(dest, str):
+            raise excs.Error(f'Column {col_name}: "destination" must be a string or path, got {dest!r}')
+        else:
+            # Check if it's already a valid URI scheme
+            valid_schemes: set[str] = set()  # {'s3', 'gs', 'azure'}
+            parsed = urllib.parse.urlparse(dest)
+            if parsed.scheme:
+                # For file:// URIs, check if it points to a directory
+                # len(parsed.scheme) == 1 handles Windows drive letters like C:\
+                if parsed.scheme.lower() == 'file' or len(parsed.scheme) == 1:
+                    path_str = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+                    dest_path = Path(path_str)
+                elif parsed.scheme.lower() in valid_schemes:
+                    # If it's a valid scheme, treat it as a URI and do no further checking
+                    return dest
+                else:
+                    raise excs.Error(
+                        f'Column {col_name}: "destination" must be a valid URI to a supported destination, got {dest}'
+                    )
+            else:
+                # If no scheme, treat as local file path
+                dest_path = Path(dest)
+
+        # Check if path exists and validate it's a directory
+        if not dest_path.exists():
+            raise excs.Error(f'Column {col_name}: "destination" does not exist: {dest}')
+        if not dest_path.is_dir():
+            raise excs.Error(f'Column {col_name}: "destination" must be a directory, not a file: {dest}')
+
+        # Check if path is absolute
+        if dest_path.is_absolute():
+            # Convert to file URI
+            return dest_path.as_uri()
+
+        # For relative paths, convert to absolute first
+        try:
+            absolute_path = dest_path.resolve()
+            return absolute_path.as_uri()
+        except (OSError, ValueError) as e:
+            raise excs.Error(f'Column {col_name}: Invalid destination path: {dest}. Error: {str(e)!r}') from None
 
     @classmethod
     def get(cls, base_uri: Optional[Path] = None) -> MediaStore:
