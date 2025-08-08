@@ -128,7 +128,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
     elif parsed_location.scheme == 'https':
-        bundle_path = Path(Env.get().create_tmp_path())
+        bundle_path = TempStore.create_path()
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
