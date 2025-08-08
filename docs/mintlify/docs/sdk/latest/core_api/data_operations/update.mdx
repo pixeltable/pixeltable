@@ -1,0 +1,312 @@
+---
+title: "table.update"
+description: "table.update() - Modify existing rows with expressions and conditional filtering"
+---
+
+<Badge text="Data Operations" color="green" size="small" />
+
+## Function Signature
+
+```python
+table.update(
+    value_spec: Dict[str, Any],
+    where: Optional[Expr] = None,
+    cascade: bool = True
+) -> UpdateStatus
+```
+
+## Description
+
+The `update` method modifies existing rows in a table by setting columns to new values. It supports both literal values and computed expressions, with powerful conditional filtering to target specific rows.
+
+Unlike traditional SQL updates, Pixeltable's update can cascade changes through computed columns and automatically maintain data consistency across dependent views and snapshots.
+
+## Parameters
+
+<ParamField path="value_spec" type="Dict[str, Any]" required>
+  Dictionary mapping column names to new values. Values can be:
+  - **Literal values**: strings, numbers, booleans
+  - **Pixeltable expressions**: computed values using other columns
+  - **Functions**: calls to built-in or user-defined functions
+</ParamField>
+
+<ParamField path="where" type="Optional[Expr]" default="None">
+  Boolean expression to filter which rows to update. If not specified, all rows in the table are updated.
+  Use table column references to build conditions (e.g., `table.column == value`).
+</ParamField>
+
+<ParamField path="cascade" type="bool" default="True">
+  Whether to automatically update computed columns that depend on the modified columns.
+  - `True`: Update all dependent computed columns and views
+  - `False`: Update only the specified columns
+</ParamField>
+
+## Returns
+
+<ResponseField name="UpdateStatus" type="UpdateStatus">
+  Object containing information about the update operation, including number of rows modified and any errors encountered.
+</ResponseField>
+
+## Examples
+
+### Basic Value Updates
+
+```python
+import pixeltable as pxt
+
+# Get table handle
+tbl = pxt.get_table('users')
+
+# Set a column to a literal value for all rows
+status = tbl.update({'status': 'active'})
+print(f"Updated {status.num_rows} rows")
+
+# Update multiple columns
+status = tbl.update({
+    'last_updated': '2025-01-20',
+    'status': 'verified',
+    'score': 100
+})
+```
+
+### Conditional Updates
+
+```python
+# Update specific rows with WHERE clause
+status = tbl.update(
+    {'status': 'inactive'}, 
+    where=tbl.last_login < '2024-01-01'
+)
+print(f"Marked {status.num_rows} inactive users")
+
+# Complex conditions
+status = tbl.update(
+    {'priority': 'high'},
+    where=(tbl.score > 95) & (tbl.status == 'active')
+)
+
+# Update based on null values
+status = tbl.update(
+    {'region': 'unknown'},
+    where=tbl.region.is_null()
+)
+```
+
+### Expression-Based Updates
+
+```python
+# Use expressions to compute new values
+status = tbl.update({
+    'score': tbl.score + 10,  # Increment score
+    'total': tbl.base_value * 1.1  # Apply 10% increase
+})
+
+# Copy values between columns
+status = tbl.update({
+    'backup_email': tbl.primary_email
+})
+
+# Complex expressions
+status = tbl.update({
+    'score': tbl.score * 2,
+    'grade': tbl.score.apply(lambda x: 'A' if x > 90 else 'B' if x > 80 else 'C')
+}, where=tbl.needs_recalculation == True)
+```
+
+### Working with Computed Columns
+
+```python
+# Table with computed columns
+media_table = pxt.get_table('media_content')
+
+# Update source column - computed columns cascade automatically
+status = media_table.update(
+    {'image_path': '/new/path/image.jpg'},
+    where=media_table.id == 123,
+    cascade=True  # Default behavior
+)
+
+# Disable cascade for performance in bulk operations
+status = media_table.update(
+    {'batch_processed': True},
+    where=media_table.batch_id == 'batch_001',
+    cascade=False  # Skip computed column updates
+)
+```
+
+### Batch Operations
+
+```python
+# Update based on ranges
+status = tbl.update(
+    {'tier': 'premium'},
+    where=tbl.purchase_amount >= 1000
+)
+
+# Batch update with complex logic
+def update_user_tiers(table):
+    """Update user tiers based on purchase amounts."""
+    
+    # Premium tier
+    premium_status = table.update(
+        {'tier': 'premium', 'discount': 0.15},
+        where=table.purchase_amount >= 1000
+    )
+    
+    # Gold tier
+    gold_status = table.update(
+        {'tier': 'gold', 'discount': 0.10},
+        where=(table.purchase_amount >= 500) & (table.purchase_amount < 1000)
+    )
+    
+    # Standard tier
+    standard_status = table.update(
+        {'tier': 'standard', 'discount': 0.05},
+        where=table.purchase_amount < 500
+    )
+    
+    total_updated = (premium_status.num_rows + 
+                    gold_status.num_rows + 
+                    standard_status.num_rows)
+    
+    print(f"Updated {total_updated} users across all tiers")
+
+update_user_tiers(tbl)
+```
+
+### Error Handling and Validation
+
+```python
+# Safe update with error handling
+def safe_update(table, value_spec, where_clause=None):
+    """Perform update with comprehensive error handling."""
+    
+    try:
+        # Check how many rows would be affected
+        if where_clause is not None:
+            affected_count = table.where(where_clause).count()
+        else:
+            affected_count = table.count()
+        
+        print(f"About to update {affected_count} rows")
+        
+        # Confirm for large updates
+        if affected_count > 1000:
+            confirm = input(f"Update {affected_count} rows? (y/N): ")
+            if confirm.lower() != 'y':
+                print("Update cancelled")
+                return None
+        
+        # Perform update
+        status = table.update(value_spec, where=where_clause)
+        
+        print(f"Successfully updated {status.num_rows} rows")
+        if status.num_excs > 0:
+            print(f"Warning: {status.num_excs} errors occurred")
+        
+        return status
+        
+    except Exception as e:
+        print(f"Update failed: {e}")
+        return None
+
+# Usage
+safe_update(
+    tbl, 
+    {'status': 'archived'}, 
+    where_clause=tbl.last_activity < '2023-01-01'
+)
+```
+
+### Performance Optimization
+
+```python
+# Large batch updates with performance considerations
+def optimized_batch_update(table, updates_list):
+    """Apply multiple updates efficiently."""
+    
+    total_updated = 0
+    
+    for update_spec in updates_list:
+        # Disable cascade for intermediate updates
+        status = table.update(
+            update_spec['values'],
+            where=update_spec['condition'],
+            cascade=False  # Skip computed columns temporarily
+        )
+        total_updated += status.num_rows
+    
+    # Final update to trigger all computed column updates
+    table.update({}, cascade=True)  # Empty update just to cascade
+    
+    print(f"Batch update completed: {total_updated} total rows modified")
+
+# Usage
+batch_updates = [
+    {'values': {'category': 'electronics'}, 'condition': tbl.type == 'device'},
+    {'values': {'category': 'furniture'}, 'condition': tbl.type == 'home'},
+    {'values': {'category': 'clothing'}, 'condition': tbl.type == 'apparel'},
+]
+
+optimized_batch_update(tbl, batch_updates)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in various error conditions:
+  - Invalid column names in value_spec
+  - Type mismatches between new values and column types
+  - Expression evaluation errors
+  - WHERE clause syntax errors
+  - Constraint violations
+  - Insufficient permissions
+</ResponseField>
+
+## Related Functions
+
+- [`insert()`](./insert) - Add new rows to tables
+- [`delete()`](./delete) - Remove rows from tables
+- [`select()`](./select) - Query table data
+- [`where()`](./where) - Filter rows with conditions
+
+## Best Practices
+
+### Safe Updates
+```python
+# Always test WHERE clauses first
+test_count = tbl.where(tbl.status == 'pending').count()
+print(f"Will update {test_count} rows")
+
+# Then perform the actual update
+if test_count > 0:
+    status = tbl.update({'status': 'processed'}, where=tbl.status == 'pending')
+```
+
+### Expression Validation
+```python
+# Validate expressions before large updates
+try:
+    # Test expression on small subset first
+    test_result = tbl.select(tbl.score * 1.1).limit(1).collect()
+    print("Expression is valid")
+    
+    # Apply to all rows
+    status = tbl.update({'score': tbl.score * 1.1})
+except Exception as e:
+    print(f"Expression error: {e}")
+```
+
+### Cascade Management
+```python
+# Use cascade=False for bulk operations, then cascade once
+for batch in large_update_batches:
+    tbl.update(batch, cascade=False)
+
+# Trigger cascade once at the end
+tbl.update({}, cascade=True)  # Empty update to cascade dependencies
+```
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*

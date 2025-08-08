@@ -1,0 +1,311 @@
+---
+title: "pxt.Video"
+description: "Video data type for storing and processing multimedia content in Pixeltable"
+---
+
+<Badge text="Data Type" color="purple" size="small" />
+
+## Type Definition
+
+```python
+pxt.Video
+```
+
+## Description
+
+The Video data type is designed for storing and processing multimedia video content in Pixeltable. It provides native support for video analysis, frame extraction, audio separation, and integration with computer vision workflows.
+
+Videos are automatically validated, optimized for streaming access, and support both local and remote storage.
+
+## Schema Usage
+
+```python
+import pixeltable as pxt
+
+# Define table schema with Video column
+schema = {
+    'video_path': pxt.String,
+    'video': pxt.Video,
+    'title': pxt.String,
+    'duration': pxt.Float
+}
+
+table = pxt.create_table('videos', schema)
+```
+
+## Data Insertion
+
+```python
+# Insert from file path
+table.insert([{
+    'video_path': '/path/to/video.mp4',
+    'video': '/path/to/video.mp4',
+    'title': 'Sample Video',
+    'duration': 120.5
+}])
+
+# Insert from URL
+table.insert([{
+    'video_path': 'https://example.com/video.mp4',
+    'video': 'https://example.com/video.mp4',
+    'title': 'Remote Video',
+    'duration': 300.0
+}])
+```
+
+## Supported Formats
+
+| Format | Extension | Description |
+|--------|-----------|-------------|
+| **MP4** | `.mp4` | Most common web-compatible format |
+| **AVI** | `.avi` | Windows-native format |
+| **MOV** | `.mov` | Apple QuickTime format |
+| **MKV** | `.mkv` | Open container format |
+| **WebM** | `.webm` | Web-optimized format |
+| **FLV** | `.flv` | Flash video format |
+
+## Video Processing Operations
+
+```python
+# Extract first frame as image
+table.add_computed_column(
+    thumbnail=pxt.functions.extract_first_video_frame(table.video)
+)
+
+# Extract audio track
+table.add_computed_column(
+    audio=pxt.functions.extract_audio(table.video)
+)
+
+# Get video metadata (requires custom implementation)
+# table.add_computed_column(
+#     metadata=pxt.functions.video_info(table.video)
+# )
+```
+
+## Frame-Based Analysis
+
+```python
+# Process video frames with AI models
+table.add_computed_column(
+    thumbnail_embedding=pxt.functions.clip(
+        pxt.functions.extract_first_video_frame(table.video),
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+
+# Object detection on first frame
+table.add_computed_column(
+    objects_detected=pxt.functions.yolox(
+        pxt.functions.extract_first_video_frame(table.video),
+        model_id='yolox_m',
+        threshold=0.7
+    )
+)
+```
+
+## Multimodal Workflows
+
+```python
+# Create comprehensive video analysis
+videos = pxt.create_table('video_analysis', {
+    'filename': pxt.String,
+    'video': pxt.Video
+})
+
+# Extract and analyze multiple components
+videos.add_computed_column(
+    first_frame=pxt.functions.extract_first_video_frame(videos.video)
+)
+videos.add_computed_column(
+    audio_track=pxt.functions.extract_audio(videos.video)
+)
+videos.add_computed_column(
+    visual_embedding=pxt.functions.clip(
+        videos.first_frame,
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+
+# Create searchable indexes
+videos.add_embedding_index('visual_embedding')
+```
+
+## Querying and Search
+
+```python
+# Find videos similar to a text description
+similar_videos = videos.order_by(
+    videos.visual_embedding.similarity("people dancing at a party"),
+    asc=False
+).limit(5)
+
+# Filter by detected objects
+videos_with_cars = videos.where(
+    videos.objects_detected.contains('car')
+)
+```
+
+## Storage and Performance
+
+**Automatic Optimization:**
+- Videos stored with metadata for efficient access
+- Frame-level indexing for quick thumbnail generation
+- Streaming-optimized storage for large files
+- Lazy loading for memory efficiency
+
+**Storage Locations:**
+- Local filesystem paths
+- Cloud storage URLs (S3, GCS, Azure, etc.)
+- Streaming URLs (RTMP, HLS, etc.)
+- Content delivery networks (CDN)
+
+## Validation and Error Handling
+
+```python
+# Pixeltable validates video files automatically
+try:
+    table.insert([{'video': '/path/to/corrupted.mp4'}])
+except pxt.Error as e:
+    print(f"Video validation failed: {e}")
+
+# Check if file is valid video
+if pxt.functions.is_video_type('/path/to/file.mp4'):
+    table.insert([{'video': '/path/to/file.mp4'}])
+```
+
+## Advanced Use Cases
+
+### Video Content Analysis
+
+```python
+# Content moderation pipeline
+content = pxt.create_table('video_content', {
+    'video_id': pxt.String,
+    'video': pxt.Video,
+    'source': pxt.String
+})
+
+# Analyze content safety
+content.add_computed_column(
+    thumbnail=pxt.functions.extract_first_video_frame(content.video)
+)
+content.add_computed_column(
+    content_embedding=pxt.functions.clip(
+        content.thumbnail,
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+```
+
+### Video Search Engine
+
+```python
+# Build searchable video database
+video_db = pxt.create_table('video_search', {
+    'title': pxt.String,
+    'video': pxt.Video,
+    'tags': pxt.Array[pxt.String]
+})
+
+video_db.add_computed_column(
+    preview_frame=pxt.functions.extract_first_video_frame(video_db.video)
+)
+video_db.add_computed_column(
+    visual_features=pxt.functions.clip(
+        video_db.preview_frame,
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+
+# Enable semantic search
+video_db.add_embedding_index('visual_features')
+
+# Search for videos
+results = video_db.order_by(
+    video_db.visual_features.similarity("cooking tutorial"),
+    asc=False
+).limit(10)
+```
+
+### Educational Content Platform
+
+```python
+# Course video management
+courses = pxt.create_table('course_videos', {
+    'course_id': pxt.String,
+    'lesson_title': pxt.String,
+    'video': pxt.Video,
+    'duration': pxt.Float
+})
+
+# Generate course thumbnails
+courses.add_computed_column(
+    thumbnail=pxt.functions.extract_first_video_frame(courses.video)
+)
+
+# Create course previews
+courses.add_computed_column(
+    preview_embedding=pxt.functions.clip(
+        courses.thumbnail,
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+```
+
+## Best Practices
+
+1. **Format selection**: Use MP4 for web compatibility, preserve original quality
+2. **Storage optimization**: Consider file sizes and compression for large collections
+3. **Frame extraction**: Cache thumbnails and key frames for quick access
+4. **Metadata preservation**: Store duration, resolution, and codec information
+5. **Streaming support**: Use CDN storage for frequently accessed videos
+
+## Integration Patterns
+
+### Video + Audio Analysis
+
+```python
+# Comprehensive multimedia analysis
+media = pxt.create_table('multimedia', {
+    'filename': pxt.String,
+    'video': pxt.Video
+})
+
+# Extract both visual and audio components
+media.add_computed_column(
+    visual_frame=pxt.functions.extract_first_video_frame(media.video)
+)
+media.add_computed_column(
+    audio_track=pxt.functions.extract_audio(media.video)
+)
+
+# Analyze both modalities
+media.add_computed_column(
+    visual_embedding=pxt.functions.clip(media.visual_frame, model_id='openai/clip-vit-base-patch32')
+)
+```
+
+### Video Catalog Management
+
+```python
+# Digital asset management
+catalog = pxt.create_table('video_catalog', {
+    'asset_id': pxt.String,
+    'video': pxt.Video,
+    'category': pxt.String,
+    'created_date': pxt.Timestamp
+})
+
+# Auto-categorization using AI
+catalog.add_computed_column(
+    auto_thumbnail=pxt.functions.extract_first_video_frame(catalog.video)
+)
+catalog.add_computed_column(
+    content_features=pxt.functions.clip(catalog.auto_thumbnail, model_id='openai/clip-vit-base-patch32')
+)
+```
+
+---
+
+*This documentation represents the Video data type capabilities in Pixeltable. For implementation details and updates, refer to the official Pixeltable documentation.*

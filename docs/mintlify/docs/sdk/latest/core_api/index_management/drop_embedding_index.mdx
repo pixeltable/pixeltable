@@ -1,0 +1,402 @@
+---
+title: "table.drop_embedding_index"
+description: "table.drop_embedding_index() - Removes vector similarity indexes to free storage and reduce AI processing overhead"
+---
+
+<Badge text="AI/ML" color="orange" size="small" />
+
+## Function Signature
+
+```python
+table.drop_embedding_index(
+    column: Optional[Union[str, Column]] = None,
+    idx_name: Optional[str] = None,
+    if_not_exists: str = 'error'
+) -> None
+```
+
+## Description
+
+Removes vector similarity indexes (embedding indexes) from the table to free significant storage space and reduce AI processing overhead. Embedding indexes typically consume substantial resources (1-10GB+ per index), so removing unused ones can dramatically improve storage efficiency and reduce costs.
+
+Use this function to clean up experimental AI indexes, switch between different embedding models, or optimize production tables by removing similarity search capabilities that are no longer needed.
+
+<Callout type="warning">
+  **🚨 AI Feature Loss**  
+  Removing embedding indexes disables similarity search on those columns. All `.similarity()` queries will fail until a new index is created.
+</Callout>
+
+## Parameters
+
+<ParamField path="column" type="Union[str, Column]" default="None">
+  The column from which to drop the embedding index. Can be specified by name or column reference. The column must have exactly one embedding index.
+</ParamField>
+
+<ParamField path="idx_name" type="str" default="None">
+  The specific name of the embedding index to drop. Use this when a column has multiple embedding indexes or for precise index management.
+</ParamField>
+
+<ParamField path="if_not_exists" type="str" default="'error'">
+  How to handle non-existent embedding indexes. Options: `'error'` (raise error) or `'ignore'` (do nothing).
+</ParamField>
+
+## Returns
+
+<ResponseField name="None" type="None">
+  No return value. The embedding index is removed and storage space is freed.
+</ResponseField>
+
+## Examples
+
+### Remove Image Similarity Index
+
+```python
+import pixeltable as pxt
+
+# Get table with image similarity search
+product_images = pxt.get_table('product_catalog')
+
+# Remove the visual similarity index to save storage
+product_images.drop_embedding_index(column='main_image')
+
+print("✅ Visual similarity index removed")
+print("💾 Storage freed: ~2-5GB per 100K images")
+print("⚠️ Image similarity search now disabled")
+
+# This will now fail:
+# similar_images = product_images.main_image.similarity(query_image)
+```
+
+### Remove Text Embedding Index by Name
+
+```python
+# Remove a specifically named text embedding index
+documents = pxt.get_table('research_papers')
+
+# Remove the abstract similarity index
+documents.drop_embedding_index(idx_name='abstract_embeddings')
+
+print("🧹 Text similarity index removed")
+print("📊 Query performance on abstracts will no longer use semantic search")
+```
+
+### Safe Embedding Index Cleanup
+
+```python
+def cleanup_embedding_indexes(table, index_names):
+    """Safely remove multiple embedding indexes"""
+    results = []
+    total_storage_freed = 0
+    
+    for idx_name in index_names:
+        try:
+            table.drop_embedding_index(idx_name=idx_name, if_not_exists='ignore')
+            results.append(f"✅ Removed embedding index: {idx_name}")
+            total_storage_freed += 1  # Estimate 1-5GB per index
+        except Exception as e:
+            results.append(f"❌ Failed to remove {idx_name}: {e}")
+    
+    return results, total_storage_freed
+
+# Clean up experimental AI indexes
+ai_catalog = pxt.get_table('ai_product_catalog')
+experimental_indexes = [
+    'clip_similarity_v1',
+    'text_embedding_test',
+    'multimodal_experiment',
+    'deprecated_visual_search'
+]
+
+cleanup_results, freed_count = cleanup_embedding_indexes(
+    ai_catalog, 
+    experimental_indexes
+)
+
+for result in cleanup_results:
+    print(result)
+    
+print(f"💾 Estimated storage freed: {freed_count * 3}GB")
+```
+
+### Production AI Model Migration
+
+```python
+import pixeltable as pxt
+from pixeltable.functions.huggingface import clip
+
+# Upgrade from old embedding model to new one
+media_table = pxt.get_table('media_analysis')
+
+try:
+    print("🔄 Starting AI model migration...")
+    
+    # Step 1: Remove old embedding index
+    print("1️⃣ Removing old CLIP index...")
+    media_table.drop_embedding_index(idx_name='old_clip_index', if_not_exists='ignore')
+    
+    # Step 2: Create new, improved embedding index
+    print("2️⃣ Creating improved CLIP index...")
+    new_clip = clip.using(model_id='openai/clip-vit-large-patch14')
+    media_table.add_embedding_index(
+        media_table.image,
+        embedding=new_clip,
+        idx_name='improved_clip_index',
+        metric='cosine'
+    )
+    
+    # Step 3: Test the new index
+    print("3️⃣ Testing new similarity search...")
+    test_query = "a red sports car"
+    similarity_score = media_table.image.similarity(test_query)
+    
+    test_results = media_table.select(
+        media_table.file_path,
+        similarity_score
+    ).where(similarity_score > 0.7).limit(5).collect()
+    
+    print(f"✅ Migration complete! Found {len(test_results)} similar images")
+    print("🚀 New model provides better accuracy and performance")
+    
+except Exception as e:
+    print(f"❌ Migration failed: {e}")
+    print("🔄 Consider reverting to previous model configuration")
+```
+
+### Development Workflow: Embedding Experimentation
+
+```python
+# Table for testing different embedding approaches
+experiment_table = pxt.create_table('embedding_experiments', {
+    'text_content': pxt.String,
+    'image_content': pxt.Image,
+    'category': pxt.String
+})
+
+class EmbeddingExperimentManager:
+    def __init__(self, table):
+        self.table = table
+        self.experiment_log = []
+    
+    def test_embedding_model(self, model_name, embedding_fn, column):
+        """Test an embedding model and track results"""
+        try:
+            # Create experimental index
+            idx_name = f"exp_{model_name}_index"
+            self.table.add_embedding_index(
+                column,
+                embedding=embedding_fn,
+                idx_name=idx_name
+            )
+            
+            # Run performance test
+            test_query = "technology innovation"
+            sim_score = column.similarity(test_query)
+            
+            results = self.table.select(sim_score).where(
+                sim_score > 0.6
+            ).collect()
+            
+            self.experiment_log.append({
+                'model': model_name,
+                'index_name': idx_name,
+                'results_count': len(results),
+                'status': 'success'
+            })
+            
+            return idx_name, len(results)
+            
+        except Exception as e:
+            self.experiment_log.append({
+                'model': model_name,
+                'index_name': idx_name,
+                'error': str(e),
+                'status': 'failed'
+            })
+            return None, 0
+    
+    def cleanup_experiment(self, idx_name):
+        """Clean up experimental index"""
+        try:
+            self.table.drop_embedding_index(idx_name=idx_name, if_not_exists='ignore')
+            return True
+        except:
+            return False
+    
+    def cleanup_all_experiments(self):
+        """Remove all experimental indexes"""
+        cleaned = 0
+        for exp in self.experiment_log:
+            if exp['status'] == 'success':
+                if self.cleanup_experiment(exp['index_name']):
+                    cleaned += 1
+        return cleaned
+
+# Usage example
+from pixeltable.functions.huggingface import sentence_transformers
+
+exp_manager = EmbeddingExperimentManager(experiment_table)
+
+# Test different models
+models_to_test = [
+    ('minilm', sentence_transformers.using(model_id='all-MiniLM-L6-v2')),
+    ('mpnet', sentence_transformers.using(model_id='all-mpnet-base-v2')),
+    ('distilbert', sentence_transformers.using(model_id='distilbert-base-nli-stsb-mean-tokens'))
+]
+
+print("🧪 Starting embedding model experiments...")
+
+best_model = None
+best_results = 0
+
+for model_name, embedding_fn in models_to_test:
+    print(f"🔬 Testing {model_name}...")
+    idx_name, result_count = exp_manager.test_embedding_model(
+        model_name, 
+        embedding_fn, 
+        experiment_table.text_content
+    )
+    
+    if result_count > best_results:
+        best_model = model_name
+        best_results = result_count
+    
+    print(f"   📊 Results: {result_count} matches")
+
+print(f"🏆 Best model: {best_model} with {best_results} matches")
+
+# Clean up experimental indexes
+cleaned_count = exp_manager.cleanup_all_experiments()
+print(f"🧹 Cleaned up {cleaned_count} experimental indexes")
+```
+
+### Cost Optimization: Large-Scale Index Management
+
+```python
+def analyze_embedding_index_usage(table_names):
+    """Analyze and optimize embedding index usage across multiple tables"""
+    
+    optimization_report = {
+        'total_indexes_found': 0,
+        'indexes_removed': 0,
+        'estimated_storage_freed_gb': 0,
+        'recommendations': []
+    }
+    
+    # Known embedding index patterns to evaluate
+    removal_candidates = [
+        'test_*',           # Test indexes
+        'exp_*',           # Experimental indexes  
+        'old_*',           # Legacy indexes
+        'deprecated_*',    # Deprecated indexes
+        '*_backup',        # Backup indexes
+        'temp_*'           # Temporary indexes
+    ]
+    
+    for table_name in table_names:
+        try:
+            table = pxt.get_table(table_name)
+            print(f"🔍 Analyzing table: {table_name}")
+            
+            # This would require actual index introspection capabilities
+            # For now, we'll simulate with known index names
+            candidate_indexes = [
+                'old_clip_similarity',
+                'experimental_text_embed',
+                'backup_visual_search',
+                'deprecated_multimodal'
+            ]
+            
+            for idx_name in candidate_indexes:
+                try:
+                    table.drop_embedding_index(
+                        idx_name=idx_name, 
+                        if_not_exists='ignore'
+                    )
+                    optimization_report['indexes_removed'] += 1
+                    optimization_report['estimated_storage_freed_gb'] += 3  # Est. 3GB per index
+                    print(f"   ✅ Removed: {idx_name}")
+                except:
+                    continue
+                    
+            optimization_report['total_indexes_found'] += len(candidate_indexes)
+            
+        except Exception as e:
+            print(f"   ❌ Could not analyze {table_name}: {e}")
+    
+    return optimization_report
+
+# Run cost optimization across production tables
+production_tables = [
+    'product_catalog',
+    'user_images', 
+    'document_archive',
+    'media_library'
+]
+
+print("💰 Starting cost optimization analysis...")
+report = analyze_embedding_index_usage(production_tables)
+
+print("\n📊 Optimization Report:")
+print(f"   • Total indexes analyzed: {report['total_indexes_found']}")
+print(f"   • Indexes removed: {report['indexes_removed']}")
+print(f"   • Storage freed: ~{report['estimated_storage_freed_gb']}GB")
+print(f"   • Estimated monthly savings: ${report['estimated_storage_freed_gb'] * 0.023:.2f}")
+```
+
+## Storage Impact and Cost Savings
+
+### Typical Embedding Index Sizes
+
+| Embedding Dimension | Storage per 1K Rows | Storage per 100K Rows | Storage per 1M Rows |
+|-------------------|---------------------|----------------------|-------------------|
+| 384D (BERT/MiniLM) | 1.5 MB | 150 MB | 1.5 GB |
+| 512D (CLIP) | 2 MB | 200 MB | 2 GB |
+| 768D (Large models) | 3 MB | 300 MB | 3 GB |
+| 1536D (OpenAI) | 6 MB | 600 MB | 6 GB |
+
+### Performance Impact After Removal
+
+| Operation | Before Removal | After Removal | Improvement |
+|-----------|----------------|---------------|-------------|
+| Similarity search | 1-50ms | Not available | N/A |
+| Insert operations | 50-500ms | 5-50ms | 10x faster |
+| Update operations | 100ms-1s | 10-100ms | 5-10x faster |
+| Storage costs | High | Reduced | 30-70% lower |
+
+## Best Practices
+
+### **When to Drop Embedding Indexes:**
+- **Model upgrades** - Replacing old embedding models with better ones
+- **Experiment cleanup** - Removing test and development indexes
+- **Cost optimization** - Reducing storage costs in production
+- **Feature deprecation** - Removing unused AI features
+
+### **Before Dropping Embedding Indexes:**
+- **Check dependencies** - Ensure no applications rely on similarity search
+- **Backup strategy** - Document index recreation parameters
+- **Performance impact** - Consider insert/update performance improvements
+- **Storage calculation** - Estimate storage savings
+
+### **Safe Removal Strategy:**
+1. **Identify unused indexes** - Find experimental or deprecated indexes
+2. **Test applications** - Ensure no critical features break
+3. **Use `if_not_exists='ignore'`** - For safe batch operations
+4. **Monitor performance** - Watch for improved insert/update speeds
+
+## Raises
+
+**Error**: If the specified column does not exist, or if the column has no embedding indexes or multiple embedding indexes when using column-based removal.
+
+**Error**: If `idx_name` is specified but the index is not an embedding index, or the index does not exist and `if_not_exists='error'`.
+
+**ValueError**: If neither `column` nor `idx_name` is specified, or if both are specified.
+
+## Related Functions
+
+- [`add_embedding_index`](./add_embedding_index) - Create vector similarity indexes for AI-powered search
+- [`drop_index`](./drop_index) - Remove traditional database indexes
+- [`find_embedding_index`](./find_embedding_index) - Discover existing embedding indexes
+
+---
+
+*Generated from Pixeltable semantic database. Enhanced with AI cost optimization strategies.*

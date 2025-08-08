@@ -1,0 +1,317 @@
+---
+title: "pxt.drop_table"
+description: "Remove tables, views, and snapshots with dependency management"
+---
+
+<Badge text="Destructive" color="red" size="small" />
+
+## Function Signature
+
+```python
+pxt.drop_table(
+    table: Union[str, Table],
+    force: bool = False,
+    if_not_exists: str = 'error'
+) -> None
+```
+
+## Description
+
+Remove a table, view, or snapshot from the Pixeltable workspace. This **unified drop function** handles all table-like objects including base tables, views, and snapshots. The operation includes comprehensive dependency checking to prevent accidental removal of objects that have dependent views or snapshots.
+
+Use `drop_table` for cleaning up obsolete data structures, removing experimental views, or reorganizing your workspace. The function provides safety mechanisms to protect against breaking dependent objects unless explicitly forced.
+
+<Callout type="warning">
+  **🚨 Destructive Operation**  
+  This permanently removes the table/view/snapshot and potentially all dependents. Use `force=True` with extreme caution.
+</Callout>
+
+## Parameters
+
+<ParamField path="table" type="Union[str, Table]" required>
+  The table, view, or snapshot to remove. Can be specified by fully qualified name or by handle.
+  
+  **Examples:**
+  - `'my_view'` - Simple name
+  - `'analysis.filtered_data'` - Qualified path
+  - `table_handle` - Direct table/view handle object
+</ParamField>
+
+<ParamField path="force" type="bool" default="False">
+  Whether to remove all dependent views and sub-views.
+  
+  - `False`: Only remove if no dependents exist (safe default)
+  - `True`: Remove object and ALL its dependents recursively
+  
+  **Warning:** `force=True` cascades deletion through entire dependency trees!
+</ParamField>
+
+<ParamField path="if_not_exists" type="str" default="'error'">
+  Behavior when the object doesn't exist.
+  
+  - `'error'`: Raise exception if object doesn't exist
+  - `'ignore'`: Do nothing if object doesn't exist (safe for cleanup scripts)
+</ParamField>
+
+## Returns
+
+<ResponseField name="None" type="None">
+  This function doesn't return a value. The table/view/snapshot is removed immediately.
+</ResponseField>
+
+## Examples
+
+### Basic View and Table Removal
+
+```python
+import pixeltable as pxt
+
+# Remove a view by name
+pxt.drop_table('analysis.filtered_images')
+
+# Remove a view by handle
+filtered_view = pxt.get_table('analysis.filtered_images')
+pxt.drop_table(filtered_view)
+
+# Safe removal that won't fail if view doesn't exist
+pxt.drop_table('temp_analysis', if_not_exists='ignore')
+```
+
+### Removing Views with Dependencies
+
+```python
+# This will fail if the view has dependent sub-views
+try:
+    pxt.drop_table('projects.cv_analysis.base_data')
+except Exception as e:
+    print(f"Cannot remove view: {e}")
+    print("View has dependent views - use force=True or remove dependents first")
+
+# Force removal of view and ALL its dependents
+# ⚠️ This is irreversible!
+pxt.drop_table('projects.cv_analysis.base_data', force=True)
+```
+
+### Safe View Cleanup Workflows
+
+```python
+def safe_cleanup_views(view_list):
+    """Safely remove views with dependency checking"""
+    
+    removed = []
+    failed = []
+    has_dependents = []
+    
+    for view_path in view_list:
+        try:
+            # Try safe removal first
+            pxt.drop_table(view_path, force=False, if_not_exists='ignore')
+            removed.append(view_path)
+            print(f"✅ Removed view: {view_path}")
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            if 'dependents' in error_msg or 'views' in error_msg:
+                has_dependents.append(view_path)
+                print(f"⚠️ Has dependents: {view_path}")
+            else:
+                failed.append((view_path, str(e)))
+                print(f"❌ Failed to remove {view_path}: {e}")
+    
+    print(f"\n📊 Cleanup Summary:")
+    print(f"   ✅ Successfully removed: {len(removed)}")
+    print(f"   ⚠️ Has dependents: {len(has_dependents)}")
+    print(f"   ❌ Failed: {len(failed)}")
+    
+    return {
+        'removed': removed,
+        'has_dependents': has_dependents,
+        'failed': failed
+    }
+
+# Clean up experimental views
+experimental_views = [
+    'experiments.test_filtering',
+    'experiments.prototype_analysis',
+    'temp.quick_analysis',
+    'scratch.model_comparison'
+]
+
+cleanup_results = safe_cleanup_views(experimental_views)
+```
+
+### View Dependency Analysis Before Removal
+
+```python
+def analyze_dependencies_before_removal(view_path):
+    """Analyze what would be affected by removing a view"""
+    
+    try:
+        # Get the view object
+        view = pxt.get_table(view_path)
+        
+        # List dependent views
+        dependent_views = view.list_views(recursive=True)
+        
+        print(f"🔍 Dependency Analysis for '{view_path}':")
+        print(f"   Direct dependents: {len(view.list_views(recursive=False))}")
+        print(f"   Total affected views: {len(dependent_views)}")
+        
+        if dependent_views:
+            print(f"\n📋 Views that would be affected:")
+            for dep_view in dependent_views:
+                print(f"   - {dep_view}")
+            
+            # Confirm before proceeding
+            print(f"\n⚠️ Removing '{view_path}' would affect {len(dependent_views)} other views")
+            return False  # Don't proceed without explicit confirmation
+        else:
+            print(f"✅ Safe to remove - no dependent views")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Error analyzing dependencies: {e}")
+        return False
+
+def safe_remove_with_analysis(view_path, force_if_needed=False):
+    """Remove view with dependency analysis"""
+    
+    can_remove_safely = analyze_dependencies_before_removal(view_path)
+    
+    if can_remove_safely:
+        pxt.drop_table(view_path)
+        print(f"✅ Successfully removed: {view_path}")
+    elif force_if_needed:
+        print(f"⚠️ Force removing {view_path} and all dependents...")
+        pxt.drop_table(view_path, force=True)
+        print(f"💥 Force removed: {view_path}")
+    else:
+        print(f"❌ Removal cancelled for safety: {view_path}")
+
+# Analyze and remove views safely
+safe_remove_with_analysis('analysis.old_experiment')
+```
+
+## Raises
+
+<ResponseField name="Error" type="Error">
+  **Object not found:**
+  - Table/view/snapshot doesn't exist and `if_not_exists='error'`
+  - Invalid path or object type
+  
+  **Dependency errors:**
+  - Object has dependent views/snapshots and `force=False`
+  - Cannot remove object due to active references
+  
+  **Permission errors:**
+  - Insufficient permissions to remove object
+  - System-level constraints preventing removal
+</ResponseField>
+
+## Best Practices
+
+### Safety-First Approach
+```python
+# ✅ Always check dependencies before removal
+def check_before_remove(view_path):
+    try:
+        view = pxt.get_table(view_path)
+        dependents = view.list_views(recursive=True)
+        
+        if dependents:
+            print(f"⚠️ {view_path} has {len(dependents)} dependents")
+            return False
+        return True
+    except:
+        return False
+
+# ✅ Use force removal sparingly and with confirmation
+def confirmed_force_removal(view_path):
+    # In production, implement proper confirmation logic
+    # confirmed = input(f"Force remove {view_path} and all dependents? (yes/no): ")
+    # if confirmed.lower() == 'yes':
+    #     pxt.drop_table(view_path, force=True)
+    pass
+```
+
+### Cleanup Strategies
+```python
+# Strategy 1: Remove leaf views first (no dependents)
+def remove_leaf_views_first(view_list):
+    """Remove views starting with those that have no dependents"""
+    remaining = view_list.copy()
+    removed = []
+    
+    while remaining:
+        # Find views with no dependents
+        leaf_views = []
+        for view_path in remaining:
+            try:
+                view = pxt.get_table(view_path)
+                if not view.list_views(recursive=False):
+                    leaf_views.append(view_path)
+            except:
+                leaf_views.append(view_path)  # Assume safe if can't check
+        
+        if not leaf_views:
+            print("⚠️ No leaf views found - may need force removal")
+            break
+        
+        # Remove leaf views
+        for leaf_view in leaf_views:
+            try:
+                pxt.drop_table(leaf_view, if_not_exists='ignore')
+                removed.append(leaf_view)
+                remaining.remove(leaf_view)
+                print(f"✅ Removed leaf view: {leaf_view}")
+            except Exception as e:
+                print(f"❌ Failed to remove {leaf_view}: {e}")
+    
+    return removed, remaining
+
+# Strategy 2: Category-based removal with safety levels
+def categorized_cleanup():
+    """Remove views in categories with appropriate safety levels"""
+    
+    cleanup_order = [
+        ('temp_views', ['temp.*', 'scratch.*'], True),  # Force OK
+        ('experimental', ['experiment.*', 'test.*'], False),  # Manual review
+        ('old_analysis', ['analysis.2022.*', 'deprecated.*'], True)  # Force OK
+    ]
+    
+    for category, patterns, allow_force in cleanup_order:
+        print(f"\n🧹 Cleaning category: {category}")
+        # Implementation would find matching views and clean appropriately
+```
+
+### Production Safety
+```python
+# ✅ Never remove production views without explicit confirmation
+def protect_production_views(view_path):
+    """Check if view is production-critical before removal"""
+    production_patterns = ['prod', 'production', 'live', 'critical']
+    
+    for pattern in production_patterns:
+        if pattern in view_path.lower():
+            print(f"🛡️ Production view detected: {view_path}")
+            return False
+    return True
+
+# ✅ Implement approval workflows for critical removals
+def require_approval_for_critical_views(view_path):
+    """Require approval for removing views with many dependents"""
+    try:
+        view = pxt.get_table(view_path)
+        dependents = view.list_views(recursive=True)
+        
+        if len(dependents) > 5:  # Arbitrary threshold
+            print(f"⚠️ Critical view with {len(dependents)} dependents")
+            return False  # Require manual approval
+        return True
+    except:
+        return True
+```
+
+---
+
+*This documentation was generated from Pixeltable's codebase and enhanced with practical examples.*

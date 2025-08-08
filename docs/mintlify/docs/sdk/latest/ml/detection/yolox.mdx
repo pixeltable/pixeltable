@@ -1,0 +1,171 @@
+---
+title: "yolox"
+description: "yolox(image, model_id, threshold) - Real-time object detection with YOLOX models"
+---
+
+<Badge text="ML/AI" color="orange" size="small" />
+
+## Function Signature
+
+```python
+yolox(image, model_id, threshold=0.25)
+```
+
+## Description
+
+Computes YOLOX object detections for the specified image. YOLOX is a state-of-the-art object detection model that identifies and localizes objects in images with high accuracy and speed.
+
+The `model_id` should reference one of the models defined in the [YOLOX documentation](https://github.com/Megvii-BaseDetection/YOLOX).
+
+<Callout type="info">
+  **Extension Package**: YOLOX is part of the `pixeltable.ext` package. Long-term support in Pixeltable is not guaranteed.
+</Callout>
+
+## Parameters
+
+<ParamField path="image" type="PIL.Image.Image" required>
+  The image to analyze for object detection.
+</ParamField>
+
+<ParamField path="model_id" type="str" required>
+  The YOLOX model to use. Available options: `yolox_nano`, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`.
+</ParamField>
+
+<ParamField path="threshold" type="float" default="0.25">
+  The confidence threshold for object detection. Objects with confidence below this value will be filtered out.
+</ParamField>
+
+## Returns
+
+<ResponseField name="detections" type="dict">
+  A dictionary containing the output of the object detection model with bounding boxes, labels, and confidence scores.
+</ResponseField>
+
+## Examples
+
+### Basic Object Detection
+
+```python
+import pixeltable as pxt
+
+# Create a table with images
+images = pxt.create_table('images', {
+    'image': pxt.Image,
+    'filename': pxt.String
+})
+
+# Add object detection with YOLOX
+images.add_computed_column(
+    detections=pxt.functions.yolox(
+        images.image, 
+        model_id='yolox_m', 
+        threshold=0.8
+    )
+)
+
+# Query results
+results = images.select(images.filename, images.detections)
+```
+
+### High-Confidence Detection
+
+```python
+# Use a higher threshold for more confident detections
+images.add_computed_column(
+    high_confidence_objects=pxt.functions.yolox(
+        images.image, 
+        model_id='yolox_l', 
+        threshold=0.9
+    )
+)
+```
+
+### Different Model Sizes
+
+```python
+# Fast detection with nano model
+images.add_computed_column(
+    fast_detections=pxt.functions.yolox(
+        images.image, 
+        model_id='yolox_nano', 
+        threshold=0.3
+    )
+)
+
+# High accuracy with extra large model
+images.add_computed_column(
+    accurate_detections=pxt.functions.yolox(
+        images.image, 
+        model_id='yolox_x', 
+        threshold=0.5
+    )
+)
+```
+
+### Filtering by Detected Objects
+
+```python
+# Find images containing specific objects
+cars_and_trucks = images.where(
+    images.detections.contains('car') | 
+    images.detections.contains('truck')
+).select(images.image, images.detections)
+```
+
+## Model Comparison
+
+| Model ID | Size | Speed | Accuracy | Use Case |
+|----------|------|-------|----------|----------|
+| `yolox_nano` | Smallest | Fastest | Good | Mobile/Edge devices |
+| `yolox_tiny` | Small | Very Fast | Good | Real-time applications |
+| `yolox_s` | Small | Fast | Better | Balanced performance |
+| `yolox_m` | Medium | Moderate | Better | General purpose |
+| `yolox_l` | Large | Slower | High | High accuracy needs |
+| `yolox_x` | Largest | Slowest | Highest | Maximum accuracy |
+
+## Output Format
+
+The detection output contains:
+
+```python
+{
+    'boxes': [[x1, y1, x2, y2], ...],  # Bounding box coordinates
+    'scores': [0.95, 0.87, ...],       # Confidence scores
+    'labels': ['person', 'car', ...],   # Object class names
+    'num_detections': 3                 # Total number of detections
+}
+```
+
+## Requirements
+
+Before using the YOLOX function, install the required dependencies:
+
+```bash
+pip install pixeltable-yolox
+```
+
+## Common Use Cases
+
+- **Security and Surveillance**: Detect people, vehicles, and objects in security footage
+- **Autonomous Vehicles**: Identify road objects, pedestrians, and traffic signs
+- **Retail Analytics**: Count customers, analyze shopping behavior
+- **Quality Control**: Detect defects or anomalies in manufactured products
+- **Sports Analytics**: Track players, balls, and equipment in sports videos
+- **Wildlife Monitoring**: Detect and count animals in trail cameras
+
+## Performance Tips
+
+1. **Choose the right model**: Use smaller models for real-time applications, larger models for accuracy
+2. **Adjust threshold**: Lower thresholds detect more objects but may include false positives
+3. **Batch processing**: Process multiple images together for better throughput
+4. **Image preprocessing**: Ensure images are properly formatted and sized
+
+## Related Functions
+
+- [`clip`](/docs/sdk/latest/ml/embeddings/clip) - Multimodal embeddings for images and text
+- [`add_computed_column`](/docs/sdk/latest/core_api/column_operations/add_computed_column) - Add AI-powered computed columns
+- [`resize`](/docs/sdk/latest/media/image/resize) - Resize images for optimal detection
+
+---
+
+*This documentation was automatically generated from the Pixeltable codebase. For the most up-to-date information, please refer to the official Pixeltable documentation.*
