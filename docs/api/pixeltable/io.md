@@ -4,6 +4,7 @@
       members:
         - create_label_studio_project
         - export_parquet
+        - import_coco
         - import_csv
         - import_excel
         - import_huggingface_dataset
