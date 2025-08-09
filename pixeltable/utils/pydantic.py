@@ -1,8 +1,8 @@
 import typing
-from types import UnionType
-from typing import Any, Union
 from datetime import datetime
 from enum import Enum
+from types import UnionType
+from typing import Any, Union
 
 import pydantic
 
@@ -25,6 +25,9 @@ def _type_is_json_convertible(type_hint: Any) -> bool:
 
     if type_hint in (str, int, float, bool, datetime):
         return True
+
+    if isinstance(type_hint, type) and issubclass(type_hint, Enum):
+        return all(isinstance(member.value, (str, int, float, bool, type(None))) for member in type_hint)
 
     if isinstance(type_hint, type) and issubclass(type_hint, pydantic.BaseModel):
         return is_json_convertible(type_hint)

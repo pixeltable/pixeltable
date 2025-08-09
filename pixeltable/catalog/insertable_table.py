@@ -127,19 +127,9 @@ class InsertableTable(Table):
         self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
 
-    @overload
     def insert(
         self,
-        rows: Sequence[pydantic.BaseModel],
-        /,
-        *,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-        print_stats: bool = False,
-    ) -> UpdateStatus: ...
-
-    def insert(
-        self,
-        source: Optional[TableDataSource | Sequence[pydantic.BaseModel]] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -237,7 +227,6 @@ class InsertableTable(Table):
                 if pxt_row.get(col_name) is None:
                     raise excs.Error(f'Missing required column {col_name!r} in row {i}')
 
-        # Note: Transaction is already active when this method is called
         status = self._tbl_version.get().insert(
             rows=pxt_rows, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
         )
@@ -276,6 +265,10 @@ class InsertableTable(Table):
 
         # validate type compatibility
         common_fields = model_field_names & set(schema.keys())
+        if len(common_fields) == 0:
+            raise excs.Error(
+                f'Pydantic model {model.__name__!r} has no fields that map to columns in table {self._name!r}'
+            )
         for field_name in common_fields:
             pxt_col_type = schema[field_name]
             model_field = model_fields[field_name]
@@ -283,25 +276,36 @@ class InsertableTable(Table):
 
             # we ignore nullability: we want to accept optional model fields for required table columns, as long as
             # the model instances provide a non-null value
-            inferred_pxt_type = ts.ColumnType.from_python_type(model_type)
+            # allow_enum=True: model_dump(mode='json') converts enums to their values
+            inferred_pxt_type = ts.ColumnType.from_python_type(model_type, infer_pydantic_json=True)
             if inferred_pxt_type is None:
                 raise excs.Error(
                     f'Pydantic model {model.__name__!r}: cannot infer Pixeltable type for column {field_name!r}'
                 )
-            if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
-                raise excs.Error(
-                    f'Pydantic model {model.__name__!r} has incompatible type ({model_type.__name__}) '
-                    f'for column {field_name!r} ({pxt_col_type})'
-                )
-            if (
-                isinstance(model_type, type)
-                and issubclass(model_type, pydantic.BaseModel)
-                and not is_json_convertible(model_type)
-            ):
-                raise excs.Error(
-                    f'Pydantic model {model.__name__!r} has field {field_name!r} with nested model '
-                    f'{model_type.__name__!r}, which is not JSON-convertible'
-                )
+
+            if pxt_col_type.is_media_type():
+                # media types require file paths, either as str or Path
+                if not inferred_pxt_type.is_string_type():
+                    raise excs.Error(
+                        f"Column {field_name!r} requires a 'str' or 'Path' field in {model.__name__!r}, but it is "
+                        f'{model_type.__name__!r}'
+                    )
+            else:
+                if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
+                    raise excs.Error(
+                        f'Pydantic model {model.__name__!r} has incompatible type ({model_type.__name__}) '
+                        f'for column {field_name!r} ({pxt_col_type})'
+                    )
+
+                if (
+                    isinstance(model_type, type)
+                    and issubclass(model_type, pydantic.BaseModel)
+                    and not is_json_convertible(model_type)
+                ):
+                    raise excs.Error(
+                        f'Pydantic model {model.__name__!r} has field {field_name!r} with nested model '
+                        f'{model_type.__name__!r}, which is not JSON-convertible'
+                    )
 
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
