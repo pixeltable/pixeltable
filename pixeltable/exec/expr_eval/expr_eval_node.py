@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import traceback
+import warnings
 from types import TracebackType
 from typing import AsyncIterator, Iterable, Optional
 
 import numpy as np
+from tqdm import TqdmWarning, tqdm
 
 import pixeltable.exceptions as excs
 from pixeltable import exprs
@@ -14,7 +17,7 @@ from pixeltable import exprs
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
 from .evaluators import FnCallEvaluator, NestedRowList
-from .globals import ExecCtx, Scheduler
+from .globals import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
 
@@ -44,7 +47,7 @@ class ExprEvalNode(ExecNode):
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    exec_ctx: ExecCtx  # for input/output rows
+    eval_ctx: ExprEvalCtx  # for input/output rows
 
     # execution state
     tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
@@ -61,6 +64,7 @@ class ExprEvalNode(ExecNode):
     num_in_flight: int  # number of dispatched rows that haven't completed
     row_pos_map: Optional[dict[int, int]]  # id(row) -> position of row in input; only set if maintain_input_order
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
+    pbar: Optional[tqdm]
 
     # debugging
     num_input_rows: int
@@ -94,6 +98,7 @@ class ExprEvalNode(ExecNode):
         self.num_in_flight = 0
         self.row_pos_map = None
         self.output_buffer = RowBuffer(self.MAX_BUFFERED_ROWS)
+        self.pbar = None
 
         self.num_input_rows = 0
         self.num_output_rows = 0
@@ -101,7 +106,13 @@ class ExprEvalNode(ExecNode):
         # self.slot_evaluators = {}
         self.schedulers = {}
         # self._init_slot_evaluators()
-        self.exec_ctx = ExecCtx(self, self.row_builder, output_exprs, input_exprs)
+        self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+
+    def open(self) -> None:
+        if self.ctx.show_pbar:
+            warnings.simplefilter('ignore', category=TqdmWarning)
+            self.pbar = self.ctx.add_pbar(desc='Column computations', unit=' cells')
+        super().open()
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
@@ -172,8 +183,8 @@ class ExprEvalNode(ExecNode):
         self.num_in_flight += num_rows
         self._log_state(f'dispatch input ({num_rows})')
 
-        self.exec_ctx.init_rows(rows)
-        self.dispatch(rows, self.exec_ctx)
+        self.eval_ctx.init_rows(rows)
+        self.dispatch(rows, self.eval_ctx)
 
     def _log_state(self, prefix: str) -> None:
         _logger.debug(
@@ -186,7 +197,7 @@ class ExprEvalNode(ExecNode):
     def _init_schedulers(self) -> None:
         resource_pools = {
             eval.fn_call.resource_pool
-            for eval in self.exec_ctx.slot_evaluators.values()
+            for eval in self.eval_ctx.slot_evaluators.values()
             if isinstance(eval, FnCallEvaluator)
         }
         resource_pools = {pool for pool in resource_pools if pool is not None}
@@ -262,7 +273,7 @@ class ExprEvalNode(ExecNode):
                 if self.input_complete and self.avail_input_rows == 0 and not closed_evaluators:
                     # no more input rows to dispatch, but we're still waiting for rows to finish:
                     # close  all slot evaluators to flush queued rows
-                    for evaluator in self.exec_ctx.slot_evaluators.values():
+                    for evaluator in self.eval_ctx.slot_evaluators.values():
                         evaluator.close()
                     closed_evaluators = True
 
@@ -307,7 +318,7 @@ class ExprEvalNode(ExecNode):
             _ = await asyncio.gather(*active_tasks, return_exceptions=True)
 
     def dispatch_exc(
-        self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExecCtx
+        self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx
     ) -> None:
         """Propagate exception to main event loop or to dependent slots, depending on ignore_errors"""
         if len(rows) == 0 or self.exc_event.is_set():
@@ -330,7 +341,7 @@ class ExprEvalNode(ExecNode):
                 row.set_exc(slot_idx, exc)
         self.dispatch(rows, exec_ctx)
 
-    def dispatch(self, rows: list[exprs.DataRow], exec_ctx: ExecCtx) -> None:
+    def dispatch(self, rows: list[exprs.DataRow], exec_ctx: ExprEvalCtx) -> None:
         """Dispatch rows to slot evaluators, based on materialized dependencies"""
         if len(rows) == 0 or self.exc_event.is_set():
             return
@@ -339,7 +350,12 @@ class ExprEvalNode(ExecNode):
         ready_slots = np.zeros((len(rows), exec_ctx.row_builder.num_materialized), dtype=bool)
         completed_rows = np.zeros(len(rows), dtype=bool)
         for i, row in enumerate(rows):
+            missing_outputs = (row.missing_slots & self.outputs).sum()
             row.missing_slots &= row.has_val == False
+            if self.ctx.show_pbar:
+                num_computed_outputs = missing_outputs - (row.missing_slots & self.outputs).sum()
+                self.pbar.update(num_computed_outputs)
+
             if row.missing_slots.sum() == 0:
                 # all output slots have been materialized
                 completed_rows[i] = True

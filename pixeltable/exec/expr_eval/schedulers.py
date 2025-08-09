@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Collection, Optional
 from pixeltable import env, func
 from pixeltable.config import Config
 
-from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
+from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
 
@@ -186,7 +186,7 @@ class RateLimitsScheduler(Scheduler):
             return most_depleted[0]
         return None
 
-    async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 
@@ -349,7 +349,7 @@ class RequestRateScheduler(Scheduler):
                 task = asyncio.create_task(self._exec(item.request, item.exec_ctx, item.num_retries, is_task=True))
                 self.dispatcher.register_task(task)
 
-    async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 

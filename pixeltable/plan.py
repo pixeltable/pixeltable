@@ -430,7 +430,7 @@ class Planner:
                 plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
             )
         )
-        plan.ctx.num_rows = 0  # Unknown
+        # plan.ctx.num_rows = 0  # Unknown
 
         return plan
 
@@ -498,7 +498,7 @@ class Planner:
         # update row builder with column information
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
+        # plan.ctx.num_computed_exprs = len(recomputed_exprs)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
@@ -646,7 +646,7 @@ class Planner:
             ignore_errors=True,
             exact_version_only=view.get_bases(),
         )
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
+        # plan.ctx.num_computed_exprs = len(recomputed_exprs)
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
@@ -1038,6 +1038,6 @@ class Planner:
         plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
+        # plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
 
         return plan

@@ -697,7 +697,7 @@ class TableVersion:
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
 
-        computed_values = 0
+        # computed_values = 0
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
@@ -728,7 +728,7 @@ class TableVersion:
             from pixeltable.plan import Planner
 
             plan = Planner.create_add_column_plan(self.path, col)
-            plan.ctx.num_rows = row_count
+            # plan.ctx.num_rows = row_count
             try:
                 plan.open()
                 try:
@@ -739,7 +739,7 @@ class TableVersion:
                 if excs_per_col > 0:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
-                computed_values += plan.ctx.num_computed_exprs * row_count
+                # computed_values += plan.ctx.num_computed_exprs * row_count
             finally:
                 # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
                 def cleanup_on_error() -> None:
@@ -764,9 +764,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(
-            upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
-        )  # add_columns
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
         return UpdateStatus(
             cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,

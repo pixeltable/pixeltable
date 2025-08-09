@@ -303,6 +303,7 @@ class StoreBase:
         try:
             table_rows: list[tuple[Any]] = []
             exec_plan.open()
+            pbar = exec_plan.ctx.add_pbar(desc='Rows written', unit=' rows') if exec_plan.ctx.show_pbar else None
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
@@ -321,16 +322,8 @@ class StoreBase:
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    if show_progress:
-                        if progress_bar is None:
-                            warnings.simplefilter('ignore', category=TqdmWarning)
-                            progress_bar = tqdm(
-                                desc=f'Inserting rows into `{self.tbl_version.get().name}`',
-                                unit=' rows',
-                                ncols=100,
-                                file=sys.stdout,
-                            )
-                        progress_bar.update(1)
+                    if pbar is not None:
+                        pbar.update(1)
 
                     batch_table_rows.append(tuple(table_row))
 
@@ -345,9 +338,8 @@ class StoreBase:
             if len(table_rows) > 0:
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
 
-            if progress_bar is not None:
-                progress_bar.close()
-            computed_values = exec_plan.ctx.num_computed_exprs * num_rows
+            # computed_values = exec_plan.ctx.num_computed_exprs * num_rows
+            computed_values = num_rows
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=computed_values)
 
             return cols_with_excs, row_counts
