@@ -5,7 +5,7 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Literal, Optional, _GenericAlias  # type: ignore[attr-defined]
+from typing import cast, Any, Literal, Optional, _GenericAlias  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -612,7 +612,7 @@ class TestTable:
 
         # mixed models
         with pytest.raises(pxt.Error, match="Expected 'TestModel1' instance, got 'TestModel2'"):
-            _ = t.insert(rows1 + rows2)
+            _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
 
     def test_pydantic_errors(self, reset_db: None) -> None:
         # value provided for computed column
@@ -644,57 +644,57 @@ class TestTable:
         with pytest.raises(pxt.Error, match=r"incompatible type \(Literal\) for column 'r' \(String\)"):
             t = pxt.create_table('bad7', {'i': pxt.Int, 'r': pxt.Required[pxt.String]})
 
-            class BadModel7(pydantic.BaseModel):
+            class BadModel3(pydantic.BaseModel):
                 i: int
                 r: Literal[1, 2, 3]
 
-            _ = t.insert([BadModel7(i=0, r=1)])
+            _ = t.insert([BadModel3(i=0, r=1)])
 
         # missing required field in model
         with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
             t = pxt.create_table('bad3', {'i': pxt.Int, 's': pxt.Required[pxt.String]})
 
-            class BadModel3(pydantic.BaseModel):
+            class BadModel4(pydantic.BaseModel):
                 i: int
 
-            _ = t.insert([BadModel3(i=0)])
+            _ = t.insert([BadModel4(i=0)])
 
         # missing required field in model instance
         with pytest.raises(pxt.Error, match="Missing required column 's' in row 0"):
             t = pxt.create_table('bad6', {'i': pxt.Int, 's': pxt.Required[pxt.String]})
 
-            class BadModel6(pydantic.BaseModel):
+            class BadModel5(pydantic.BaseModel):
                 i: int
                 s: str | None = None
 
-            _ = t.insert([BadModel6(i=0)])
+            _ = t.insert([BadModel5(i=0)])
 
         # incompatible field type
         with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
             t = pxt.create_table('bad4', {'i': pxt.Required[pxt.Int]})
 
-            class BadModel4(pydantic.BaseModel):
+            class BadModel6(pydantic.BaseModel):
                 i: str
 
-            _ = t.insert([BadModel4(i='0')])
+            _ = t.insert([BadModel6(i='0')])
 
         # bad field type
         with pytest.raises(pxt.Error, match="cannot infer Pixeltable type for column 's'"):
             t = pxt.create_table('bad5', {'s': pxt.String})
 
-            class BadModel5(pydantic.BaseModel):
+            class BadModel7(pydantic.BaseModel):
                 s: set[int]
 
-            _ = t.insert([BadModel5(s={1, 2, 3})])
+            _ = t.insert([BadModel7(s={1, 2, 3})])
 
         # no matching fields
         with pytest.raises(pxt.Error, match='has no fields that map to columns'):
             t = pxt.create_table('errors', {'s': pxt.String}, if_exists='replace')
 
-            class BadModel(pydantic.BaseModel):
+            class BadModel8(pydantic.BaseModel):
                 t: str
 
-            _ = t.insert([BadModel(t='0')])
+            _ = t.insert([BadModel8(t='0')])
 
     def test_insert_nested_pydantic(self, reset_db: None) -> None:
         schema = {'s': pxt.Required[pxt.String], 'j': pxt.Required[pxt.Json]}
@@ -751,11 +751,11 @@ class TestTable:
                 class Config:
                     arbitrary_types_allowed = True
 
-            class BadModel(pydantic.BaseModel):
+            class BadModel1(pydantic.BaseModel):
                 s: str
                 j: N2
 
-            _ = t.insert([BadModel(s='str_0', j=N2(s='str_0', i=0, c=PIL.Image.new('RGB', (100, 100))))])
+            _ = t.insert([BadModel1(s='str_0', j=N2(s='str_0', i=0, c=PIL.Image.new('RGB', (100, 100))))])
 
         # nested model with field that's not json-convertible
         with pytest.raises(pxt.Error, match="field 'j' with nested model 'N4', which is not JSON-convertible"):
@@ -767,11 +767,11 @@ class TestTable:
                 s: str
                 n: N3
 
-            class BadModel(pydantic.BaseModel):
+            class BadModel2(pydantic.BaseModel):
                 s: str
                 j: N4
 
-            _ = t.insert([BadModel(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
+            _ = t.insert([BadModel2(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
 
     def test_pydantic_media(self, reset_db: None) -> None:
         schema = {'img': pxt.Required[pxt.Image]}

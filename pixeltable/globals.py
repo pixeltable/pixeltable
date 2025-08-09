@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, NamedTuple, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, NamedTuple, Optional, Sequence, Union
 
 import pandas as pd
+import pydantic
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share, type_system as ts
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
         Path,  # OS paths, filenames, URLs
         Iterator[dict[str, Any]],  # iterator producing dictionaries of values
         RowData,  # list of dictionaries
-        # Sequence[pydantic.BaseModel],  # list of Pydantic models
+        Sequence[pydantic.BaseModel],  # list of Pydantic models
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
         datasets.Dataset,
