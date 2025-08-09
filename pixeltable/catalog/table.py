@@ -183,16 +183,14 @@ class Table(SchemaObject):
 
         return op()
 
-    def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
+    def _get_views(self, *, recursive: bool = True, mutable_only: bool = False) -> list['Table']:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
         views = [cat.get_table_by_id(id) for id in view_ids]
-        if not include_snapshots:
-            views = [t for t in views if not t._tbl_version_path.is_snapshot()]
+        if mutable_only:
+            views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(
-                t for view in views for t in view._get_views(recursive=True, include_snapshots=include_snapshots)
-            )
+            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
@@ -859,13 +857,32 @@ class Table(SchemaObject):
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
-            _ = self._get_views(recursive=True, include_snapshots=False)
+            views = self._get_views(recursive=True, mutable_only=True)
+
+            # See if any view predicates depend on this column
+            dependent_views = []
+            for view in views:
+                if view._tbl_version is not None:
+                    predicate = view._tbl_version.get().predicate
+                    if predicate is not None:
+                        for predicate_col in exprs.Expr.get_refd_column_ids(predicate.as_dict()):
+                            if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
+                                dependent_views.append((view, predicate))
+
+            if len(dependent_views) > 0:
+                dependent_views_str = '\n'.join(
+                    f'view: {view._path()}, predicate: {predicate!s}' for view, predicate in dependent_views
+                )
+                raise excs.Error(
+                    f'Cannot drop column `{col.name}` because the following views depend on it:\n{dependent_views_str}'
+                )
+
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
             col_handle = col.handle
             dependent_stores = [
                 (view, store)
-                for view in (self, *self._get_views(recursive=True, include_snapshots=False))
+                for view in (self, *views)
                 for store in view._tbl_version.get().external_stores.values()
                 if col_handle in store.get_local_columns()
             ]
@@ -877,6 +894,12 @@ class Table(SchemaObject):
                 raise excs.Error(
                     f'Cannot drop column `{col.name}` because the following external stores depend on it:\n'
                     f'{", ".join(dependent_store_names)}'
+                )
+            all_columns = self.columns()
+            if len(all_columns) == 1 and col.name == all_columns[0]:
+                raise excs.Error(
+                    f'Cannot drop column `{col.name}` because it is the last remaining column in this table.'
+                    f' Tables must have at least one column.'
                 )
 
             self._tbl_version.get().drop_column(col)
