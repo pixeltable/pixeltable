@@ -250,6 +250,7 @@ class RowBuilder:
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
         assert self.tbl is not None
+        assert col.is_stored
         info = ColumnSlotIdx(col, slot_idx)
         self.table_columns.append(info)
         if col.col_type.is_media_type():
