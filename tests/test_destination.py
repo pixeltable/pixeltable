@@ -80,8 +80,8 @@ class TestDestination:
         r_dest = t.select(t.img.fileurl, t.img_rot1.fileurl, t.img_rot2.fileurl, t.img_rot3.fileurl).collect()
         print(r_dest)
 
-        dest1_uri = f'file://{valid_dest_1}'
-        dest2_uri = f'file://{valid_dest_2}'
+        dest1_uri = valid_dest_1.resolve().as_uri()
+        dest2_uri = valid_dest_2.resolve().as_uri()
         assert len(r) == 2
         assert len(r) == MediaStore.get().count(t._id)
         assert len(r) == MediaStore.get(dest1_uri).count(t._id)
@@ -112,8 +112,8 @@ class TestDestination:
         r_dest = t.select(t.img_rot1.fileurl, t.img_rot2.fileurl, t.img_rot3.fileurl, t.img_rot4.fileurl).collect()
         print(r_dest)
 
-        dest1_uri = f'file://{valid_dest_1}'
-        dest2_uri = f'file://{valid_dest_2}'
+        dest1_uri = valid_dest_1.resolve().as_uri()
+        dest2_uri = valid_dest_2.resolve().as_uri()
         assert len(r) == 2
         assert len(r) == MediaStore.get().count(t._id)
         assert len(r) == MediaStore.get(dest1_uri).count(t._id)
@@ -132,7 +132,7 @@ class TestDestination:
         valid_dest_1 = self.base_dest() / 'img_rot1'
         if not valid_dest_1.exists():
             valid_dest_1.mkdir()
-        dest1_uri = f'file://{valid_dest_1}'
+        dest1_uri = valid_dest_1.resolve().as_uri()
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
@@ -170,7 +170,7 @@ class TestDestination:
 
         assert len(r) == 2
 
-        dest1_uri = f'file://{valid_dest_1}'
+        dest1_uri = valid_dest_1.resolve().as_uri()
 
         # Copying a local file to the MediaStore is not allowed
         assert MediaStore.get().count(t._id) == 0
