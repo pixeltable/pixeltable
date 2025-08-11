@@ -4,12 +4,11 @@ import asyncio
 import logging
 import sys
 import traceback
-import warnings
 from types import TracebackType
 from typing import AsyncIterator, Iterable, Optional
 
 import numpy as np
-from tqdm import TqdmWarning, tqdm
+from rich.progress import TaskID
 
 import pixeltable.exceptions as excs
 from pixeltable import exprs
@@ -64,7 +63,7 @@ class ExprEvalNode(ExecNode):
     num_in_flight: int  # number of dispatched rows that haven't completed
     row_pos_map: Optional[dict[int, int]]  # id(row) -> position of row in input; only set if maintain_input_order
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
-    pbar: Optional[tqdm]
+    pbar: Optional[TaskID]
 
     # debugging
     num_input_rows: int
@@ -110,9 +109,13 @@ class ExprEvalNode(ExecNode):
 
     def open(self) -> None:
         if self.ctx.show_pbar:
-            warnings.simplefilter('ignore', category=TqdmWarning)
-            self.pbar = self.ctx.add_pbar(desc='Column computations', unit=' cells')
+            self.pbar = self.ctx.add_pbar(desc='Column computations', unit='cells')
         super().open()
+
+    def close(self) -> None:
+        if self.ctx.show_pbar:
+            self.ctx.close_pbars()
+        super().close()
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
@@ -352,9 +355,9 @@ class ExprEvalNode(ExecNode):
         for i, row in enumerate(rows):
             missing_outputs = (row.missing_slots & self.outputs).sum()
             row.missing_slots &= row.has_val == False
-            if self.ctx.show_pbar:
+            if self.ctx.show_pbar and self.pbar is not None:
                 num_computed_outputs = missing_outputs - (row.missing_slots & self.outputs).sum()
-                self.pbar.update(num_computed_outputs)
+                self.ctx.progress.update(self.pbar, advance=num_computed_outputs)
 
             if row.missing_slots.sum() == 0:
                 # all output slots have been materialized

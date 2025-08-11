@@ -164,6 +164,13 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     return exprs.JsonMapper(expr, target_expr)
 
 
+@func.udf
+def sleep(duration: float) -> float:
+    import time
+    time.sleep(duration)
+    return duration
+
+
 __all__ = local_public_names(__name__)
 
 

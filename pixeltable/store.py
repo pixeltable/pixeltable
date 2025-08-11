@@ -295,7 +295,6 @@ class StoreBase:
         num_excs = 0
         num_rows = 0
         cols_with_excs: set[int] = set()
-        progress_bar: Optional[tqdm] = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
 
         store_col_names = row_builder.store_column_names()
@@ -303,7 +302,7 @@ class StoreBase:
         try:
             table_rows: list[tuple[Any]] = []
             exec_plan.open()
-            pbar = exec_plan.ctx.add_pbar(desc='Rows written', unit=' rows') if exec_plan.ctx.show_pbar else None
+            pbar = exec_plan.ctx.add_pbar(desc='Rows written', unit='rows') if show_progress else None
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
@@ -322,20 +321,21 @@ class StoreBase:
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    if pbar is not None:
-                        pbar.update(1)
-
                     batch_table_rows.append(tuple(table_row))
 
                 table_rows.extend(batch_table_rows)
 
                 # if a batch is ready for insertion into the database, insert it
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                    if pbar is not None:
+                        exec_plan.ctx.progress.update(pbar, advance=len(table_rows))
                     self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                     table_rows.clear()
 
             # insert any remaining rows
             if len(table_rows) > 0:
+                if pbar is not None:
+                    exec_plan.ctx.progress.update(pbar, advance=len(table_rows))
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
 
             # computed_values = exec_plan.ctx.num_computed_exprs * num_rows
