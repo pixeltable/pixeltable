@@ -24,7 +24,7 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.media_store import MediaStore, TempStore
 
 _logger = logging.getLogger('pixeltable')
 
@@ -57,7 +57,7 @@ class TablePackager:
 
     def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
         self.table = table
-        self.tmp_dir = Path(Env.get().create_tmp_path())
+        self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
         # Load metadata
@@ -92,10 +92,10 @@ class TablePackager:
         self.bundle_path = self.__build_tarball()
 
         _logger.info('Extracting preview data.')
-        self.md['count'] = self.table.count()
+        self.md['row_count'] = self.table.count()
         preview_header, preview = self.__extract_preview_data()
         self.md['preview_header'] = preview_header
-        self.md['preview'] = preview
+        self.md['preview_data'] = preview
 
         _logger.info(f'Packaging complete: {self.bundle_path}')
         return self.bundle_path
@@ -335,7 +335,7 @@ class TableRestorer:
     def __init__(self, tbl_path: str, md: Optional[dict[str, Any]] = None) -> None:
         self.tbl_path = tbl_path
         self.md = md
-        self.tmp_dir = Path(Env.get().create_tmp_path())
+        self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
     def restore(self, bundle_path: Path) -> pxt.Table:
@@ -619,7 +619,7 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = MediaStore.relocate_local_media_file(src_path, media_col)
+                self.media_files[url] = MediaStore.get().relocate_local_media_file(src_path, media_col)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url

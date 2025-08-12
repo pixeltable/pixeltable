@@ -9,10 +9,10 @@ import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
-from pixeltable import env
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.media_store import TempStore
 
-_format_defaults = {  # format -> (codec, ext)
+_format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
     'wav': ('pcm_s16le', 'wav'),
     'mp3': ('libmp3lame', 'mp3'),
     'flac': ('flac', 'flac'),
@@ -40,6 +40,59 @@ _format_defaults = {  # format -> (codec, ext)
 class make_video(pxt.Aggregator):
     """
     Aggregator that creates a video from a sequence of images.
+
+    Creates an H.264 encoded MP4 video from a sequence of PIL Image frames. This aggregator requires the input
+    frames to be ordered (typically by frame position) and is commonly used with `FrameIterator` views to
+    reconstruct videos from processed frames.
+
+    Args:
+        fps: Frames per second for the output video. Default is 25. This is set when the aggregator is created.
+
+    Returns:
+
+    - A `pxt.Video` containing the created video file path.
+
+    Examples:
+        Create a video from frames extracted using FrameIterator:
+
+        >>> import pixeltable as pxt
+        >>> from pixeltable.functions.video import make_video
+        >>> from pixeltable.iterators import FrameIterator
+        >>>
+        >>> # Create base table for videos
+        >>> videos_table = pxt.create_table('videos', {'video': pxt.Video})
+        >>>
+        >>> # Create view to extract frames
+        >>> frames_view = pxt.create_view(
+        ...     'video_frames',
+        ...     videos_table,
+        ...     iterator=FrameIterator.create(video=videos_table.video, fps=1)
+        ... )
+        >>>
+        >>> # Reconstruct video from frames
+        >>> frames_view.group_by(videos_table).select(
+        ...     make_video(frames_view.pos, frames_view.frame)
+        ... ).show()
+
+        Apply transformations to frames before creating a video:
+
+        >>> # Add computed column with transformed frames
+        >>> frames_view.add_computed_column(
+        ...     rotated_frame=frames_view.frame.rotate(30),
+        ...     stored=True
+        ... )
+        >>>
+        >>> # Create video from transformed frames
+        >>> frames_view.group_by(videos_table).select(
+        ...     make_video(frames_view.pos, frames_view.rotated_frame)
+        ... ).show()
+
+        Compare multiple processed versions side-by-side:
+
+        >>> frames_view.group_by(videos_table).select(
+        ...     make_video(frames_view.pos, frames_view.frame),
+        ...     make_video(frames_view.pos, frames_view.rotated_frame)
+        ... ).show()
     """
 
     container: Optional[av.container.OutputContainer]
@@ -56,7 +109,7 @@ class make_video(pxt.Aggregator):
         if frame is None:
             return
         if self.container is None:
-            self.out_file = env.Env.get().create_tmp_path('.mp4')
+            self.out_file = TempStore.create_path(extension='.mp4')
             self.container = av.open(str(self.out_file), mode='w')
             self.stream = self.container.add_stream('h264', rate=self.fps)
             self.stream.pix_fmt = 'yuv420p'
@@ -105,16 +158,16 @@ def extract_audio(
             return None
         audio_stream = container.streams.audio[stream_idx]
         # create this in our tmp directory, so it'll get cleaned up if it's being generated as part of a query
-        output_filename = str(env.Env.get().create_tmp_path(f'.{ext}'))
+        output_path = str(TempStore.create_path(extension=f'.{ext}'))
 
-        with av.open(output_filename, 'w', format=format) as output_container:
+        with av.open(output_path, 'w', format=format) as output_container:
             output_stream = output_container.add_stream(codec or default_codec)
             assert isinstance(output_stream, av.audio.stream.AudioStream)
             for packet in container.demux(audio_stream):
                 for frame in packet.decode():
                     output_container.mux(output_stream.encode(frame))  # type: ignore[arg-type]
 
-        return output_filename
+        return output_path
 
 
 @pxt.udf(is_method=True)

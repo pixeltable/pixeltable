@@ -4,6 +4,7 @@ import warnings
 
 import griffe.expressions
 from griffe import Extension, Function, Object, ObjectNode, dynamic_import  # type: ignore[attr-defined]
+from griffe.dataclasses import Parameters
 from mkdocstrings_handlers.python import rendering
 
 import pixeltable as pxt
@@ -41,7 +42,10 @@ class PxtGriffeExtension(Extension):
         assert isinstance(udf, pxt.Function)
         # Convert the return type to a Pixeltable type reference
         func.returns = str(udf.signatures[0].get_return_type())
-        # Convert the parameter types to Pixeltable type references
+        # Convert the parameter types to Pixeltable type references; first, get rid of system parameters
+        # (those starting with '_')
+        user_params = [param for param in func.parameters if not param.name.startswith('_')]
+        func.parameters = Parameters(*user_params)
         for griffe_param in func.parameters:
             assert isinstance(griffe_param.annotation, griffe.expressions.Expr)
             if griffe_param.name not in udf.signatures[0].parameters:

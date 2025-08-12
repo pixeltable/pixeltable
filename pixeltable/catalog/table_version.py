@@ -327,7 +327,7 @@ class TableVersion:
             from .table_version_path import TableVersionPath
 
             # clear out any remaining media files from an aborted previous attempt
-            MediaStore.delete(self.id)
+            MediaStore.get().delete(self.id)
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
@@ -374,7 +374,7 @@ class TableVersion:
         #     if self.base.get().is_mutable:
         #         self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        MediaStore.delete(self.id)
+        MediaStore.get().delete(self.id)
         FileCache.get().clear(tbl_id=self.id)
         self.store_tbl.drop()
 
@@ -1235,7 +1235,7 @@ class TableVersion:
             )
 
         # delete newly-added data
-        MediaStore.delete(self.id, tbl_version=self.version)
+        MediaStore.get().delete(self.id, tbl_version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions

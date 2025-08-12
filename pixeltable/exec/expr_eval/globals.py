@@ -56,6 +56,7 @@ class Scheduler(abc.ABC):
         request: FnCallArgs
         num_retries: int
         exec_ctx: ExecCtx
+        retry_after: Optional[float] = None  # time.monotonic()
 
         def __lt__(self, other: Scheduler.QueueItem) -> bool:
             # prioritize by number of retries (more retries = higher priority)

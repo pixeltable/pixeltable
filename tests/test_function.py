@@ -140,37 +140,39 @@ class TestFunction:
         assert "'b'" in str(exc_info.value)
 
         # bad default value
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Default value'):
 
             @pxt.udf
             def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
                 return a + b + c
 
-        assert 'default value' in str(exc_info.value).lower()
         # missing param type
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match="Cannot infer pixeltable type for parameter 'c'"):
 
             @pxt.udf
             def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
                 return a + b + c
 
-        assert "cannot infer pixeltable type for parameter 'c'" in str(exc_info.value).lower()
         # bad parameter name
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='reserved'):
 
             @pxt.udf
             def f1(group_by: int) -> int:
                 return group_by
 
-        assert 'reserved' in str(exc_info.value)
         # bad parameter name
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='reserved'):
 
             @pxt.udf
             def f1(order_by: int) -> int:
                 return order_by
 
-        assert 'reserved' in str(exc_info.value)
+        # bad parameter name
+        with pytest.raises(pxt.Error, match='reserved'):
+
+            @pxt.udf
+            def f1(_int_param: int) -> int:
+                return _int_param
 
     @staticmethod
     @pxt.udf(is_method=True)
@@ -1000,6 +1002,63 @@ class TestFunction:
         # Now drop the column that references the invalid UDF
         t.drop_column('result')
         reload_and_validate_table(has_result_column=False)
+
+    def test_udf_import_error(self, reset_db: None) -> None:
+        """
+        Tests that the Pixeltable catalog loads successfully when a function's conditional_return_type() method
+        raises an ImportError. (The affected UDF will be unusable for new inserts, but the table will be loadable
+        and queryable as with any other evolution error.)
+        """
+        import tests.test_function  # noqa: PLW0406
+
+        def mimic(fn: func.CallableFunction) -> None:
+            """Monkey-patches `tests.test_function.evolving_udf` with the given function."""
+            tests.test_function.evolving_udf = func.CallableFunction(
+                fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
+            )
+            tests.test_function.evolving_udf._conditional_return_type = fn._conditional_return_type
+
+        @pxt.udf(_force_stored=True)
+        def udf_base_version(a: str, b: str) -> pxt.Array[(None,), pxt.Float]:
+            return np.ones((1024,), dtype=np.float32)
+
+        mimic(udf_base_version)
+
+        @udf_base_version.conditional_return_type
+        def _(b: str) -> ts.ColumnType:
+            return ts.ArrayType(shape=(1024,), dtype=ts.FloatType())
+
+        @pxt.udf(_force_stored=True)
+        def udf_import_error(a: str, b: str) -> pxt.Array[(None,), pxt.Float]:
+            return np.ones((1024,), dtype=np.float32)
+
+        @udf_import_error.conditional_return_type
+        def _(b: str) -> ts.ColumnType:
+            raise ImportError('This is a mock ImportError.')
+
+        t = pxt.create_table('test', {'c1': pxt.String})
+        t.insert(c1='xyz')
+        t.add_computed_column(result=tests.test_function.evolving_udf(t.c1, 'constant'))
+
+        data = t.head()
+
+        mimic(udf_import_error)
+        reload_catalog()
+        regex = 'A UDF call to .* could not be fully resolved, because a module .*\n.*\n.*This is a mock ImportError.'
+        with pytest.warns(pxt.PixeltableWarning, match=regex):
+            t = pxt.get_table('test')
+        assert_resultset_eq(data, t.head())
+
+        # Now try using it as an embedding index.
+        mimic(udf_base_version)
+        t = pxt.create_table('test', {'c1': pxt.String}, if_exists='replace')
+        t.add_embedding_index('c1', embedding=tests.test_function.evolving_udf.using(b='constant'))
+        t.insert(c1='xyz')
+
+        mimic(udf_import_error)
+        reload_catalog()
+        with pytest.warns(pxt.PixeltableWarning, match=regex):
+            t = pxt.get_table('test')
 
     def test_tool_errors(self) -> None:
         with pytest.raises(pxt.Error) as exc_info:

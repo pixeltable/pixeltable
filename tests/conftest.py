@@ -100,7 +100,7 @@ def reset_db(init_env: None) -> None:
     Env.get().default_time_zone = None
     Env.get().user = None
     # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
-    # Env.get().clear_tmp_dir()
+    # TempStore.clear()
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
@@ -248,16 +248,25 @@ def _retry_hf(fn: Callable) -> Callable:
 @pytest.fixture(scope='session')
 @_retry_hf
 def clip_embed() -> pxt.Function:
-    return clip.using(model_id='openai/clip-vit-base-patch32')
+    try:
+        return clip.using(model_id='openai/clip-vit-base-patch32')
+    except ImportError:
+        return None  # Any time this happens, the test wil be skipped anyway.
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
 def e5_embed() -> pxt.Function:
-    return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    try:
+        return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    except ImportError:
+        return None
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
 def all_mpnet_embed() -> pxt.Function:
-    return sentence_transformer.using(model_id='all-mpnet-base-v2')
+    try:
+        return sentence_transformer.using(model_id='all-mpnet-base-v2')
+    except ImportError:
+        return None

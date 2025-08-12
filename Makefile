@@ -24,11 +24,9 @@ else
     ULIMIT_CMD := ulimit -n 4000;
 endif
 
-# For uv sync
-VIRTUAL_ENV := $(CONDA_PREFIX)
-
 # Common test parameters
-PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
+PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
+	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
 
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
 NB_CELL_TIMEOUT := 3600
@@ -84,11 +82,13 @@ endif
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.8.2
+	@echo 'Installing ffmpeg ...'
+	@conda install -q -y -c conda-forge libiconv ffmpeg
 	@$(TOUCH) .make-install/uv
 
 .make-install/deps: uv.lock
 	@echo 'Installing dependencies from uv ...'
-	@uv sync --active
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
@@ -114,12 +114,12 @@ check: typecheck docscheck lint formatcheck
 .PHONY: pytest
 pytest: install
 	@echo 'Running `pytest` ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS)
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests
 
 .PHONY: fullpytest
 fullpytest: install
 	@echo 'Running `pytest`, including expensive tests ...'
-	@$(ULIMIT_CMD) pytest -m '' $(PYTEST_COMMON_ARGS)
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m '' tests
 
 .PHONY: nbtest
 nbtest: install

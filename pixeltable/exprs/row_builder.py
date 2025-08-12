@@ -86,6 +86,8 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
+    stored_img_cols: list[exprs.ColumnSlotIdx]
+    stored_media_cols: list[exprs.ColumnSlotIdx]
 
     @dataclass
     class EvalCtx:
@@ -112,6 +114,8 @@ class RowBuilder:
         """
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
+        self.stored_img_cols = []
+        self.stored_media_cols = []
 
         # record input and output exprs; make copies to avoid reusing execution state
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
@@ -246,11 +250,13 @@ class RowBuilder:
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
         assert self.tbl is not None
-        self.table_columns.append(ColumnSlotIdx(col, slot_idx))
-
-    def output_slot_idxs(self) -> list[ColumnSlotIdx]:
-        """Return ColumnSlotIdx for output columns"""
-        return self.table_columns
+        assert col.is_stored
+        info = ColumnSlotIdx(col, slot_idx)
+        self.table_columns.append(info)
+        if col.col_type.is_media_type():
+            self.stored_media_cols.append(info)
+            if col.col_type.is_image_type():
+                self.stored_img_cols.append(info)
 
     @property
     def num_materialized(self) -> int:
