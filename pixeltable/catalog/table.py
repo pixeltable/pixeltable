@@ -834,21 +834,25 @@ class Table(SchemaObject):
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
             if isinstance(column, str):
-                col = self._tbl_version_path.get_column(column, include_bases=False)
+                col = self._tbl_version_path.get_column(column)
                 if col is None:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
                         raise excs.Error(f'Column {column!r} unknown')
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
+                if col.tbl.id != self._tbl_version_path.tbl_id:
+                    raise excs.Error(f'Cannot drop base table column {col.name!r}')
                 col = self._tbl_version.get().cols_by_name[column]
             else:
-                exists = self._tbl_version_path.has_column(column.col, include_bases=False)
+                exists = self._tbl_version_path.has_column(column.col)
                 if not exists:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
                         raise excs.Error(f'Unknown column: {column.col.qualified_name}')
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 col = column.col
+                if col.tbl.id != self._tbl_version_path.tbl_id:
+                    raise excs.Error(f'Cannot drop base table column {col.name!r}')
 
             dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:

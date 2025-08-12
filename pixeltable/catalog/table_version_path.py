@@ -212,8 +212,9 @@ class TableVersionPath:
 
     def has_column(self, col: Column, include_bases: bool = True) -> bool:
         """Return True if this table has the given column."""
-        self.refresh_cached_md()
         assert col.tbl is not None
+        self.refresh_cached_md()
+
         if (
             col.tbl.id == self.tbl_version.id
             and col.tbl.effective_version == self.tbl_version.effective_version

@@ -1127,15 +1127,20 @@ class TestView:
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
 
-    def test_drop_column(self, reset_db: None) -> None:
+    def test_drop_base_column(self, reset_db: None) -> None:
         t = self.create_tbl()
         # create view with computed columns
         schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
-        v = pxt.create_view('test_view', t, additional_columns=schema)
-        v.drop_column(v.v2)
+        v1 = pxt.create_view('test_view1', t, additional_columns=schema)
+        v2 = pxt.create_view('test_view2', v1)
+
         # Drop base table column using column ref
-        with pytest.raises(pxt.Error, match=r'Unknown column: test_tbl.c3'):
-            v.drop_column(v.c3)
+        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'c3'"):
+            v1.drop_column(v1.c3)
         # Drop using column name
-        with pytest.raises(pxt.Error, match=r"Column 'c3' unknown"):
-            v.drop_column('c3')
+        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'c6'"):
+            v2.drop_column('c6')
+        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'v1'"):
+            v2.drop_column(v2.v1)
+        # drop view's own column - allowed
+        v1.drop_column(v1.v2)
