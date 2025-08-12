@@ -11,8 +11,9 @@ from uuid import UUID
 
 from pixeltable import exprs
 from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.object_store import S3Store
+from pixeltable.utils.s3 import S3ClientContainer
 
-# from pixeltable.utils.s3 import S3ClientContainer
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -60,7 +61,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
-    #    boto_client_source: S3ClientContainer
+    client_source: S3ClientContainer
 
     # execution state
     num_returned_rows: int
@@ -96,7 +97,7 @@ class ObjectStoreSaveNode(ExecNode):
         self.file_col_info = file_col_info
 
         # clients for specific services are constructed as needed, because it's time-consuming
-        # self.boto_client_source = S3ClientContainer(self.NUM_EXECUTOR_THREADS + 4)
+        self.client_source = S3ClientContainer(self.NUM_EXECUTOR_THREADS + 4)
 
         self.num_returned_rows = 0
         self.ready_rows = deque()
@@ -220,9 +221,10 @@ class ObjectStoreSaveNode(ExecNode):
                 assert col.col_type.is_media_type()
 
                 destination = info.col.destination
-                if MediaStore.get(destination).resolve_url(url) is not None:
-                    # The url already points to the correct destination
-                    continue
+                if destination is not None and not destination.startswith('s3://'):
+                    if MediaStore.get(destination).resolve_url(url) is not None:
+                        # The url already points to the correct destination
+                        continue
 
                 src_path = MediaStore.file_url_to_path(url)
                 if src_path is None:
@@ -287,6 +289,13 @@ class ObjectStoreSaveNode(ExecNode):
         destination = work_item.destination
         col = work_item.info.col
         try:
+            if destination is not None and destination.startswith('s3'):
+                # If the destination is 's3', we need to copy the file to S3
+                new_file_url = S3Store(self.client_source, destination).copy_local_media_file(col, src_path)
+                if work_item.destination_count == 1 and TempStore.contains_path(src_path):
+                    # If there is only one destination, we can delete the TempStore copy when it has been copied
+                    TempStore.delete_media_file(src_path)
+                return new_file_url, None
             if work_item.destination_count > 1:
                 new_file_url = MediaStore.get(destination).copy_local_media_file(src_path, col)
             else:

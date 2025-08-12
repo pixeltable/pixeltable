@@ -20,6 +20,8 @@ from pixeltable import catalog, env, exceptions as excs, exprs, index, type_syst
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
 from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.object_store import S3Store
+from pixeltable.utils.s3 import S3ClientContainer
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -761,7 +763,15 @@ class Table(SchemaObject):
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
                 if 'destination' in spec:
-                    destination = MediaStore.validate_destination(name, spec['destination'])
+                    dest = spec['destination']
+                    if dest is not None and isinstance(dest, str) and dest.startswith('s3://'):
+                        # validate S3 destination
+                        dest2 = S3Store(S3ClientContainer(), dest).validate_uri()
+                        if dest2 is None:
+                            raise excs.Error(f'Column {name}: invalid S3 destination {dest!r}')
+                        destination = dest2
+                    else:
+                        destination = MediaStore.validate_destination(name, dest)
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
