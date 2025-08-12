@@ -41,7 +41,7 @@ class CachePrefetchNode(ExecNode):
     # execution state
     num_returned_rows: int
     downloaded_objects_reporter: Optional[ExecContext.ProgressReporter]
-    downloaded_bytes_reporter: Optional[ExecContext.BytesProgressReporter]
+    downloaded_bytes_reporter: Optional[ExecContext.ProgressReporter]
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
@@ -83,7 +83,7 @@ class CachePrefetchNode(ExecNode):
         super().open()
         if self.ctx.show_pbar:
             self.downloaded_objects_reporter = self.ctx.add_progress_reporter('Downloads', 'objects')
-            self.downloaded_bytes_reporter = self.ctx.add_bytes_progress_reporter('Downloads')
+            self.downloaded_bytes_reporter = self.ctx.add_progress_reporter('Downloads', 'B')
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         input_iter = self.input.__aiter__()
