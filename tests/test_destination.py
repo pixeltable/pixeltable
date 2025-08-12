@@ -7,7 +7,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import env
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.media_store import MediaStore, MediaDestination
 
 
 class TestDestination:
@@ -33,14 +33,8 @@ class TestDestination:
 
     @classmethod
     def count(cls, uri: Optional[str], tbl_id: UUID) -> int:
-        """Return the count of media files in the MediaStore for a given table ID"""
-        if uri is not None and uri.startswith('s3://'):
-            from pixeltable.utils.object_store import S3Store
-            from pixeltable.utils.s3 import S3ClientContainer
-
-            # If the URI is an S3 URI, use the S3Store to count media files
-            return S3Store(S3ClientContainer(), uri).count(tbl_id)
-        return MediaStore.get(uri).count(tbl_id)
+        """Return the count of media files in the destination for a given table ID"""
+        return MediaDestination.count(uri, tbl_id)
 
     def pr_us(self, us: pxt.UpdateStatus, op: str = '') -> None:
         """Print contents of UpdateStatus"""

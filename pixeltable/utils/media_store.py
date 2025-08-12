@@ -17,8 +17,11 @@ import PIL.Image
 
 from pixeltable import env, exceptions as excs
 
+
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
+    from pixeltable.utils.s3 import S3ClientContainer
+    from pixeltable.utils.object_store import S3Store
 
 _logger = logging.getLogger('pixeltable')
 
@@ -303,3 +306,39 @@ class TempStore:
         if tbl_id is not None:
             return MediaStore(cls._tmp_dir())._prepare_media_path_raw(tbl_id, 0, 0, extension)
         return cls._tmp_dir() / f'{uuid.uuid4()}{extension}'
+
+
+class MediaDestination:
+
+    @classmethod
+    def validate_destination(cls, col_name: Optional[str], dest: Union[str, Path, None]) -> str:
+        """Convert a Column destination parameter to a URI, else raise errors.
+        Args: 
+            col_name: Used to raise error messages
+            dest: The requested destination
+        Returns:
+            URI of destination, or raises an error
+        """
+        if dest is None or isinstance(dest, Path):
+            return MediaStore.validate_destination(col_name, dest)
+        if not isinstance(dest, str):
+            raise excs.Error(f'Column {col_name}: "destination" must be a string or path, got {dest!r}')
+        if dest.startswith("s3://"):
+            dest2 = S3Store(S3ClientContainer(), dest).validate_uri()
+            if dest2 is None:
+                raise excs.Error(f'Column {name}: invalid S3 destination {dest!r}')
+            return dest2
+        # Check for "gs://" and Azure variants here
+        return MediaStore.validate_destination(col_name, dest)
+
+    @classmethod
+    def count(cls, uri: Optional[str], tbl_id: UUID) -> int:
+        """Return the count of media files in the destination URI for a given table ID"""
+        if uri is not None and uri.startswith('s3://'):
+            from pixeltable.utils.object_store import S3Store
+            from pixeltable.utils.s3 import S3ClientContainer
+
+            # If the URI is an S3 URI, use the S3Store to count media files
+            return S3Store(S3ClientContainer(), uri).count(tbl_id)
+        # Check for "gs://" and Azure variants here
+        return MediaStore.get(uri).count(tbl_id)
