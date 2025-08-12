@@ -167,6 +167,7 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
 @func.udf
 def sleep(duration: float) -> float:
     import time
+
     time.sleep(duration)
     return duration
 

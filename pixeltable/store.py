@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import abc
 import logging
-import sys
-import warnings
 from typing import Any, Iterable, Iterator, Optional
 
 import more_itertools
 import psycopg
 import sqlalchemy as sql
-from tqdm import TqdmWarning, tqdm
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.update_status import RowCountStats
@@ -302,7 +299,14 @@ class StoreBase:
         try:
             table_rows: list[tuple[Any]] = []
             exec_plan.open()
-            pbar = exec_plan.ctx.add_pbar(desc='Rows written', unit='rows') if show_progress else None
+            progress_reporter = (
+                exec_plan.ctx.add_progress_reporter(
+                    desc=f'Rows written (table {self.tbl_version.get().name!r})', unit='rows'
+                )
+                if show_progress
+                else None
+            )
+            exec_plan.ctx.start_progress()
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
@@ -327,15 +331,15 @@ class StoreBase:
 
                 # if a batch is ready for insertion into the database, insert it
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
-                    if pbar is not None:
-                        exec_plan.ctx.progress.update(pbar, advance=len(table_rows))
+                    if progress_reporter is not None:
+                        progress_reporter.update(advance=len(table_rows))
                     self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                     table_rows.clear()
 
             # insert any remaining rows
             if len(table_rows) > 0:
-                if pbar is not None:
-                    exec_plan.ctx.progress.update(pbar, advance=len(table_rows))
+                if progress_reporter is not None:
+                    progress_reporter.update(advance=len(table_rows))
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
 
             # computed_values = exec_plan.ctx.num_computed_exprs * num_rows
@@ -345,6 +349,7 @@ class StoreBase:
             return cols_with_excs, row_counts
         finally:
             exec_plan.close()
+            exec_plan.ctx.stop_progress()
 
     @classmethod
     def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:

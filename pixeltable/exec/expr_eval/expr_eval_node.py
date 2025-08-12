@@ -8,12 +8,12 @@ from types import TracebackType
 from typing import AsyncIterator, Iterable, Optional
 
 import numpy as np
-from rich.progress import TaskID
 
 import pixeltable.exceptions as excs
 from pixeltable import exprs
 
 from ..data_row_batch import DataRowBatch
+from ..exec_context import ExecContext
 from ..exec_node import ExecNode
 from .evaluators import FnCallEvaluator, NestedRowList
 from .globals import ExprEvalCtx, Scheduler
@@ -63,7 +63,7 @@ class ExprEvalNode(ExecNode):
     num_in_flight: int  # number of dispatched rows that haven't completed
     row_pos_map: Optional[dict[int, int]]  # id(row) -> position of row in input; only set if maintain_input_order
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
-    pbar: Optional[TaskID]
+    progress_reporter: Optional[ExecContext.ProgressReporter]
 
     # debugging
     num_input_rows: int
@@ -97,7 +97,7 @@ class ExprEvalNode(ExecNode):
         self.num_in_flight = 0
         self.row_pos_map = None
         self.output_buffer = RowBuffer(self.MAX_BUFFERED_ROWS)
-        self.pbar = None
+        self.progress_reporter = None
 
         self.num_input_rows = 0
         self.num_output_rows = 0
@@ -108,14 +108,9 @@ class ExprEvalNode(ExecNode):
         self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
 
     def open(self) -> None:
-        if self.ctx.show_pbar:
-            self.pbar = self.ctx.add_pbar(desc='Column computations', unit='cells')
         super().open()
-
-    def close(self) -> None:
         if self.ctx.show_pbar:
-            self.ctx.close_pbars()
-        super().close()
+            self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
@@ -352,12 +347,11 @@ class ExprEvalNode(ExecNode):
         # slots ready for evaluation; rows x slots
         ready_slots = np.zeros((len(rows), exec_ctx.row_builder.num_materialized), dtype=bool)
         completed_rows = np.zeros(len(rows), dtype=bool)
+        num_computed_outputs = 0
         for i, row in enumerate(rows):
             missing_outputs = (row.missing_slots & self.outputs).sum()
             row.missing_slots &= row.has_val == False
-            if self.ctx.show_pbar and self.pbar is not None:
-                num_computed_outputs = missing_outputs - (row.missing_slots & self.outputs).sum()
-                self.ctx.progress.update(self.pbar, advance=num_computed_outputs)
+            num_computed_outputs += missing_outputs - (row.missing_slots & self.outputs).sum()
 
             if row.missing_slots.sum() == 0:
                 # all output slots have been materialized
@@ -376,6 +370,9 @@ class ExprEvalNode(ExecNode):
             gc_targets = (missing_dependents == 0) & (row.missing_dependents > 0) & exec_ctx.gc_targets
             row.clear(gc_targets)
             row.missing_dependents = missing_dependents
+
+        if self.progress_reporter is not None and num_computed_outputs > 0:
+            self.progress_reporter.update(advance=int(num_computed_outputs))
 
         if np.any(completed_rows):
             completed_idxs = list(completed_rows.nonzero()[0])

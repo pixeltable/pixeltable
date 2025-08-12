@@ -17,6 +17,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import TempStore
 
 from .data_row_batch import DataRowBatch
+from .exec_context import ExecContext
 from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
@@ -39,6 +40,8 @@ class CachePrefetchNode(ExecNode):
 
     # execution state
     num_returned_rows: int
+    downloaded_objects_reporter: Optional[ExecContext.ProgressReporter]
+    downloaded_bytes_reporter: Optional[ExecContext.BytesProgressReporter]
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
@@ -75,6 +78,12 @@ class CachePrefetchNode(ExecNode):
         self.in_flight_urls = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+
+    def open(self) -> None:
+        super().open()
+        if self.ctx.show_pbar:
+            self.downloaded_objects_reporter = self.ctx.add_progress_reporter('Downloads', 'objects')
+            self.downloaded_bytes_reporter = self.ctx.add_bytes_progress_reporter('Downloads')
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         input_iter = self.input.__aiter__()
@@ -134,12 +143,18 @@ class CachePrefetchNode(ExecNode):
         file_cache = FileCache.get()
         _logger.debug(f'waiting for requests; ready_batch_size={self.__ready_prefix_len()}')
         while not self.__has_ready_batch() and len(self.in_flight_requests) > 0:
+            num_objects = 0
+            num_bytes = 0
             done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
+
             for f in done:
                 url = self.in_flight_requests.pop(f)
                 tmp_path, exc = f.result()
                 local_path: Optional[Path] = None
                 if tmp_path is not None:
+                    num_objects += 1
+                    num_bytes += tmp_path.stat().st_size
+
                     # register the file with the cache for the first column in which it's missing
                     assert url in self.in_flight_urls
                     _, info = self.in_flight_urls[url][0]
@@ -159,6 +174,9 @@ class CachePrefetchNode(ExecNode):
                         del self.in_flight_rows[id(row)]
                         self.__add_ready_row(row, state.idx)
                         _logger.debug(f'row {state.idx} is ready (ready_batch_size={self.__ready_prefix_len()})')
+
+            self.downloaded_objects_reporter.update(num_objects)
+            self.downloaded_bytes_reporter.update(num_bytes)
 
     async def __submit_input_batch(
         self, input: AsyncIterator[DataRowBatch], executor: futures.ThreadPoolExecutor
