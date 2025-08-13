@@ -1037,7 +1037,7 @@ class Planner:
         plan.ctx.batch_size = 16
         plan.ctx.show_progress = True
         plan.ctx.ignore_errors = True
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        # plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
+        # computed_exprs = row_builder.output_exprs - row_builder.input_exprs
+        # plan.ctx.num_computed_exprs = len(computed_exprs)
 
         return plan

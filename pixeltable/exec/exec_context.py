@@ -1,8 +1,7 @@
 import time
-from typing import Any, Optional
+from typing import Optional
 
 import sqlalchemy as sql
-from rich.console import Console
 from rich.live import Live
 from rich.progress import Progress, ProgressColumn, Task, TaskID, Text, TextColumn
 
@@ -28,10 +27,11 @@ class ExecContext:
 
     class ProgressReporter:
         """Represents a single Task, attached to ExecCtx.progress."""
+
         task_id: TaskID
         ctx: 'ExecContext'
         last_update_ts: float
-        reports_bytes: bool   # if True, automatically scales the reported numbers to human-readable units
+        reports_bytes: bool  # if True, automatically scales the reported numbers to human-readable units
         total: int | float
         unit: Optional[str]
 

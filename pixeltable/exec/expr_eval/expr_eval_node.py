@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import traceback
 from types import TracebackType
 from typing import AsyncIterator, Iterable, Optional
