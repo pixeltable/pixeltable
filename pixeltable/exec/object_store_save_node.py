@@ -10,7 +10,7 @@ from typing import AsyncIterator, Iterator, NamedTuple, Optional
 from uuid import UUID
 
 from pixeltable import exprs
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.media_store import MediaStore, TempStore, MediaDestination
 from pixeltable.utils.object_store import S3Store
 from pixeltable.utils.s3 import S3ClientContainer
 
@@ -220,6 +220,7 @@ class ObjectStoreSaveNode(ExecNode):
                 assert row.excs[index] is None
                 assert col.col_type.is_media_type()
 
+                # Determine if the URL
                 destination = info.col.destination
                 if destination is not None and not destination.startswith('s3://'):
                     if MediaStore.get(destination).resolve_url(url) is not None:
@@ -286,20 +287,10 @@ class ObjectStoreSaveNode(ExecNode):
         """Move data from the TempStore to another location"""
 
         src_path = work_item.src_path
-        destination = work_item.destination
         col = work_item.info.col
+        assert col.destination == work_item.destination
         try:
-            if destination is not None and destination.startswith('s3'):
-                # If the destination is 's3', we need to copy the file to S3
-                new_file_url = S3Store(self.client_source, destination).copy_local_media_file(col, src_path)
-                if work_item.destination_count == 1 and TempStore.contains_path(src_path):
-                    # If there is only one destination, we can delete the TempStore copy when it has been copied
-                    TempStore.delete_media_file(src_path)
-                return new_file_url, None
-            if work_item.destination_count > 1:
-                new_file_url = MediaStore.get(destination).copy_local_media_file(src_path, col)
-            else:
-                new_file_url = MediaStore.get(destination).relocate_local_media_file(src_path, col)
+            new_file_url = MediaDestination.put_file(col, src_path, work_item.destination_count == 1)
             return new_file_url, None
         except Exception as e:
             _logger.debug(f'Failed to move/copy {src_path}: {e}', exc_info=e)

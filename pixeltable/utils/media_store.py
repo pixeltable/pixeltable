@@ -10,7 +10,7 @@ import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union, Any
 from uuid import UUID
 
 import PIL.Image
@@ -319,6 +319,9 @@ class MediaDestination:
         Returns:
             URI of destination, or raises an error
         """
+        from pixeltable.utils.s3 import S3ClientContainer
+        from pixeltable.utils.object_store import S3Store
+
         if dest is None or isinstance(dest, Path):
             return MediaStore.validate_destination(col_name, dest)
         if not isinstance(dest, str):
@@ -326,10 +329,45 @@ class MediaDestination:
         if dest.startswith("s3://"):
             dest2 = S3Store(S3ClientContainer(), dest).validate_uri()
             if dest2 is None:
-                raise excs.Error(f'Column {name}: invalid S3 destination {dest!r}')
+                raise excs.Error(f'Column {col_name}: invalid S3 destination {dest!r}')
             return dest2
         # Check for "gs://" and Azure variants here
         return MediaStore.validate_destination(col_name, dest)
+
+    def save_media_object(self, val: Any, col: Column, to_temp: bool = False) -> tuple[Optional[Path], str]:
+        """Save the media object in the column to the destination or TempStore"""
+        assert col.col_type.is_media_type()
+        format = None
+        if isinstance(val, PIL.Image.Image):
+            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+            # In that case, use WebP instead.
+            format = 'webp' if val.has_transparency_data else 'jpeg'
+        if to_temp:
+            filepath, url = TempStore.save_media_object(val, col, format=format)
+        else:
+            filepath, url = MediaStore.get(col.destination).save_media_object(val, col, format=format)
+        return filepath, url
+
+    @classmethod
+    def put_file(cls, col: Column, src_path: Path, can_relocate: bool) -> str:
+        """Move or copy a file to the destination, returning the file's URL within the destination."""
+        from pixeltable.utils.s3 import S3ClientContainer
+        from pixeltable.utils.object_store import S3Store
+
+        destination = col.destination
+        if destination is not None and destination.startswith('s3'):
+            # If the destination is 's3', we need to copy the file to S3
+            new_file_url = S3Store(S3ClientContainer(), destination).copy_local_media_file(col, src_path)
+            if can_relocate:
+                # File is temporary, used only once, so we can delete it after copy
+                assert TempStore.contains_path(src_path)
+                TempStore.delete_media_file(src_path)
+            return new_file_url
+        if can_relocate:
+            new_file_url = MediaStore.get(destination).relocate_local_media_file(src_path, col)
+        else:
+            new_file_url = MediaStore.get(destination).copy_local_media_file(src_path, col)
+        return new_file_url
 
     @classmethod
     def count(cls, uri: Optional[str], tbl_id: UUID) -> int:
