@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from uuid import UUID
 
 import pytest
@@ -7,7 +7,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import env
-from pixeltable.utils.media_store import MediaStore, MediaDestination
+from pixeltable.utils.media_store import MediaDestination
 
 
 class TestDestination:
@@ -19,9 +19,9 @@ class TestDestination:
         return base_path
 
     @classmethod
-    def dest(cls, n: int) -> tuple[Path, str]:
+    def dest(cls, n: int) -> tuple[Union[Path, str], str]:
         """Return the destination directory for test images"""
-        if 0:
+        if 1:
             s3_uri = f's3://jimpeterson-test/img_rot{n}'
             return s3_uri, s3_uri
         else:
@@ -100,6 +100,14 @@ class TestDestination:
         assert len(r) == self.count(None, t._id)
         assert len(r) == self.count(dest1_uri, t._id)
         assert len(r) == self.count(dest2_uri, t._id)
+
+        # Ensure that all media is removed when the table is dropped
+        save_id = t._id
+        pxt.drop_table(t)
+
+        assert self.count(None, save_id) == 0
+        assert self.count(dest1_uri, save_id) == 0
+        assert self.count(dest2_uri, save_id) == 0
 
     def test_dest_local_3x3(self, reset_db: None) -> None:
         """Test destination with two local Paths receiving copies of the same computed image"""

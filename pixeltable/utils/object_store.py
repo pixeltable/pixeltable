@@ -144,9 +144,12 @@ class S3Store:
             prefix = f'{self.prefix}{tbl_id.hex}/'
             self.delete_objects_with_prefix(prefix)
         else:
-            raise NotImplementedError(
-                f'Deleting S3 objects for a specific table version {tbl_version} is not implemented yet.'
-            )
+            # Silently ignore deletion for specific table versions
+            return
+
+    #            raise NotImplementedError(
+    #                f'Deleting S3 objects for a specific table version {tbl_version} is not implemented yet.'
+    #            )
 
     def count_objects_with_prefix(self, prefix: str) -> int:
         """

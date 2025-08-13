@@ -286,7 +286,8 @@ class DataRow:
         return False
 
     def save_media_object(self, index: int, col: catalog.Column, to_temp: bool = False) -> str:
-        """Save the media object in the column to the column MediaStore file destination or TempStore"""
+        """Save the media object in the column to the column MediaStore file destination or TempStore.
+        Objects cannot be saved directly to general destinations."""
         assert col.col_type.is_media_type()
         val = self.vals[index]
         format = None

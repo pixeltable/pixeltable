@@ -10,8 +10,7 @@ from typing import AsyncIterator, Iterator, NamedTuple, Optional
 from uuid import UUID
 
 from pixeltable import exprs
-from pixeltable.utils.media_store import MediaStore, TempStore, MediaDestination
-from pixeltable.utils.object_store import S3Store
+from pixeltable.utils.media_store import MediaDestination, MediaStore, TempStore
 from pixeltable.utils.s3 import S3ClientContainer
 
 from .data_row_batch import DataRowBatch

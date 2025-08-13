@@ -42,7 +42,6 @@ if TYPE_CHECKING:
 
     import pixeltable.plan
     from pixeltable.globals import TableDataSource
-    from pixeltable.utils.media_store import MediaDestination
 
 
 _logger = logging.getLogger('pixeltable')
