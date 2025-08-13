@@ -10,6 +10,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.update_status import RowCountStats
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
@@ -276,12 +277,7 @@ class StoreBase:
         return num_excs
 
     def insert_rows(
-        self,
-        exec_plan: ExecNode,
-        v_min: int,
-        show_progress: bool = True,
-        rowids: Optional[Iterator[int]] = None,
-        abort_on_exc: bool = False,
+        self, exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False
     ) -> tuple[set[int], RowCountStats]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
@@ -298,13 +294,16 @@ class StoreBase:
 
         try:
             table_rows: list[tuple[Any]] = []
-            exec_plan.ctx.show_progress = True
+            # by default, we only show the progress tracker when running in an interactive environment
+            exec_plan.ctx.show_progress = Config.get().get_bool_value(
+                'show_progress', default=Env.get().is_interactive()
+            )
             exec_plan.open()
             progress_reporter = (
                 exec_plan.ctx.add_progress_reporter(
                     desc=f'Rows written (table {self.tbl_version.get().name!r})', unit='rows'
                 )
-                if show_progress
+                if exec_plan.ctx.show_progress
                 else None
             )
 

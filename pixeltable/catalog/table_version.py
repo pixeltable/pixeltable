@@ -970,7 +970,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1087,7 +1086,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1100,16 +1098,13 @@ class TableVersion:
         base_versions: list[Optional[int]],
         timestamp: float,
         cascade: bool,
-        show_progress: bool = True,
     ) -> UpdateStatus:
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.version += 1
             self.created_at = timestamp
-            cols_with_excs, row_counts = self.store_tbl.insert_rows(
-                plan, v_min=self.version, show_progress=show_progress
-            )
+            cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],

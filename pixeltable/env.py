@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import datetime
 import glob
 import http.server
@@ -233,6 +234,18 @@ class Env:
     def is_local(self) -> bool:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
+
+    def is_interactive(self) -> bool:
+        """Return True if running in an interactive environment."""
+        if getattr(builtins, '__IPYTHON__', False):
+            return True
+        # Python interactive shell
+        if hasattr(sys, 'ps1'):
+            return True
+        # for script execution, __main__ has __file__
+        import __main__
+
+        return not hasattr(__main__, '__file__')
 
     @contextmanager
     def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
