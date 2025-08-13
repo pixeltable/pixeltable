@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import re
+import uuid
+from typing import TYPE_CHECKING, Optional
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from pixeltable.catalog import Column
+
+
+class MediaPath:
+    PATTERN = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
+
+    @classmethod
+    def media_table_prefix(cls, tbl_id: UUID) -> str:
+        """Construct a unique unix-style prefix for a media table without leading/trailing slashes."""
+        return f'{tbl_id.hex}'
+
+    @classmethod
+    def media_prefix_file_raw(
+        cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
+    ) -> tuple[str, str]:
+        """Construct a unique unix-style prefix and filename for a persisted media file.
+        The results are derived from table, col, and version specs.
+        Returns:
+            prefix: a unix-style prefix for the media file without leading/trailing slashes
+            filename: a unique filename for the media file without leading slashes
+        """
+        table_prefix = cls.media_table_prefix(tbl_id)
+        media_id_hex = uuid.uuid4().hex
+        prefix = f'{table_prefix}/{media_id_hex[:2]}/{media_id_hex[:4]}'
+        filename = f'{table_prefix}_{col_id}_{tbl_version}_{media_id_hex}{ext or ""}'
+        return prefix, filename
+
+    @classmethod
+    def media_prefix_file(cls, col: Column, ext: Optional[str] = None) -> tuple[str, str]:
+        """Construct a unique unix-style prefix and filename for a persisted media file.
+        The results are derived from a Column specs.
+        Returns:
+            prefix: a unix-style prefix for the media file without leading/trailing slashes
+            filename: a unique filename for the media file without leading slashes
+        """
+        assert col.tbl is not None, 'Column must be associated with a table'
+        return cls.media_prefix_file_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)

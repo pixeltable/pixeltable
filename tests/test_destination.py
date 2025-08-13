@@ -11,6 +11,9 @@ from pixeltable.utils.media_store import MediaDestination
 
 
 class TestDestination:
+
+    USE_S3 = False
+
     @classmethod
     def base_dest(cls) -> Path:
         """Return the base destination directory for tests"""
@@ -21,7 +24,7 @@ class TestDestination:
     @classmethod
     def dest(cls, n: int) -> tuple[Union[Path, str], str]:
         """Return the destination directory for test images"""
-        if 1:
+        if cls.USE_S3:
             s3_uri = f's3://jimpeterson-test/img_rot{n}'
             return s3_uri, s3_uri
         else:

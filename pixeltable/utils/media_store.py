@@ -16,6 +16,7 @@ from uuid import UUID
 import PIL.Image
 
 from pixeltable import env, exceptions as excs
+from pixeltable.utils.media_path import MediaPath
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -32,7 +33,6 @@ class MediaStore:
     or all files created for a particular version of a table
     """
 
-    pattern = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
     __base_dir: Path
 
     def __init__(self, base_dir: Path):
@@ -140,10 +140,10 @@ class MediaStore:
         for the new Path if it does not already exist. The Path will reside in
         the environment's media_dir.
         """
-        id_hex = uuid.uuid4().hex
-        parent = self.__base_dir / tbl_id.hex / id_hex[:2] / id_hex[:4]
+        prefix, filename = MediaPath.media_prefix_file_raw(tbl_id, col_id, tbl_version, ext)
+        parent = self.__base_dir / Path(prefix)
         parent.mkdir(parents=True, exist_ok=True)
-        return parent / f'{tbl_id.hex}_{col_id}_{tbl_version}_{id_hex}{ext or ""}'
+        return parent / filename
 
     def _prepare_media_path(self, col: Column, ext: Optional[str] = None) -> Path:
         """
@@ -151,8 +151,10 @@ class MediaStore:
         for the new Path if it does not already exist. The Path will reside in
         the environment's media_dir.
         """
-        assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_media_path_raw(col.tbl.id, col.id, col.tbl.version, ext)
+        prefix, filename = MediaPath.media_prefix_file(col, ext)
+        parent = self.__base_dir / Path(prefix)
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent / filename
 
     def contains_path(self, file_path: Path) -> bool:
         """Return True if the given path refers to a file managed by this MediaStore, else False."""
@@ -214,14 +216,17 @@ class MediaStore:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version."""
         assert tbl_id is not None
+        table_prefix = MediaPath.media_table_prefix(tbl_id)
         if tbl_version is None:
             # Remove the entire folder for this table id.
-            path = self.__base_dir / tbl_id.hex
+            path = self.__base_dir / table_prefix
             if path.exists():
                 shutil.rmtree(path)
         else:
             # Remove only the elements for the specified tbl_version.
-            paths = glob.glob(str(self.__base_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*_{tbl_version}_*', recursive=True)
+            paths = glob.glob(
+                str(self.__base_dir / table_prefix) + f'/**/{table_prefix}_*_{tbl_version}_*', recursive=True
+            )
             for p in paths:
                 os.remove(p)
 
@@ -232,7 +237,8 @@ class MediaStore:
         if tbl_id is None:
             paths = glob.glob(str(self.__base_dir / '*'), recursive=True)
         else:
-            paths = glob.glob(str(self.__base_dir / tbl_id.hex) + f'/**/{tbl_id.hex}_*', recursive=True)
+            table_prefix = MediaPath.media_table_prefix(tbl_id)
+            paths = glob.glob(str(self.__base_dir / table_prefix) + f'/**/{table_prefix}_*', recursive=True)
         return len(paths)
 
     def stats(self) -> list[tuple[UUID, int, int, int]]:
@@ -241,7 +247,7 @@ class MediaStore:
         d: dict[tuple[UUID, int], list[int]] = defaultdict(lambda: [0, 0])
         for p in paths:
             if not os.path.isdir(p):
-                matched = re.match(self.pattern, Path(p).name)
+                matched = re.match(MediaPath.PATTERN, Path(p).name)
                 assert matched is not None
                 tbl_id, col_id = UUID(hex=matched[1]), int(matched[2])
                 file_info = os.stat(p)

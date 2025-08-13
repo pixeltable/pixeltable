@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 
+from pixeltable.utils.media_path import MediaPath
 from pixeltable.utils.s3 import S3ClientContainer
 
 if TYPE_CHECKING:
@@ -82,9 +83,9 @@ class S3Store:
         """
         Construct a new, unique URI for a persisted media file.
         """
-        id_hex = uuid.uuid4().hex
-        parent = f'{self.__base_uri}{tbl_id.hex}/{id_hex[:2]}/{id_hex[:4]}'
-        return f'{parent}/{tbl_id.hex}_{col_id}_{tbl_version}_{id_hex}{ext or ""}'
+        prefix, filename = MediaPath.media_prefix_file_raw(tbl_id, col_id, tbl_version, ext)
+        parent = f'{self.__base_uri}{prefix}'
+        return f'{parent}/{filename}'
 
     def _prepare_media_uri(self, col: Column, ext: Optional[str] = None) -> str:
         """
@@ -141,7 +142,7 @@ class S3Store:
         assert tbl_id is not None
         if tbl_version is None:
             # Remove the entire folder for this table id.
-            prefix = f'{self.prefix}{tbl_id.hex}/'
+            prefix = f'{self.prefix}{MediaPath.media_table_prefix(tbl_id)}/'
             self.delete_objects_with_prefix(prefix)
         else:
             # Silently ignore deletion for specific table versions
@@ -200,7 +201,7 @@ class S3Store:
         count only those files belonging to the specified tbl_version."""
         assert tbl_id is not None
         if tbl_version is None:
-            prefix = f'{self.prefix}{tbl_id.hex}/'
+            prefix = f'{self.prefix}{MediaPath.media_table_prefix(tbl_id)}/'
             return self.count_objects_with_prefix(prefix=prefix)
         else:
             raise NotImplementedError(
