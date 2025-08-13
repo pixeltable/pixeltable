@@ -13,7 +13,7 @@ class ExecContext:
     """Class for execution runtime constants"""
 
     row_builder: exprs.RowBuilder
-    show_pbar: bool
+    show_progress: bool
     live: Optional[Live]
     progress: Optional[Progress]
     progress_start: float  # time.monotonic() of progress.start()
@@ -73,7 +73,7 @@ class ExecContext:
                 rate /= 2**scale
                 total /= 2**scale
             self.last_update_ts = now
-            self.ctx.progress.update(self.task_id, completed=total, rate=f'{rate:.2f}/s', unit=unit)
+            self.ctx.progress.update(self.task_id, completed=total, rate=f'{rate:.2f} {unit}/s', unit=unit)
             elapsed = now - self.ctx.progress_start
             self.ctx.progress.update(self.ctx.elapsed_time_task_id, completed=elapsed, rate='')
 
@@ -87,7 +87,7 @@ class ExecContext:
                 scale, unit = self._get_display_unit()
                 rate /= 2**scale
                 total /= 2**scale
-            self.ctx.progress.update(self.task_id, completed=total, unit=unit, rate=f'{rate:.2f}s')
+            self.ctx.progress.update(self.task_id, completed=total, unit=unit, rate=f'{rate:.2f} {unit}/s')
 
     def __init__(
         self,
@@ -100,20 +100,9 @@ class ExecContext:
         ignore_errors: bool = False,
     ):
         self.row_builder = row_builder
-        self.show_pbar = show_pbar
-        if show_pbar:
-            self.progress = Progress(
-                TextColumn('[progress.description]{task.description}'),
-                ConditionalFloatColumn(),
-                TextColumn('[progress.completed] {task.fields[unit]}', justify='left'),
-                ' ',
-                TextColumn('[progress.percentage]{task.fields[rate]}[/progress.percentage]', justify='right'),
-            )
-            self.progress_start = time.monotonic()
-            self.elapsed_time_task_id = self.progress.add_task('Total time', unit='s', rate='')
-        else:
-            self.progress = None
-            self.elapsed_time_task_id = None
+        self.show_progress = show_pbar
+        self.progress = None
+        self.elapsed_time_task_id = None
         self.progress_reporters = []
 
         self.batch_size = batch_size
@@ -131,16 +120,28 @@ class ExecContext:
         return reporter
 
     def start_progress(self) -> None:
-        if self.progress is not None:
-            self.progress.start()
-            self.progress_start = time.monotonic()
+        """Create Progress object and start the timer. Idempotent."""
+        if not self.show_progress or self.progress is not None:
+            return
+        self.progress = Progress(
+            TextColumn('[progress.description]{task.description}'),
+            ConditionalFloatColumn(),
+            TextColumn('[progress.completed] {task.fields[unit]}', justify='left'),
+            ' ',
+            TextColumn('[progress.percentage]{task.fields[rate]}[/progress.percentage]', justify='right'),
+        )
+        self.elapsed_time_task_id = self.progress.add_task('Total time', unit='s', rate='')
+        self.progress.start()
+        self.progress_start = time.monotonic()
 
     def stop_progress(self) -> None:
-        if self.progress is not None:
-            for reporter in self.progress_reporters:
-                reporter.finalize()
-            self.progress.refresh()
-            self.progress.stop()
+        """Stop the timer and print the final progress report. Idempotent."""
+        if not self.show_progress or self.progress is None:
+            return
+        for reporter in self.progress_reporters:
+            reporter.finalize()
+        self.progress.refresh()
+        self.progress.stop()
 
 
 class ConditionalFloatColumn(ProgressColumn):

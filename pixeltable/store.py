@@ -298,6 +298,7 @@ class StoreBase:
 
         try:
             table_rows: list[tuple[Any]] = []
+            exec_plan.ctx.show_progress = True
             exec_plan.open()
             progress_reporter = (
                 exec_plan.ctx.add_progress_reporter(
@@ -306,7 +307,6 @@ class StoreBase:
                 if show_progress
                 else None
             )
-            exec_plan.ctx.start_progress()
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
@@ -348,8 +348,8 @@ class StoreBase:
 
             return cols_with_excs, row_counts
         finally:
+            # don't call this until all rows have been inserted, progress_reporter depends on it
             exec_plan.close()
-            exec_plan.ctx.stop_progress()
 
     @classmethod
     def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:

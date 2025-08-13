@@ -67,6 +67,7 @@ class ExecNode(abc.ABC):
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""
+        self.ctx.start_progress()
         if self.input is not None:
             self.input.open()
         self._open()
@@ -76,6 +77,7 @@ class ExecNode(abc.ABC):
         self._close()
         if self.input is not None:
             self.input.close()
+        self.ctx.stop_progress()
 
     def _open(self) -> None:
         pass

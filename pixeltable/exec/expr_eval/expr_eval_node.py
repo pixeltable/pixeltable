@@ -109,7 +109,7 @@ class ExprEvalNode(ExecNode):
 
     def open(self) -> None:
         super().open()
-        if self.ctx.show_pbar:
+        if self.ctx.show_progress:
             self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
 
     def set_input_order(self, maintain_input_order: bool) -> None:

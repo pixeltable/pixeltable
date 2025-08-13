@@ -81,7 +81,7 @@ class CachePrefetchNode(ExecNode):
 
     def open(self) -> None:
         super().open()
-        if self.ctx.show_pbar:
+        if self.ctx.show_progress:
             self.downloaded_objects_reporter = self.ctx.add_progress_reporter('Downloads', 'objects')
             self.downloaded_bytes_reporter = self.ctx.add_progress_reporter('Downloads', 'B')
 
@@ -175,8 +175,9 @@ class CachePrefetchNode(ExecNode):
                         self.__add_ready_row(row, state.idx)
                         _logger.debug(f'row {state.idx} is ready (ready_batch_size={self.__ready_prefix_len()})')
 
-            self.downloaded_objects_reporter.update(num_objects)
-            self.downloaded_bytes_reporter.update(num_bytes)
+            if self.ctx.show_progress:
+                self.downloaded_objects_reporter.update(num_objects)
+                self.downloaded_bytes_reporter.update(num_bytes)
 
     async def __submit_input_batch(
         self, input: AsyncIterator[DataRowBatch], executor: futures.ThreadPoolExecutor
