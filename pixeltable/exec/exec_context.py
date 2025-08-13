@@ -125,7 +125,7 @@ class ExecContext:
             return
         self.progress = Progress(
             TextColumn('[progress.description]{task.description}'),
-            ConditionalFloatColumn(),
+            AdaptiveNumericColumn(),
             TextColumn('[progress.completed] {task.fields[unit]}', justify='left'),
             ' ',
             TextColumn('[progress.percentage]{task.fields[rate]}[/progress.percentage]', justify='right'),
@@ -144,9 +144,9 @@ class ExecContext:
         self.progress.stop()
 
 
-class ConditionalFloatColumn(ProgressColumn):
+class AdaptiveNumericColumn(ProgressColumn):
     """
-    Custom column for conditional float/int formatting.
+    Custom column for adaptive float/int formatting.
     Renders completed count as an integer for whole numbers and as a float otherwise.
     """
 
@@ -155,10 +155,12 @@ class ConditionalFloatColumn(ProgressColumn):
         if isinstance(task.completed, int):
             formatted_value = str(task.completed)
         else:
-            assert isinstance(task.completed, float), f'Expected int or float, got {type(task.completed)}'
+            assert isinstance(task.completed, float)
             if task.completed < 1.0:
-                formatted_value = f'{task.completed:.2f}'
+                formatted_value = f'{task.completed:.3f}'
             elif task.completed < 10.0:
+                formatted_value = f'{task.completed:.2f}'
+            elif task.completed < 100.0:
                 formatted_value = f'{task.completed:.1f}'
             else:
                 formatted_value = f'{int(task.completed)}'
