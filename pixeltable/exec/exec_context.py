@@ -2,7 +2,6 @@ import time
 from typing import Optional
 
 import sqlalchemy as sql
-from rich.live import Live
 from rich.progress import Progress, ProgressColumn, Task, TaskID, Text, TextColumn
 
 from pixeltable import exprs
@@ -13,7 +12,6 @@ class ExecContext:
 
     row_builder: exprs.RowBuilder
     show_progress: bool
-    live: Optional[Live]
     progress: Optional[Progress]
     progress_start: float  # time.monotonic() of progress.start()
     progress_reporters: list['ProgressReporter']

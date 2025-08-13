@@ -66,7 +66,12 @@ class ExecNode(abc.ABC):
         #   creates tasks on its own
 
     def open(self) -> None:
-        """Bottom-up initialization of nodes for execution. Must be called before __next__."""
+        """
+        Bottom-up initialization of nodes for execution. Must be called before __next__.
+
+        Subclass overrides: make sure to call self.ctx.add_progress_reporter() at the end of open(), in order tod
+        display the progress reports from source to sink.
+        """
         self.ctx.start_progress()
         if self.input is not None:
             self.input.open()
