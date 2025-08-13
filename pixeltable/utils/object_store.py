@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Iterator, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -104,106 +105,100 @@ class S3Store:
         #        _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
         return new_file_uri
 
-    def delete_objects_with_prefix(self, prefix: str) -> int:
-        """
-        Deletes all objects in this S3 bucket with a specified prefix.
+    def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> tuple[Iterator, Any]:
+        """Private method to get filtered objects for a table, optionally filtered by version.
 
         Args:
-            prefix (str): The prefix of the objects to delete.
+            tbl_id: Table UUID to filter by
+            tbl_version: Optional table version to filter by
 
         Returns:
-            number of objects deleted (int)
+            Tuple of (iterator over S3 objects matching the criteria, bucket object)
         """
-        s3_resource = boto3.resource('s3')
-        bucket = s3_resource.Bucket(self.bucket_name)
+        # Use MediaPath to construct the prefix for this table
 
-        # List objects with the specified prefix
-        objects_to_delete = []
-        for obj in bucket.objects.filter(Prefix=prefix):
-            objects_to_delete.append({'Key': obj.key})
+        table_prefix = MediaPath.media_table_prefix(tbl_id)
+        prefix = f'{self.prefix}{table_prefix}/'
 
-        n = 0
-        while len(objects_to_delete) > 0:
-            # Delete objects in batches (max 1000 per request)
-            bucket.delete_objects(
-                Delete={
-                    'Objects': objects_to_delete[:1000],
-                    'Quiet': True,  # Set to False to get details about each deletion
-                }
-            )
-            n += min(1000, len(objects_to_delete))
-            del objects_to_delete[:1000]
-        print(f"Deleted {len(objects_to_delete)} objects with prefix '{prefix}' from bucket '{self.bucket_name}'.")
-        return n
-
-    def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> None:
-        """Delete all files belonging to tbl_id. If tbl_version is not None, delete
-        only those files belonging to the specified tbl_version."""
-        assert tbl_id is not None
-        if tbl_version is None:
-            # Remove the entire folder for this table id.
-            prefix = f'{self.prefix}{MediaPath.media_table_prefix(tbl_id)}/'
-            self.delete_objects_with_prefix(prefix)
-        else:
-            # Silently ignore deletion for specific table versions
-            return
-
-    #            raise NotImplementedError(
-    #                f'Deleting S3 objects for a specific table version {tbl_version} is not implemented yet.'
-    #            )
-
-    def count_objects_with_prefix(self, prefix: str) -> int:
-        """
-        Count S3 objects with given prefix whose names match a regex pattern.
-
-        Args:
-            pattern: Regex pattern to match object names
-
-        Returns:
-            Number of matching objects
-        """
-        count = 0
-        continuation_token = None
         try:
-            while True:
-                # Prepare parameters for list_objects_v2
-                params = {
-                    'Bucket': self.bucket_name,
-                    'Prefix': prefix,
-                    'MaxKeys': 1000,  # Maximum allowed per request
-                }
+            # Use S3 resource interface for filtering
+            s3_resource = self.__client_source.get_resource()
+            bucket = s3_resource.Bucket(self.bucket_name)
 
-                # Add continuation token if we have one (for pagination)
-                if continuation_token:
-                    params['ContinuationToken'] = continuation_token
+            if tbl_version is None:
+                # Return all objects with the table prefix
+                object_iterator = bucket.objects.filter(Prefix=prefix)
+            else:
+                # Filter by both table_id and table_version using the MediaPath pattern
+                # Pattern: tbl_id_col_id_version_uuid
+                version_pattern = re.compile(
+                    rf'{re.escape(table_prefix)}_\d+_{re.escape(str(tbl_version))}_[0-9a-fA-F]+.*'
+                )
+                # Return filtered collection - this still uses lazy loading
+                object_iterator = (
+                    obj for obj in bucket.objects.filter(Prefix=prefix) if version_pattern.match(obj.key.split('/')[-1])
+                )
 
-                # List objects
-                response = self.client().list_objects_v2(**params)
-
-                # Count matching objects
-                if 'Contents' in response:
-                    for _ in response['Contents']:
-                        count += 1
-
-                # Check if there are more objects to retrieve
-                if response.get('IsTruncated', False):
-                    continuation_token = response.get('NextContinuationToken')
-                else:
-                    break
+            return object_iterator, bucket
 
         except Exception as e:
             raise Exception(f"Error accessing S3 bucket '{self.bucket_name}': {str(e)!r}") from e
 
-        return count
-
     def count(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
         """Count the number of files belonging to tbl_id. If tbl_version is not None,
-        count only those files belonging to the specified tbl_version."""
+        count only those files belonging to the specified tbl_version.
+
+        Args:
+            tbl_id: Table UUID to count objects for
+            tbl_version: Optional table version to filter by
+
+        Returns:
+            Number of objects matching the criteria
+        """
         assert tbl_id is not None
-        if tbl_version is None:
-            prefix = f'{self.prefix}{MediaPath.media_table_prefix(tbl_id)}/'
-            return self.count_objects_with_prefix(prefix=prefix)
-        else:
-            raise NotImplementedError(
-                f'Counting S3 objects for a specific table version {tbl_version} is not implemented yet.'
-            )
+
+        object_iterator, _ = self._get_filtered_objects(tbl_id, tbl_version)
+
+        return sum(1 for _ in object_iterator)
+
+    def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+        """Delete all files belonging to tbl_id. If tbl_version is not None, delete
+        only those files belonging to the specified tbl_version.
+
+        Args:
+            tbl_id: Table UUID to delete objects for
+            tbl_version: Optional table version to filter by
+
+        Returns:
+            Number of objects deleted
+        """
+        assert tbl_id is not None
+
+        # Use shared method to get filtered objects and bucket
+        object_iterator, bucket = self._get_filtered_objects(tbl_id, tbl_version)
+
+        total_deleted = 0
+
+        try:
+            objects_to_delete = []
+
+            # Process objects in batches as we iterate (memory efficient)
+            for obj in object_iterator:
+                objects_to_delete.append({'Key': obj.key})
+
+                # Delete in batches of 1000 (S3 limit)
+                if len(objects_to_delete) >= 1000:
+                    bucket.delete_objects(Delete={'Objects': objects_to_delete, 'Quiet': True})
+                    total_deleted += len(objects_to_delete)
+                    objects_to_delete = []
+
+            # Delete any remaining objects in the final batch
+            if len(objects_to_delete) > 0:
+                bucket.delete_objects(Delete={'Objects': objects_to_delete, 'Quiet': True})
+                total_deleted += len(objects_to_delete)
+
+            print(f"Deleted {total_deleted} objects from bucket '{self.bucket_name}'.")
+            return total_deleted
+
+        except Exception as e:
+            raise Exception(f"Error deleting S3 objects in bucket '{self.bucket_name}': {str(e)!r}") from e
