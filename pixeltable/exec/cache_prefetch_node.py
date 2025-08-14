@@ -35,7 +35,6 @@ class CachePrefetchNode(ExecNode):
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
-    boto_client_source: S3ClientContainer
 
     # execution state
     num_returned_rows: int
@@ -64,9 +63,6 @@ class CachePrefetchNode(ExecNode):
         self.retain_input_order = retain_input_order
         self.file_col_info = file_col_info
 
-        # clients for specific services are constructed as needed, because it's time-consuming
-        self.boto_client_source = S3ClientContainer(self.NUM_EXECUTOR_THREADS + 4)
-
         self.num_returned_rows = 0
         self.ready_rows = deque()
         self.in_flight_rows = {}
@@ -74,6 +70,8 @@ class CachePrefetchNode(ExecNode):
         self.in_flight_urls = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+        # Ensure that the S3ClientContainer is initialized before using threading
+        S3ClientContainer.get()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         input_iter = self.input.__aiter__()
@@ -236,8 +234,8 @@ class CachePrefetchNode(ExecNode):
         try:
             _logger.debug(f'Downloading {url} to {tmp_path}')
             if parsed.scheme == 's3':
-                boto_client = self.boto_client_source.get_client(for_write=False)
-                boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
+                client = S3ClientContainer.get().get_client(for_write=False)
+                client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
             elif parsed.scheme in ('http', 'https'):
                 with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
                     data = resp.read()

@@ -60,7 +60,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
-    client_source: S3ClientContainer
 
     # execution state
     num_returned_rows: int
@@ -95,9 +94,6 @@ class ObjectStoreSaveNode(ExecNode):
         self.retain_input_order = retain_input_order
         self.file_col_info = file_col_info
 
-        # clients for specific services are constructed as needed, because it's time-consuming
-        self.client_source = S3ClientContainer(self.NUM_EXECUTOR_THREADS + 4)
-
         self.num_returned_rows = 0
         self.ready_rows = deque()
         self.in_flight_rows = {}
@@ -106,6 +102,8 @@ class ObjectStoreSaveNode(ExecNode):
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
+        # Ensure that the S3ClientContainer is initialized before using threading
+        S3ClientContainer.get()
 
     @property
     def queued_work(self) -> int:
@@ -219,16 +217,18 @@ class ObjectStoreSaveNode(ExecNode):
                 assert row.excs[index] is None
                 assert col.col_type.is_media_type()
 
-                # Determine if the URL
                 destination = info.col.destination
-                if destination is not None and not destination.startswith('s3://'):
-                    if MediaStore.get(destination).resolve_url(url) is not None:
-                        # The url already points to the correct destination
-                        continue
+                if (
+                    destination is not None
+                    and not destination.startswith('s3://')
+                    and MediaStore.get(destination).resolve_url(url) is not None
+                ):
+                    # A local non-default destination was specified, and the url already points there
+                    continue
 
                 src_path = MediaStore.file_url_to_path(url)
                 if src_path is None:
-                    # The url does not point to a local file, leave it where it is
+                    # The url does not point to a local file, do not attempt to copy/move it
                     continue
 
                 if destination is None and not TempStore.contains_path(src_path):
@@ -260,8 +260,8 @@ class ObjectStoreSaveNode(ExecNode):
                             work_item.src_path,
                             work_item.destination,
                             work_item.info,
-                            destination_count=unique_destinations[work_item.src_path]
-                            + 1,  # +1 for the TempStore destination
+                            destination_count=unique_destinations[work_item.src_path] + 1,
+                            # +1 for the TempStore destination
                         )
                     )
             delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]

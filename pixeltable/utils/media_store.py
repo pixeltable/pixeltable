@@ -322,14 +322,13 @@ class MediaDestination:
             URI of destination, or raises an error
         """
         from pixeltable.utils.object_store import S3Store
-        from pixeltable.utils.s3 import S3ClientContainer
 
         if dest is None or isinstance(dest, Path):
             return MediaStore.validate_destination(col_name, dest)
         if not isinstance(dest, str):
             raise excs.Error(f'Column {col_name}: "destination" must be a string or path, got {dest!r}')
         if dest.startswith('s3://'):
-            dest2 = S3Store(S3ClientContainer(), dest).validate_uri()
+            dest2 = S3Store(dest).validate_uri()
             if dest2 is None:
                 raise excs.Error(f'Column {col_name}: invalid S3 destination {dest!r}')
             return dest2
@@ -354,12 +353,11 @@ class MediaDestination:
     def put_file(cls, col: Column, src_path: Path, can_relocate: bool) -> str:
         """Move or copy a file to the destination, returning the file's URL within the destination."""
         from pixeltable.utils.object_store import S3Store
-        from pixeltable.utils.s3 import S3ClientContainer
 
         destination = col.destination
         if destination is not None and destination.startswith('s3'):
             # If the destination is 's3', we need to copy the file to S3
-            new_file_url = S3Store(S3ClientContainer(), destination).copy_local_media_file(col, src_path)
+            new_file_url = S3Store(destination).copy_local_media_file(col, src_path)
             if can_relocate:
                 # File is temporary, used only once, so we can delete it after copy
                 assert TempStore.contains_path(src_path)
@@ -375,10 +373,9 @@ class MediaDestination:
     def delete(cls, destination: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> None:
         """Delete media files in the destination URI for a given table ID"""
         from pixeltable.utils.object_store import S3Store
-        from pixeltable.utils.s3 import S3ClientContainer
 
         if destination is not None and destination.startswith('s3://'):
-            S3Store(S3ClientContainer(), destination).delete(tbl_id, tbl_version)
+            S3Store(destination).delete(tbl_id, tbl_version)
         else:
             MediaStore.get(destination).delete(tbl_id, tbl_version)
 
@@ -387,9 +384,8 @@ class MediaDestination:
         """Return the count of media files in the destination URI for a given table ID"""
         if uri is not None and uri.startswith('s3://'):
             from pixeltable.utils.object_store import S3Store
-            from pixeltable.utils.s3 import S3ClientContainer
 
             # If the URI is an S3 URI, use the S3Store to count media files
-            return S3Store(S3ClientContainer(), uri).count(tbl_id)
+            return S3Store(uri).count(tbl_id)
         # Check for "gs://" and Azure variants here
         return MediaStore.get(uri).count(tbl_id)

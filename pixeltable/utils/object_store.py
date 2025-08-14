@@ -7,7 +7,6 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-import boto3
 from botocore.exceptions import ClientError
 
 from pixeltable.utils.media_path import MediaPath
@@ -32,9 +31,7 @@ class S3Store:
     # prefix path within the bucket, either empty or ending with a slash
     __prefix_name: str
 
-    __client_source: S3ClientContainer
-
-    def __init__(self, client_source: S3ClientContainer, uri: str):
+    def __init__(self, uri: str):
         assert uri.startswith('s3'), "URI must start with 's3'"
         parsed_uri = urllib.parse.urlparse(uri)
         assert parsed_uri.scheme == 's3', 'URI must be an S3 URI'
@@ -44,7 +41,6 @@ class S3Store:
         if len(self.__prefix_name) > 0:
             self.__prefix_name += '/'
         self.__base_uri += '/'
-        self.__client_source = client_source
         print(
             f'Initialized S3Store with base URI: {self.__base_uri},',
             f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}',
@@ -52,7 +48,7 @@ class S3Store:
 
     def client(self, for_write: bool = False) -> Any:
         """Return the S3 client."""
-        return self.__client_source.get_client(for_write=for_write)
+        return S3ClientContainer.get().get_client(for_write=for_write)
 
     @property
     def bucket_name(self) -> str:
@@ -71,12 +67,12 @@ class S3Store:
         Returns:
             bool: True if the S3 URI exists and is accessible, False otherwise.
         """
-
         try:
             self.client().head_bucket(Bucket=self.bucket_name)
             return self.__base_uri
-        except ClientError:
-            return None
+        except ClientError as e:
+            S3ClientContainer.handle_s3_error(e, self.bucket_name, 'validate bucket')
+        return None
 
     def _prepare_media_uri_raw(
         self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
@@ -99,11 +95,15 @@ class S3Store:
         """Copy a local file, and return its new URL"""
         new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
-        self.client(for_write=True).upload_file(
-            Filename=str(src_path), Bucket=parsed.netloc, Key=parsed.path.lstrip('/')
-        )
-        #        _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
-        return new_file_uri
+        try:
+            self.client(for_write=True).upload_file(
+                Filename=str(src_path), Bucket=parsed.netloc, Key=parsed.path.lstrip('/')
+            )
+            _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
+            return new_file_uri
+        except ClientError as e:
+            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
+            raise
 
     def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> tuple[Iterator, Any]:
         """Private method to get filtered objects for a table, optionally filtered by version.
@@ -122,7 +122,7 @@ class S3Store:
 
         try:
             # Use S3 resource interface for filtering
-            s3_resource = self.__client_source.get_resource()
+            s3_resource = S3ClientContainer.get().get_resource()
             bucket = s3_resource.Bucket(self.bucket_name)
 
             if tbl_version is None:
@@ -141,8 +141,9 @@ class S3Store:
 
             return object_iterator, bucket
 
-        except Exception as e:
-            raise Exception(f"Error accessing S3 bucket '{self.bucket_name}': {str(e)!r}") from e
+        except ClientError as e:
+            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
+            raise
 
     def count(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
         """Count the number of files belonging to tbl_id. If tbl_version is not None,
@@ -200,5 +201,6 @@ class S3Store:
             print(f"Deleted {total_deleted} objects from bucket '{self.bucket_name}'.")
             return total_deleted
 
-        except Exception as e:
-            raise Exception(f"Error deleting S3 objects in bucket '{self.bucket_name}': {str(e)!r}") from e
+        except ClientError as e:
+            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'deleting with {self.prefix}')
+            raise

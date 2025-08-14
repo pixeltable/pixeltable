@@ -234,6 +234,11 @@ class Env:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
 
+    @property
+    def cpu_count(self) -> int:
+        n_cpu = os.cpu_count()
+        return n_cpu if n_cpu is not None else 1
+
     @contextmanager
     def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
         """

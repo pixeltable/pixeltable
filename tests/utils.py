@@ -341,7 +341,7 @@ def __image_mode(path: str) -> str:
 
 def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     uri = 's3://multimedia-commons/data/videos/mp4/'
-    return S3ClientContainer().list_uris(uri, n_max=n)
+    return S3ClientContainer.get().list_uris(uri, n_max=n)
 
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
