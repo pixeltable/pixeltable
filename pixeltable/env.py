@@ -28,7 +28,6 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
-from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -387,7 +386,6 @@ class Env:
         self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
         if config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
