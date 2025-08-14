@@ -258,11 +258,11 @@ class DataRow:
         self.has_val[idx] = True
 
     def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
-        if self.check_needs_saved(index, col):
+        if self.check_must_save(index, col):
             assert col is not None
             self.file_urls[index] = self.save_media_object(index, col)
 
-    def check_needs_saved(self, index: int, col: Optional[catalog.Column] = None) -> bool:
+    def check_must_save(self, index: int, col: Optional[catalog.Column] = None) -> bool:
         """Return true if the media object in the column needs to be saved, discard unneeded values"""
         if self.vals[index] is None:
             return False

@@ -35,13 +35,13 @@ class ObjectStoreSaveNode(ExecNode):
     Paths with multiple destinations are removed from the TempStore only after all destination copies are complete.
 
     TODO:
-    - adapting the number of download threads at runtime to maximize throughput
-    - Limit the number of in-flight requests to control memory usage
+    - Adapt the number of download threads at runtime to maximize throughput
+    - Process a row at a time and limit the number of in-flight rows to control memory usage
     """
 
-    QUEUE_DEPTH_HIGH_WATER = 4 # target number of in-flight requests
-    QUEUE_DEPTH_LOW_WATER = 2  # target number of in-flight requests
-    BATCH_SIZE = 4
+    QUEUE_DEPTH_HIGH_WATER = 50  # target number of in-flight requests
+    QUEUE_DEPTH_LOW_WATER = 20  # target number of in-flight requests
+    BATCH_SIZE = 16
 
     class WorkDesignator(NamedTuple):
         """Specify the source and destination for a WorkItem"""
@@ -205,7 +205,7 @@ class ObjectStoreSaveNode(ExecNode):
         for info in self.file_col_info:
             col, index = info
             # we may need to store this imagehave yet to store this image
-            if row.check_needs_saved(index, col):
+            if row.check_must_save(index, col):
                 row.file_urls[index] = row.save_media_object(index, col, True)
 
             url = row.file_urls[index]

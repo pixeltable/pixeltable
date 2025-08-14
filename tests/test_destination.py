@@ -195,6 +195,8 @@ class TestDestination:
         img_data = 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'  # ~10 KB
         # img_data = 'tests/data/images/sewing-threads.heic'  # ~1.5 MB
         # img_data = 'tests/data/imagenette2-160/ILSVRC2012_val_00015787.JPEG'  # ~3 KB
+        data_rows = 1000
+        number_of_inserts = 1
 
         s3_cols = 0
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
@@ -204,14 +206,12 @@ class TestDestination:
             t.add_computed_column(**{f'img_rot_2_{i}': t.img.rotate(180)}, destination=dest_uri)
             t.add_computed_column(**{f'img_rot_3_{i}': t.img.rotate(270)}, destination=dest_uri)
             s3_cols += 3
-        data_rows = 1000
         data = [{'img': img_data} for _ in range(data_rows)]
-        inserts = 1
-        for _ in range(inserts):
+        for _ in range(number_of_inserts):
             t.insert(data)
         n = t.count()
 
-        assert n == inserts * data_rows
+        assert n == number_of_inserts * data_rows
         for i in range(1, 4):
             _, dest_uri = self.dest(i)
             assert 3 * n == self.count(dest_uri, t._id)

@@ -801,7 +801,7 @@ class Planner:
             return input_node
         # we need to prefetch external files for media column types
         file_col_info = [exprs.ColumnSlotIdx(e.col, e.slot_idx) for e in media_col_refs]
-        prefetch_node = exec.ObjectStorePrefetchNode(tbl_id, file_col_info, input_node)
+        prefetch_node = exec.CachePrefetchNode(tbl_id, file_col_info, input_node)
         return prefetch_node
 
     @classmethod
