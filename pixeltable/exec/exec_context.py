@@ -9,6 +9,7 @@ from pixeltable import exprs
 
 _logger = logging.getLogger('pixeltable')
 
+
 class ExecContext:
     """Class for execution runtime constants"""
 
@@ -87,8 +88,8 @@ class ExecContext:
                 total /= 2**scale
             self.last_update_ts = now
             self.ctx.progress.update(self.task_id, completed=total, rate=f'{rate:.2f} {unit}/s', unit=unit)
-            elapsed = now - self.ctx.progress_start
-            #self.ctx.progress.update(self.ctx.elapsed_time_task_id, completed=elapsed, rate='')
+            # elapsed = now - self.ctx.progress_start
+            # self.ctx.progress.update(self.ctx.elapsed_time_task_id, completed=elapsed, rate='')
 
         def finalize(self) -> None:
             if self.last_update_ts is None:
@@ -148,7 +149,7 @@ class ExecContext:
             ' ',
             TextColumn('[progress.percentage]{task.fields[rate]}[/progress.percentage]', justify='right'),
         )
-        #self.elapsed_time_task_id = self.progress.add_task('Total time', unit='s', rate='')
+        # self.elapsed_time_task_id = self.progress.add_task('Total time', unit='s', rate='')
         self.progress.start()
         self.progress_start = time.monotonic()
 

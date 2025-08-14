@@ -811,12 +811,19 @@ class Env:
         dependency, we install it programmatically here. This should cause no problems, since the model packages
         have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
         """
+        import contextlib
+        import io
+
         import spacy
         from spacy.cli.download import download
 
         spacy_model = 'en_core_web_sm'
         self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
-        download(spacy_model)
+
+        # prevent download() from hanging due to its progress bar, which conflicts with our use of Rich Progress
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            download(spacy_model)
+
         self._logger.info(f'Loading spaCy model: {spacy_model}')
         try:
             self._spacy_nlp = spacy.load(spacy_model)

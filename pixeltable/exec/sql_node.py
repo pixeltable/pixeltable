@@ -11,6 +11,7 @@ from pixeltable.env import Env
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
+from .exec_context import ExecContext
 
 if TYPE_CHECKING:
     import pixeltable.plan
@@ -81,6 +82,7 @@ class SqlNode(ExecNode):
     py_filter_eval_ctx: Optional[exprs.RowBuilder.EvalCtx]
     cte: Optional[sql.CTE]
     sql_elements: exprs.SqlElementCache
+    progress_reporter: ExecContext.ProgressReporter | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
     where_clause: Optional[exprs.Expr]
@@ -108,6 +110,7 @@ class SqlNode(ExecNode):
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
+        self.progress_reporter = None
         self.select_list = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
@@ -298,6 +301,14 @@ class SqlNode(ExecNode):
         except Exception as e:
             _logger.warning(f'EXPLAIN failed with error: {e}')
 
+    def open(self) -> None:
+        super().open()
+        if self.ctx.show_progress:
+            desc = 'Rows read'
+            if self.tbl is not None:
+                desc += f' (table {self.tbl.tbl_name()!r})'
+            self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
+
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
         with warnings.catch_warnings(record=True) as w:
@@ -357,11 +368,15 @@ class SqlNode(ExecNode):
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
+                if self.progress_reporter is not None:
+                    self.progress_reporter.update(len(output_batch))
                 yield output_batch
                 output_batch = DataRowBatch(self.row_builder)
 
         if len(output_batch) > 0:
             _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
+            if self.progress_reporter is not None:
+                self.progress_reporter.update(len(output_batch))
             yield output_batch
 
     def _close(self) -> None:

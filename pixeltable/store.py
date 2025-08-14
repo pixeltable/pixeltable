@@ -245,7 +245,6 @@ class StoreBase:
                 else None
             )
 
-
             # insert rows from exec_plan into temp table
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
