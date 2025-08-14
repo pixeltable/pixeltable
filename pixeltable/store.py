@@ -233,6 +233,18 @@ class StoreBase:
 
         try:
             table_rows: list[tuple[Any]] = []
+            exec_plan.ctx.show_progress = Config.get().get_bool_value(
+                'show_progress', default=Env.get().is_interactive()
+            )
+            exec_plan.open()
+            progress_reporter = (
+                exec_plan.ctx.add_progress_reporter(
+                    desc=f'Column values written (table {self.tbl_version.get().name!r})', unit='rows'
+                )
+                if exec_plan.ctx.show_progress
+                else None
+            )
+
 
             # insert rows from exec_plan into temp table
             for row_batch in exec_plan:
@@ -250,10 +262,14 @@ class StoreBase:
                 table_rows.extend(batch_table_rows)
 
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                    if progress_reporter is not None:
+                        progress_reporter.update(advance=len(table_rows))
                     self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
                     table_rows.clear()
 
             if len(table_rows) > 0:
+                if progress_reporter is not None:
+                    progress_reporter.update(advance=len(table_rows))
                 self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
 
             # update store table with values from temp table
@@ -273,6 +289,8 @@ class StoreBase:
                 tmp_tbl.drop(bind=conn)
 
             run_cleanup(remove_tmp_tbl, raise_error=True)
+            # don't call this until all rows have been inserted, progress_reporter depends on it
+            exec_plan.close()
 
         return num_excs
 

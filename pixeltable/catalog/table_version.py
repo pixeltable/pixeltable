@@ -330,7 +330,6 @@ class TableVersion:
             MediaStore.get().delete(self.id)
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
-            plan.ctx.show_progress = True
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             status = UpdateStatus(row_count_stats=row_counts)
             Catalog.get().store_update_status(self.id, self.version, status)

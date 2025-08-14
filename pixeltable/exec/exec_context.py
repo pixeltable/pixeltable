@@ -1,3 +1,4 @@
+import logging
 import time
 from typing import Optional
 
@@ -6,6 +7,7 @@ from rich.progress import Progress, ProgressColumn, Task, TaskID, Text, TextColu
 
 from pixeltable import exprs
 
+_logger = logging.getLogger('pixeltable')
 
 class ExecContext:
     """Class for execution runtime constants"""
@@ -14,7 +16,7 @@ class ExecContext:
     show_progress: bool
     progress: Optional[Progress]
     progress_start: float  # time.monotonic() of progress.start()
-    progress_reporters: list['ProgressReporter']
+    progress_reporters: dict[str, 'ProgressReporter']
     elapsed_time_task_id: Optional[TaskID]
     batch_size: int  # 0: no batching
     profile: exprs.ExecProfile
@@ -23,22 +25,33 @@ class ExecContext:
     ignore_errors: bool
 
     class ProgressReporter:
-        """Represents a single Task, attached to ExecCtx.progress."""
+        """
+        Represents a single Task, attached to ExecCtx.progress.
 
-        task_id: TaskID
+        Task creation is deferred until the first update() call, in order to avoid useless output.
+        """
+
+        task_id: TaskID | None
         ctx: 'ExecContext'
-        last_update_ts: float
+        last_update_ts: float | None
         reports_bytes: bool  # if True, automatically scales the reported numbers to human-readable units
         total: int | float
-        unit: Optional[str]
+        desc: str
+        unit: str
 
         def __init__(self, ctx: 'ExecContext', desc: str, unit: str):
             self.ctx = ctx
+            self.desc = desc
             self.unit = unit
             self.reports_bytes = unit == 'B'
-            self.task_id = self.ctx.progress.add_task(desc, rate='0/s', unit=unit)
-            self.last_update_ts = time.monotonic()
+            self.task_id = None
+            self.last_update_ts = None
             self.total = 0
+
+        def _create_task(self) -> None:
+            if self.task_id is None:
+                self.task_id = self.ctx.progress.add_task(self.desc, rate='0/s', unit=self.unit)
+                self.last_update_ts = time.monotonic()  # start now
 
         def _get_display_unit(self) -> tuple[int, str]:
             # scale to human-readable unit
@@ -59,6 +72,8 @@ class ExecContext:
             return scale, unit
 
         def update(self, advance: int | float) -> None:
+            _logger.debug(f'ProgressReporter.update({self.desc}): advance={advance}')
+            self._create_task()
             now = time.monotonic()
             self.total += advance
 
@@ -73,9 +88,13 @@ class ExecContext:
             self.last_update_ts = now
             self.ctx.progress.update(self.task_id, completed=total, rate=f'{rate:.2f} {unit}/s', unit=unit)
             elapsed = now - self.ctx.progress_start
-            self.ctx.progress.update(self.ctx.elapsed_time_task_id, completed=elapsed, rate='')
+            #self.ctx.progress.update(self.ctx.elapsed_time_task_id, completed=elapsed, rate='')
 
         def finalize(self) -> None:
+            if self.last_update_ts is None:
+                # nothing to finalize
+                return
+            self._create_task()
             # show aggregate rate since start
             elapsed = time.monotonic() - self.ctx.progress_start
             rate = self.total / elapsed if elapsed > 0 else 0.0
@@ -100,7 +119,7 @@ class ExecContext:
         self.show_progress = show_progress
         self.progress = None
         self.elapsed_time_task_id = None
-        self.progress_reporters = []
+        self.progress_reporters = {}
 
         self.batch_size = batch_size
         self.profile = exprs.ExecProfile(row_builder)
@@ -109,9 +128,13 @@ class ExecContext:
         self.ignore_errors = ignore_errors
 
     def add_progress_reporter(self, desc: str, unit: str) -> ProgressReporter:
+        """Records new ProgressReporter for the given desc/unit, or returns the existing one."""
         assert self.progress is not None
+        key = f'{desc}_{unit}'
+        if key in self.progress_reporters:
+            return self.progress_reporters[key]
         reporter = self.ProgressReporter(self, desc, unit)
-        self.progress_reporters.append(reporter)
+        self.progress_reporters[key] = reporter
         return reporter
 
     def start_progress(self) -> None:
@@ -125,7 +148,7 @@ class ExecContext:
             ' ',
             TextColumn('[progress.percentage]{task.fields[rate]}[/progress.percentage]', justify='right'),
         )
-        self.elapsed_time_task_id = self.progress.add_task('Total time', unit='s', rate='')
+        #self.elapsed_time_task_id = self.progress.add_task('Total time', unit='s', rate='')
         self.progress.start()
         self.progress_start = time.monotonic()
 
@@ -133,7 +156,7 @@ class ExecContext:
         """Stop the timer and print the final progress report. Idempotent."""
         if not self.show_progress or self.progress is None:
             return
-        for reporter in self.progress_reporters:
+        for reporter in self.progress_reporters.values():
             reporter.finalize()
         self.progress.refresh()
         self.progress.stop()
