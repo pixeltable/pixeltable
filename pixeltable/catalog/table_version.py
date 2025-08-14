@@ -728,7 +728,6 @@ class TableVersion:
 
             plan = Planner.create_add_column_plan(self.path, col)
             try:
-                plan.open()
                 try:
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql.exc.DBAPIError as exc:
@@ -753,7 +752,6 @@ class TableVersion:
 
                 # Run cleanup only if there has been an exception; otherwise, skip cleanup.
                 run_cleanup_on_exception(cleanup_on_error)
-                plan.close()
 
         pxt.catalog.Catalog.get().record_column_dependencies(self)
 
