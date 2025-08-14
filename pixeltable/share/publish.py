@@ -2,11 +2,11 @@ import os
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, BinaryIO, Literal, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
-from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TimeRemainingColumn, TransferSpeedColumn
+from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TimeRemainingColumn, TransferSpeedColumn
 from urllib3.util.retry import Retry
 
 import pixeltable as pxt
@@ -223,18 +223,22 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
             task = progress.add_task('Uploading', total=file_size)
 
             class ProgressFileWrapper:
-                def __init__(self, file_obj, progress_obj, task_id):
+                file_obj: BinaryIO
+                progress_obj: Progress
+                task_id: TaskID
+
+                def __init__(self, file_obj: BinaryIO, progress_obj: Progress, task_id: TaskID) -> None:
                     self.file_obj = file_obj
                     self.progress_obj = progress_obj
                     self.task_id = task_id
 
-                def read(self, size=-1):
+                def read(self, size: int = -1) -> bytes:
                     data = self.file_obj.read(size)
                     if data:
                         self.progress_obj.update(self.task_id, advance=len(data))
                     return data
 
-                def __getattr__(self, name):
+                def __getattr__(self, name: str) -> Any:
                     return getattr(self.file_obj, name)
 
             with open(file_path, 'rb') as f:
