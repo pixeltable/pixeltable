@@ -485,7 +485,6 @@ class Planner:
         # update row builder with column information
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        # plan.ctx.num_computed_exprs = len(recomputed_exprs)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
@@ -1024,7 +1023,4 @@ class Planner:
         plan.ctx.batch_size = 16
         plan.ctx.show_progress = True
         plan.ctx.ignore_errors = True
-        # computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        # plan.ctx.num_computed_exprs = len(computed_exprs)
-
         return plan
