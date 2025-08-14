@@ -13,6 +13,7 @@ from typing import AsyncIterator, Iterator, Optional
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
+from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import TempStore
 from pixeltable.utils.s3 import S3ClientContainer
@@ -34,7 +35,6 @@ class ObjectStorePrefetchNode(ExecNode):
     QUEUE_DEPTH_HIGH_WATER = 50  # target number of in-flight requests
     QUEUE_DEPTH_LOW_WATER = 20  # target number of in-flight requests
     BATCH_SIZE = 16
-    NUM_EXECUTOR_THREADS = 16
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
@@ -51,6 +51,7 @@ class ObjectStorePrefetchNode(ExecNode):
     in_flight_urls: dict[str, list[tuple[exprs.DataRow, exprs.ColumnSlotIdx]]]  # URL -> [(row, info)]
     input_finished: bool
     row_idx: Iterator[Optional[int]]
+    num_threads: int
 
     @dataclasses.dataclass
     class RowState:
@@ -73,6 +74,7 @@ class ObjectStorePrefetchNode(ExecNode):
         self.in_flight_urls = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+        self.num_threads = max(4, Env.get().cpu_count)
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
         # Ensure that the S3ClientContainer is initialized before using threading
         S3ClientContainer.get()
@@ -94,15 +96,13 @@ class ObjectStorePrefetchNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         input_iter = self.input.__aiter__()
-        with futures.ThreadPoolExecutor(max_workers=self.NUM_EXECUTOR_THREADS) as executor:
+        with futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             while True:
                 # Create work to fill the queue to the high water mark ... ?without overrunning the in-flight row limit.
                 while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
                     input_batch = await self.get_input_batch(input_iter)
                     if input_batch is not None:
                         self.__process_input_batch(input_batch, executor)
-
-                print(f'\n===============>>> done={self.input_finished}, queued_work={self.queued_work}\n')
 
                 # Wait for enough completions to enable more queueing or if we're done
                 while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (self.input_finished and self.queued_work > 0):

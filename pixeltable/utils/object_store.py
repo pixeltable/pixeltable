@@ -41,10 +41,11 @@ class S3Store:
         if len(self.__prefix_name) > 0:
             self.__prefix_name += '/'
         self.__base_uri += '/'
-        print(
-            f'Initialized S3Store with base URI: {self.__base_uri},',
-            f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}',
-        )
+        if 0:
+            print(
+                f'Initialized S3Store with base URI: {self.__base_uri},',
+                f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}',
+            )
 
     def client(self, for_write: bool = False) -> Any:
         """Return the S3 client."""

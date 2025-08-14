@@ -10,6 +10,7 @@ from typing import AsyncIterator, Iterator, NamedTuple, Optional
 from uuid import UUID
 
 from pixeltable import exprs
+from pixeltable.env import Env
 from pixeltable.utils.media_store import MediaDestination, MediaStore, TempStore
 from pixeltable.utils.s3 import S3ClientContainer
 
@@ -38,10 +39,9 @@ class ObjectStoreSaveNode(ExecNode):
     - Limit the number of in-flight requests to control memory usage
     """
 
-    QUEUE_DEPTH_HIGH_WATER = 4  # target number of in-flight requests
+    QUEUE_DEPTH_HIGH_WATER = 4 # target number of in-flight requests
     QUEUE_DEPTH_LOW_WATER = 2  # target number of in-flight requests
     BATCH_SIZE = 4
-    NUM_EXECUTOR_THREADS = 16
 
     class WorkDesignator(NamedTuple):
         """Specify the source and destination for a WorkItem"""
@@ -78,6 +78,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     input_finished: bool
     row_idx: Iterator[Optional[int]]
+    num_threads: int
 
     @dataclasses.dataclass
     class RowState:
@@ -101,6 +102,7 @@ class ObjectStoreSaveNode(ExecNode):
         self.in_flight_work = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+        self.num_threads = max(4, Env.get().cpu_count)
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
         # Ensure that the S3ClientContainer is initialized before using threading
         S3ClientContainer.get()
@@ -122,7 +124,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         input_iter = self.input.__aiter__()
-        with futures.ThreadPoolExecutor(max_workers=self.NUM_EXECUTOR_THREADS) as executor:
+        with futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             while True:
                 # Create work to fill the queue to the high water mark ... ?without overrunning the in-flight row limit.
                 while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:

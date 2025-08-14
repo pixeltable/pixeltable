@@ -237,7 +237,7 @@ class Env:
     @property
     def cpu_count(self) -> int:
         n_cpu = os.cpu_count()
-        return n_cpu if n_cpu is not None else 1
+        return n_cpu if n_cpu is not None and n_cpu > 0 else 1
 
     @contextmanager
     def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:

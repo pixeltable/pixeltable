@@ -204,7 +204,7 @@ class TestDestination:
             t.add_computed_column(**{f'img_rot_2_{i}': t.img.rotate(180)}, destination=dest_uri)
             t.add_computed_column(**{f'img_rot_3_{i}': t.img.rotate(270)}, destination=dest_uri)
             s3_cols += 3
-        data_rows = 100
+        data_rows = 1000
         data = [{'img': img_data} for _ in range(data_rows)]
         inserts = 1
         for _ in range(inserts):

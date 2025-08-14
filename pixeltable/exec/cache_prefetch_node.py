@@ -13,6 +13,7 @@ from typing import AsyncIterator, Iterator, Optional
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
+from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import TempStore
 from pixeltable.utils.s3 import S3ClientContainer
@@ -31,7 +32,6 @@ class CachePrefetchNode(ExecNode):
     """
 
     BATCH_SIZE = 16
-    NUM_EXECUTOR_THREADS = 16
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
@@ -48,6 +48,7 @@ class CachePrefetchNode(ExecNode):
     in_flight_urls: dict[str, list[tuple[exprs.DataRow, exprs.ColumnSlotIdx]]]  # URL -> [(row, info)]
     input_finished: bool
     row_idx: Iterator[Optional[int]]
+    num_threads: int
 
     @dataclasses.dataclass
     class RowState:
@@ -70,12 +71,13 @@ class CachePrefetchNode(ExecNode):
         self.in_flight_urls = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+        self.num_threads = max(4, Env.get().cpu_count)
         # Ensure that the S3ClientContainer is initialized before using threading
         S3ClientContainer.get()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         input_iter = self.input.__aiter__()
-        with futures.ThreadPoolExecutor(max_workers=self.NUM_EXECUTOR_THREADS) as executor:
+        with futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             # we create enough in-flight requests to fill the first batch
             while not self.input_finished and self.__num_pending_rows() < self.BATCH_SIZE:
                 await self.__submit_input_batch(input_iter, executor)
