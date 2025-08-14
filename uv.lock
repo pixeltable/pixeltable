@@ -4403,10 +4403,10 @@ dependencies = [
     { name = "pymupdf" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "rich" },
     { name = "sqlalchemy" },
     { name = "tenacity" },
     { name = "toml" },
-    { name = "tqdm" },
 ]
 
 [package.dev-dependencies]
@@ -4504,10 +4504,10 @@ requires-dist = [
     { name = "pymupdf", specifier = ">=1.24.1" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "requests", specifier = ">=2.31.0" },
+    { name = "rich", specifier = ">=13.0" },
     { name = "sqlalchemy", specifier = ">=2.0.23" },
     { name = "tenacity", specifier = ">=8.2" },
     { name = "toml", specifier = ">=0.10" },
-    { name = "tqdm", specifier = ">=4.64" },
 ]
 
 [package.metadata.requires-dev]
