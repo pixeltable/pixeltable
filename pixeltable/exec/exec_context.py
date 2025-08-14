@@ -62,7 +62,8 @@ class ExecContext:
             now = time.monotonic()
             self.total += advance
 
-            rate = advance / (now - self.last_update_ts)
+            time_delta = now - self.last_update_ts
+            rate = advance / time_delta if time_delta > 0 else 0.0
             total = self.total
             unit = self.unit
             if self.reports_bytes:
@@ -77,7 +78,7 @@ class ExecContext:
         def finalize(self) -> None:
             # show aggregate rate since start
             elapsed = time.monotonic() - self.ctx.progress_start
-            rate = self.total / elapsed
+            rate = self.total / elapsed if elapsed > 0 else 0.0
             total = self.total
             unit = self.unit
             if self.reports_bytes:
