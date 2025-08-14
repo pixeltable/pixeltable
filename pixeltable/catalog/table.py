@@ -761,7 +761,7 @@ class Table(SchemaObject):
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
                 if 'destination' in spec:
-                    from pixeltable.utils.media_store import MediaDestination
+                    from pixeltable.utils.media_destination import MediaDestination
 
                     destination = MediaDestination.validate_destination(name, spec['destination'])
             else:

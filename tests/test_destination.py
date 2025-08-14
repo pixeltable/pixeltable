@@ -7,7 +7,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import env
-from pixeltable.utils.media_store import MediaDestination
+from pixeltable.utils.media_destination import MediaDestination
 
 
 class TestDestination:

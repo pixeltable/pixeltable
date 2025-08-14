@@ -11,7 +11,8 @@ from uuid import UUID
 
 from pixeltable import exprs
 from pixeltable.env import Env
-from pixeltable.utils.media_store import MediaDestination, MediaStore, TempStore
+from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_store import MediaStore, TempStore
 from pixeltable.utils.s3 import S3ClientContainer
 
 from .data_row_batch import DataRowBatch

@@ -23,7 +23,7 @@ class MediaDestination:
         Returns:
             URI of destination, or raises an error
         """
-        from pixeltable.utils.object_store import S3Store
+        from pixeltable.utils.s3_store import S3Store
 
         if dest is None or isinstance(dest, Path):
             return MediaStore.validate_destination(col_name, dest)
@@ -54,7 +54,7 @@ class MediaDestination:
     @classmethod
     def put_file(cls, col: Column, src_path: Path, can_relocate: bool) -> str:
         """Move or copy a file to the destination, returning the file's URL within the destination."""
-        from pixeltable.utils.object_store import S3Store
+        from pixeltable.utils.s3_store import S3Store
 
         destination = col.destination
         if destination is not None and destination.startswith('s3'):
@@ -74,7 +74,7 @@ class MediaDestination:
     @classmethod
     def delete(cls, destination: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> None:
         """Delete media files in the destination URI for a given table ID"""
-        from pixeltable.utils.object_store import S3Store
+        from pixeltable.utils.s3_store import S3Store
 
         if destination is not None and destination.startswith('s3://'):
             S3Store(destination).delete(tbl_id, tbl_version)
@@ -85,7 +85,7 @@ class MediaDestination:
     def count(cls, uri: Optional[str], tbl_id: UUID) -> int:
         """Return the count of media files in the destination URI for a given table ID"""
         if uri is not None and uri.startswith('s3://'):
-            from pixeltable.utils.object_store import S3Store
+            from pixeltable.utils.s3_store import S3Store
 
             # If the URI is an S3 URI, use the S3Store to count media files
             return S3Store(uri).count(tbl_id)
