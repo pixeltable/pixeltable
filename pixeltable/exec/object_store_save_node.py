@@ -192,88 +192,94 @@ class ObjectStoreSaveNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
+    def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
+        """Process a batch of input rows, generating a list of work"""
+        # Create a list of work to do for media storage in this row
+        row_idx = next(self.row_idx)
+        row_to_do: list[ObjectStoreSaveNode.WorkItem] = []
+        num_missing = 0
+        unique_destinations: dict[Path, int] = defaultdict(int)  # destination -> count of unique destinations
+
+        for info in self.file_col_info:
+            col, index = info
+            # we may need to store this imagehave yet to store this image
+            if row.check_needs_saved(index, col):
+                row.file_urls[index] = row.save_media_object(index, col, True)
+
+            url = row.file_urls[index]
+            if url is None:
+                # nothing to do
+                continue
+
+            assert row.excs[index] is None
+            assert col.col_type.is_media_type()
+
+            destination = info.col.destination
+            if (
+                destination is not None
+                and not destination.startswith('s3://')
+                and MediaStore.get(destination).resolve_url(url) is not None
+            ):
+                # A local non-default destination was specified, and the url already points there
+                continue
+
+            src_path = MediaStore.file_url_to_path(url)
+            if src_path is None:
+                # The url does not point to a local file, do not attempt to copy/move it
+                continue
+
+            if destination is None and not TempStore.contains_path(src_path):
+                # Do not copy local file URLs to the MediaStore
+                continue
+
+            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination)
+            locations = self.in_flight_work.get(work_designator)
+            if locations is not None:
+                # we've already seen this
+                locations.append((row, info))
+                num_missing += 1
+                continue
+
+            work_item = ObjectStoreSaveNode.WorkItem(src_path, destination, info)
+            row_to_do.append(work_item)
+            self.in_flight_work[work_designator] = [(row, info)]
+            num_missing += 1
+            unique_destinations[src_path] += 1
+
+        # Update work items to reflect the number of unique destinations
+        new_to_do = []
+        for work_item in row_to_do:
+            if unique_destinations[work_item.src_path] == 1 and TempStore.contains_path(work_item.src_path):
+                new_to_do.append(work_item)
+            else:
+                new_to_do.append(
+                    ObjectStoreSaveNode.WorkItem(
+                        work_item.src_path,
+                        work_item.destination,
+                        work_item.info,
+                        destination_count=unique_destinations[work_item.src_path] + 1,
+                        # +1 for the TempStore destination
+                    )
+                )
+        delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]
+        row_to_do = new_to_do
+
+        if len(row_to_do) > 0:
+            self.in_flight_rows[id(row)] = self.RowState(
+                row, row_idx, num_missing, delete_destinations=delete_destinations
+            )
+        else:
+            self.__add_ready_row(row, row_idx)
+        return row_to_do
+
     def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting temporary files for upload"""
         work_to_do: list[ObjectStoreSaveNode.WorkItem] = []
 
         for row in input_batch:
-            # Create a list of work to do for media storage in this row
-            row_idx = next(self.row_idx)
-            row_to_do: list[ObjectStoreSaveNode.WorkItem] = []
-            num_missing = 0
-            unique_destinations: dict[Path, int] = defaultdict(int)  # destination -> count of unique destinations
-
-            for info in self.file_col_info:
-                col, index = info
-                # we may need to store this imagehave yet to store this image
-                if row.check_needs_saved(index, col):
-                    row.file_urls[index] = row.save_media_object(index, col, True)
-
-                url = row.file_urls[index]
-                if url is None:
-                    # nothing to do
-                    continue
-
-                assert row.excs[index] is None
-                assert col.col_type.is_media_type()
-
-                destination = info.col.destination
-                if (
-                    destination is not None
-                    and not destination.startswith('s3://')
-                    and MediaStore.get(destination).resolve_url(url) is not None
-                ):
-                    # A local non-default destination was specified, and the url already points there
-                    continue
-
-                src_path = MediaStore.file_url_to_path(url)
-                if src_path is None:
-                    # The url does not point to a local file, do not attempt to copy/move it
-                    continue
-
-                if destination is None and not TempStore.contains_path(src_path):
-                    # Do not copy local file URLs to the MediaStore
-                    continue
-
-                work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination)
-                locations = self.in_flight_work.get(work_designator)
-                if locations is not None:
-                    # we've already seen this
-                    locations.append((row, info))
-                    num_missing += 1
-                    continue
-
-                work_item = ObjectStoreSaveNode.WorkItem(src_path, destination, info)
-                row_to_do.append(work_item)
-                self.in_flight_work[work_designator] = [(row, info)]
-                num_missing += 1
-                unique_destinations[src_path] += 1
-
-            # Update work items to reflect the number of unique destinations
-            new_to_do = []
-            for work_item in row_to_do:
-                if unique_destinations[work_item.src_path] == 1 and TempStore.contains_path(work_item.src_path):
-                    new_to_do.append(work_item)
-                else:
-                    new_to_do.append(
-                        ObjectStoreSaveNode.WorkItem(
-                            work_item.src_path,
-                            work_item.destination,
-                            work_item.info,
-                            destination_count=unique_destinations[work_item.src_path] + 1,
-                            # +1 for the TempStore destination
-                        )
-                    )
-            delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]
-            row_to_do = new_to_do
-
+            row_to_do = self.__process_input_row(row)
             if len(row_to_do) > 0:
-                self.in_flight_rows[id(row)] = self.RowState(
-                    row, row_idx, num_missing, delete_destinations=delete_destinations
-                )
                 work_to_do.extend(row_to_do)
-            else:
-                self.__add_ready_row(row, row_idx)
 
         for work_item in work_to_do:
             f = executor.submit(self.__persist_media_file, work_item)
@@ -284,7 +290,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __persist_media_file(self, work_item: WorkItem) -> tuple[Optional[str], Optional[Exception]]:
         """Move data from the TempStore to another location"""
-
         src_path = work_item.src_path
         col = work_item.info.col
         assert col.destination == work_item.destination
