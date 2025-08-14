@@ -6,7 +6,15 @@ from typing import Any, BinaryIO, Literal, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
-from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TextColumn, TimeRemainingColumn, TransferSpeedColumn
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TaskID,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 from urllib3.util.retry import Retry
 
 import pixeltable as pxt

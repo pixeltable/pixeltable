@@ -20,7 +20,6 @@ class ExecContext:
     profile: exprs.ExecProfile
     conn: Optional[sql.engine.Connection]  # if present, use this to execute SQL queries
     pk_clause: Optional[list[sql.ClauseElement]]
-    # num_computed_exprs: int  # number of exprs that need to be computed (ie, not materialized by a SqlNode)
     ignore_errors: bool
 
     class ProgressReporter:
@@ -76,7 +75,7 @@ class ExecContext:
             self.ctx.progress.update(self.ctx.elapsed_time_task_id, completed=elapsed, rate='')
 
         def finalize(self) -> None:
-            # update rate to show aggregate rate since start
+            # show aggregate rate since start
             elapsed = time.monotonic() - self.ctx.progress_start
             rate = self.total / elapsed
             total = self.total
@@ -91,24 +90,21 @@ class ExecContext:
         self,
         row_builder: exprs.RowBuilder,
         *,
-        show_pbar: bool = False,
+        show_progress: bool = False,
         batch_size: int = 0,
         pk_clause: Optional[list[sql.ClauseElement]] = None,
-        num_computed_exprs: int = 0,
         ignore_errors: bool = False,
     ):
         self.row_builder = row_builder
-        self.show_progress = show_pbar
+        self.show_progress = show_progress
         self.progress = None
         self.elapsed_time_task_id = None
         self.progress_reporters = []
 
         self.batch_size = batch_size
         self.profile = exprs.ExecProfile(row_builder)
-        # self.num_rows: Optional[int] = None
         self.conn = None
         self.pk_clause = pk_clause
-        # self.num_computed_exprs = num_computed_exprs
         self.ignore_errors = ignore_errors
 
     def add_progress_reporter(self, desc: str, unit: str) -> ProgressReporter:
