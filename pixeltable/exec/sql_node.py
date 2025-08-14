@@ -10,8 +10,8 @@ from pixeltable import catalog, exprs
 from pixeltable.env import Env
 
 from .data_row_batch import DataRowBatch
-from .exec_node import ExecNode
 from .exec_context import ExecContext
+from .exec_node import ExecNode
 
 if TYPE_CHECKING:
     import pixeltable.plan
