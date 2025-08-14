@@ -82,7 +82,7 @@ class InMemoryDataNode(ExecNode):
                 output_row[col_info.slot_idx] = None
             self.output_batch.add_row(output_row)
 
-        self.ctx.num_rows = len(self.output_batch)
+        # self.ctx.num_rows = len(self.output_batch)
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_batch)} rows')
