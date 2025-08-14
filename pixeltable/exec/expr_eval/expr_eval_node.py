@@ -348,9 +348,16 @@ class ExprEvalNode(ExecNode):
         completed_rows = np.zeros(len(rows), dtype=bool)
         num_computed_outputs = 0
         for i, row in enumerate(rows):
-            missing_outputs = (row.missing_slots & self.outputs).sum()
-            row.missing_slots &= row.has_val == False
-            num_computed_outputs += missing_outputs - (row.missing_slots & self.outputs).sum()
+            if row.missing_slots.shape != self.outputs.shape:
+                pass
+            if self.eval_ctx is exec_ctx:
+                # if this is the top-level ExprEvalCtx (instead of the one for a JsonMapperDispatcher), we want to count
+                # the newly-materialized output slots
+                missing_outputs = (row.missing_slots & self.outputs).sum()
+                row.missing_slots &= row.has_val == False
+                num_computed_outputs += missing_outputs - (row.missing_slots & self.outputs).sum()
+            else:
+                row.missing_slots &= row.has_val == False
 
             if row.missing_slots.sum() == 0:
                 # all output slots have been materialized
