@@ -282,3 +282,43 @@ class TestVideo:
         reload_catalog()
         base_t, view_t = pxt.get_table(base_t._name), pxt.get_table(view_t._name)
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
+
+    def test_get_clip(self, reset_db: None) -> None:
+        t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
+        video_filepaths = get_video_files()
+        t.insert({'video': p} for p in video_filepaths)
+
+        clip_5_10 = t.video.get_clip(start_time=5.0, end_time=10.0)
+        clip_0_5 = t.video.get_clip(start_time=0.0, duration=5.0)
+        clip_10_end = t.video.get_clip(start_time=10.0)
+        result = t.select(
+            clip_5_10=clip_5_10,
+            clip_5_10_duration=clip_5_10.get_metadata().streams[0].duration_seconds,
+            clip_0_5=clip_0_5,
+            clip_0_5_duration=clip_0_5.get_metadata().streams[0].duration_seconds,
+            clip_10_end=clip_10_end,
+        ).collect()
+        assert len(result) == len(video_filepaths)
+        df = result.to_pandas()
+        assert df['clip_5_10'].notnull().all()
+        assert df['clip_0_5'].notnull().all()
+        assert df['clip_10_end'].notnull().all()
+        assert df['clip_5_10_duration'].between(5.0, 6.0).all()
+        assert df['clip_0_5_duration'].between(5.0, 6.0).all()
+
+        # insert generated clips into video_t to verify that they are valid videos
+        t.insert({'video': row['clip_5_10']} for row in result)
+        t.insert({'video': row['clip_0_5']} for row in result)
+        t.insert({'video': row['clip_10_end']} for row in result)
+
+        with pytest.raises(pxt.Error, match='start_time must be non-negative'):
+            _ = t.select(invalid_clip=t.video.get_clip(start_time=-1.0)).collect()
+
+        with pytest.raises(pxt.Error, match=r'end_time \(5.0\) must be greater than start_time \(10.0\)'):
+            _ = t.select(invalid_clip=t.video.get_clip(start_time=10.0, end_time=5.0)).collect()
+
+        with pytest.raises(pxt.Error, match='duration must be positive'):
+            _ = t.select(invalid_clip=t.video.get_clip(start_time=10.0, duration=-1.0)).collect()
+
+        with pytest.raises(pxt.Error, match='end_time and duration cannot both be specified'):
+            _ = t.select(invalid_clip=t.video.get_clip(start_time=10.0, end_time=20.0, duration=10.0)).collect()

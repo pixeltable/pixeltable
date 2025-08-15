@@ -2,11 +2,15 @@
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
 """
 
+import pathlib
+import shutil
+import subprocess
 from typing import Any, Optional
 
-import av
-import numpy as np
 import PIL.Image
+import av
+import av.stream
+import numpy as np
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
@@ -281,6 +285,95 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         )
 
     return metadata
+
+
+@pxt.udf(is_method=True)
+def get_clip(
+    video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
+) -> pxt.Video:
+    """
+    Extract a clip from a video, specified by start_time and either end_time or duration (in seconds).
+
+    Args:
+        video: Input video file
+        start_time: Start time in seconds
+        end_time: End time in seconds (if None, goes to end of video)
+        duration: Duration of the clip in seconds (if None, goes to end of video)
+
+    Returns:
+        New video containing only the specified time range
+    """
+    if start_time < 0:
+        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
+    if end_time is not None and end_time <= start_time:
+        raise pxt.Error(f'end_time ({end_time}) must be greater than start_time ({start_time})')
+    if duration is not None and duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+    if end_time is not None and duration is not None:
+        raise pxt.Error('end_time and duration cannot both be specified')
+
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_clip().')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    # the order of arguments is critical: -ss <start> -t <duration> -i <input>
+    cmd = ['ffmpeg', '-ss', str(start_time)]
+    if end_time is not None:
+        duration = end_time - start_time
+    if duration is not None:
+        cmd.extend(['-t', str(duration)])  # Use -t for duration instead of -to
+
+    cmd.extend(
+        [
+            '-i',  # Input file
+            str(video),
+            '-y',  # Overwrite output file
+            '-loglevel',
+            'error',  # Only show errors
+            '-c',
+            'copy',  # Stream copy (no re-encoding)
+            '-map',
+            '0',  # Copy all streams from input
+        ]
+    )
+
+    cmd.append(output_path)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            check=True,
+        )
+
+        # Check if output file was created
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            error_msg = 'ffmpeg failed to create output file'
+            if result.stderr is not None:
+                error_msg += f'. ffmpeg stderr: {result.stderr.strip()}'
+            raise pxt.Error(error_msg)
+
+        # check for indications of errors in stderr
+        stderr_output = result.stderr.strip() if result.stderr is not None else ''
+        if len(stderr_output) > 0 and any(
+            error_word in stderr_output.lower() for error_word in ['error', 'failed', 'invalid']
+        ):
+            raise pxt.Error(f'ffmpeg reported errors: {stderr_output}')
+
+        return output_path
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f'ffmpeg failed with return code {e.returncode}'
+        if e.stderr is not None:
+            error_msg += f': {e.stderr.strip()}'
+        raise pxt.Error(error_msg) from e
+
+    except subprocess.TimeoutExpired:
+        raise pxt.Error('ffmpeg timed out for command line {" ".join(cmd)}') from None
 
 
 __all__ = local_public_names(__name__)
