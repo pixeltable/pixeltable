@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 from uuid import UUID
@@ -23,6 +26,7 @@ class MediaDestination:
         Returns:
             URI of destination, or raises an error
         """
+        from pixeltable.utils.gcs_store import GCSStore
         from pixeltable.utils.s3_store import S3Store
 
         if dest is None or isinstance(dest, Path):
@@ -34,7 +38,12 @@ class MediaDestination:
             if dest2 is None:
                 raise excs.Error(f'Column {col_name}: invalid S3 destination {dest!r}')
             return dest2
-        # Check for "gs://" and Azure variants here
+        if dest.startswith('gs://'):
+            dest2 = GCSStore(dest).validate_uri()
+            if dest2 is None:
+                raise excs.Error(f'Column {col_name}: invalid GCS destination {dest!r}')
+            return dest2
+        # Check for Azure variants here
         return MediaStore.validate_destination(col_name, dest)
 
     def save_media_object(self, val: Any, col: Column, to_temp: bool = False) -> tuple[Optional[Path], str]:
@@ -52,14 +61,51 @@ class MediaDestination:
         return filepath, url
 
     @classmethod
+    def download_media_object(cls, src_uri: str, dest_path: Path) -> None:
+        """Copy an object from a URL to a local Path. Thread safe.
+        Supports gs, s3, http, and https schemes
+        Raises an exception if the download fails or the scheme is not supported
+        """
+        from pixeltable.utils.gcs_store import GCSStore
+        from pixeltable.utils.s3_store import S3Store
+
+        parsed = urllib.parse.urlparse(src_uri)
+        blob_name = parsed.path.lstrip('/')
+        assert blob_name is not None, f'Invalid download URI: {src_uri}'
+
+        if parsed.scheme == 'gs':
+            GCSStore(f'gs://{parsed.netloc}').download_media_object(blob_name, dest_path)
+        elif parsed.scheme == 's3':
+            S3Store(f's3://{parsed.netloc}').download_media_object(blob_name, dest_path)
+        elif parsed.scheme in ('http', 'https'):
+            with urllib.request.urlopen(src_uri) as resp, open(dest_path, 'wb') as f:
+                data = resp.read()
+                f.write(data)
+                f.flush()  # Ensures Python buffers are written to OS
+                os.fsync(f.fileno())  # Forces OS to write to physical storage
+        else:
+            raise AssertionError(f'Unsupported URL scheme: {parsed.scheme}')
+
+    @classmethod
     def put_file(cls, col: Column, src_path: Path, can_relocate: bool) -> str:
-        """Move or copy a file to the destination, returning the file's URL within the destination."""
+        """Move or copy a file to the destination, returning the file's URL within the destination.
+        If can_relocate is True and the file is in the TempStore, the file will be deleted after the operation.
+        """
+        from pixeltable.utils.gcs_store import GCSStore
         from pixeltable.utils.s3_store import S3Store
 
         destination = col.destination
-        if destination is not None and destination.startswith('s3'):
+        if destination is not None and destination.startswith('s3://'):
             # If the destination is 's3', we need to copy the file to S3
             new_file_url = S3Store(destination).copy_local_media_file(col, src_path)
+            if can_relocate:
+                # File is temporary, used only once, so we can delete it after copy
+                assert TempStore.contains_path(src_path)
+                TempStore.delete_media_file(src_path)
+            return new_file_url
+        if destination is not None and destination.startswith('gs://'):
+            # If the destination is 'gs', we need to copy the file to GCS
+            new_file_url = GCSStore(destination).copy_local_media_file(col, src_path)
             if can_relocate:
                 # File is temporary, used only once, so we can delete it after copy
                 assert TempStore.contains_path(src_path)
@@ -74,20 +120,26 @@ class MediaDestination:
     @classmethod
     def delete(cls, destination: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> None:
         """Delete media files in the destination URI for a given table ID"""
+        from pixeltable.utils.gcs_store import GCSStore
         from pixeltable.utils.s3_store import S3Store
 
         if destination is not None and destination.startswith('s3://'):
             S3Store(destination).delete(tbl_id, tbl_version)
+        elif destination is not None and destination.startswith('gs://'):
+            GCSStore(destination).delete(tbl_id, tbl_version)
         else:
             MediaStore.get(destination).delete(tbl_id, tbl_version)
 
     @classmethod
     def count(cls, uri: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
         """Return the count of media files in the destination URI for a given table ID"""
-        if uri is not None and uri.startswith('s3://'):
-            from pixeltable.utils.s3_store import S3Store
+        from pixeltable.utils.gcs_store import GCSStore
+        from pixeltable.utils.s3_store import S3Store
 
-            # If the URI is an S3 URI, use the S3Store to count media files
+        if uri is not None and uri.startswith('s3://'):
             return S3Store(uri).count(tbl_id, tbl_version)
-        # Check for "gs://" and Azure variants here
+        if uri is not None and uri.startswith('gs://'):
+            return GCSStore(uri).count(tbl_id, tbl_version)
+
+        # Check for Azure variants here
         return MediaStore.get(uri).count(tbl_id, tbl_version)

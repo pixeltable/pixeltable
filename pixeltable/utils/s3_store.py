@@ -92,6 +92,15 @@ class S3Store:
         assert col.tbl is not None, 'Column must be associated with a table'
         return self._prepare_media_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
 
+    def download_media_object(self, src_path: str, dest_path: Path) -> None:
+        """Copies an object to a local file. Thread safe."""
+        try:
+            client = S3ClientContainer.get().get_client(for_write=False)
+            client.download_file(self.bucket_name, self.prefix + src_path, str(dest_path))
+        except ClientError as e:
+            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'download file {src_path}')
+            raise
+
     def copy_local_media_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
         new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
