@@ -553,6 +553,8 @@ class TestTable:
         t = pxt.create_table('test_pydantic_basic', schema)
         t.add_computed_column(c1=t.i + 1)
 
+        # TODO: remove this line
+
         # pydantic model matches schema exactly
         class E1(enum.Enum):
             A = 1
