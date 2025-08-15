@@ -9,7 +9,10 @@ import types
 import typing
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Optional, Sequence, Union
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import av
 import jsonschema
@@ -23,8 +26,6 @@ from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnType:
@@ -292,7 +293,11 @@ class ColumnType:
 
     @classmethod
     def from_python_type(
-        cls, t: type | _GenericAlias, nullable_default: bool = False, allow_builtin_types: bool = True
+        cls,
+        t: type | _GenericAlias,
+        nullable_default: bool = False,
+        allow_builtin_types: bool = True,
+        infer_pydantic_json: bool = False,
     ) -> Optional[ColumnType]:
         """
         Convert a Python type into a Pixeltable `ColumnType` instance.
@@ -305,6 +310,8 @@ class ColumnType:
                 allowed (as in UDF definitions). If False, then only Pixeltable types such as `pxt.String`,
                 `pxt.Int`, etc., will be allowed (as in schema definitions). `Optional` and `Required`
                 designations will be allowed regardless.
+            infer_pydantic_json: If True, accepts an extended set of built-ins (eg, Enum, Path) and returns the type to
+                which pydantic.BaseModel.model_dump(mode='json') serializes it.
         """
         origin = typing.get_origin(t)
         type_args = typing.get_args(t)
@@ -314,7 +321,9 @@ class ColumnType:
                 # `t` is a type of the form Optional[T] (equivalently, T | None or None | T).
                 # We treat it as the underlying type but with nullable=True.
                 underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
-                underlying = cls.from_python_type(underlying_py_type, allow_builtin_types=allow_builtin_types)
+                underlying = cls.from_python_type(
+                    underlying_py_type, allow_builtin_types=allow_builtin_types, infer_pydantic_json=infer_pydantic_json
+                )
                 if underlying is not None:
                     return underlying.copy(nullable=True)
         elif origin is Required:
@@ -341,6 +350,13 @@ class ColumnType:
                     if literal_type is None:
                         return None
                     return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
+                if infer_pydantic_json and isinstance(t, type) and issubclass(t, enum.Enum):
+                    literal_type = cls.infer_common_literal_type(member.value for member in t)
+                    if literal_type is None:
+                        return None
+                    return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
+                if infer_pydantic_json and t is Path:
+                    return StringType(nullable=nullable_default)
                 if t is str:
                     return StringType(nullable=nullable_default)
                 if t is int:
