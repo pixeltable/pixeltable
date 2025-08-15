@@ -1158,6 +1158,7 @@ class TestView:
             v2.rename_column('v1', 'new_v1')
 
         # should work
+        t.rename_column('c3', 'new_c3')
         v1.rename_column('v1', 'new_v1')
 
     def test_update_base_column(self, reset_db: None) -> None:

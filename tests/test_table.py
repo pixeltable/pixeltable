@@ -2613,20 +2613,17 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match='Cannot drop column `c1` because the following views depend on it') as e:
             t.drop_column('c1')
-
         assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
         assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 
         with pytest.raises(pxt.Error, match='Cannot drop column `c2` because the following views depend on it') as e:
             t.drop_column('c2')
-
         assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
         assert 'view: view4, predicate: c2 / vc3 < 19' in str(e.value).lower()
 
         with pytest.raises(pxt.Error, match='Cannot drop column `vc1` because the following views depend on it') as e:
             v1.drop_column('vc1')
-
         assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 

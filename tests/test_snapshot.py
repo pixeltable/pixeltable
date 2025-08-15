@@ -351,7 +351,6 @@ class TestSnapshot:
             'view2', v1.where((v1.c2 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int}
         )  # uses c2
         v2s = pxt.create_snapshot('v2_snap', v2, additional_columns={'v2s1': v2.c1 + v2.vc2})  # snapshot uses c1
-
         # Create view on snapshot
         _ = pxt.create_view('view_snap1', v1s.where(v1s.c1 % 4 == 0))
         _ = pxt.create_view('view_snap2', v2s.where(v2s.c2 % 4 == 0))
@@ -380,24 +379,19 @@ class TestSnapshot:
 
     def test_rename_column(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
-
         s1 = pxt.create_snapshot('base_snap', t, additional_columns={'s1': pxt.Int})
         v1 = pxt.create_view('view_snap', s1, additional_columns={'v1': pxt.Int})
-
         v2 = pxt.create_view('view', t, additional_columns={'v2': pxt.Int})
         s2 = pxt.create_snapshot('snap_view', v2, additional_columns={'s2': pxt.Int})
 
         with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'base_snap'"):
             s1.rename_column('s1', 'new_s1')
-
         with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'snap_view'"):
             s2.rename_column('v2', 'new_v2')
-
         with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'c1'"):
             v1.rename_column('c1', 'new_c1')
-
         with pytest.raises(pxt.Error, match=r"Cannot rename base table column 's1'"):
             v1.rename_column('s1', 'new_s1')
-
         # should work
+        t.rename_column('c1', 'c3')
         v1.rename_column('v1', 'new_v1')
