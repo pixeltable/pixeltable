@@ -230,16 +230,22 @@ class MediaStore:
             for p in paths:
                 os.remove(p)
 
-    def count(self, tbl_id: Optional[UUID]) -> int:
+    def count(self, tbl_id: Optional[UUID], tbl_version: Optional[int] = None) -> int:
         """
         Return number of files for given tbl_id.
         """
         if tbl_id is None:
             paths = glob.glob(str(self.__base_dir / '*'), recursive=True)
-        else:
+        elif tbl_version is None:
             table_prefix = MediaPath.media_table_prefix(tbl_id)
             paths = glob.glob(str(self.__base_dir / table_prefix) + f'/**/{table_prefix}_*', recursive=True)
-        return len(paths)
+        else:
+            table_prefix = MediaPath.media_table_prefix(tbl_id)
+            paths = glob.glob(
+                str(self.__base_dir / table_prefix) + f'/**/{table_prefix}_*_{tbl_version}_*', recursive=True
+            )
+        # Filter out directories, only count files
+        return len([p for p in paths if not os.path.isdir(p)])
 
     def stats(self) -> list[tuple[UUID, int, int, int]]:
         paths = glob.glob(str(self.__base_dir) + '/**', recursive=True)
@@ -277,8 +283,8 @@ class TempStore:
         return env.Env.get().tmp_dir
 
     @classmethod
-    def count(cls, tbl_id: Optional[UUID] = None) -> int:
-        return MediaStore(cls._tmp_dir()).count(tbl_id)
+    def count(cls, tbl_id: Optional[UUID] = None, tbl_version: Optional[int] = None) -> int:
+        return MediaStore(cls._tmp_dir()).count(tbl_id, tbl_version)
 
     @classmethod
     def contains_path(cls, file_path: Path) -> bool:

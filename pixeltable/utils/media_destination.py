@@ -82,12 +82,12 @@ class MediaDestination:
             MediaStore.get(destination).delete(tbl_id, tbl_version)
 
     @classmethod
-    def count(cls, uri: Optional[str], tbl_id: UUID) -> int:
+    def count(cls, uri: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
         """Return the count of media files in the destination URI for a given table ID"""
         if uri is not None and uri.startswith('s3://'):
             from pixeltable.utils.s3_store import S3Store
 
             # If the URI is an S3 URI, use the S3Store to count media files
-            return S3Store(uri).count(tbl_id)
+            return S3Store(uri).count(tbl_id, tbl_version)
         # Check for "gs://" and Azure variants here
-        return MediaStore.get(uri).count(tbl_id)
+        return MediaStore.get(uri).count(tbl_id, tbl_version)
