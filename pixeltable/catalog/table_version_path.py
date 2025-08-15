@@ -184,17 +184,13 @@ class TableVersionPath:
         cols = self.columns()
         return {col.id: col for col in cols}
 
-    def get_column(self, name: str, include_bases: Optional[bool] = None) -> Optional[Column]:
+    def get_column(self, name: str) -> Optional[Column]:
         """Return the column with the given name, or None if not found"""
         self.refresh_cached_md()
         col = self._cached_tbl_version.cols_by_name.get(name)
         if col is not None:
             return col
-        elif (
-            include_bases is not False
-            and self.base is not None
-            and (include_bases or self._cached_tbl_version.include_base_columns)
-        ):
+        elif self.base is not None and self._cached_tbl_version.include_base_columns:
             return self.base.get_column(name)
         else:
             return None
@@ -210,7 +206,7 @@ class TableVersionPath:
         else:
             return None
 
-    def has_column(self, col: Column, include_bases: bool = True) -> bool:
+    def has_column(self, col: Column) -> bool:
         """Return True if this table has the given column."""
         assert col.tbl is not None
         self.refresh_cached_md()
@@ -222,7 +218,7 @@ class TableVersionPath:
         ):
             # the column is visible in this table version
             return True
-        elif self.base is not None and include_bases:
+        elif self.base is not None:
             return self.base.has_column(col)
         else:
             return False

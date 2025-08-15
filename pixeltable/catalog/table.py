@@ -1135,11 +1135,11 @@ class Table(SchemaObject):
         """Resolve a column parameter to a Column object"""
         col: Column = None
         if isinstance(column, str):
-            col = self._tbl_version_path.get_column(column, include_bases=True)
+            col = self._tbl_version_path.get_column(column)
             if col is None:
                 raise excs.Error(f'Column {column!r} unknown')
         elif isinstance(column, ColumnRef):
-            exists = self._tbl_version_path.has_column(column.col, include_bases=True)
+            exists = self._tbl_version_path.has_column(column.col)
             if not exists:
                 raise excs.Error(f'Unknown column: {column.col.qualified_name}')
             col = column.col
@@ -1510,14 +1510,14 @@ class Table(SchemaObject):
                 col_name: str
                 col: Column
                 if isinstance(column, str):
-                    col = self._tbl_version_path.get_column(column, include_bases=True)
+                    col = self._tbl_version_path.get_column(column)
                     if col is None:
                         raise excs.Error(f'Unknown column: {column!r}')
                     col_name = column
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col
-                    if not self._tbl_version_path.has_column(col, include_bases=True):
+                    if not self._tbl_version_path.has_column(col):
                         raise excs.Error(f'Unknown column: {col.name!r}')
                     col_name = col.name
                 if not col.is_computed:
