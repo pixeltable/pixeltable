@@ -7,12 +7,12 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-from botocore.exceptions import ClientError
-
 from pixeltable.utils.media_path import MediaPath
 from pixeltable.utils.s3 import S3ClientContainer
 
 if TYPE_CHECKING:
+    from botocore.exceptions import ClientError
+
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')

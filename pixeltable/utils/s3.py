@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import threading
 import urllib.parse
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-import boto3
-from botocore.exceptions import ClientError
+if TYPE_CHECKING:
+    from botocore.exceptions import ClientError
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -94,6 +94,7 @@ class S3ClientContainer:
     @classmethod
     def get_client_raw(cls, **kwargs: Any) -> Any:
         """Get a raw client without any locking"""
+        import boto3
         import botocore
 
         try:
@@ -117,6 +118,8 @@ class S3ClientContainer:
     def get_resource(self) -> Any:
         """Return the current S3 resource, creating it if needed"""
         if self.resource is None:
+            import boto3
+
             self.resource = boto3.resource('s3')
         return self.resource
 
