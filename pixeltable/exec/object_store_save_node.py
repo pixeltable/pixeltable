@@ -11,6 +11,7 @@ from uuid import UUID
 
 from pixeltable import exprs
 from pixeltable.env import Env
+from pixeltable.utils.gcs import GCSClientContainer
 from pixeltable.utils.media_destination import MediaDestination
 from pixeltable.utils.media_store import MediaStore, TempStore
 from pixeltable.utils.s3 import S3ClientContainer
@@ -107,6 +108,7 @@ class ObjectStoreSaveNode(ExecNode):
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
         # Ensure that the S3ClientContainer is initialized before using threading
         S3ClientContainer.get()
+        GCSClientContainer.get()
 
     @property
     def queued_work(self) -> int:
@@ -221,6 +223,7 @@ class ObjectStoreSaveNode(ExecNode):
             if (
                 destination is not None
                 and not destination.startswith('s3://')
+                and not destination.startswith('gs://')
                 and MediaStore.get(destination).resolve_url(url) is not None
             ):
                 # A local non-default destination was specified, and the url already points there

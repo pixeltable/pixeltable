@@ -15,6 +15,8 @@ from uuid import UUID
 from pixeltable import exceptions as excs, exprs
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.gcs import GCSClientContainer
+from pixeltable.utils.media_destination import MediaDestination
 from pixeltable.utils.media_store import TempStore
 from pixeltable.utils.s3 import S3ClientContainer
 
@@ -78,6 +80,7 @@ class CachePrefetchNode(ExecNode):
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
         # Ensure that the S3ClientContainer is initialized before using threading
         S3ClientContainer.get()
+        GCSClientContainer.get()
 
     @property
     def queued_work(self) -> int:
@@ -233,15 +236,7 @@ class CachePrefetchNode(ExecNode):
         tmp_path = TempStore.create_path(extension=extension)
         try:
             _logger.debug(f'Downloading {url} to {tmp_path}')
-            if parsed.scheme == 's3':
-                client = S3ClientContainer.get().get_client(for_write=False)
-                client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
-            elif parsed.scheme in ('http', 'https'):
-                with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
-                    data = resp.read()
-                    f.write(data)
-            else:
-                raise AssertionError(f'Unsupported URL scheme: {parsed.scheme}')
+            MediaDestination.download_media_object(url, tmp_path)
             _logger.debug(f'Downloaded {url} to {tmp_path}')
             return tmp_path, None
         except Exception as e:
