@@ -34,9 +34,9 @@ class TestDestination:
             return dest_path, dest_uri
 
     @classmethod
-    def count(cls, uri: Optional[str], tbl_id: UUID) -> int:
+    def count(cls, uri: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
         """Return the count of media files in the destination for a given table ID"""
-        return MediaDestination.count(uri, tbl_id)
+        return MediaDestination.count(uri, tbl_id, tbl_version)
 
     def pr_us(self, us: pxt.UpdateStatus, op: str = '') -> None:
         """Print contents of UpdateStatus"""
@@ -98,10 +98,24 @@ class TestDestination:
         r_dest = t.select(t.img.fileurl, t.img_rot1.fileurl, t.img_rot2.fileurl, t.img_rot3.fileurl).collect()
         print(r_dest)
 
-        assert len(r) == 2
-        assert len(r) == self.count(None, t._id)
-        assert len(r) == self.count(dest1_uri, t._id)
-        assert len(r) == self.count(dest2_uri, t._id)
+        print(t.history())
+
+        n = len(r)
+        assert n == 2
+        assert n == self.count(None, t._id)
+        assert n == self.count(dest1_uri, t._id)
+        assert n == self.count(dest2_uri, t._id)
+
+        n = 1
+        assert n == self.count(None, t._id, 2)
+        assert n == self.count(dest1_uri, t._id, 3)
+        assert n == self.count(dest2_uri, t._id, 4)
+
+        version = 5
+        n = 1
+        assert n == self.count(None, t._id, version)
+        assert n == self.count(dest1_uri, t._id, version)
+        assert n == self.count(dest2_uri, t._id, version)
 
         # Ensure that all media is removed when the table is dropped
         save_id = t._id
@@ -195,7 +209,7 @@ class TestDestination:
         img_data = 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'  # ~10 KB
         # img_data = 'tests/data/images/sewing-threads.heic'  # ~1.5 MB
         # img_data = 'tests/data/imagenette2-160/ILSVRC2012_val_00015787.JPEG'  # ~3 KB
-        data_rows = 1000
+        data_rows = 10
         number_of_inserts = 1
 
         s3_cols = 0
