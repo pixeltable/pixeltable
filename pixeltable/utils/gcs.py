@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import urllib.parse
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 # if TYPE_CHECKING:
 #    from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
@@ -86,7 +86,7 @@ class GCSClientContainer:
     @classmethod
     def get_client_raw(cls, **kwargs: Any) -> Any:
         """Get a raw client without any locking"""
-        from google.cloud import storage  # type: ignore[import-untyped]
+        from google.cloud import storage  # type: ignore[attr-defined]
 
         try:
             # Try to create client with default credentials
@@ -117,7 +117,7 @@ class GCSClientContainer:
         Each returned object includes the full set of prefixes.
         if return_uri is True, the full GCS URI is returned; otherwise, just the object key.
         """
-        from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
+        from google.api_core.exceptions import GoogleAPIError  # xtype: ignore[import-untyped]
 
         scheme, bucket_name, prefix = self.parse_uri(source_uri)
         assert scheme == 'gs'
@@ -146,8 +146,8 @@ class GCSClientContainer:
     @classmethod
     def handle_gcs_error(cls, e: Exception, bucket_name: str, operation: str = '', *, ignore_404: bool = False) -> None:
         """Handle GCS-specific errors and convert them to appropriate exceptions"""
-        from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
-        from google.cloud.exceptions import Forbidden, NotFound  # type: ignore[import-untyped]
+        from google.api_core.exceptions import GoogleAPIError  # xtype: ignore[import-untyped]
+        from google.cloud.exceptions import Forbidden, NotFound  # xtype: ignore[import-untyped]
 
         if isinstance(e, NotFound):
             if ignore_404:

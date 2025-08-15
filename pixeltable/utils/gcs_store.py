@@ -11,9 +11,8 @@ from pixeltable.utils.gcs import GCSClientContainer
 from pixeltable.utils.media_path import MediaPath
 
 if TYPE_CHECKING:
-    from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
-    from google.cloud.exceptions import Forbidden, NotFound  # type: ignore[import-untyped]
-
+    #    from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
+    #    from google.cloud.exceptions import Forbidden, NotFound  # type: ignore[import-untyped]
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
@@ -70,8 +69,8 @@ class GCSStore:
         Returns:
             str: The base URI if the GCS bucket exists and is accessible, None otherwise.
         """
-        from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
-        from google.cloud.exceptions import Forbidden, NotFound  # type: ignore[import-untyped]
+        from google.api_core.exceptions import GoogleAPIError  # xtype: ignore[import-untyped]
+        from google.cloud.exceptions import Forbidden, NotFound  # xtype: ignore[import-untyped]
 
         try:
             client = self.client()
@@ -101,7 +100,7 @@ class GCSStore:
 
     def copy_local_media_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
-        from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
+        from google.api_core.exceptions import GoogleAPIError  # xtype: ignore[import-untyped]
 
         new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
@@ -168,7 +167,7 @@ class GCSStore:
         Returns:
             Number of objects matching the criteria
         """
-        from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
+        from google.api_core.exceptions import GoogleAPIError  # xtype: ignore[import-untyped]
 
         assert tbl_id is not None
 
@@ -195,7 +194,7 @@ class GCSStore:
         Returns:
             Number of objects deleted
         """
-        from google.api_core.exceptions import GoogleAPIError  # type: ignore[import-untyped]
+        from google.api_core.exceptions import GoogleAPIError  # xtype: ignore[import-untyped]
 
         assert tbl_id is not None
 
