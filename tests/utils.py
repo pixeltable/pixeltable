@@ -3,6 +3,7 @@ import glob
 import json
 import os
 import random
+import shutil
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -471,6 +472,12 @@ def skip_test_if_not_installed(*packages: str) -> None:
     for package in packages:
         if not Env.get().is_installed_package(package):
             pytest.skip(f'Package `{package}` is not installed.')
+
+
+def skip_test_if_not_in_path(*binaries: str) -> None:
+    for binary in binaries:
+        if shutil.which(binary) is None:
+            pytest.skip(f'Binary `{binary}` is not in PATH.')
 
 
 def skip_test_if_no_client(client_name: str) -> None:
