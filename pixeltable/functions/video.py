@@ -7,10 +7,10 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-import PIL.Image
 import av
 import av.stream
 import numpy as np
+import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
@@ -287,6 +287,7 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
     return metadata
 
 
+@pxt.udf(is_method=True)
 def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image:
     """
     Extract a single frame from a video at a specific timestamp.

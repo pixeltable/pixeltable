@@ -290,6 +290,7 @@ class TestVideo:
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
     def test_get_clip(self, reset_db: None) -> None:
+        skip_test_if_not_in_path('ffmpeg')
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
         video_filepaths = get_video_files()
         t.insert({'video': p} for p in video_filepaths)
