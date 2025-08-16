@@ -370,3 +370,55 @@ class TestVideo:
 
         with pytest.raises(pxt.Error):
             t.add_computed_column(invalid3=t.video.get_frame(timestamp=-1.0))
+
+    def _verify_segments_playable(self, segments: list[str]) -> None:
+        verify_table = pxt.create_table('verify_segments', {'segment': pxt.Video}, media_validation='on_write')
+
+        for segment_path in segments:
+            verify_table.insert([{'segment': segment_path}])
+        result = verify_table.select(verify_table.segment).collect()
+        assert len(result) == len(segments)
+        pxt.drop_table('verify_segments')
+
+    def test_get_segments(self, reset_db: None) -> None:
+        skip_test_if_not_in_path('ffmpeg')
+        t = pxt.create_table('test_segments', {'video': pxt.Video})
+        t.insert([{'video': f} for f in get_video_files()])
+
+        for mode in ['fast', 'accurate']:
+            # single split point
+            result = t.select(segments_2=t.video.get_segments(split_points=[4.0], mode=mode)).collect()
+            segments_2 = result['segments_2'][0]
+            assert len(segments_2) == 2
+            self._verify_segments_playable(segments_2)
+
+            # split at midpoint
+            midpoint = t.video.get_metadata().streams[0].duration_seconds / 2
+            result = (
+                t.where(midpoint != None)
+                .select(segments_2=t.video.get_segments(split_points=[midpoint], mode=mode))
+                .collect()
+            )
+            segments_2 = result['segments_2'][0]
+            assert len(segments_2) == 2
+            self._verify_segments_playable(segments_2)
+
+            result = t.select(timed_segments=t.video.get_segments(segment_duration=3.0, mode=mode)).collect()
+            segments = result['timed_segments'][0]
+            assert len(segments) >= 1
+            self._verify_segments_playable(segments)
+
+        with pytest.raises(pxt.Error, match='All split_points must be positive'):
+            t.select(invalid=t.video.get_segments(split_points=[-1.0])).collect()
+
+        with pytest.raises(pxt.Error, match='split_points must be in ascending order'):
+            t.select(invalid=t.video.get_segments(split_points=[5.0, 2.0])).collect()
+
+        with pytest.raises(pxt.Error, match='cannot specify both split_points and segment_duration'):
+            t.select(invalid=t.video.get_segments(split_points=[2.0], segment_duration=3.0)).collect()
+
+        with pytest.raises(pxt.Error, match='must specify either split_points or segment_duration'):
+            t.select(invalid=t.video.get_segments()).collect()
+
+        with pytest.raises(pxt.Error, match='segment_duration must be positive'):
+            t.select(invalid=t.video.get_segments(segment_duration=0.0)).collect()

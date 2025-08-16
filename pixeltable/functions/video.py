@@ -2,10 +2,11 @@
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
 """
 
+import glob
 import pathlib
 import shutil
 import subprocess
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import av
 import av.stream
@@ -339,6 +340,124 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image:
         if output_path.exists():
             output_path.unlink()
         raise pxt.Error(f'get_frame(): failed to extract frame: {e}') from e
+
+
+@pxt.udf(is_method=True)
+def get_segments(
+    video: pxt.Video,
+    *,
+    split_points: list[float] | None = None,
+    segment_duration: float | None = None,
+    mode: Literal['fast', 'accurate'] = 'fast',
+) -> list[str | None]:
+    """
+    Split a video into segments at specified time points.
+
+    Args:
+        video: Input video file to segment
+        split_points: List of timestamps (in seconds) where to split the video. If specified, must be in ascending order
+            and all values must be positive.
+        segment_duration: If specified, all segments will have this duration (in seconds), except for the last segment.
+        mode: If `'fast'`, splits on existing keyframes, which is fast but will not exactly match the requested split
+            points/duration. If `'accurate'`, splits at the exact specified times, but requires re-encoding.
+
+    Returns:
+        List of file paths for the generated video segments. For `split_points`, the number of segments
+        will be `len(split_points) + 1` (includes segment after last split point). For split points that lie beyond the
+        end of the video, the returned list will contain `None` in the corresponding position. For `segment_duration`, the number of
+        segments will be `ceil(video_duration / segment_duration)`.
+
+    Examples:
+        Split a video at 1 minute intervals, returning four segments: [0-60s], [60-120s], [120-180s], [180s-end]
+
+        >>> tbl.select(segment_paths=tbl.video.get_segments([60.0, 120.0, 180.0])).collect()
+
+        Split video into two parts at the midpoint:
+
+        >>> duration = tbl.video.get_metadata()streams[0].duration_seconds
+        >>> tbl.select(segment_paths=tbl.video.get_segments([duration / 2])).collect()
+    """
+    if split_points is None and segment_duration is None:
+        raise pxt.Error('get_segments(): must specify either split_points or segment_duration')
+    if split_points is not None and segment_duration is not None:
+        raise pxt.Error('get_segments(): cannot specify both split_points and segment_duration')
+    if split_points is not None:
+        if len(split_points) == 0:
+            raise pxt.Error('split_points cannot be empty')
+        for split_point in split_points:
+            if not isinstance(split_point, (int, float)):
+                raise pxt.Error(f'invalid split point: {split_point}')
+        if any(t <= 0 for t in split_points):
+            raise pxt.Error('All split_points must be positive')
+        if split_points != sorted(split_points):
+            raise pxt.Error('split_points must be in ascending order')
+    if segment_duration is not None and segment_duration <= 0:
+        raise pxt.Error('segment_duration must be positive')
+
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_segments().')
+
+    base_path = TempStore.create_path(extension='')
+    output_pattern = str(base_path) + '_segment_%04d.mp4'
+
+    segmentation_args: list[str]
+    if split_points is not None:
+        segmentation_args = ['-segment_times', ','.join(str(t) for t in split_points)]
+    else:
+        assert segment_duration is not None
+        segmentation_args = ['-segment_time', str(segment_duration)]
+
+    mode_args: list[str]
+    if mode == 'fast':
+        mode_args = ['-c', 'copy']
+    else:
+        assert mode == 'accurate'
+        mode_args = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'copy']
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-f',
+        'segment',
+        *segmentation_args,
+        *mode_args,
+        '-map',
+        '0',
+        '-reset_timestamps',  # each segment starts at 0
+        '1',
+        '-y',  # Overwrite output files
+        '-loglevel',
+        'error',
+        output_pattern,
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            check=True,
+        )
+
+        pattern = str(base_path) + '_segment_*.mp4'
+        segment_files = sorted(glob.glob(pattern))
+        if len(segment_files) == 0:
+            raise pxt.Error('No segment files were created')
+        if segment_duration is not None or len(segment_files) == len(split_points) + 1:
+            return segment_files
+        # some split points lie beyond the end of the video
+        return [*segment_files, *([None] * (len(split_points) + 1 - len(segment_files)))]
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f'ffmpeg failed with return code {e.returncode}'
+        if e.stderr:
+            error_msg += f': {e.stderr.strip()}'
+        raise pxt.Error(error_msg) from e
+
+    except subprocess.TimeoutExpired:
+        raise pxt.Error(f'ffmpeg timed out for command: {" ".join(cmd)}') from None
 
 
 @pxt.udf(is_method=True)
