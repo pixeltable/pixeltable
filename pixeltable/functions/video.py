@@ -310,6 +310,10 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image:
     """
     if timestamp < 0:
         raise ValueError("'timestamp' must be non-negative")
+
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_frame().')
+
     output_path = TempStore.create_path(extension='.png')
     cmd = [
         'ffmpeg',
