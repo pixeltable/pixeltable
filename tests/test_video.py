@@ -7,7 +7,13 @@ import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
 
-from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, validate_update_status
+from .utils import (
+    get_video_files,
+    reload_catalog,
+    skip_test_if_not_in_path,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 class TestVideo:
@@ -322,3 +328,44 @@ class TestVideo:
 
         with pytest.raises(pxt.Error, match='end_time and duration cannot both be specified'):
             _ = t.select(invalid_clip=t.video.get_clip(start_time=10.0, end_time=20.0, duration=10.0)).collect()
+
+    def test_get_frame(self, reset_db: None) -> None:
+        skip_test_if_not_in_path('ffmpeg')
+        video_filepaths = get_video_files()
+        t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
+
+        status = t.add_computed_column(frame_at_1s=t.video.get_frame(timestamp=1.0))
+        assert status.num_excs == 0
+        status = t.add_computed_column(
+            frame_at_minus_1s=t.video.get_frame(timestamp=t.video.get_metadata().streams[0].duration_seconds - 1.0)
+        )
+        assert status.num_excs == 0
+        _ = t.select(t.video.get_metadata()).collect()
+        result = t.select(
+            width=t.video.get_metadata().streams[0].width,
+            height=t.video.get_metadata().streams[0].height,
+            at_1s_width=t.frame_at_1s.width,
+            at_1s_height=t.frame_at_1s.height,
+        ).collect()
+        assert len(result) == len(video_filepaths)
+        result_df = result.to_pandas()
+        assert result_df['width'].eq(result_df['at_1s_width']).all()
+        assert result_df['height'].eq(result_df['at_1s_height']).all()
+
+        result = (
+            t.where(t.video.get_metadata().streams[0].duration_seconds != None)
+            .select(
+                width=t.video.get_metadata().streams[0].width,
+                height=t.video.get_metadata().streams[0].height,
+                at_minus_1s_width=t.frame_at_minus_1s.width,
+                at_minus_1s_height=t.frame_at_minus_1s.height,
+            )
+            .collect()
+        )
+        result_df = result.to_pandas()
+        assert result_df['width'].eq(result_df['at_minus_1s_width']).all()
+        assert result_df['height'].eq(result_df['at_minus_1s_height']).all()
+
+        with pytest.raises(pxt.Error):
+            t.add_computed_column(invalid3=t.video.get_frame(timestamp=-1.0))

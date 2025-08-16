@@ -287,6 +287,55 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
     return metadata
 
 
+def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image:
+    """
+    Extract a single frame from a video at a specific timestamp.
+
+    Args:
+        video: The video to extract frame from.
+        timestamp: Extract frame at this timestamp (in seconds).
+
+    Returns:
+        The extracted frame as a PIL Image.
+
+    Examples:
+        Extract the first frame from each video in the `video` column of the table `tbl`:
+
+        >>> tbl.select(tbl.video.get_frame(0.0)).collect()
+
+        Extract a frame close to the end of each video in the `video` column of the table `tbl`:
+
+        >>> tbl.select(tbl.video.get_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
+    """
+    if timestamp < 0:
+        raise ValueError("'timestamp' must be non-negative")
+    output_path = TempStore.create_path(extension='.png')
+    cmd = [
+        'ffmpeg',
+        '-ss',
+        str(timestamp),
+        '-i',
+        str(video),
+        '-vframes',
+        '1',
+        '-y',  # Overwrite output file
+        str(output_path),
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+        if result.returncode != 0:
+            raise pxt.Error(f'get_frame(): ffmpeg failed with error: {result.stderr}')
+        if not output_path.exists():
+            raise pxt.Error('get_frame(): ffmpeg did not create output file')
+        return PIL.Image.open(output_path)
+    except Exception as e:
+        if output_path.exists():
+            output_path.unlink()
+        raise pxt.Error(f'get_frame(): failed to extract frame: {e}') from e
+
+
 @pxt.udf(is_method=True)
 def get_clip(
     video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
