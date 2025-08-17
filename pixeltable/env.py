@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import datetime
 import glob
 import http.server
@@ -27,7 +28,6 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
-from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -234,6 +234,18 @@ class Env:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
 
+    def is_interactive(self) -> bool:
+        """Return True if running in an interactive environment."""
+        if getattr(builtins, '__IPYTHON__', False):
+            return True
+        # Python interactive shell
+        if hasattr(sys, 'ps1'):
+            return True
+        # for script execution, __main__ has __file__
+        import __main__
+
+        return not hasattr(__main__, '__file__')
+
     @contextmanager
     def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
         """
@@ -374,7 +386,6 @@ class Env:
         self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
         if config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
@@ -800,12 +811,19 @@ class Env:
         dependency, we install it programmatically here. This should cause no problems, since the model packages
         have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
         """
+        import contextlib
+        import io
+
         import spacy
         from spacy.cli.download import download
 
         spacy_model = 'en_core_web_sm'
         self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
-        download(spacy_model)
+
+        # prevent download() from hanging due to its progress bar, which conflicts with our use of Rich Progress
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            download(spacy_model)
+
         self._logger.info(f'Loading spaCy model: {spacy_model}')
         try:
             self._spacy_nlp = spacy.load(spacy_model)

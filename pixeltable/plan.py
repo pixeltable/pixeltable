@@ -394,15 +394,7 @@ class Planner:
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
 
-        plan.set_ctx(
-            exec.ExecContext(
-                row_builder,
-                batch_size=0,
-                show_pbar=True,
-                num_computed_exprs=len(computed_exprs),
-                ignore_errors=ignore_errors,
-            )
-        )
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         return plan
 
     @classmethod
@@ -425,12 +417,7 @@ class Planner:
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
-            )
-        )
-        plan.ctx.num_rows = 0  # Unknown
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
 
         return plan
 
@@ -498,7 +485,6 @@ class Planner:
         # update row builder with column information
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
@@ -593,7 +579,7 @@ class Planner:
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        ctx = exec.ExecContext(row_builder, num_computed_exprs=len(recomputed_exprs))
+        ctx = exec.ExecContext(row_builder)
         # we're returning everything to the user, so we might as well do it in a single batch
         ctx.batch_size = 0
         plan.set_ctx(ctx)
@@ -646,7 +632,7 @@ class Planner:
             ignore_errors=True,
             exact_version_only=view.get_bases(),
         )
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
+        # plan.ctx.num_computed_exprs = len(recomputed_exprs)
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
@@ -1035,9 +1021,6 @@ class Planner:
             row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True
         )
         plan.ctx.batch_size = 16
-        plan.ctx.show_pbar = True
+        plan.ctx.show_progress = True
         plan.ctx.ignore_errors = True
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
-
         return plan

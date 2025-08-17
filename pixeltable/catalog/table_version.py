@@ -697,7 +697,6 @@ class TableVersion:
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
 
-        computed_values = 0
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
@@ -728,9 +727,7 @@ class TableVersion:
             from pixeltable.plan import Planner
 
             plan = Planner.create_add_column_plan(self.path, col)
-            plan.ctx.num_rows = row_count
             try:
-                plan.open()
                 try:
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql.exc.DBAPIError as exc:
@@ -739,7 +736,6 @@ class TableVersion:
                 if excs_per_col > 0:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
-                computed_values += plan.ctx.num_computed_exprs * row_count
             finally:
                 # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
                 def cleanup_on_error() -> None:
@@ -756,7 +752,6 @@ class TableVersion:
 
                 # Run cleanup only if there has been an exception; otherwise, skip cleanup.
                 run_cleanup_on_exception(cleanup_on_error)
-                plan.close()
 
         pxt.catalog.Catalog.get().record_column_dependencies(self)
 
@@ -764,9 +759,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(
-            upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
-        )  # add_columns
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
         return UpdateStatus(
             cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
@@ -974,7 +967,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1092,7 +1084,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1105,16 +1096,13 @@ class TableVersion:
         base_versions: list[Optional[int]],
         timestamp: float,
         cascade: bool,
-        show_progress: bool = True,
     ) -> UpdateStatus:
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.version += 1
             self.created_at = timestamp
-            cols_with_excs, row_counts = self.store_tbl.insert_rows(
-                plan, v_min=self.version, show_progress=show_progress
-            )
+            cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
