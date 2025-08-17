@@ -2,11 +2,10 @@
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
 """
 
-import glob
 import pathlib
 import shutil
 import subprocess
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import av
 import av.stream
@@ -380,7 +379,7 @@ def _ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, durat
 
 @pxt.udf(is_method=True)
 def get_clip(
-        video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
+    video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
 ) -> pxt.Video | None:
     """
     Extract a clip from a video, specified by start_time and either end_time or duration (in seconds).
@@ -435,7 +434,7 @@ def get_clip(
         # check for indications of errors in stderr
         stderr_output = result.stderr.strip() if result.stderr is not None else ''
         if len(stderr_output) > 0 and any(
-                error_word in stderr_output.lower() for error_word in ['error', 'failed', 'invalid']
+            error_word in stderr_output.lower() for error_word in ['error', 'failed', 'invalid']
         ):
             raise pxt.Error(f'ffmpeg reported errors: {stderr_output}')
 
