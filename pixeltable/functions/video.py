@@ -180,7 +180,7 @@ def get_metadata(video: pxt.Video) -> dict:
     Gets various metadata associated with a video file and returns it as a dictionary.
 
     Args:
-        video: The video to get metadata for.
+        video: The video for which to get metadata.
 
     Returns:
         A `dict` such as the following:
@@ -306,6 +306,10 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     """
     Extract a single frame from a video at a specific timestamp.
 
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
     Args:
         video: The video to extract frame from.
         timestamp: Extract frame at this timestamp (in seconds).
@@ -383,6 +387,10 @@ def get_clip(
 ) -> pxt.Video | None:
     """
     Extract a clip from a video, specified by start_time and either end_time or duration (in seconds).
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
 
     Args:
         video: Input video file
@@ -505,7 +513,8 @@ def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
                 check=True,
             )
             result.append(segment_path)
-            start_time += duration
+            segment_duration = _get_video_duration(segment_path)
+            start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
 
         return result
 
@@ -516,6 +525,80 @@ def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
         raise pxt.Error(error_msg) from e
     except subprocess.TimeoutExpired:
         raise pxt.Error(f'ffmpeg timed out for command: {" ".join(cmd)}') from None
+
+
+@pxt.udf(is_method=True)
+def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
+    """
+    Merge multiple videos into a single video.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        videos: List of videos to merge.
+
+    Returns:
+        A new video containing the merged videos.
+    """
+    if len(videos) == 0:
+        raise pxt.Error('concat_videos(): empty argument list')
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_frame().')
+
+    # ffmpeg -f concat needs an input file list
+    filelist_path = TempStore.create_path(extension='.txt')
+    with filelist_path.open('w') as f:
+        for video in videos:
+            f.write(f"file '{video}'\n")
+
+    output_path = TempStore.create_path(extension='.png')
+
+    try:
+        # we first try this without re-encoding, which is fast but fails if the input videos have different codecs
+        cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
+        try:
+            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return str(output_path)
+        except subprocess.CalledProcessError:
+            # try again with re-encoding
+            pass
+        except Exception as e:
+            if output_path.exists():
+                output_path.unlink()
+            raise pxt.Error(f'concat_videos(): commandline\n{" ".join(cmd)}\nfailed with: {e}') from e
+
+        # copy with re-encoding
+        cmd = [
+            'ffmpeg',
+            '-f',
+            'concat',
+            '-safe',
+            '0',
+            '-i',
+            str(filelist_path),
+            '-c:v',
+            'libx264',
+            '-c:a',
+            'aac',
+            str(output_path),
+        ]
+        try:
+            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return str(output_path)
+        except subprocess.CalledProcessError as e:
+            error_msg = f'ffmpeg failed with return code {e.returncode}'
+            if e.stderr:
+                error_msg += f': {e.stderr.strip()}'
+            raise pxt.Error(error_msg) from e
+        except Exception as e:
+            if output_path.exists():
+                output_path.unlink()
+            raise pxt.Error(f'concat_videos(): commandline\n{" ".join(cmd)}\nfailed with: {e}') from e
+
+    finally:
+        filelist_path.unlink()
 
 
 __all__ = local_public_names(__name__)
