@@ -288,8 +288,22 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
     return metadata
 
 
+def _get_video_duration(path: str) -> float | None:
+    """Return video duration in seconds."""
+    try:
+        with av.open(path) as container:
+            if not container.streams.video:
+                return None
+            video_stream = container.streams.video[0]
+            if video_stream.duration is None or video_stream.time_base is None:
+                return None
+            return float(video_stream.duration * video_stream.time_base)
+    except Exception:
+        return None
+
+
 @pxt.udf(is_method=True)
-def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image:
+def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     """
     Extract a single frame from a video at a specific timestamp.
 
@@ -334,7 +348,7 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image:
         if result.returncode != 0:
             raise pxt.Error(f'get_frame(): ffmpeg failed with error: {result.stderr}')
         if not output_path.exists():
-            raise pxt.Error('get_frame(): ffmpeg did not create output file')
+            return None
         return PIL.Image.open(output_path)
     except Exception as e:
         if output_path.exists():
@@ -342,13 +356,175 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image:
         raise pxt.Error(f'get_frame(): failed to extract frame: {e}') from e
 
 
+def _ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, duration: float | None = None) -> list[str]:
+    # the order of arguments is critical: -ss <start> -t <duration> -i <input>
+    cmd = ['ffmpeg', '-ss', str(start_time)]
+    if duration is not None:
+        cmd.extend(['-t', str(duration)])
+    cmd.extend(
+        [
+            '-i',  # Input file
+            input_path,
+            '-y',  # Overwrite output file
+            '-loglevel',
+            'error',  # Only show errors
+            '-c',
+            'copy',  # Stream copy (no re-encoding)
+            '-map',
+            '0',  # Copy all streams from input
+            output_path,
+        ]
+    )
+    return cmd
+
+
 @pxt.udf(is_method=True)
-def get_segments(
-    video: pxt.Video,
-    *,
-    split_points: list[float] | None = None,
-    segment_duration: float | None = None,
-    mode: Literal['fast', 'accurate'] = 'fast',
+def get_clip(
+        video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
+) -> pxt.Video | None:
+    """
+    Extract a clip from a video, specified by start_time and either end_time or duration (in seconds).
+
+    Args:
+        video: Input video file
+        start_time: Start time in seconds
+        end_time: End time in seconds (if None, goes to end of video)
+        duration: Duration of the clip in seconds (if None, goes to end of video)
+
+    Returns:
+        New video containing only the specified time range or None if start_time is beyond the end of the video.
+    """
+    if start_time < 0:
+        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
+    if end_time is not None and end_time <= start_time:
+        raise pxt.Error(f'end_time ({end_time}) must be greater than start_time ({start_time})')
+    if duration is not None and duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+    if end_time is not None and duration is not None:
+        raise pxt.Error('end_time and duration cannot both be specified')
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_clip().')
+
+    video_duration = _get_video_duration(video)
+    if video_duration is not None and start_time > video_duration:
+        return None
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    if end_time is not None:
+        duration = end_time - start_time
+    cmd = _ffmpeg_clip_cmd(str(video), output_path, start_time, duration)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            check=True,
+        )
+
+        # Check if output file was created
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            error_msg = 'ffmpeg failed to create output file'
+            if result.stderr is not None:
+                error_msg += f'. ffmpeg stderr: {result.stderr.strip()}'
+            raise pxt.Error(error_msg)
+
+        # check for indications of errors in stderr
+        stderr_output = result.stderr.strip() if result.stderr is not None else ''
+        if len(stderr_output) > 0 and any(
+                error_word in stderr_output.lower() for error_word in ['error', 'failed', 'invalid']
+        ):
+            raise pxt.Error(f'ffmpeg reported errors: {stderr_output}')
+
+        return output_path
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f'ffmpeg failed with return code {e.returncode}'
+        if e.stderr is not None:
+            error_msg += f': {e.stderr.strip()}'
+        raise pxt.Error(error_msg) from e
+
+    except subprocess.TimeoutExpired:
+        raise pxt.Error('ffmpeg timed out for command line {" ".join(cmd)}') from None
+
+
+@pxt.udf(is_method=True)
+def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
+    """
+    Split a video into fixed-size segments.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video file to segment
+        duration: Approximate duration of each segment (in seconds).
+
+    Returns:
+        List of file paths for the generated video segments.
+
+    Raises:
+        pxt.Error: If the video is missing timing information.
+
+    Examples:
+        Split a video at 1 minute intervals
+
+        >>> tbl.select(segment_paths=tbl.video.get_segments(duration=60)).collect()
+
+        Split video into two parts at the midpoint:
+
+        >>> duration = tbl.video.get_metadata()streams[0].duration_seconds
+        >>> tbl.select(segment_paths=tbl.video.get_segments(duration=duration / 2 + 1)).collect()
+    """
+    if duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_segments().')
+    video_duration = _get_video_duration(video)
+    if video_duration is None:
+        raise pxt.Error(f'get_segments(): could not determine duration of video {video}')
+
+    base_path = TempStore.create_path(extension='')
+
+    try:
+        start_time = 0.0
+        result: list[str] = []
+        while start_time < video_duration:
+            segment_path = f'{base_path}_segment_{len(result)}.mp4'
+            cmd = _ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
+
+            _ = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout
+                check=True,
+            )
+            result.append(segment_path)
+            start_time += duration
+
+        return result
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f'ffmpeg failed with return code {e.returncode}'
+        if e.stderr:
+            error_msg += f': {e.stderr.strip()}'
+        raise pxt.Error(error_msg) from e
+    except subprocess.TimeoutExpired:
+        raise pxt.Error(f'ffmpeg timed out for command: {" ".join(cmd)}') from None
+
+
+@pxt.udf(is_method=True)
+def get_segments_obsolete(
+        video: pxt.Video,
+        *,
+        split_points: list[float] | None = None,
+        segment_duration: float | None = None,
+        mode: Literal['fast', 'accurate'] = 'fast',
 ) -> list[str | None]:
     """
     Split a video into segments at specified time points.
@@ -364,8 +540,8 @@ def get_segments(
     Returns:
         List of file paths for the generated video segments. For `split_points`, the number of segments
         will be `len(split_points) + 1` (includes segment after last split point). For split points that lie beyond the
-        end of the video, the returned list will contain `None` in the corresponding position. For `segment_duration`, the number of
-        segments will be `ceil(video_duration / segment_duration)`.
+        end of the video, the returned list will contain `None` in the corresponding position. For `segment_duration`,
+        the number of segments will be `ceil(video_duration / segment_duration)`.
 
     Examples:
         Split a video at 1 minute intervals, returning four segments: [0-60s], [60-120s], [120-180s], [180s-end]
@@ -401,8 +577,10 @@ def get_segments(
     output_pattern = str(base_path) + '_segment_%04d.mp4'
 
     segmentation_args: list[str]
+    split_points_str: str | None = None
     if split_points is not None:
-        segmentation_args = ['-segment_times', ','.join(str(t) for t in split_points)]
+        split_points_str = ','.join(str(t) for t in split_points)
+        segmentation_args = ['-segment_times', split_points_str]
     else:
         assert segment_duration is not None
         segmentation_args = ['-segment_time', str(segment_duration)]
@@ -412,7 +590,32 @@ def get_segments(
         mode_args = ['-c', 'copy']
     else:
         assert mode == 'accurate'
-        mode_args = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'copy']
+        if split_points is not None:
+            mode_args = [
+                '-force_key_frames',
+                split_points_str,
+                '-c:v',
+                'libx264',
+                '-preset',
+                'veryfast',
+                '-crf',
+                '23',
+                '-c:a',
+                'copy',
+            ]
+        else:
+            mode_args = [
+                '-force_key_frames',
+                f'expr:gte(t,n_forced*{segment_duration})',
+                '-c:v',
+                'libx264',
+                '-preset',
+                'veryfast',
+                '-crf',
+                '23',
+                '-c:a',
+                'copy',
+            ]
 
     cmd = [
         'ffmpeg',
@@ -433,7 +636,7 @@ def get_segments(
     ]
 
     try:
-        result = subprocess.run(
+        _ = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
@@ -458,95 +661,6 @@ def get_segments(
 
     except subprocess.TimeoutExpired:
         raise pxt.Error(f'ffmpeg timed out for command: {" ".join(cmd)}') from None
-
-
-@pxt.udf(is_method=True)
-def get_clip(
-    video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
-) -> pxt.Video:
-    """
-    Extract a clip from a video, specified by start_time and either end_time or duration (in seconds).
-
-    Args:
-        video: Input video file
-        start_time: Start time in seconds
-        end_time: End time in seconds (if None, goes to end of video)
-        duration: Duration of the clip in seconds (if None, goes to end of video)
-
-    Returns:
-        New video containing only the specified time range
-    """
-    if start_time < 0:
-        raise pxt.Error(f'start_time must be non-negative, got {start_time}')
-    if end_time is not None and end_time <= start_time:
-        raise pxt.Error(f'end_time ({end_time}) must be greater than start_time ({start_time})')
-    if duration is not None and duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
-    if end_time is not None and duration is not None:
-        raise pxt.Error('end_time and duration cannot both be specified')
-
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_clip().')
-
-    output_path = str(TempStore.create_path(extension='.mp4'))
-
-    # the order of arguments is critical: -ss <start> -t <duration> -i <input>
-    cmd = ['ffmpeg', '-ss', str(start_time)]
-    if end_time is not None:
-        duration = end_time - start_time
-    if duration is not None:
-        cmd.extend(['-t', str(duration)])  # Use -t for duration instead of -to
-
-    cmd.extend(
-        [
-            '-i',  # Input file
-            str(video),
-            '-y',  # Overwrite output file
-            '-loglevel',
-            'error',  # Only show errors
-            '-c',
-            'copy',  # Stream copy (no re-encoding)
-            '-map',
-            '0',  # Copy all streams from input
-        ]
-    )
-
-    cmd.append(output_path)
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout
-            check=True,
-        )
-
-        # Check if output file was created
-        output_file = pathlib.Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            error_msg = 'ffmpeg failed to create output file'
-            if result.stderr is not None:
-                error_msg += f'. ffmpeg stderr: {result.stderr.strip()}'
-            raise pxt.Error(error_msg)
-
-        # check for indications of errors in stderr
-        stderr_output = result.stderr.strip() if result.stderr is not None else ''
-        if len(stderr_output) > 0 and any(
-            error_word in stderr_output.lower() for error_word in ['error', 'failed', 'invalid']
-        ):
-            raise pxt.Error(f'ffmpeg reported errors: {stderr_output}')
-
-        return output_path
-
-    except subprocess.CalledProcessError as e:
-        error_msg = f'ffmpeg failed with return code {e.returncode}'
-        if e.stderr is not None:
-            error_msg += f': {e.stderr.strip()}'
-        raise pxt.Error(error_msg) from e
-
-    except subprocess.TimeoutExpired:
-        raise pxt.Error('ffmpeg timed out for command line {" ".join(cmd)}') from None
 
 
 __all__ = local_public_names(__name__)
