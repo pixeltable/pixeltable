@@ -449,4 +449,138 @@ class TestVideo:
             u.v3.get_metadata().streams[0].duration_seconds,
             u.concat.get_metadata().streams[0].duration_seconds,
         ).collect()
-        pass
+        # Verify all videos were concatenated
+        durations = res.to_pandas().iloc[0]
+        concat_duration = durations.iloc[3]
+        assert concat_duration is not None
+        
+        # For videos without duration metadata in streams, use ffprobe to get actual duration
+        import subprocess
+        total_input_duration = 0
+        for i, video_path in enumerate(video_filepaths):
+            stream_duration = durations.iloc[i]
+            if stream_duration is not None:
+                total_input_duration += stream_duration
+            else:
+                # Fallback to ffprobe for videos without metadata
+                probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                            '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
+                probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+                if probe_result.stdout.strip():
+                    total_input_duration += float(probe_result.stdout.strip())
+        
+        # Allow small difference due to encoding (up to 1 second)
+        assert abs(concat_duration - total_input_duration) < 1.0
+
+    def _create_test_video(
+        self, output_path: str, duration: float = 1.0, size: str = '640x360',
+        fps: int = 25, has_audio: bool = True, codec: str = 'libx264',
+        pix_fmt: str = 'yuv420p'
+    ) -> None:
+        """Helper to create test videos with specific properties using ffmpeg."""
+        import subprocess
+        cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
+        if has_audio:
+            cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
+        cmd.extend(['-c:v', codec, '-pix_fmt', pix_fmt])
+        if has_audio:
+            cmd.extend(['-c:a', 'aac'])
+        cmd.extend(['-y', output_path])
+        subprocess.run(cmd, capture_output=True, check=True)
+
+    def test_concat_mixed_audio(self, reset_db: None) -> None:
+        """Test concatenating videos with mixed audio presence."""
+        skip_test_if_not_in_path('ffmpeg')
+        from pixeltable.functions.video import concat_videos
+        import tempfile
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test videos
+            video_no_audio = os.path.join(tmpdir, 'no_audio.mp4')
+            video_with_audio = os.path.join(tmpdir, 'with_audio.mp4')
+            self._create_test_video(video_no_audio, duration=1.0, has_audio=False)
+            self._create_test_video(video_with_audio, duration=1.5, has_audio=True)
+
+            t = pxt.create_table('test_mixed_audio', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+            t.insert([{'v1': video_no_audio, 'v2': video_with_audio, 'v3': video_no_audio}])
+            
+            # Should handle mixed audio gracefully
+            status = t.add_computed_column(
+                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+            )
+            assert status.num_excs == 0
+            
+            # Verify duration
+            res = t.select(
+                t.concat.get_metadata().streams[0].duration_seconds
+            ).collect()
+            concat_duration = res.to_pandas().iloc[0, 0]
+            # 1.0 + 1.5 + 1.0 = 3.5 seconds expected
+            assert abs(concat_duration - 3.5) < 0.5
+
+    def test_concat_resolution_mismatch(self, reset_db: None) -> None:
+        """Test concatenating videos with different resolutions."""
+        skip_test_if_not_in_path('ffmpeg')
+        from pixeltable.functions.video import concat_videos
+        import tempfile
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create videos with different resolutions
+            video_low = os.path.join(tmpdir, 'low_res.mp4')
+            video_high = os.path.join(tmpdir, 'high_res.mp4')
+            video_med = os.path.join(tmpdir, 'med_res.mp4')
+            self._create_test_video(video_low, duration=0.5, size='176x144', has_audio=False)
+            self._create_test_video(video_high, duration=0.5, size='1920x1080', has_audio=False)
+            self._create_test_video(video_med, duration=0.5, size='640x360', has_audio=False)
+
+            t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+            t.insert([{'v1': video_low, 'v2': video_high, 'v3': video_med}])
+            
+            # Should handle different resolutions with re-encoding
+            status = t.add_computed_column(
+                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+            )
+            assert status.num_excs == 0
+            
+            # Verify we got output
+            res = t.select(t.concat).collect()
+            assert len(res) == 1
+            concat_path = res.to_pandas().iloc[0, 0]
+            assert concat_path is not None
+
+    def test_concat_edge_cases(self, reset_db: None) -> None:
+        """Test edge cases like very short videos and different pixel formats."""
+        skip_test_if_not_in_path('ffmpeg')
+        from pixeltable.functions.video import concat_videos
+        import tempfile
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create very short video
+            video_short = os.path.join(tmpdir, 'very_short.mp4')
+            self._create_test_video(video_short, duration=0.2, has_audio=False)
+            
+            # Create video with different pixel format
+            video_yuv422 = os.path.join(tmpdir, 'yuv422.mp4')
+            self._create_test_video(video_yuv422, duration=0.5, pix_fmt='yuv422p', has_audio=False)
+            
+            # Create normal video
+            video_normal = os.path.join(tmpdir, 'normal.mp4')
+            self._create_test_video(video_normal, duration=0.3, has_audio=False)
+
+            t = pxt.create_table('test_edge_cases', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+            t.insert([{'v1': video_short, 'v2': video_yuv422, 'v3': video_normal}])
+            
+            # Should handle different pixel formats and short durations
+            status = t.add_computed_column(
+                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+            )
+            assert status.num_excs == 0
+            
+            # Verify we got output
+            res = t.select(t.concat).collect()
+            assert len(res) == 1
+            concat_path = res.to_pandas().iloc[0, 0]
+            assert concat_path is not None
