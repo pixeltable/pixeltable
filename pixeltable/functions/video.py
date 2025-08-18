@@ -498,9 +498,10 @@ def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
     base_path = TempStore.create_path(extension='')
 
     # we extract consecutive clips instead of running ffmpeg -f segment, which is inexplicably much slower
+    start_time = 0.0
+    result: list[str] = []
+    has_error = False
     try:
-        start_time = 0.0
-        result: list[str] = []
         while start_time < video_duration:
             segment_path = f'{base_path}_segment_{len(result)}.mp4'
             cmd = _ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
@@ -512,19 +513,29 @@ def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
                 timeout=300,  # 5 minute timeout
                 check=True,
             )
-            result.append(segment_path)
             segment_duration = _get_video_duration(segment_path)
+            if segment_duration == 0.0:
+                # we're done
+                pathlib.Path(segment_path).unlink()
+                return result
+            result.append(segment_path)
             start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
 
         return result
 
     except subprocess.CalledProcessError as e:
+        has_error = True
         error_msg = f'ffmpeg failed with return code {e.returncode}'
         if e.stderr:
             error_msg += f': {e.stderr.strip()}'
         raise pxt.Error(error_msg) from e
     except subprocess.TimeoutExpired:
+        has_error = True
         raise pxt.Error(f'ffmpeg timed out for command: {" ".join(cmd)}') from None
+    finally:
+        if has_error:
+            for segment_path in result:
+                pathlib.Path(segment_path).unlink()
 
 
 @pxt.udf(is_method=True)
@@ -553,7 +564,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         for video in videos:
             f.write(f"file '{video}'\n")
 
-    output_path = TempStore.create_path(extension='.png')
+    output_path = TempStore.create_path(extension='.mp4')
 
     try:
         # we first try this without re-encoding, which is fast but fails if the input videos have different codecs
@@ -564,10 +575,6 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         except subprocess.CalledProcessError:
             # try again with re-encoding
             pass
-        except Exception as e:
-            if output_path.exists():
-                output_path.unlink()
-            raise pxt.Error(f'concat_videos(): commandline\n{" ".join(cmd)}\nfailed with: {e}') from e
 
         # copy with re-encoding
         cmd = [
@@ -582,6 +589,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
             'libx264',
             '-c:a',
             'aac',
+            '-y',  # overwrite bad output from previous attempt
             str(output_path),
         ]
         try:
@@ -592,10 +600,6 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
             if e.stderr:
                 error_msg += f': {e.stderr.strip()}'
             raise pxt.Error(error_msg) from e
-        except Exception as e:
-            if output_path.exists():
-                output_path.unlink()
-            raise pxt.Error(f'concat_videos(): commandline\n{" ".join(cmd)}\nfailed with: {e}') from e
 
     finally:
         filelist_path.unlink()

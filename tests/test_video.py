@@ -414,3 +414,39 @@ class TestVideo:
 
         with pytest.raises(pxt.Error, match='could not determine duration of video'):
             _ = t.select(segments=t.video.get_segments(duration=3.0)).collect()
+
+    def test_concat_videos(self, reset_db: None) -> None:
+        skip_test_if_not_in_path('ffmpeg')
+        x = get_video_files()  # Use first 3 videos
+        video_filepaths = get_video_files()[:3]  # Use first 3 videos
+        from pixeltable.functions.video import concat_videos
+
+        t = pxt.create_table('concat_videos_test', {'video': pxt.Video})
+        t.insert({'video': p} for p in video_filepaths)
+
+        # basic test: reassemble segments into original video
+        t.add_computed_column(segments=t.video.get_segments(duration=5.0), on_error='ignore')
+        t.add_computed_column(concat=concat_videos(t.segments))
+        res_df = (
+            t.where(t.segments.errortype == None)
+            .select(
+                duration=t.video.get_metadata().streams[0].duration_seconds,
+                concat_duration=t.concat.get_metadata().streams[0].duration_seconds,
+            )
+            .collect()
+            .to_pandas()
+        )
+        assert res_df['duration'].between(res_df['concat_duration'] - 0.1, res_df['concat_duration'] + 0.1).all()
+
+        # assemble videos of different origin into a single video
+        u = pxt.create_table('concat_videos_test2', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        u.insert([{'v1': video_filepaths[0], 'v2': video_filepaths[1], 'v3': video_filepaths[2]}])
+        status = u.add_computed_column(concat=concat_videos([u.v1.astype(pxt.String), u.v2.astype(pxt.String), u.v3.astype(pxt.String)]))
+        assert status.num_excs == 0
+        res = u.select(
+            u.v1.get_metadata().streams[0].duration_seconds,
+            u.v2.get_metadata().streams[0].duration_seconds,
+            u.v3.get_metadata().streams[0].duration_seconds,
+            u.concat.get_metadata().streams[0].duration_seconds,
+        ).collect()
+        pass
