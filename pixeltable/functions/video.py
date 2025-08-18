@@ -556,7 +556,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     if len(videos) == 0:
         raise pxt.Error('concat_videos(): empty argument list')
     if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_frame().')
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use concat_videos().')
 
     # ffmpeg -f concat needs an input file list
     filelist_path = TempStore.create_path(extension='.txt')
@@ -567,39 +567,67 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     output_path = TempStore.create_path(extension='.mp4')
 
     try:
-        # we first try this without re-encoding, which is fast but fails if the input videos have different codecs
+        # First attempt: fast copy without re-encoding (works for compatible formats)
         cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
         try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return str(output_path)
         except subprocess.CalledProcessError:
-            # try again with re-encoding
+            # Expected for mixed formats - continue to fallback
             pass
 
-        # copy with re-encoding
-        cmd = [
-            'ffmpeg',
-            '-f',
-            'concat',
-            '-safe',
-            '0',
-            '-i',
-            str(filelist_path),
-            '-c:v',
-            'libx264',
-            '-c:a',
-            'aac',
-            '-y',  # overwrite bad output from previous attempt
-            str(output_path),
-        ]
-        try:
-            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return str(output_path)
-        except subprocess.CalledProcessError as e:
-            error_msg = f'ffmpeg failed with return code {e.returncode}'
-            if e.stderr:
-                error_msg += f': {e.stderr.strip()}'
-            raise pxt.Error(error_msg) from e
+        # Delete any partial output from first attempt
+        if output_path.exists():
+            output_path.unlink()
+
+        # Fallback: Use filter_complex with individual inputs (handles all formats correctly)
+        cmd = ['ffmpeg']
+        for video in videos:
+            cmd.extend(['-i', str(video)])
+
+        # Build filter string for video concatenation
+        video_inputs = ''.join([f'[{i}:v:0]' for i in range(len(videos))])
+        filter_str = f'{video_inputs}concat=n={len(videos)}:v=1:a=0[outv]'
+
+        # Check if all videos have audio
+        has_audio = []
+        for video in videos:
+            probe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'a:0',
+                        '-show_entries', 'stream=codec_name',
+                        '-of', 'default=noprint_wrappers=1:nokey=1', str(video)]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            has_audio.append(bool(probe_result.stdout.strip()))
+
+        if all(has_audio):
+            # All have audio - concat both video and audio
+            audio_inputs = ''.join([f'[{i}:a:0]' for i in range(len(videos))])
+            filter_str += f';{audio_inputs}concat=n={len(videos)}:v=0:a=1[outa]'
+            cmd.extend([
+                '-filter_complex', filter_str,
+                '-map', '[outv]',
+                '-map', '[outa]',
+                '-c:v', 'libx264',
+                '-c:a', 'aac',
+                '-y', str(output_path)
+            ])
+        else:
+            # Mixed or no audio - video only concatenation
+            cmd.extend([
+                '-filter_complex', filter_str,
+                '-map', '[outv]',
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-y', str(output_path)
+            ])
+
+        _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return str(output_path)
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f'ffmpeg failed with return code {e.returncode}'
+        if e.stderr:
+            error_msg += f': {e.stderr.strip()}'
+        raise pxt.Error(error_msg) from e
 
     finally:
         filelist_path.unlink()
