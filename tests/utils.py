@@ -321,7 +321,7 @@ def generate_test_video(
     if has_audio:
         cmd.extend(['-c:a', 'aac'])
     output_path = tmp_path / f'{uuid4()}.mp4'
-    cmd.extend(['-y', output_path])
+    cmd.extend(['-y', str(output_path)])
     subprocess.run(cmd, capture_output=True, check=True)
     return str(output_path)
 

@@ -1,7 +1,5 @@
-import os
-import tempfile
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
 import PIL
 import pytest
@@ -421,7 +419,6 @@ class TestVideo:
 
     def test_concat_videos(self, reset_db: None) -> None:
         skip_test_if_not_in_path('ffmpeg')
-        x = get_video_files()  # Use first 3 videos
         video_filepaths = get_video_files()[:3]  # Use first 3 videos
         from pixeltable.functions.video import concat_videos
 
@@ -460,8 +457,7 @@ class TestVideo:
         concat_duration = durations.iloc[3]
         assert concat_duration is not None
 
-    def test_concat_mixed_formats(self, reset_db: None, tmp_path: Path) -> None:
-        """Test concatenating videos with mixed audio presence."""
+    def test_concat_videos_mixed_formats(self, reset_db: None, tmp_path: Path) -> None:
         skip_test_if_not_in_path('ffmpeg')
 
         from pixeltable.functions.video import concat_videos
@@ -480,23 +476,6 @@ class TestVideo:
         duration = res[0, 0]
         assert abs(duration - (1.0 + 1.5 + 1.0)) < 0.1
 
-        # mixed resolutions
-        low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
-        high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
-        mid_res = generate_test_video(tmp_path, duration=0.5, size='640x360', has_audio=False)
-
-        t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
-        t.insert([{'v1': low_res, 'v2': high_res, 'v3': mid_res}])
-        status = t.add_computed_column(
-            concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
-        )
-        assert status.num_excs == 0
-        # verify that we got a video
-        res = t.select(fileurl=t.concat.fileurl, md=t.concat.get_metadata()).collect()
-        assert len(res) == 1
-        assert res[0]['fileurl'] is not None
-        assert res[0]['md']['streams'][0]['type'] == 'video'
-
         short_video = generate_test_video(tmp_path, duration=0.2, has_audio=False)
         yuv422_video = generate_test_video(tmp_path, duration=0.5, pix_fmt='yuv422p', has_audio=False)
 
@@ -511,3 +490,15 @@ class TestVideo:
         assert len(res) == 1
         assert res[0]['fileurl'] is not None
         assert res[0]['md']['streams'][0]['type'] == 'video'
+
+        # error case: mixed resolutions
+        low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
+        high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
+        mid_res = generate_test_video(tmp_path, duration=0.5, size='640x360', has_audio=False)
+
+        t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        t.insert([{'v1': low_res, 'v2': high_res, 'v3': mid_res}])
+        with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
+            _ = t.add_computed_column(
+                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+            )

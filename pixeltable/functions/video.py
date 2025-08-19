@@ -392,7 +392,10 @@ def clip(
     video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
 ) -> pxt.Video | None:
     """
-    Extract a clip from a video, specified by start_time and either end_time or duration (in seconds).
+    Extract a clip from a video, specified by `start_time` and either `end_time` or `duration` (in seconds).
+
+    If `start_time` is beyond the end of the video, returns None. Can only specify one of `end_time` and `duration`.
+    If both `end_time` and `duration` are None, the clip goes to the end of the video.
 
     __Requirements:__
 
@@ -401,8 +404,8 @@ def clip(
     Args:
         video: Input video file
         start_time: Start time in seconds
-        end_time: End time in seconds (if None, goes to end of video)
-        duration: Duration of the clip in seconds (if None, goes to end of video)
+        end_time: End time in seconds
+        duration: Duration of the clip in seconds
 
     Returns:
         New video containing only the specified time range or None if start_time is beyond the end of the video.
@@ -490,7 +493,7 @@ def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
 
         Split video into two parts at the midpoint:
 
-        >>> duration = tbl.video.get_metadata()streams[0].duration_seconds
+        >>> duration = tbl.video.get_metadata().streams[0].duration_seconds
         >>> tbl.select(segment_paths=tbl.video.get_segments(duration=duration / 2 + 1)).collect()
     """
     if duration <= 0:
@@ -564,6 +567,25 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     if not shutil.which('ffmpeg'):
         raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use concat_videos().')
 
+    # Check that all videos have the same resolution
+    resolutions: list[tuple[int, int]] = []
+    for video in videos:
+        metadata = _get_metadata(str(video))
+        video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
+        if video_stream is None:
+            raise pxt.Error(f'concat_videos(): file {video} has no video stream')
+        resolutions.append((video_stream['width'], video_stream['height']))
+
+    # check for divergence
+    first_res = resolutions[0]
+    for i, res in enumerate(resolutions[1:], start=1):
+        if res != first_res:
+            raise pxt.Error(
+                f'concat_videos(): requires that all videos have the same resolution, but '
+                f'video 0 ({videos[0]}) has resolution {first_res[0]}x{first_res[1]} and '
+                f'video {i} ({videos[i]}) has resolution {res[0]}x{res[1]}.'
+            )
+
     # ffmpeg -f concat needs an input file list
     filelist_path = TempStore.create_path(extension='.txt')
     with filelist_path.open('w') as f:
@@ -589,7 +611,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         # general approach: re-encode with filter_complex
         cmd = ['ffmpeg']
         for video in videos:
-            cmd.extend(['-i', str(video)])
+            cmd.extend(['-i', video])
 
         video_inputs = ''.join([f'[{i}:v:0]' for i in range(len(videos))])
         filter_str = f'{video_inputs}concat=n={len(videos)}:v=1:a=0[outv]'
