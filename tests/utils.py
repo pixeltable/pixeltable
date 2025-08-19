@@ -9,6 +9,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 from unittest import TestCase
+from uuid import uuid4
 
 import more_itertools
 import numpy as np
@@ -303,25 +304,26 @@ def get_test_video_files() -> list[str]:
     return glob_result
 
 
-def create_test_video(
-    output_path: str,
+def generate_test_video(
+    tmp_path: Path,
     duration: float = 1.0,
     size: str = '640x360',
     fps: int = 25,
     has_audio: bool = True,
     codec: str = 'libx264',
     pix_fmt: str = 'yuv420p',
-) -> None:
-    """Create test video with specific properties using ffmpeg."""
-
+) -> str:
+    """Create test video with specific properties using ffmpeg and return its path"""
     cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
     if has_audio:
         cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
     cmd.extend(['-c:v', codec, '-pix_fmt', pix_fmt])
     if has_audio:
         cmd.extend(['-c:a', 'aac'])
+    output_path = tmp_path / f'{uuid4()}.mp4'
     cmd.extend(['-y', output_path])
     subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
 
 
 __IMAGE_FILES: list[str] = []

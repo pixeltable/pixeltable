@@ -312,16 +312,12 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     """
     Extract a single frame from a video at a specific timestamp.
 
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
     Args:
-        video: The video to extract frame from.
+        video: The video from which to extract the frame.
         timestamp: Extract frame at this timestamp (in seconds).
 
     Returns:
-        The extracted frame as a PIL Image.
+        The extracted frame as a PIL Image, or None if the timestamp is beyond the video duration.
 
     Examples:
         Extract the first frame from each video in the `video` column of the table `tbl`:
@@ -335,34 +331,38 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     if timestamp < 0:
         raise ValueError("'timestamp' must be non-negative")
 
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_frame().')
-
-    output_path = TempStore.create_path(extension='.png')
-    cmd = [
-        'ffmpeg',
-        '-ss',
-        str(timestamp),
-        '-i',
-        str(video),
-        '-vframes',
-        '1',
-        '-y',  # Overwrite output file
-        str(output_path),
-    ]
-
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        with av.open(str(video)) as container:
+            video_stream = container.streams.video[0]
+            time_base = float(video_stream.time_base)
+            start_time = video_stream.start_time or 0
+            duration = video_stream.duration
 
-        if result.returncode != 0:
-            raise pxt.Error(f'get_frame(): ffmpeg failed with error: {result.stderr}')
-        if not output_path.exists():
+            # Check if timestamp is beyond video duration
+            if duration is not None:
+                duration_seconds = float(duration * time_base)
+                if timestamp > duration_seconds:
+                    return None
+
+            # Convert timestamp to stream time base units
+            target_pts = int(timestamp / time_base) + start_time
+
+            # Seek to the nearest keyframe *before* our target timestamp
+            container.seek(target_pts, backward=True, stream=video_stream)
+
+            # Decode frames until we reach or pass the target timestamp
+            for frame in container.decode(video=0):
+                frame_pts = frame.pts
+                if frame_pts is None:
+                    continue
+                frame_timestamp = (frame_pts - start_time) * time_base
+                if frame_timestamp >= timestamp:
+                    return frame.to_image()
+
             return None
-        return PIL.Image.open(output_path)
+
     except Exception as e:
-        if output_path.exists():
-            output_path.unlink()
-        raise pxt.Error(f'get_frame(): failed to extract frame: {e}') from e
+        raise pxt.Error(f'get_frame2(): failed to extract frame: {e}') from e
 
 
 def _ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, duration: float | None = None) -> list[str]:
@@ -388,7 +388,7 @@ def _ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, durat
 
 
 @pxt.udf(is_method=True)
-def get_clip(
+def clip(
     video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
 ) -> pxt.Video | None:
     """

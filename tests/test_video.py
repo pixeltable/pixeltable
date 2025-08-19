@@ -1,6 +1,7 @@
 import os
 import tempfile
 from typing import Optional
+from pathlib import Path
 
 import PIL
 import pytest
@@ -8,9 +9,10 @@ import pytest
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
+
 from .utils import (
+    generate_test_video,
     get_video_files,
-    create_test_video,
     reload_catalog,
     skip_test_if_not_in_path,
     skip_test_if_not_installed,
@@ -291,15 +293,15 @@ class TestVideo:
         base_t, view_t = pxt.get_table(base_t._name), pxt.get_table(view_t._name)
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
-    def test_get_clip(self, reset_db: None) -> None:
+    def test_clip(self, reset_db: None) -> None:
         skip_test_if_not_in_path('ffmpeg')
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
         video_filepaths = get_video_files()
         t.insert({'video': p} for p in video_filepaths)
 
-        clip_5_10 = t.video.get_clip(start_time=5.0, end_time=10.0)
-        clip_0_5 = t.video.get_clip(start_time=0.0, duration=5.0)
-        clip_10_end = t.video.get_clip(start_time=10.0)
+        clip_5_10 = t.video.clip(start_time=5.0, end_time=10.0)
+        clip_0_5 = t.video.clip(start_time=0.0, duration=5.0)
+        clip_10_end = t.video.clip(start_time=10.0)
         result = t.select(
             clip_5_10=clip_5_10,
             clip_5_10_duration=clip_5_10.get_metadata().streams[0].duration_seconds,
@@ -322,20 +324,20 @@ class TestVideo:
 
         # requesting a time range past the end of the video returns None
         duration = t.video.get_metadata().streams[0].duration_seconds
-        result_df = t.where(duration != None).select(clip=t.video.get_clip(start_time=1000.0)).collect().to_pandas()
+        result_df = t.where(duration != None).select(clip=t.video.clip(start_time=1000.0)).collect().to_pandas()
         assert result_df['clip'].isnull().all(), result_df['clip']
 
         with pytest.raises(pxt.Error, match='start_time must be non-negative'):
-            _ = t.select(invalid_clip=t.video.get_clip(start_time=-1.0)).collect()
+            _ = t.select(invalid_clip=t.video.clip(start_time=-1.0)).collect()
 
         with pytest.raises(pxt.Error, match=r'end_time \(5.0\) must be greater than start_time \(10.0\)'):
-            _ = t.select(invalid_clip=t.video.get_clip(start_time=10.0, end_time=5.0)).collect()
+            _ = t.select(invalid_clip=t.video.clip(start_time=10.0, end_time=5.0)).collect()
 
         with pytest.raises(pxt.Error, match='duration must be positive'):
-            _ = t.select(invalid_clip=t.video.get_clip(start_time=10.0, duration=-1.0)).collect()
+            _ = t.select(invalid_clip=t.video.clip(start_time=10.0, duration=-1.0)).collect()
 
         with pytest.raises(pxt.Error, match='end_time and duration cannot both be specified'):
-            _ = t.select(invalid_clip=t.video.get_clip(start_time=10.0, end_time=20.0, duration=10.0)).collect()
+            _ = t.select(invalid_clip=t.video.clip(start_time=10.0, end_time=20.0, duration=10.0)).collect()
 
     def test_get_frame(self, reset_db: None) -> None:
         skip_test_if_not_in_path('ffmpeg')
@@ -458,97 +460,54 @@ class TestVideo:
         concat_duration = durations.iloc[3]
         assert concat_duration is not None
 
-    def test_concat_mixed_audio(self, reset_db: None) -> None:
+    def test_concat_mixed_formats(self, reset_db: None, tmp_path: Path) -> None:
         """Test concatenating videos with mixed audio presence."""
         skip_test_if_not_in_path('ffmpeg')
 
         from pixeltable.functions.video import concat_videos
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create test videos
-            video_no_audio = os.path.join(tmpdir, 'no_audio.mp4')
-            create_test_video(output_path=video_no_audio, duration=1.0, has_audio=False)
-            video_with_audio = os.path.join(tmpdir, 'with_audio.mp4')
-            create_test_video(output_path=video_with_audio, duration=1.5, has_audio=True)
+        # mixed audio
+        no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
+        with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)
 
-            t = pxt.create_table('test_mixed_audio', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
-            t.insert([{'v1': video_no_audio, 'v2': video_with_audio, 'v3': video_no_audio}])
+        t = pxt.create_table('test_mixed_audio', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        t.insert([{'v1': no_audio, 'v2': with_audio, 'v3': no_audio}])
+        status = t.add_computed_column(
+            concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+        )
+        assert status.num_excs == 0
+        res = t.select(t.concat.get_metadata().streams[0].duration_seconds).collect()
+        duration = res[0, 0]
+        assert abs(duration - (1.0 + 1.5 + 1.0)) < 0.1
 
-            # Should handle mixed audio gracefully
-            status = t.add_computed_column(
-                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
-            )
-            assert status.num_excs == 0
+        # mixed resolutions
+        low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
+        high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
+        mid_res = generate_test_video(tmp_path, duration=0.5, size='640x360', has_audio=False)
 
-            # Verify duration
-            res = t.select(t.concat.get_metadata().streams[0].duration_seconds).collect()
-            duration = res[0, 0]
-            assert abs(duration - (1.0 + 1.5 + 1.0)) < 0.5
+        t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        t.insert([{'v1': low_res, 'v2': high_res, 'v3': mid_res}])
+        status = t.add_computed_column(
+            concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+        )
+        assert status.num_excs == 0
+        # verify that we got a video
+        res = t.select(fileurl=t.concat.fileurl, md=t.concat.get_metadata()).collect()
+        assert len(res) == 1
+        assert res[0]['fileurl'] is not None
+        assert res[0]['md']['streams'][0]['type'] == 'video'
 
-    def test_concat_resolution_mismatch(self, reset_db: None) -> None:
-        """Test concatenating videos with different resolutions."""
-        skip_test_if_not_in_path('ffmpeg')
-        import os
-        import tempfile
+        short_video = generate_test_video(tmp_path, duration=0.2, has_audio=False)
+        yuv422_video = generate_test_video(tmp_path, duration=0.5, pix_fmt='yuv422p', has_audio=False)
 
-        from pixeltable.functions.video import concat_videos
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create videos with different resolutions
-            video_low = os.path.join(tmpdir, 'low_res.mp4')
-            video_high = os.path.join(tmpdir, 'high_res.mp4')
-            video_med = os.path.join(tmpdir, 'med_res.mp4')
-            self._create_test_video(video_low, duration=0.5, size='176x144', has_audio=False)
-            self._create_test_video(video_high, duration=0.5, size='1920x1080', has_audio=False)
-            self._create_test_video(video_med, duration=0.5, size='640x360', has_audio=False)
-
-            t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
-            t.insert([{'v1': video_low, 'v2': video_high, 'v3': video_med}])
-
-            # Should handle different resolutions with re-encoding
-            status = t.add_computed_column(
-                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
-            )
-            assert status.num_excs == 0
-
-            # Verify we got output
-            res = t.select(t.concat).collect()
-            assert len(res) == 1
-            concat_path = res.to_pandas().iloc[0, 0]
-            assert concat_path is not None
-
-    def test_concat_edge_cases(self, reset_db: None) -> None:
-        """Test edge cases like very short videos and different pixel formats."""
-        skip_test_if_not_in_path('ffmpeg')
-        import os
-        import tempfile
-
-        from pixeltable.functions.video import concat_videos
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create very short video
-            video_short = os.path.join(tmpdir, 'very_short.mp4')
-            self._create_test_video(video_short, duration=0.2, has_audio=False)
-
-            # Create video with different pixel format
-            video_yuv422 = os.path.join(tmpdir, 'yuv422.mp4')
-            self._create_test_video(video_yuv422, duration=0.5, pix_fmt='yuv422p', has_audio=False)
-
-            # Create normal video
-            video_normal = os.path.join(tmpdir, 'normal.mp4')
-            self._create_test_video(video_normal, duration=0.3, has_audio=False)
-
-            t = pxt.create_table('test_edge_cases', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
-            t.insert([{'v1': video_short, 'v2': video_yuv422, 'v3': video_normal}])
-
-            # Should handle different pixel formats and short durations
-            status = t.add_computed_column(
-                concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
-            )
-            assert status.num_excs == 0
-
-            # Verify we got output
-            res = t.select(t.concat).collect()
-            assert len(res) == 1
-            concat_path = res.to_pandas().iloc[0, 0]
-            assert concat_path is not None
+        t = pxt.create_table('test_edge_cases', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        t.insert([{'v1': short_video, 'v2': yuv422_video, 'v3': no_audio}])
+        status = t.add_computed_column(
+            concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+        )
+        assert status.num_excs == 0
+        # verify that we got a video
+        res = t.select(fileurl=t.concat.fileurl, md=t.concat.get_metadata()).collect()
+        assert len(res) == 1
+        assert res[0]['fileurl'] is not None
+        assert res[0]['md']['streams'][0]['type'] == 'video'
