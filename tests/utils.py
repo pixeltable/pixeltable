@@ -4,6 +4,7 @@ import json
 import os
 import random
 import shutil
+import subprocess
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -300,6 +301,27 @@ def get_video_files(include_bad_video: bool = False) -> list[str]:
 def get_test_video_files() -> list[str]:
     glob_result = glob.glob(f'{TESTS_DIR}/**/test_videos/*', recursive=True)
     return glob_result
+
+
+def create_test_video(
+    output_path: str,
+    duration: float = 1.0,
+    size: str = '640x360',
+    fps: int = 25,
+    has_audio: bool = True,
+    codec: str = 'libx264',
+    pix_fmt: str = 'yuv420p',
+) -> None:
+    """Create test video with specific properties using ffmpeg."""
+
+    cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
+    if has_audio:
+        cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
+    cmd.extend(['-c:v', codec, '-pix_fmt', pix_fmt])
+    if has_audio:
+        cmd.extend(['-c:a', 'aac'])
+    cmd.extend(['-y', output_path])
+    subprocess.run(cmd, capture_output=True, check=True)
 
 
 __IMAGE_FILES: list[str] = []

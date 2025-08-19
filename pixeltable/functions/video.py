@@ -289,16 +289,22 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
 
 def _get_video_duration(path: str) -> float | None:
     """Return video duration in seconds."""
-    try:
-        with av.open(path) as container:
-            if not container.streams.video:
-                return None
-            video_stream = container.streams.video[0]
-            if video_stream.duration is None or video_stream.time_base is None:
-                return None
-            return float(video_stream.duration * video_stream.time_base)
-    except Exception:
-        return None
+    md = _get_metadata(path)
+    # check first video stream for duration
+    return next(
+        (
+            stream['duration_seconds']
+            for stream in md['streams']
+            if stream['type'] == 'video' and stream['duration_seconds'] is not None
+        ),
+        None,
+    )
+
+
+def _has_audio_stream(path: str) -> bool:
+    """Check if video has audio stream using PyAV."""
+    md = _get_metadata(path)
+    return any(stream['type'] == 'audio' for stream in md['streams'])
 
 
 @pxt.udf(is_method=True)
@@ -576,49 +582,53 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
             # Expected for mixed formats - continue to fallback
             pass
 
-        # Delete any partial output from first attempt
+        # we might some corrupted output
         if output_path.exists():
             output_path.unlink()
 
-        # Fallback: Use filter_complex with individual inputs (handles all formats correctly)
+        # general approach: re-encode with filter_complex
         cmd = ['ffmpeg']
         for video in videos:
             cmd.extend(['-i', str(video)])
 
-        # Build filter string for video concatenation
         video_inputs = ''.join([f'[{i}:v:0]' for i in range(len(videos))])
         filter_str = f'{video_inputs}concat=n={len(videos)}:v=1:a=0[outv]'
 
-        # Check if all videos have audio
-        has_audio = []
-        for video in videos:
-            probe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'a:0',
-                        '-show_entries', 'stream=codec_name',
-                        '-of', 'default=noprint_wrappers=1:nokey=1', str(video)]
-            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
-            has_audio.append(bool(probe_result.stdout.strip()))
-
+        has_audio = [_has_audio_stream(str(video)) for video in videos]
         if all(has_audio):
-            # All have audio - concat both video and audio
+            # concat both video and audio
             audio_inputs = ''.join([f'[{i}:a:0]' for i in range(len(videos))])
             filter_str += f';{audio_inputs}concat=n={len(videos)}:v=0:a=1[outa]'
-            cmd.extend([
-                '-filter_complex', filter_str,
-                '-map', '[outv]',
-                '-map', '[outa]',
-                '-c:v', 'libx264',
-                '-c:a', 'aac',
-                '-y', str(output_path)
-            ])
+            cmd.extend(
+                [
+                    '-filter_complex',
+                    filter_str,
+                    '-map',
+                    '[outv]',
+                    '-map',
+                    '[outa]',
+                    '-c:v',
+                    'libx264',
+                    '-c:a',
+                    'aac',
+                    str(output_path),
+                ]
+            )
         else:
-            # Mixed or no audio - video only concatenation
-            cmd.extend([
-                '-filter_complex', filter_str,
-                '-map', '[outv]',
-                '-c:v', 'libx264',
-                '-pix_fmt', 'yuv420p',
-                '-y', str(output_path)
-            ])
+            # video-only concatenation
+            cmd.extend(
+                [
+                    '-filter_complex',
+                    filter_str,
+                    '-map',
+                    '[outv]',
+                    '-c:v',
+                    'libx264',
+                    '-pix_fmt',
+                    'yuv420p',
+                    str(output_path),
+                ]
+            )
 
         _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return str(output_path)
