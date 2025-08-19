@@ -437,7 +437,9 @@ class TestVideo:
             .collect()
             .to_pandas()
         )
-        assert res_df['duration'].between(res_df['concat_duration'] - 0.1, res_df['concat_duration'] + 0.1).all()
+        assert res_df['duration'].between(res_df['concat_duration'] - 0.1, res_df['concat_duration'] + 0.1).all(), (
+            f'{res_df["duration"]}, {res_df["concat_duration"]}'
+        )
 
         # assemble videos of different origin into a single video
         u = pxt.create_table('concat_videos_test2', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
