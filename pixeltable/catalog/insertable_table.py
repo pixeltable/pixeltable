@@ -148,6 +148,7 @@ class InsertableTable(Table):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             table = self
 
+            # TODO: unify with TableDataConduit
             if source is not None and isinstance(source, Sequence) and isinstance(source[0], pydantic.BaseModel):
                 status = self._insert_pydantic(
                     cast(Sequence[pydantic.BaseModel], source),  # needed for mypy
