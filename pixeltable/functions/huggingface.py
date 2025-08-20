@@ -461,11 +461,11 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
 
 @pxt.udf(batch_size=8)
 def text_generation(
-    text: Batch[str], *, model_id: str, max_length: int = 100, temperature: float = 0.7, do_sample: bool = True
+    text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None,
 ) -> Batch[str]:
     """
     Generates text using a pretrained language model. `model_id` should be a reference to a pretrained
-    [text generation model](https://huggingface.co/models?pipeline_tag=text-generation) such as GPT-2, GPT-J, or T5.
+    [text generation model](https://huggingface.co/models?pipeline_tag=text-generation).
 
     __Requirements:__
 
@@ -474,26 +474,30 @@ def text_generation(
     Args:
         text: The input text to continue/complete.
         model_id: The pretrained model to use for text generation.
-        max_length: Maximum length of the generated text.
-        temperature: Controls randomness in generation (lower = more deterministic).
-        do_sample: Whether to use sampling for generation.
+        model_kwargs: Additional keyword arguments to pass to the model's `generate` method, such as `max_length`,
+            `temperature`, `do_sample`, etc. See the
+            [Hugging Face text_generation documentation](https://huggingface.co/docs/inference-providers/en/tasks/text-generation)
+            for details.
 
     Returns:
         The generated text completion.
 
     Examples:
-        Add a computed column that generates text completions using GPT-2:
+        Add a computed column that generates text completions using the `Qwen/Qwen3-0.6B` model:
 
         >>> tbl.add_computed_column(completion=text_generation(
         ...     tbl.prompt,
-        ...     model_id='gpt2-medium',
-        ...     max_length=150
+        ...     model_id='Qwen/Qwen3-0.6B',
+        ...     model_kwargs={'temperature': 0.5, 'max_length': 150}
         ... ))
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if model_kwargs is None:
+        model_kwargs = {}
 
     model = _lookup_model(model_id, AutoModelForCausalLM.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
@@ -505,10 +509,8 @@ def text_generation(
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
         outputs = model.generate(
             **inputs.to(device),
-            max_length=max_length,
-            temperature=temperature,
-            do_sample=do_sample,
             pad_token_id=tokenizer.eos_token_id,
+            **model_kwargs
         )
 
     results = []
@@ -877,44 +879,44 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
 
     results = []
-    
+
     with torch.no_grad():
         for i in range(len(context)):
             # Tokenize the question and context
             inputs = tokenizer.encode_plus(
-                question[i], 
-                context[i], 
+                question[i],
+                context[i],
                 add_special_tokens=True,
                 return_tensors='pt',
                 truncation=True,
                 max_length=512
             )
-            
+
             # Get model predictions
             outputs = model(**inputs.to(device))
             start_scores = outputs.start_logits
             end_scores = outputs.end_logits
-            
+
             # Find the tokens with the highest start and end scores
             start_idx = torch.argmax(start_scores)
             end_idx = torch.argmax(end_scores)
-            
+
             # Ensure end_idx >= start_idx
             if end_idx < start_idx:
                 end_idx = start_idx
-            
+
             # Convert token positions to string
             input_ids = inputs['input_ids'][0]
-            
+
             # Extract answer tokens
             answer_tokens = input_ids[start_idx:end_idx + 1]
             answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
-            
+
             # Calculate confidence score
             start_probs = torch.softmax(start_scores, dim=1)
             end_probs = torch.softmax(end_scores, dim=1)
             confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
-            
+
             results.append({
                 'answer': answer.strip(),
                 'score': confidence,

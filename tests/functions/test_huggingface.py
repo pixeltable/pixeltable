@@ -231,10 +231,9 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import text_generation
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        test_prompts = ['The weather today is', 'Machine learning is']
+        test_prompts = ['The weather today is', 'The capital of France is']
 
-        # Test with GPT-2 (lightweight model)
-        t.add_computed_column(completion=text_generation(t.prompt, model_id='gpt2', max_length=20, temperature=0.5))
+        t.add_computed_column(completion=text_generation(t.prompt, model_id='Qwen/Qwen3-0.6B', model_kwargs={'temperature': 0.5, 'max_length': 150}))
 
         validate_update_status(t.insert({'prompt': p} for p in test_prompts), expected_rows=2)
         results = t.select(t.completion).collect()
@@ -244,6 +243,7 @@ class TestHuggingface:
         for result in results:
             assert isinstance(result['completion'], str)
             assert len(result['completion'].strip()) > 0
+        assert 'Paris' in results[1]['completion']
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_text_classification(self, reset_db: None) -> None:
