@@ -431,15 +431,16 @@ class TestVideo:
         res_df = (
             t.where(t.segments.errortype == None)
             .select(
+                url=t.video.fileurl,
+                segments=t.segments,
                 duration=t.video.get_metadata().streams[0].duration_seconds,
                 concat_duration=t.concat.get_metadata().streams[0].duration_seconds,
             )
             .collect()
             .to_pandas()
         )
-        assert res_df['duration'].between(res_df['concat_duration'] - 0.1, res_df['concat_duration'] + 0.1).all(), (
-            f'{res_df["duration"]}, {res_df["concat_duration"]}'
-        )
+        print(res_df)
+        assert res_df['duration'].between(res_df['concat_duration'] - 0.1, res_df['concat_duration'] + 0.1).all()
 
         # assemble videos of different origin into a single video
         u = pxt.create_table('concat_videos_test2', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})

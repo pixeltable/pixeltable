@@ -2,6 +2,7 @@
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
 """
 
+import logging
 import pathlib
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.media_store import TempStore
 
+_logger = logging.getLogger('pixeltable')
 _format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
     'wav': ('pcm_s16le', 'wav'),
     'mp3': ('libmp3lame', 'mp3'),
@@ -597,6 +599,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     try:
         # First attempt: fast copy without re-encoding (works for compatible formats)
         cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
+        _logger.debug(f'concat_videos(): {" ".join(cmd)}')
         try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return str(output_path)
@@ -652,6 +655,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
                 ]
             )
 
+        _logger.debug(f'concat_videos(): {" ".join(cmd)}')
         _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return str(output_path)
 
