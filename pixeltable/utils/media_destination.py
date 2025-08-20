@@ -46,20 +46,6 @@ class MediaDestination:
         # Check for Azure variants here
         return MediaStore.validate_destination(col_name, dest)
 
-    def save_media_object(self, val: Any, col: Column, to_temp: bool = False) -> tuple[Optional[Path], str]:
-        """Save the media object in the column to the destination or TempStore"""
-        assert col.col_type.is_media_type()
-        format = None
-        if isinstance(val, PIL.Image.Image):
-            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-            # In that case, use WebP instead.
-            format = 'webp' if val.has_transparency_data else 'jpeg'
-        if to_temp:
-            filepath, url = TempStore.save_media_object(val, col, format=format)
-        else:
-            filepath, url = MediaStore.get(col.destination).save_media_object(val, col, format=format)
-        return filepath, url
-
     @classmethod
     def download_media_object(cls, src_uri: str, dest_path: Path) -> None:
         """Copy an object from a URL to a local Path. Thread safe.
