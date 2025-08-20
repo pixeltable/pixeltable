@@ -17,7 +17,11 @@ def is_json_convertible(model: type[pydantic.BaseModel]) -> bool:
 
 
 def _type_is_json_convertible(type_hint: Any) -> bool:
-    """Recursively check if a type hint represents a JSON-compatible type."""
+    """
+    Recursively check if a type hint represents a JSON-compatible type.
+
+    TODO: also allow ndarrays and PIL.Image.Image, once we support those within json structures.
+    """
     if type_hint is type(None):
         return True
     if type_hint is Any:
