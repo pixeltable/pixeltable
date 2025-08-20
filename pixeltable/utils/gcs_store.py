@@ -7,8 +7,13 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
+from google.api_core.exceptions import GoogleAPIError
+from google.cloud.exceptions import Forbidden, NotFound
+
+from pixeltable import exceptions as excs
 from pixeltable.utils.gcs import GCSClientContainer
-from pixeltable.utils.media_path import MediaPath
+from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
+from pixeltable.utils.media_store_base import MediaStoreBase
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -16,7 +21,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class GCSStore:
+class GCSStore(MediaStoreBase):
     """Class to handle Google Cloud Storage operations."""
 
     # URI of the GCS bucket in the format gs://bucket_name/prefix/
@@ -29,19 +34,14 @@ class GCSStore:
     # prefix path within the bucket, either empty or ending with a slash
     __prefix_name: str
 
-    def __init__(self, uri: str):
-        assert uri.startswith('gs'), "URI must start with 'gs'"
-        parsed_uri = urllib.parse.urlparse(uri)
-        assert parsed_uri.scheme == 'gs', 'URI must be a GCS URI'
-        self.__base_uri = uri.rstrip('/')
-        self.__bucket_name = parsed_uri.netloc
-        self.__prefix_name = parsed_uri.path.lstrip('/').rstrip('/')
-        if len(self.__prefix_name) > 0:
-            self.__prefix_name += '/'
-        self.__base_uri += '/'
+    def __init__(self, soa: StorageObjectAddress):
+        assert soa.storage_target == 'gs', f'Expected storage_target "gs", got {soa.storage_target}'
+        self.__base_uri = soa.prefix_free_uri + soa.prefix
+        self.__bucket_name = soa.container
+        self.__prefix_name = soa.prefix
         if 0:
             print(
-                f'Initialized GCSStore with base URI: {self.__base_uri},',
+                f'=============> Initialized GCSStore with base URI: {self.__base_uri},',
                 f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}',
             )
 
@@ -67,16 +67,13 @@ class GCSStore:
         Returns:
             str: The base URI if the GCS bucket exists and is accessible, None otherwise.
         """
-        from google.api_core.exceptions import GoogleAPIError
-        from google.cloud.exceptions import Forbidden, NotFound
-
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
             bucket.reload()  # This will raise an exception if the bucket doesn't exist
             return self.__base_uri
         except (NotFound, Forbidden, GoogleAPIError) as e:
-            GCSClientContainer.handle_gcs_error(e, self.bucket_name, 'validate bucket')
+            self.handle_gcs_error(e, self.bucket_name, 'validate bucket')
         return None
 
     def _prepare_media_uri_raw(
@@ -98,8 +95,6 @@ class GCSStore:
 
     def copy_local_media_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
-        from google.api_core.exceptions import GoogleAPIError
-
         new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         blob_name = parsed.path.lstrip('/')
@@ -112,20 +107,18 @@ class GCSStore:
             _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
             return new_file_uri
         except GoogleAPIError as e:
-            GCSClientContainer.handle_gcs_error(e, self.bucket_name, f'upload file {src_path}')
+            self.handle_gcs_error(e, self.bucket_name, f'upload file {src_path}')
             raise
 
     def download_media_object(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe"""
-        from google.api_core.exceptions import GoogleAPIError
-
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
             blob = bucket.blob(self.prefix + src_path)
             blob.download_to_filename(str(dest_path))
         except GoogleAPIError as e:
-            GCSClientContainer.handle_gcs_error(e, self.bucket_name, f'download file {src_path}')
+            self.handle_gcs_error(e, self.bucket_name, f'download file {src_path}')
             raise
 
     def _get_filtered_objects(self, bucket: Any, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> Iterator:
@@ -165,8 +158,6 @@ class GCSStore:
         Returns:
             Number of objects matching the criteria
         """
-        from google.api_core.exceptions import GoogleAPIError
-
         assert tbl_id is not None
 
         try:
@@ -178,7 +169,7 @@ class GCSStore:
             return sum(1 for _ in blob_iterator)
 
         except GoogleAPIError as e:
-            GCSClientContainer.handle_gcs_error(e, self.bucket_name, f'setup iterator {self.prefix}')
+            self.handle_gcs_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
     def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
@@ -192,8 +183,6 @@ class GCSStore:
         Returns:
             Number of objects deleted
         """
-        from google.api_core.exceptions import GoogleAPIError
-
         assert tbl_id is not None
 
         total_deleted = 0
@@ -228,5 +217,49 @@ class GCSStore:
             return total_deleted
 
         except GoogleAPIError as e:
-            GCSClientContainer.handle_gcs_error(e, self.bucket_name, f'deleting with {self.prefix}')
+            self.handle_gcs_error(e, self.bucket_name, f'deleting with {self.prefix}')
             raise
+
+    def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:
+        """Return a list of objects found with the specified GCS uri
+        Each returned object includes the full set of prefixes.
+        if return_uri is True, the full GCS URI is returned; otherwise, just the object key.
+        """
+        p = f'gs://{self.bucket_name}/' if return_uri else ''
+        gcs_client = self.client(for_write=False)
+        r: list[str] = []
+
+        try:
+            bucket = gcs_client.bucket(self.bucket_name)
+            # List blobs with the given prefix, limiting to n_max
+            blobs = bucket.list_blobs(prefix=self.prefix, max_results=n_max)
+
+            for blob in blobs:
+                r.append(f'{p}{blob.name}')
+                if len(r) >= n_max:
+                    break
+
+        except GoogleAPIError as e:
+            self.handle_gcs_error(e, self.bucket_name, f'list objects from {self.prefix}')
+        return r
+
+    @classmethod
+    def handle_gcs_error(cls, e: Exception, bucket_name: str, operation: str = '', *, ignore_404: bool = False) -> None:
+        """Handle GCS-specific errors and convert them to appropriate exceptions"""
+
+        if isinstance(e, NotFound):
+            if ignore_404:
+                return
+            raise excs.Error(f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}')
+        elif isinstance(e, Forbidden):
+            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}')
+        elif isinstance(e, GoogleAPIError):
+            # Handle other Google API errors
+            error_message = str(e)
+            if 'Precondition' in error_message:
+                raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
+            else:
+                raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_message}')
+        else:
+            # Generic error handling
+            raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}')

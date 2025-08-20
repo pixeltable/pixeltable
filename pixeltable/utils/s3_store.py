@@ -1,24 +1,27 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import urllib.parse
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-from pixeltable.utils.media_path import MediaPath
+from botocore.exceptions import ClientError
+
+from pixeltable import exceptions as excs
+from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
+from pixeltable.utils.media_store_base import MediaStoreBase
 from pixeltable.utils.s3 import S3ClientContainer
 
 if TYPE_CHECKING:
-    from botocore.exceptions import ClientError
-
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
 
 
-class S3Store:
+class S3Store(MediaStoreBase):
     """Class to handle S3 storage operations."""
 
     # URI of the S3 bucket in the format s3://bucket_name/prefix/
@@ -31,25 +34,61 @@ class S3Store:
     # prefix path within the bucket, either empty or ending with a slash
     __prefix_name: str
 
-    def __init__(self, uri: str):
-        assert uri.startswith('s3'), "URI must start with 's3'"
-        parsed_uri = urllib.parse.urlparse(uri)
-        assert parsed_uri.scheme == 's3', 'URI must be an S3 URI'
-        self.__base_uri = uri.rstrip('/')
-        self.__bucket_name = parsed_uri.netloc
-        self.__prefix_name = parsed_uri.path.lstrip('/').rstrip('/')
-        if len(self.__prefix_name) > 0:
-            self.__prefix_name += '/'
-        self.__base_uri += '/'
-        if 0:
-            print(
-                f'Initialized S3Store with base URI: {self.__base_uri},',
-                f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}',
-            )
+    a_key: str
+    s_key: str
+    acct: str
+    soa: StorageObjectAddress
+
+    def __init__(self, soa: StorageObjectAddress):
+        """Initialize the S3Store with a StorageObjectAddress."""
+        self.soa = soa
+        self.__bucket_name = self.soa.container
+        self.__prefix_name = self.soa.prefix
+        if soa.storage_target == 'r2':
+            self.a_key = os.environ['R2_ACCESS_KEY']
+            self.s_key = os.environ['R2_SECRET_KEY']
+            self.acct = self.soa.account
+            self.acct = self.soa.container
+            self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
+            print(self.a_key, self.s_key, self.acct)
+        else:
+            self.a_key = ''
+            assert soa.storage_target == 's3', f'Expected storage_target "s3", got {soa.storage_target}'
+            self.__base_uri = soa.prefix_free_uri + soa.prefix
+        if 1:
+            self.show()
+
+    def show(self) -> None:
+        print(
+            f'S3Store with: base URI: {self.__base_uri},', f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}'
+        )
+        print(repr(self.soa))
 
     def client(self, for_write: bool = False) -> Any:
         """Return the S3 client."""
-        return S3ClientContainer.get().get_client(for_write=for_write)
+        if not self.a_key:
+            return S3ClientContainer.get().get_client(for_write=for_write)
+        return S3ClientContainer.get_client_raw(
+            aws_access_key_id=self.a_key,
+            aws_secret_access_key=self.s_key,
+            region_name='auto',
+            endpoint_url=self.soa.container_free_uri,
+        )
+
+    def get_resource(self) -> Any:
+        import boto3
+
+        if not self.a_key:
+            return S3ClientContainer.get().get_resource()
+        else:
+            s3_resource = boto3.resource(
+                's3',
+                endpoint_url=self.soa.container_free_uri,
+                aws_access_key_id=self.a_key,
+                aws_secret_access_key=self.s_key,
+                region_name='auto',  # Or a specific R2 region
+            )
+            return s3_resource
 
     @property
     def bucket_name(self) -> str:
@@ -72,7 +111,7 @@ class S3Store:
             self.client().head_bucket(Bucket=self.bucket_name)
             return self.__base_uri
         except ClientError as e:
-            S3ClientContainer.handle_s3_error(e, self.bucket_name, 'validate bucket')
+            self.handle_s3_error(e, self.bucket_name, 'validate bucket')
         return None
 
     def _prepare_media_uri_raw(
@@ -94,25 +133,37 @@ class S3Store:
 
     def download_media_object(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
+        # import time
+        # time.sleep(3.0)
         try:
-            client = S3ClientContainer.get().get_client(for_write=False)
-            client.download_file(self.bucket_name, self.prefix + src_path, str(dest_path))
+            print(
+                '============= Download media object (S3)'
+                + f'\nMedia Storage: downloading {src_path} to {dest_path}'
+                + f'\nMedia Storage: downloading {self.bucket_name}, {self.prefix}, {src_path} to {dest_path}'
+                + '\n'
+                + repr(self.soa)
+            )
+            self.client(for_write=False).download_file(
+                Bucket=self.bucket_name, Key=self.prefix + src_path, Filename=str(dest_path)
+            )
         except ClientError as e:
-            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'download file {src_path}')
+            self.handle_s3_error(e, self.bucket_name, f'download file {src_path}')
             raise
 
     def copy_local_media_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
         new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
+        key = parsed.path.lstrip('/')
+        if self.soa.storage_target == 'r2':
+            key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2
         try:
-            self.client(for_write=True).upload_file(
-                Filename=str(src_path), Bucket=parsed.netloc, Key=parsed.path.lstrip('/')
-            )
+            _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
+            self.client(for_write=True).upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key)
             _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
             return new_file_uri
         except ClientError as e:
-            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
+            self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
     def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> tuple[Iterator, Any]:
@@ -132,7 +183,7 @@ class S3Store:
 
         try:
             # Use S3 resource interface for filtering
-            s3_resource = S3ClientContainer.get().get_resource()
+            s3_resource = self.get_resource()
             bucket = s3_resource.Bucket(self.bucket_name)
 
             if tbl_version is None:
@@ -152,7 +203,7 @@ class S3Store:
             return object_iterator, bucket
 
         except ClientError as e:
-            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
+            self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
     def count(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
@@ -212,5 +263,51 @@ class S3Store:
             return total_deleted
 
         except ClientError as e:
-            S3ClientContainer.handle_s3_error(e, self.bucket_name, f'deleting with {self.prefix}')
+            self.handle_s3_error(e, self.bucket_name, f'deleting with {self.prefix}')
             raise
+
+    def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:
+        """Return a list of objects found with the specified S3 uri
+        Each returned object includes the full set of prefixes.
+        if return_uri is True, the full S3 URI is returned; otherwise, just the object key.
+        """
+        # I think the n_max parameter should be passed into the list_objects_v2 call
+        if self.soa.storage_target == 's3':
+            p = f's3://{self.bucket_name}/' if return_uri else ''
+        elif self.soa.storage_target == 'r2':
+            p = f'https://{self.a_key}.r2.cloudflarestorage.com/{self.bucket_name}/' if return_uri else ''
+        else:
+            raise ValueError(f'Unsupported storage target: {self.soa.storage_target}')
+
+        s3_client = self.client(for_write=False)
+        r: list[str] = []
+        try:
+            # Use paginator to handle more than 1000 objects
+            paginator = s3_client.get_paginator('list_objects_v2')
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=self.prefix):
+                if 'Contents' not in page:
+                    continue
+                for obj in page['Contents']:
+                    if len(r) >= n_max:
+                        return r
+                    r.append(f'{p}{obj["Key"]}')
+        except ClientError as e:
+            self.handle_s3_error(e, self.bucket_name, f'list objects from {self.prefix}')
+        return r
+
+    @classmethod
+    def handle_s3_error(
+        cls, e: ClientError, bucket_name: str, operation: str = '', *, ignore_404: bool = False
+    ) -> None:
+        error_code = e.response.get('Error', {}).get('Code')
+        error_message = e.response.get('Error', {}).get('Message', str(e))
+        if ignore_404 and error_code == '404':
+            return
+        if error_code == '404':
+            raise excs.Error(f'Bucket {bucket_name} not found during {operation}: {error_message}')
+        elif error_code == '403':
+            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {error_message}')
+        elif error_code == 'PreconditionFailed' or 'PreconditionFailed' in error_message:
+            raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
+        else:
+            raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_code} - {error_message}')

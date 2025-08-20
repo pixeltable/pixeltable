@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import threading
-import urllib.parse
 from typing import Any, Optional
 
-from pixeltable import exceptions as excs
 from pixeltable.env import Env
 
 
@@ -99,65 +97,3 @@ class GCSClientContainer:
             return self.client_write.get_client()
         else:
             return self.client_read.get_client()
-
-    @classmethod
-    def parse_uri(cls, source_uri: str) -> tuple[str, str, str]:
-        """Parse a URI and return scheme, bucket_name, prefix"""
-        parsed = urllib.parse.urlparse(source_uri)
-        bucket_name = parsed.netloc
-        prefix = parsed.path.lstrip('/')
-        return parsed.scheme, bucket_name, prefix
-
-    def list_objects(self, source_uri: str, return_uri: bool, n_max: int = 10) -> list[str]:
-        """Return a list of objects found with the specified GCS uri
-        Each returned object includes the full set of prefixes.
-        if return_uri is True, the full GCS URI is returned; otherwise, just the object key.
-        """
-        from google.api_core.exceptions import GoogleAPIError
-
-        scheme, bucket_name, prefix = self.parse_uri(source_uri)
-        assert scheme == 'gs'
-        p = f'{scheme}://{bucket_name}/' if return_uri else ''
-        gcs_client = self.get_client(for_write=False)
-        r: list[str] = []
-
-        try:
-            bucket = gcs_client.bucket(bucket_name)
-            # List blobs with the given prefix, limiting to n_max
-            blobs = bucket.list_blobs(prefix=prefix, max_results=n_max)
-
-            for blob in blobs:
-                r.append(f'{p}{blob.name}')
-                if len(r) >= n_max:
-                    break
-
-        except GoogleAPIError as e:
-            self.handle_gcs_error(e, bucket_name, f'list objects from {source_uri}')
-        return r
-
-    def list_uris(self, source_uri: str, n_max: int = 10) -> list[str]:
-        """Return a list of URIs found within the specified GCS uri"""
-        return self.list_objects(source_uri, True, n_max)
-
-    @classmethod
-    def handle_gcs_error(cls, e: Exception, bucket_name: str, operation: str = '', *, ignore_404: bool = False) -> None:
-        """Handle GCS-specific errors and convert them to appropriate exceptions"""
-        from google.api_core.exceptions import GoogleAPIError
-        from google.cloud.exceptions import Forbidden, NotFound
-
-        if isinstance(e, NotFound):
-            if ignore_404:
-                return
-            raise excs.Error(f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}')
-        elif isinstance(e, Forbidden):
-            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}')
-        elif isinstance(e, GoogleAPIError):
-            # Handle other Google API errors
-            error_message = str(e)
-            if 'Precondition' in error_message:
-                raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
-            else:
-                raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_message}')
-        else:
-            # Generic error handling
-            raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}')

@@ -14,7 +14,7 @@ import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import catalog, env
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.media_store import TempStore
 
 
 class DataRow:
@@ -257,11 +257,6 @@ class DataRow:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
-        if self.check_must_save(index, col):
-            assert col is not None
-            self.file_urls[index] = self.save_media_object(index, col)
-
     def check_must_save(self, index: int, col: Optional[catalog.Column] = None) -> bool:
         """Return true if the media object in the column needs to be saved, discard unneeded values"""
         if self.vals[index] is None:
@@ -285,7 +280,7 @@ class DataRow:
         self.vals[index] = None
         return False
 
-    def save_media_object(self, index: int, col: catalog.Column, to_temp: bool = False) -> str:
+    def save_media_to_temp(self, index: int, col: catalog.Column) -> str:
         """Save the media object in the column to the column MediaStore file destination or TempStore.
         Objects cannot be saved directly to general destinations."""
         assert col.col_type.is_media_type()
@@ -295,10 +290,7 @@ class DataRow:
             # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
             # In that case, use WebP instead.
             format = 'webp' if val.has_transparency_data else 'jpeg'
-        if to_temp:
-            filepath, url = TempStore.save_media_object(val, col, format=format)
-        else:
-            filepath, url = MediaStore.get(col.destination).save_media_object(val, col, format=format)
+        filepath, url = TempStore.save_media_object(val, col, format=format)
         self.file_paths[index] = str(filepath) if filepath is not None else None
         self.vals[index] = None
         return url

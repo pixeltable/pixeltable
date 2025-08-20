@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 import threading
-import urllib.parse
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
-if TYPE_CHECKING:
-    from botocore.exceptions import ClientError
-
-from pixeltable import exceptions as excs
 from pixeltable.env import Env
 
 
@@ -98,9 +93,13 @@ class S3ClientContainer:
         import botocore
 
         try:
-            boto3.Session().get_credentials().get_frozen_credentials()
-            config = botocore.config.Config(**kwargs)
-            return boto3.client('s3', config=config)  # credentials are available
+            if 'aws_access_key_id' not in kwargs:
+                boto3.Session().get_credentials().get_frozen_credentials()
+                config = botocore.config.Config(**kwargs)
+                return boto3.client('s3', config=config)  # credentials are available
+            else:
+                # If credentials are provided, use them directly
+                return boto3.client('s3', **kwargs)
         except AttributeError:
             # No credentials available, use unsigned mode
             config_args = kwargs.copy()
@@ -122,57 +121,3 @@ class S3ClientContainer:
 
             self.resource = boto3.resource('s3')
         return self.resource
-
-    @classmethod
-    def parse_uri(cls, source_uri: str) -> tuple[str, str, str]:
-        """Parse a URI and return scheme, bucket_name, prefix"""
-        parsed = urllib.parse.urlparse(source_uri)
-        bucket_name = parsed.netloc
-        prefix = parsed.path.lstrip('/')
-        return parsed.scheme, bucket_name, prefix
-
-    def list_objects(self, source_uri: str, return_uri: bool, n_max: int = 10) -> list[str]:
-        """Return a list of objects found with the specified S3 uri
-        Each returned object includes the full set of prefixes.
-        if return_uri is True, the full S3 URI is returned; otherwise, just the object key.
-        """
-        scheme, bucket_name, prefix = self.parse_uri(source_uri)
-        # I think the n_max parameter should be passed into the list_objects_v2 call
-        assert scheme == 's3'
-        p = f'{scheme}://{bucket_name}/' if return_uri else ''
-        s3_client = self.get_client(for_write=False)
-        r: list[str] = []
-        try:
-            # Use paginator to handle more than 1000 objects
-            paginator = s3_client.get_paginator('list_objects_v2')
-            for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
-                if 'Contents' not in page:
-                    continue
-                for obj in page['Contents']:
-                    if len(r) >= n_max:
-                        return r
-                    r.append(f'{p}{obj["Key"]}')
-        except ClientError as e:
-            self.handle_s3_error(e, bucket_name, f'list objects from {source_uri}')
-        return r
-
-    def list_uris(self, source_uri: str, n_max: int = 10) -> list[str]:
-        """Return a list of URIs found within the specified S3 uri"""
-        return self.list_objects(source_uri, True, n_max)
-
-    @classmethod
-    def handle_s3_error(
-        cls, e: ClientError, bucket_name: str, operation: str = '', *, ignore_404: bool = False
-    ) -> None:
-        error_code = e.response.get('Error', {}).get('Code')
-        error_message = e.response.get('Error', {}).get('Message', str(e))
-        if ignore_404 and error_code == '404':
-            return
-        if error_code == '404':
-            raise excs.Error(f'Bucket {bucket_name} not found during {operation}: {error_message}')
-        elif error_code == '403':
-            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {error_message}')
-        elif error_code == 'PreconditionFailed' or 'PreconditionFailed' in error_message:
-            raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
-        else:
-            raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_code} - {error_message}')

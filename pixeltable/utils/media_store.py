@@ -16,7 +16,8 @@ from uuid import UUID
 import PIL.Image
 
 from pixeltable import env, exceptions as excs
-from pixeltable.utils.media_path import MediaPath
+from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
+from pixeltable.utils.media_store_base import MediaStoreBase
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class MediaStore:
+class MediaStore(MediaStoreBase):
     """
     Utilities to manage media files stored in a local filesystem directory.
 
@@ -41,32 +42,19 @@ class MediaStore:
         self.__base_dir = base_dir
 
     @staticmethod
-    def validate_destination(col_name: str, dest: Union[str, Path]) -> str:
+    def validate_destination(col_name: str, dest: Union[StorageObjectAddress, Path]) -> str:
         """Convert a Column destination parameter to a URI, else raise errors."""
         if isinstance(dest, Path):
             dest_path = dest
-        elif not isinstance(dest, str):
-            raise excs.Error(f'Column {col_name}: "destination" must be a string or path, got {dest!r}')
         else:
-            # Check if it's already a valid URI scheme
-            valid_schemes: set[str] = set()  # {'s3', 'gs', 'azure'}
-            parsed = urllib.parse.urlparse(dest)
-            if parsed.scheme:
-                # For file:// URIs, check if it points to a directory
-                # len(parsed.scheme) == 1 handles Windows drive letters like C:\
-                if parsed.scheme.lower() == 'file' or len(parsed.scheme) == 1:
-                    path_str = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-                    dest_path = Path(path_str)
-                elif parsed.scheme.lower() in valid_schemes:
-                    # If it's a valid scheme, treat it as a URI and do no further checking
-                    return dest
-                else:
-                    raise excs.Error(
-                        f'Column {col_name}: "destination" must be a valid URI to a supported destination, got {dest}'
-                    )
-            else:
-                # If no scheme, treat as local file path
-                dest_path = Path(dest)
+            assert isinstance(dest, StorageObjectAddress), f'Invalid destination type: {type(dest)}'
+            storage_address = dest
+            if storage_address.scheme != 'file' or storage_address.storage_target != 'os':
+                raise excs.Error(
+                    f'Column {col_name}: "destination" must be a valid URI to a supported destination, got {dest!r}'
+                )
+            path_str = urllib.parse.unquote(urllib.request.url2pathname(storage_address.prefix))
+            dest_path = Path(path_str)
 
         # Check if path exists and validate it's a directory
         if not dest_path.exists():
@@ -111,6 +99,13 @@ class MediaStore:
         if base_path is None:
             raise excs.Error(f"URI must have 'file' scheme: '{base_uri}'")
         return MediaStore(base_path)
+
+    @classmethod
+    def from_soa(cls, soa: Optional[StorageObjectAddress] = None) -> MediaStore:
+        """Get a MediaStoreFile instance for the specified base URI, or the environment's media_dir if None."""
+        if soa is None:
+            return MediaStore(env.Env.get().media_dir)
+        return MediaStore(soa.to_path)
 
     @classmethod
     def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: Optional[str]) -> Path:
@@ -187,7 +182,7 @@ class MediaStore:
         _logger.debug(f'Media Storage: moved {src_path} to {new_file_url}')
         return new_file_url
 
-    def copy_local_media_file(self, src_path: Path, col: Column) -> str:
+    def copy_local_media_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file to a MediaStore, and return its new URL"""
         dest_path = self._prepare_media_path(col, ext=src_path.suffix)
         shutil.copy2(src_path, dest_path)
@@ -212,7 +207,7 @@ class MediaStore:
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
         return dest_path, new_file_url
 
-    def delete(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> None:
+    def delete(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version."""
         assert tbl_id is not None
@@ -222,6 +217,7 @@ class MediaStore:
             path = self.__base_dir / table_prefix
             if path.exists():
                 shutil.rmtree(path)
+            return None
         else:
             # Remove only the elements for the specified tbl_version.
             paths = glob.glob(
@@ -229,6 +225,7 @@ class MediaStore:
             )
             for p in paths:
                 os.remove(p)
+            return len(paths)
 
     def count(self, tbl_id: Optional[UUID], tbl_version: Optional[int] = None) -> int:
         """
@@ -263,6 +260,17 @@ class MediaStore:
         result = [(tbl_id, col_id, num_files, size) for (tbl_id, col_id), (num_files, size) in d.items()]
         result.sort(key=lambda e: e[3], reverse=True)
         return result
+
+    def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:
+        """Return a list of objects found with the specified location
+        Each returned object includes the full set of prefixes.
+        if return_uri is True, the full GCS URI is returned; otherwise, just the object key.
+        """
+        r = []
+        for root, _, files in os.walk(self.__base_dir):
+            for file in files:
+                r.append(os.path.join(root, file) if not return_uri else Path(root, file).as_uri())
+        return r
 
 
 class TempStore:

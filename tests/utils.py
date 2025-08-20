@@ -19,7 +19,7 @@ from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
-from pixeltable.utils.s3 import S3ClientContainer
+from pixeltable.utils.media_destination import MediaDestination
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
@@ -341,7 +341,7 @@ def __image_mode(path: str) -> str:
 
 def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     uri = 's3://multimedia-commons/data/videos/mp4/'
-    return S3ClientContainer.get().list_uris(uri, n_max=n)
+    return MediaDestination.list_uris(uri, n_max=n)
 
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:

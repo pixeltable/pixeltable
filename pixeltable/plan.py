@@ -1010,6 +1010,7 @@ class Planner:
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
+                plan = cls._insert_save_node(tbl.tbl_version.id, row_builder.stored_media_cols, input_node=plan)
         else:
             if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs

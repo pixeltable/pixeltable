@@ -13,6 +13,7 @@ from pixeltable import exprs
 from pixeltable.env import Env
 from pixeltable.utils.gcs import GCSClientContainer
 from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_path import MediaPath
 from pixeltable.utils.media_store import MediaStore, TempStore
 from pixeltable.utils.s3 import S3ClientContainer
 
@@ -209,7 +210,7 @@ class ObjectStoreSaveNode(ExecNode):
             col, index = info
             # we may need to store this imagehave yet to store this image
             if row.check_must_save(index, col):
-                row.file_urls[index] = row.save_media_object(index, col, True)
+                row.file_urls[index] = row.save_media_to_temp(index, col)
 
             url = row.file_urls[index]
             if url is None:
@@ -220,10 +221,10 @@ class ObjectStoreSaveNode(ExecNode):
             assert col.col_type.is_media_type()
 
             destination = info.col.destination
+            soa = None if destination is None else MediaPath.parse_media_storage_addr1(destination)
             if (
-                destination is not None
-                and not destination.startswith('s3://')
-                and not destination.startswith('gs://')
+                soa is not None
+                and soa.storage_target == 'os'
                 and MediaStore.get(destination).resolve_url(url) is not None
             ):
                 # A local non-default destination was specified, and the url already points there

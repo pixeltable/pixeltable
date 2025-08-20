@@ -8,11 +8,13 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import env
 from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_path import MediaPath
 
 
 class TestDestination:
     USE_S3 = False
     USE_GS = False
+    USE_R2 = False
 
     @classmethod
     def base_dest(cls) -> Path:
@@ -30,6 +32,9 @@ class TestDestination:
         elif cls.USE_S3:
             s3_uri = f's3://jimpeterson-test/img_rot{n}'
             return s3_uri, s3_uri
+        elif cls.USE_R2:
+            r2_uri = f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/jimpeterson-testr2/images/img_rot{n}'
+            return r2_uri, r2_uri
         else:
             dest_path = cls.base_dest() / f'img_rot{n}'
             if not dest_path.exists():
@@ -82,6 +87,57 @@ class TestDestination:
         with pytest.raises(excs.Error, match='must be a valid URI to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
+    def parse_one(self, s: str, consider_object: bool) -> bool:
+        print(f'Parsing: {s}')
+        try:
+            r = MediaPath.parse_media_storage_addr(s, consider_object)
+            print(f'Success: {r!r}')
+            return True
+        except ValueError as e:
+            print(f'Error: {e!r}')
+            return False
+
+    def parse_two(self, s: str) -> bool:
+        r = self.parse_one(s, False)
+        r &= self.parse_one(s, True)
+        return r
+
+    def test_dest_parser(self, reset_db: None) -> None:
+        a_name = 'acct-name'
+        o_name = 'obj-name'
+        p_name1 = 'path-name'
+        p_name2 = 'path-name/path2-name'
+        r = True
+        for s in [
+            's3://container',
+            f'wasb://container@{a_name}.blob.core.windows.net',
+            f'https://{a_name}.blob.core.windows.net/container',
+            f'https://{a_name}.r2.cloudflarestorage.com/container',
+            'https://raw.github.com',
+            'file://dir1/dir2/dir3',
+            'dir1/dir2/dir3',
+        ]:
+            r &= self.parse_two(s)
+            r &= self.parse_two(s + '/')
+            r &= self.parse_two(s + '/' + p_name1)
+            r &= self.parse_two(s + '/' + p_name1 + '/')
+            r &= self.parse_two(s + '/' + p_name2)
+            r &= self.parse_two(s + '/' + p_name2 + '/')
+            r &= self.parse_two(s + '/' + o_name)
+            r &= self.parse_two(s + '/' + p_name2 + '/' + o_name)
+
+        r &= self.parse_one(
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg', True
+        )
+
+        r &= self.parse_one('file://dir1/dir2/dir3', False)
+        r &= self.parse_one(f'file://dir1/dir2/dir3/{o_name}', True)
+        r &= self.parse_one(f'dir2/dir3/{o_name}', True)
+
+        assert r
+
+    #        assert False
+
     def test_dest_local_2(self, reset_db: None) -> None:
         """Test destination with two local directories"""
 
@@ -128,6 +184,8 @@ class TestDestination:
         assert self.count(None, save_id) == 0
         assert self.count(dest1_uri, save_id) == 0
         assert self.count(dest2_uri, save_id) == 0
+
+    #        assert None == 'We made it to the end'
 
     def test_dest_local_3x3(self, reset_db: None) -> None:
         """Test destination with two local Paths receiving copies of the same computed image"""
@@ -240,3 +298,31 @@ class TestDestination:
         for i in range(1, 4):
             _, dest_uri = self.dest(i)
             assert self.count(dest_uri, save_id) == 0
+
+    def test_dest_list(self, reset_db: None) -> None:
+        """Test destination listing with GCS URIs"""
+
+        # Create valid GCS URIs for images
+        _, dest1_uri = self.dest(1)
+
+        t = pxt.create_table('test_dest', schema={'img': pxt.Image})
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
+        t.add_computed_column(img_rot2=t.img.rotate(180), destination=dest1_uri)
+
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        r = t.collect()
+        print(r)
+
+        r_dest = t.select(t.img.fileurl, t.img_rot1.fileurl, t.img_rot2.fileurl).collect()
+        print(r_dest)
+
+        assert len(r) == 2
+        assert len(r) == self.count(None, t._id)
+        assert len(r) == self.count(dest1_uri, t._id)
+
+        olist = MediaDestination.list_uris(dest1_uri, n_max=10)
+        print('list of files in the destination')
+        for item in olist:
+            print(item)
+        assert len(olist) >= 2
