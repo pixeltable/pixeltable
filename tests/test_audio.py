@@ -5,9 +5,8 @@ import av
 import pytest
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs
 from pixeltable.iterators.audio import AudioSplitter
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.media_store import MediaStore, TempStore
 
 from .utils import ReloadTester, get_audio_file, get_audio_files, get_video_files, validate_update_status
 
@@ -39,9 +38,9 @@ class TestAudio:
         status = video_t.insert({'video': p} for p in video_filepaths)
         assert status.num_rows == len(video_filepaths)
         assert status.num_excs == 0
-        assert MediaStore.count(video_t._id) == len(video_filepaths) - 1
+        assert MediaStore.get().count(video_t._id) == len(video_filepaths) - 1
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
-        tmp_files_before = env.Env.get().num_tmp_files()
+        tmp_files_before = TempStore.count()
 
         video_t = pxt.get_table('videos')
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
@@ -49,7 +48,7 @@ class TestAudio:
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
-        assert env.Env.get().num_tmp_files() == tmp_files_before + video_t.where(video_t.audio != None).count()
+        assert TempStore.count() == tmp_files_before + video_t.where(video_t.audio != None).count()
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution
@@ -154,15 +153,15 @@ class TestAudio:
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.insert({'video': p} for p in video_filepaths)
 
-        pre_count = MediaStore.count(video_t._id)
+        pre_count = MediaStore.get().count(video_t._id)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        post_count = MediaStore.count(video_t._id)
+        post_count = MediaStore.get().count(video_t._id)
         assert post_count > pre_count  # Some files should have been added
 
         print(video_t.history())
         video_t.revert()
-        final_count = MediaStore.count(video_t._id)
+        final_count = MediaStore.get().count(video_t._id)
         assert final_count == pre_count  # Reverting should remove the added files
 
     def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
@@ -298,7 +297,7 @@ class TestAudio:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
@@ -308,7 +307,7 @@ class TestAudio:
             )
         assert 'chunk_duration_sec must be a positive number' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
@@ -318,7 +317,7 @@ class TestAudio:
             )
         assert 'chunk_duration_sec must be at least min_chunk_duration_sec' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,

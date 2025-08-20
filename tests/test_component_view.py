@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -7,7 +7,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
 from pixeltable.iterators.video import FrameIterator
 
@@ -67,22 +66,22 @@ class TestComponentView:
         video_filepaths = get_test_video_files()
 
         # cannot add 'pos' column
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             video_t.add_column(pos=pxt.Int)
         assert 'reserved' in str(excinfo.value)
 
         # parameter missing
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(fps=1))
         assert 'missing a required argument' in str(excinfo.value)
 
         # bad parameter type
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps='1'))
         assert 'argument type String does not match parameter type Optional[Float]' in str(excinfo.value)
 
         # bad parameter type
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
@@ -135,7 +134,7 @@ class TestComponentView:
         validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             view_t.add_column(annotation=pxt.Required[pxt.Json])
         assert "Duplicate column name: 'annotation'" in str(excinfo.value)
 
@@ -174,7 +173,7 @@ class TestComponentView:
             # malformed _rowid
             view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
                 'bad_view',
                 video_t,
@@ -222,7 +221,7 @@ class TestComponentView:
         orig_resultset = view_query.collect()
 
         # create snapshot of view
-        query: Union[pxt.Table, pxt.DataFrame] = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
+        query: pxt.Table | pxt.DataFrame = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
         schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
         snap_t = pxt.create_snapshot(snap_path, query, additional_columns=schema)
         snap_cols = [snap_t.c1] if has_column else []

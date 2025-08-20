@@ -19,7 +19,6 @@ from typing import (
     Optional,
     Sequence,
     TypeVar,
-    Union,
 )
 
 import pandas as pd
@@ -766,7 +765,7 @@ class DataFrame:
         )
 
     def _create_join_predicate(
-        self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
+        self, other: catalog.TableVersionPath, on: exprs.Expr | Sequence[exprs.ColumnRef]
     ) -> exprs.Expr:
         """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
@@ -796,19 +795,19 @@ class DataFrame:
         assert len(col_refs) > 0 and len(joined_tbls) >= 2
         for col_ref in col_refs:
             # identify the referenced column by name in 'other'
-            rhs_col = other.get_column(col_ref.col.name, include_bases=True)
+            rhs_col = other.get_column(col_ref.col.name)
             if rhs_col is None:
                 raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
             rhs_col_ref = exprs.ColumnRef(rhs_col)
 
             lhs_col_ref: Optional[exprs.ColumnRef] = None
-            if any(tbl.has_column(col_ref.col, include_bases=True) for tbl in self._from_clause.tbls):
+            if any(tbl.has_column(col_ref.col) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
             else:
                 # col_ref comes from other, we need to look for a match in the existing from_clause by name
                 for tbl in self._from_clause.tbls:
-                    col = tbl.get_column(col_ref.col.name, include_bases=True)
+                    col = tbl.get_column(col_ref.col.name)
                     if col is None:
                         continue
                     if lhs_col_ref is not None:
@@ -829,7 +828,7 @@ class DataFrame:
     def join(
         self,
         other: catalog.Table,
-        on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
+        on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: plan.JoinType.LiteralType = 'inner',
     ) -> DataFrame:
         """

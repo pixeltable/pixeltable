@@ -1,5 +1,5 @@
 from keyword import iskeyword as is_python_keyword
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -21,7 +21,7 @@ def normalize_pxt_col_name(name: str) -> str:
     return id
 
 
-def normalize_primary_key_parameter(primary_key: Optional[Union[str, list[str]]] = None) -> list[str]:
+def normalize_primary_key_parameter(primary_key: str | list[str] | None = None) -> list[str]:
     if primary_key is None:
         primary_key = []
     elif isinstance(primary_key, str):

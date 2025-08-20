@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, ClassVar, Iterable, Iterator, Optional, Union
+from typing import Any, ClassVar, Iterable, Iterator, Optional
 
 import ftfy
 
@@ -213,12 +213,6 @@ class DocumentSplitter(ComponentIterator):
             if kwargs.get('limit') is None:
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
 
-        # check dependencies at the end
-        if Separator.SENTENCE in separators:
-            _ = Env.get().spacy_nlp
-        if Separator.TOKEN_LIMIT in separators:
-            Env.get().require_package('tiktoken')
-
         return schema, []
 
     def __next__(self) -> dict[str, Any]:
@@ -273,7 +267,7 @@ class DocumentSplitter(ComponentIterator):
                 yield DocumentSection(text=full_text, metadata=md)
                 accumulated_text = []
 
-        def process_element(el: Union[bs4.element.Tag, bs4.NavigableString]) -> Iterator[DocumentSection]:
+        def process_element(el: bs4.element.Tag | bs4.NavigableString) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
             nonlocal accumulated_text, headings, sourceline, emit_on_heading, emit_on_paragraph
 

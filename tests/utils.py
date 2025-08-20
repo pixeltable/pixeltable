@@ -17,8 +17,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 import pixeltable.utils.s3 as s3_util
-from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog.update_status import UpdateStatus
+from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
@@ -51,9 +50,7 @@ def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.T
     return pxt.create_table(name, schema)
 
 
-def create_table_data(
-    t: catalog.Table, col_names: Optional[list[str]] = None, num_rows: int = 10
-) -> list[dict[str, Any]]:
+def create_table_data(t: pxt.Table, col_names: Optional[list[str]] = None, num_rows: int = 10) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: dict[str, Any] = {}
@@ -126,7 +123,7 @@ def create_table_data(
     return rows
 
 
-def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
+def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
     schema = {
         'c1': pxt.Required[pxt.String],
         'c1n': pxt.String,
@@ -187,7 +184,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     return t
 
 
-def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
+def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     schema = {'img': pxt.Required[pxt.Image], 'category': pxt.Required[pxt.String], 'split': pxt.Required[pxt.String]}
     tbl = pxt.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -200,7 +197,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Tab
     return tbl
 
 
-def create_all_datatypes_tbl() -> catalog.Table:
+def create_all_datatypes_tbl() -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -226,7 +223,7 @@ def create_all_datatypes_tbl() -> catalog.Table:
     return tbl
 
 
-def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> catalog.Table:
+def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> pxt.Table:
     """
     Creates a table with scalar columns, each of which contains randomly generated data.
     """
@@ -449,7 +446,7 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
     return '\n'.join(lines)
 
 
-def assert_table_metadata_eq(expected: dict[str, Any], actual: dict[str, Any]) -> None:
+def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata) -> None:
     """
     Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
     `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact
@@ -460,7 +457,9 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: dict[str, Any]) -
     assert (now - actual_created_at).total_seconds() <= 60
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
-    TestCase().assertDictEqual(expected, trimmed_actual)
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
 
 
 def strip_lines(s: str) -> str:
@@ -477,7 +476,7 @@ def skip_test_if_not_installed(*packages: str) -> None:
 def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
-    except excs.Error as exc:
+    except pxt.Error as exc:
         pytest.skip(str(exc))
 
 
@@ -492,14 +491,14 @@ def skip_test_if_no_aws_credentials() -> None:
         pytest.skip(str(exc))
 
 
-def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
+def validate_update_status(status: pxt.UpdateStatus, expected_rows: Optional[int] = None) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
 
 
 def validate_sync_status(
-    status: UpdateStatus,
+    status: pxt.UpdateStatus,
     expected_external_rows_created: Optional[int] = None,
     expected_external_rows_updated: Optional[int] = None,
     expected_external_rows_deleted: Optional[int] = None,
@@ -576,7 +575,7 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) ->
 
 
 def reload_catalog() -> None:
-    catalog.Catalog.clear()
+    Catalog.clear()
     pxt.init()
 
 
@@ -632,6 +631,19 @@ class ReloadTester:
                 raise RuntimeError(s) from e
         if clear:
             self.clear()
+
+
+def rerun(**kwargs: Any) -> Callable:
+    from .conftest import DO_RERUN
+
+    if 'condition' in kwargs:
+        kwargs['condition'] = DO_RERUN and kwargs['condition']
+    else:
+        kwargs['condition'] = DO_RERUN
+    if 'only_rerun' not in kwargs:
+        # Set this to an explicit empty list to override the global default in cases where the @rerun decorator is used
+        kwargs['only_rerun'] = []
+    return pytest.mark.flaky(**kwargs)
 
 
 # This will be set to True if the tests are running in a CI environment.

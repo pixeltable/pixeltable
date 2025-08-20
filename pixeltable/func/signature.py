@@ -84,8 +84,28 @@ class Signature:
     """
 
     SPECIAL_PARAM_NAMES: ClassVar[list[str]] = ['group_by', 'order_by']
+    SYSTEM_PARAM_NAMES: ClassVar[list[str]] = ['_runtime_ctx']
 
-    def __init__(self, return_type: ts.ColumnType, parameters: list[Parameter], is_batched: bool = False):
+    return_type: ts.ColumnType
+    is_batched: bool
+    parameters: dict[str, Parameter]  # name -> Parameter
+    parameters_by_pos: list[Parameter]  # ordered by position in the signature
+    constant_parameters: list[Parameter]  # parameters that are not batched
+    batched_parameters: list[Parameter]  # parameters that are batched
+    required_parameters: list[Parameter]  # parameters that do not have a default value
+
+    # the names of recognized system parameters in the signature; these are excluded from self.parameters
+    system_parameters: list[str]
+
+    py_signature: inspect.Signature
+
+    def __init__(
+        self,
+        return_type: ts.ColumnType,
+        parameters: list[Parameter],
+        is_batched: bool = False,
+        system_parameters: Optional[list[str]] = None,
+    ):
         assert isinstance(return_type, ts.ColumnType)
         self.return_type = return_type
         self.is_batched = is_batched
@@ -95,6 +115,7 @@ class Signature:
         self.constant_parameters = [p for p in parameters if not p.is_batched]
         self.batched_parameters = [p for p in parameters if p.is_batched]
         self.required_parameters = [p for p in parameters if not p.has_default()]
+        self.system_parameters = system_parameters if system_parameters is not None else []
         self.py_signature = inspect.Signature([p.to_py_param() for p in self.parameters_by_pos])
 
     def get_return_type(self) -> ts.ColumnType:
@@ -237,6 +258,7 @@ class Signature:
         type_substitutions: Optional[dict] = None,
         is_cls_method: bool = False,
     ) -> list[Parameter]:
+        """Ignores parameters starting with '_'."""
         from pixeltable import exprs
 
         assert (py_fn is None) != (py_params is None)
@@ -251,6 +273,10 @@ class Signature:
         for idx, param in enumerate(py_params):
             if is_cls_method and idx == 0:
                 continue  # skip 'self' or 'cls' parameter
+            if param.name in cls.SYSTEM_PARAM_NAMES:
+                continue  # skip system parameters
+            if param.name.startswith('_'):
+                raise excs.Error(f"{param.name!r}: parameters starting with '_' are reserved")
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f'{param.name!r} is a reserved parameter name')
             if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
@@ -308,5 +334,6 @@ class Signature:
                 raise excs.Error('Cannot infer pixeltable return type')
         else:
             _, return_is_batched = cls._infer_type(sig.return_annotation)
+        system_params = [param_name for param_name in sig.parameters if param_name in cls.SYSTEM_PARAM_NAMES]
 
-        return Signature(return_type, parameters, return_is_batched)
+        return Signature(return_type, parameters, return_is_batched, system_parameters=system_params)

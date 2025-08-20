@@ -38,6 +38,53 @@ def _anthropic_client() -> 'anthropic.AsyncAnthropic':
     return env.Env.get().get_client('anthropic')
 
 
+def _get_header_info(
+    headers: httpx.Headers,
+) -> tuple[
+    Optional[tuple[int, int, datetime.datetime]],
+    Optional[tuple[int, int, datetime.datetime]],
+    Optional[tuple[int, int, datetime.datetime]],
+]:
+    """Extract rate limit info from Anthropic API response headers."""
+    requests_limit_str = headers.get('anthropic-ratelimit-requests-limit')
+    requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
+    requests_remaining_str = headers.get('anthropic-ratelimit-requests-remaining')
+    requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
+    requests_reset_str = headers.get('anthropic-ratelimit-requests-reset')
+    requests_reset = (
+        datetime.datetime.fromisoformat(requests_reset_str.replace('Z', '+00:00')) if requests_reset_str else None
+    )
+    requests_info = (requests_limit, requests_remaining, requests_reset) if requests_reset else None
+
+    input_tokens_limit_str = headers.get('anthropic-ratelimit-input-tokens-limit')
+    input_tokens_limit = int(input_tokens_limit_str) if input_tokens_limit_str is not None else None
+    input_tokens_remaining_str = headers.get('anthropic-ratelimit-input-tokens-remaining')
+    input_tokens_remaining = int(input_tokens_remaining_str) if input_tokens_remaining_str is not None else None
+    input_tokens_reset_str = headers.get('anthropic-ratelimit-input-tokens-reset')
+    input_tokens_reset = (
+        datetime.datetime.fromisoformat(input_tokens_reset_str.replace('Z', '+00:00'))
+        if input_tokens_reset_str
+        else None
+    )
+    input_tokens_info = (input_tokens_limit, input_tokens_remaining, input_tokens_reset) if input_tokens_reset else None
+
+    output_tokens_limit_str = headers.get('anthropic-ratelimit-output-tokens-limit')
+    output_tokens_limit = int(output_tokens_limit_str) if output_tokens_limit_str is not None else None
+    output_tokens_remaining_str = headers.get('anthropic-ratelimit-output-tokens-remaining')
+    output_tokens_remaining = int(output_tokens_remaining_str) if output_tokens_remaining_str is not None else None
+    output_tokens_reset_str = headers.get('anthropic-ratelimit-output-tokens-reset')
+    output_tokens_reset = (
+        datetime.datetime.fromisoformat(output_tokens_reset_str.replace('Z', '+00:00'))
+        if output_tokens_reset_str
+        else None
+    )
+    output_tokens_info = (
+        (output_tokens_limit, output_tokens_remaining, output_tokens_reset) if output_tokens_reset else None
+    )
+
+    return requests_info, input_tokens_info, output_tokens_info
+
+
 class AnthropicRateLimitsInfo(env.RateLimitsInfo):
     def __init__(self) -> None:
         super().__init__(self._get_request_resources)
@@ -50,6 +97,27 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
             if 'content' in message:
                 input_len += len(message['content'])
         return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
+
+    def record_exc(self, exc: Exception) -> None:
+        import anthropic
+
+        if (
+            not isinstance(exc, anthropic.APIError)
+            or not hasattr(exc, 'response')
+            or not hasattr(exc.response, 'headers')
+        ):
+            return
+        requests_info, input_tokens_info, output_tokens_info = _get_header_info(exc.response.headers)
+        _logger.debug(
+            f'record_exc(): requests_info={requests_info} input_tokens_info={input_tokens_info} '
+            f'output_tokens_info={output_tokens_info}'
+        )
+        self.record(requests=requests_info, input_tokens=input_tokens_info, output_tokens=output_tokens_info)
+        self.has_exc = True
+
+        retry_after_str = exc.response.headers.get('retry-after')
+        if retry_after_str is not None:
+            _logger.debug(f'retry-after: {retry_after_str}')
 
     def get_retry_delay(self, exc: Exception) -> Optional[float]:
         import anthropic
@@ -64,8 +132,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         should_retry_str = exc.response.headers.get('x-should-retry', '')
         if should_retry_str.lower() != 'true':
             return None
-        retry_after_str = exc.response.headers.get('retry-after', '1')
-        return int(retry_after_str)
+        return super().get_retry_delay(exc)
 
 
 @pxt.udf
@@ -77,6 +144,7 @@ async def messages(
     model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
+    _runtime_ctx: Optional[env.RuntimeCtx] = None,
 ) -> dict:
     """
     Create a Message.
@@ -151,32 +219,13 @@ async def messages(
         messages=cast(Iterable[MessageParam], messages), model=model, max_tokens=max_tokens, **model_kwargs
     )
 
-    requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')
-    requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
-    requests_remaining_str = result.headers.get('anthropic-ratelimit-requests-remaining')
-    requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
-    requests_reset_str = result.headers.get('anthropic-ratelimit-requests-reset')
-    requests_reset = datetime.datetime.fromisoformat(requests_reset_str.replace('Z', '+00:00'))
-    input_tokens_limit_str = result.headers.get('anthropic-ratelimit-input-tokens-limit')
-    input_tokens_limit = int(input_tokens_limit_str) if input_tokens_limit_str is not None else None
-    input_tokens_remaining_str = result.headers.get('anthropic-ratelimit-input-tokens-remaining')
-    input_tokens_remaining = int(input_tokens_remaining_str) if input_tokens_remaining_str is not None else None
-    input_tokens_reset_str = result.headers.get('anthropic-ratelimit-input-tokens-reset')
-    input_tokens_reset = datetime.datetime.fromisoformat(input_tokens_reset_str.replace('Z', '+00:00'))
-    output_tokens_limit_str = result.headers.get('anthropic-ratelimit-output-tokens-limit')
-    output_tokens_limit = int(output_tokens_limit_str) if output_tokens_limit_str is not None else None
-    output_tokens_remaining_str = result.headers.get('anthropic-ratelimit-output-tokens-remaining')
-    output_tokens_remaining = int(output_tokens_remaining_str) if output_tokens_remaining_str is not None else None
-    output_tokens_reset_str = result.headers.get('anthropic-ratelimit-output-tokens-reset')
-    output_tokens_reset = datetime.datetime.fromisoformat(output_tokens_reset_str.replace('Z', '+00:00'))
-    retry_after_str = result.headers.get('retry-after')
-    if retry_after_str is not None:
-        _logger.debug(f'retry-after: {retry_after_str}')
-
+    requests_info, input_tokens_info, output_tokens_info = _get_header_info(result.headers)
+    # retry_after_str = result.headers.get('retry-after')
+    # if retry_after_str is not None:
+    #     _logger.debug(f'retry-after: {retry_after_str}')
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(
-        requests=(requests_limit, requests_remaining, requests_reset),
-        input_tokens=(input_tokens_limit, input_tokens_remaining, input_tokens_reset),
-        output_tokens=(output_tokens_limit, output_tokens_remaining, output_tokens_reset),
+        requests=requests_info, input_tokens=input_tokens_info, output_tokens=output_tokens_info, reset_exc=is_retry
     )
 
     result_dict = json.loads(result.text)

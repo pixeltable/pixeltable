@@ -1,36 +1,45 @@
+import os
 import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Literal, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.media_store import TempStore
 
 from .packager import TablePackager, TableRestorer
 
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
 
-PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
+PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
-def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
-    if not src_tbl._tbl_version.get().is_snapshot:
+def push_replica(
+    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
+) -> str:
+    if not src_tbl._tbl_version_path.is_snapshot():
         raise excs.Error('Only snapshots may be published.')
 
-    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri})
+    packager = TablePackager(
+        src_tbl, additional_md={'table_uri': dest_tbl_uri, 'bucket_name': bucket, 'is_public': access == 'public'}
+    )
     request_json = packager.md | {'operation_type': 'publish_snapshot'}
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
     if response.status_code != 200:
         raise excs.Error(f'Error publishing snapshot: {response.text}')
     response_json = response.json()
-    if not isinstance(response_json, dict) or response_json.get('destination') != 's3':
+    if not isinstance(response_json, dict):
         raise excs.Error(f'Error publishing snapshot: unexpected response from server.\n{response_json}')
     upload_id = response_json['upload_id']
     destination_uri = response_json['destination_uri']
@@ -42,17 +51,23 @@ def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     parsed_location = urllib.parse.urlparse(destination_uri)
     if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
+    elif parsed_location.scheme == 'https':
+        _upload_to_presigned_url(file_path=bundle, url=parsed_location.geturl())
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
     Env.get().console_logger.info('Finalizing snapshot ...')
 
     finalize_request_json = {
+        'table_uri': dest_tbl_uri,
         'operation_type': 'finalize_snapshot',
         'upload_id': upload_id,
         'datafile': bundle.name,
         'size': bundle.stat().st_size,
         'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
+        'rows': packager.md['row_count'],  # TODO rename rows to row_count once cloud side changes are complete
+        'preview_header': packager.md['preview_header'],
+        'preview_data': packager.md['preview_data'],
     }
     # TODO: Use Pydantic for validation
     finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=headers_json)
@@ -107,11 +122,14 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         raise excs.Error(f'Error cloning shapshot: unexpected response from server.\n{response_json}')
 
     primary_tbl_additional_md = response_json['md']['tables'][0]['table_md']['additional_md']
-    bundle_uri = primary_tbl_additional_md['destination_uri']
+    bundle_uri = response_json['destination_uri']
     bundle_filename = primary_tbl_additional_md['datafile']
     parsed_location = urllib.parse.urlparse(bundle_uri)
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
+    elif parsed_location.scheme == 'https':
+        bundle_path = TempStore.create_path()
+        _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
@@ -136,7 +154,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']
 
-    bundle_path = Path(Env.get().create_tmp_path())
+    bundle_path = TempStore.create_path()
     progress_bar = tqdm(
         desc='Downloading',
         total=bundle_size,
@@ -149,3 +167,112 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     )
     s3_client.download_file(Bucket=bucket, Key=remote_path, Filename=str(bundle_path), Callback=progress_bar.update)
     return bundle_path
+
+
+def _create_retry_session(
+    max_retries: int = 3, backoff_factor: float = 1.0, status_forcelist: Optional[list] = None
+) -> requests.Session:
+    """Create a requests session with retry configuration"""
+    if status_forcelist is None:
+        status_forcelist = [
+            408,  # Request Timeout
+            429,  # Too Many Requests (rate limiting)
+            500,  # Internal Server Error (server-side error)
+            502,  # Bad Gateway (proxy/gateway got invalid response)
+            503,  # Service Unavailable (server overloaded or down)
+            504,  # Gateway Timeout (proxy/gateway timeout)
+        ]
+    retry_strategy = Retry(
+        total=max_retries,
+        read=max_retries,
+        connect=max_retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+        allowed_methods=['GET', 'PUT', 'POST', 'DELETE'],
+    )
+
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount('https://', adapter)
+    return session
+
+
+def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) -> requests.Response:
+    """Upload file with progress bar and retries"""
+    file_size = file_path.stat().st_size
+
+    headers = {'Content-Length': str(file_size), 'Content-Type': 'application/octet-stream'}
+
+    session = _create_retry_session(max_retries=max_retries)
+    try:
+        with (
+            open(file_path, 'rb') as f,
+            tqdm.wrapattr(
+                f,
+                method='read',
+                total=file_size,
+                desc='Uploading',
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+                miniters=1,  # Update every iteration (should be fine for an upload)
+                ncols=100,
+                file=sys.stdout,
+            ) as file_with_progress,
+        ):
+            response = session.put(
+                url,
+                data=file_with_progress,
+                headers=headers,
+                timeout=(60, 1800),  # 60 seconds to connect and 300 seconds for server response
+            )
+            response.raise_for_status()
+            return response
+    finally:
+        session.close()
+
+
+def _download_from_presigned_url(
+    url: str, output_path: Path, headers: Optional[dict[str, str]] = None, max_retries: int = 3
+) -> None:
+    """Download file with progress bar and retries"""
+    session = _create_retry_session(max_retries=max_retries)
+
+    try:
+        # Stream download with progress
+        response = session.get(
+            url, headers=headers, stream=True, timeout=(60, 300)
+        )  # 60 seconds to connect and 300 seconds for server response
+        response.raise_for_status()
+
+        total_size = int(response.headers.get('content-length', 0))
+        progress_bar = tqdm(
+            desc='Downloading',
+            total=total_size,
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+            miniters=1,
+            ncols=100,
+            file=sys.stdout,
+        )
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    progress_bar.update(len(chunk))
+    finally:
+        session.close()
+
+
+# TODO: This will be replaced by drop_table with cloud table uri
+def delete_replica(dest_path: str) -> None:
+    """Delete cloud replica"""
+    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
+    delete_request_json = {'operation_type': 'delete_snapshot', 'table_uri': dest_path}
+    response = requests.post(PIXELTABLE_API_URL, json=delete_request_json, headers=headers_json)
+    if response.status_code != 200:
+        raise excs.Error(f'Error deleting replica: {response.text}')
+    response_json = response.json()
+    if not isinstance(response_json, dict) or 'table_uri' not in response_json:
+        raise excs.Error(f'Error deleting replica: unexpected response from server.\n{response_json}')

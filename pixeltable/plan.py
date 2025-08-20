@@ -394,9 +394,6 @@ class Planner:
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
 
-        stored_col_info = row_builder.output_slot_idxs()
-        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
-        plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(
             exec.ExecContext(
                 row_builder,
@@ -427,10 +424,6 @@ class Planner:
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
-
-        stored_col_info = plan.row_builder.output_slot_idxs()
-        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
-        plan.set_stored_img_cols(stored_img_col_info)
 
         plan.set_ctx(
             exec.ExecContext(
@@ -657,10 +650,6 @@ class Planner:
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
-        stored_img_col_info = [
-            info for info in plan.row_builder.output_slot_idxs() if info.col.col_type.is_image_type()
-        ]
-        plan.set_stored_img_cols(stored_img_col_info)
         return plan
 
     @classmethod
@@ -727,8 +716,6 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
-        stored_img_col_info = [info for info in row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
-        plan.set_stored_img_cols(stored_img_col_info)
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         return plan, len(row_builder.default_eval_ctx.target_exprs)
@@ -1053,7 +1040,4 @@ class Planner:
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
 
-        # we want to flush images
-        if col.is_computed and col.is_stored and col.col_type.is_image_type():
-            plan.set_stored_img_cols(row_builder.output_slot_idxs())
         return plan
