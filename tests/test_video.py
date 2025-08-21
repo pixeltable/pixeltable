@@ -426,7 +426,7 @@ class TestVideo:
         t.insert({'video': p} for p in video_filepaths)
 
         # basic test: reassemble segments into original video
-        t.add_computed_column(segments=t.video.get_segments(duration=5.0), on_error='ignore')
+        t.add_computed_column(segments=t.video.segment_video(duration=5.0), on_error='ignore')
         t.add_computed_column(concat=concat_videos(t.segments))
         res_df = (
             t.where(t.segments.errortype == None)
