@@ -1,7 +1,8 @@
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.functions.util import resolve_torch_device
 from pixeltable.utils.code import local_public_names
@@ -10,8 +11,6 @@ if TYPE_CHECKING:
     from transformers import Wav2Vec2Model
     from whisperx.asr import FasterWhisperPipeline  # type: ignore[import-untyped]
     from whisperx.diarize import DiarizationPipeline  # type: ignore[import-untyped]
-
-import pixeltable as pxt
 
 
 @pxt.udf
@@ -22,7 +21,7 @@ def transcribe(
     diarize: bool = False,
     compute_type: Optional[str] = None,
     language: Optional[str] = None,
-    task: Optional[Literal['transcribe', 'translate']] = None,
+    task: Optional[str] = None,
     chunk_size: Optional[int] = None,
     alignment_model_name: Optional[str] = None,
     interpolate_method: Optional[str] = None,
@@ -64,20 +63,18 @@ def transcribe(
     import whisperx  # type: ignore[import-untyped]
 
     if not diarize:
-        if alignment_model_name is not None:
-            raise pxt.Error('`alignment_model_name` can only be set if `diarize=True`')
-        if interpolate_method is not None:
-            raise pxt.Error('`interpolate_method` can only be set if `diarize=True`')
-        if return_char_alignments is not None:
-            raise pxt.Error('`return_char_alignments` can only be set if `diarize=True`')
-        if diarization_model_name is not None:
-            raise pxt.Error('`diarization_model_name` can only be set if `diarize=True`')
-        if num_speakers is not None:
-            raise pxt.Error('`num_speakers` can only be set if `diarize=True`')
-        if min_speakers is not None:
-            raise pxt.Error('`min_speakers` can only be set if `diarize=True`')
-        if max_speakers is not None:
-            raise pxt.Error('`max_speakers` can only be set if `diarize=True`')
+        args = locals()
+        for param in (
+            'alignment_model_name',
+            'interpolate_method',
+            'return_char_alignments',
+            'diarization_model_name',
+            'num_speakers',
+            'min_speakers',
+            'max_speakers',
+        ):
+            if args[param] is not None:
+                raise pxt.Error(f'`{param}` can only be set if `diarize=True`')
 
     device = resolve_torch_device('auto', allow_mps=False)
     compute_type = compute_type or ('float16' if device == 'cuda' else 'int8')
