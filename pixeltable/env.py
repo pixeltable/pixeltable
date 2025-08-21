@@ -505,7 +505,7 @@ class Env:
 
     @retry(
         stop=stop_after_attempt(3),  # Stop after 3 attempts
-        wait=wait_exponential_jitter(exp_base=0.1, multiplier=2, max=1),  # Exponential backoff with jitter
+        wait=wait_exponential_jitter(initial=0.2, max=1.0, jitter=0.2),  # Exponential backoff with jitter
     )
     def _init_metadata(self) -> None:
         """
