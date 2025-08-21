@@ -110,8 +110,6 @@ class Env:
             env._set_up(reinit_db=reinit_db)
             env._upgrade_metadata()
             cls._instance = env
-        except BaseException as e:  # Catch all exceptions
-            raise e
         finally:
             cls.__initializing = False
 
