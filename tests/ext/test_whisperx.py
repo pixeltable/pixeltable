@@ -22,6 +22,7 @@ class TestWhisperx:
         )
         t = pxt.create_table('whisperx', {'audio': pxt.Audio})
         t.add_computed_column(transcription=whisperx.transcribe(t.audio, model='tiny.en'))
+        t.add_computed_column(diarization=whisperx.transcribe(t.audio, model='tiny.en', diarize=True))
         validate_update_status(t.insert(audio=audio_file), expected_rows=1)
         result = t.collect()['transcription'][0]
         assert result['language'] == 'en'
