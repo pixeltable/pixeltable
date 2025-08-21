@@ -10,11 +10,9 @@ import inspect
 import logging
 import os
 import platform
-import random
 import shutil
 import sys
 import threading
-import time
 import types
 import typing
 import warnings
@@ -29,6 +27,7 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -504,6 +503,10 @@ class Env:
         assert self._db_url is not None
         assert self._db_name is not None
 
+    @retry(
+        stop=stop_after_attempt(3),  # Stop after 3 attempts
+        wait=wait_exponential_jitter(exp_base=0.1, multiplier=2, max=1),  # Exponential backoff with jitter
+    )
     def _init_metadata(self) -> None:
         """
         Create pixeltable metadata tables and system metadata.
@@ -512,25 +515,8 @@ class Env:
         assert self._sa_engine is not None
         from pixeltable import metadata
 
-        max_retries = 3
-        base_delay = 0.1
-        for attempt in range(max_retries + 1):
-            try:
-                metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
-                metadata.create_system_info(self._sa_engine)
-                return
-            except Exception as e:
-                error_msg = str(e).lower()
-                # If it's a "table already exists" error, that's actually success
-                if any(phrase in error_msg for phrase in ['already exists', 'duplicate', 'relation already exists']):
-                    return  # Tables exist (created by us or another Lambda)
-
-                # For other errors, retry if we have attempts left
-                if attempt == max_retries:
-                    raise e  # Last attempt failed with a real error
-                # Exponential backoff with jitter for transient errors
-                delay = base_delay * (2**attempt) + random.uniform(0, 0.1)
-                time.sleep(delay)
+        metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
+        metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}

@@ -54,7 +54,8 @@ for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/convert
 def upgrade_md(engine: sql.engine.Engine) -> None:
     """Upgrade the metadata schema to the current version"""
     with orm.Session(engine) as session:
-        system_info = session.query(SystemInfo).one().md
+        # Get exclusive lock on SystemInfo row
+        system_info = (session.query(SystemInfo).with_for_update().one()).md
         md_version = system_info['schema_version']
         assert isinstance(md_version, int)
         _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
