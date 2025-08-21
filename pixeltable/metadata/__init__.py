@@ -55,7 +55,7 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
     """Upgrade the metadata schema to the current version"""
     with orm.Session(engine) as session:
         # Get exclusive lock on SystemInfo row
-        system_info = (session.query(SystemInfo).with_for_update().one()).md
+        system_info = session.query(SystemInfo).with_for_update().one().md
         md_version = system_info['schema_version']
         assert isinstance(md_version, int)
         _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
