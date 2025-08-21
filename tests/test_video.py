@@ -394,28 +394,28 @@ class TestVideo:
             assert result.to_pandas()['duration'].between(0.0, max_duration + 1).all()
         pxt.drop_table('validate_segments')
 
-    def test_get_segments(self, reset_db: None) -> None:
+    def test_segment_video(self, reset_db: None) -> None:
         skip_test_if_not_in_path('ffmpeg')
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         t.insert([{'video': f} for f in get_video_files()])
 
         duration = t.video.get_metadata().streams[0].duration_seconds / 2
-        result = t.where(duration != None).select(segments=t.video.get_segments(duration=3.0)).collect()
+        result = t.where(duration != None).select(segments=t.video.segment_video(duration=3.0)).collect()
         segments = result['segments'][0]
         assert len(segments) >= 1
         self._validate_segments(segments, max_duration=3.0)
 
         # split at midpoint
-        result = t.where(duration != None).select(segments=t.video.get_segments(duration=duration + 1)).collect()
+        result = t.where(duration != None).select(segments=t.video.segment_video(duration=duration + 1)).collect()
         segments = result['segments'][0]
         assert len(segments) == 2
         self._validate_segments(segments)
 
         with pytest.raises(pxt.Error, match='duration must be positive'):
-            t.select(invalid=t.video.get_segments(duration=0.0)).collect()
+            t.select(invalid=t.video.segment_video(duration=0.0)).collect()
 
         with pytest.raises(pxt.Error, match='could not determine duration of video'):
-            _ = t.select(segments=t.video.get_segments(duration=3.0)).collect()
+            _ = t.select(segments=t.video.segment_video(duration=3.0)).collect()
 
     def test_concat_videos(self, reset_db: None) -> None:
         skip_test_if_not_in_path('ffmpeg')

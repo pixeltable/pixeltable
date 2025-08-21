@@ -25,9 +25,6 @@ _format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
     # 'mp4': ('aac', 'm4a'),
 }
 
-# Cache for available H.264 encoder
-_h264_encoder_cache: Optional[str] = None
-
 # for mp4:
 # - extract_audio() fails with
 #   "Application provided invalid, non monotonically increasing dts to muxer in stream 0: 1146 >= 290"
@@ -312,69 +309,70 @@ def _has_audio_stream(path: str) -> bool:
     return any(stream['type'] == 'audio' for stream in md['streams'])
 
 
-def _get_h264_encoder() -> str:
-    """Get the best available H.264 encoder.
-
-    Returns the first available encoder from the priority list.
-    Caches the result to avoid repeated subprocess calls.
-
-    Priority order:
-    1. libx264 (GPL, best quality)
-    2. libopenh264 (BSD-licensed)
-    3. h264_videotoolbox (macOS hardware)
-    4. h264_nvenc (NVIDIA hardware)
-    5. h264_qsv (Intel Quick Sync)
-    """
-    global _h264_encoder_cache
-
-    if _h264_encoder_cache is not None:
-        return _h264_encoder_cache
-
-    # Priority order of encoders to try
-    encoders_to_try = [
-        'libx264',  # GPL, best quality
-        'libopenh264',  # BSD-licensed
-        'h264_videotoolbox',  # macOS hardware encoder
-        'h264_nvenc',  # NVIDIA hardware encoder
-        'h264_qsv',  # Intel Quick Sync
-    ]
-
-    try:
-        # Get list of available encoders
-        result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=5)
-
-        if result.returncode == 0:
-            available_encoders = result.stdout
-
-            # Check each encoder in priority order
-            for encoder in encoders_to_try:
-                # ffmpeg -encoders output format: " V..... encoder_name  description"
-                if f' {encoder} ' in available_encoders or f' {encoder}\n' in available_encoders:
-                    _h264_encoder_cache = encoder
-                    _logger.debug(f'Using H.264 encoder: {encoder}')
-                    return encoder
-
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-    # Fallback: try each encoder directly to see what works
-    for encoder in encoders_to_try:
-        try:
-            # Test if encoder works with a minimal command
-            test_cmd = ['ffmpeg', '-f', 'lavfi', '-i', 'nullsrc=s=2x2:d=0.1', '-c:v', encoder, '-f', 'null', '-']
-            result = subprocess.run(test_cmd, capture_output=True, timeout=2)
-            if result.returncode == 0:
-                _h264_encoder_cache = encoder
-                _logger.debug(f'Using H.264 encoder (tested): {encoder}')
-                return encoder
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            continue
-
-    # If we get here, no H.264 encoder is available
-    raise pxt.Error(
-        'No H.264 encoder found. Please install FFmpeg with at least one H.264 encoder '
-        '(libx264, libopenh264, or a hardware encoder).'
-    )
+# TODO: have Env determine the default encoder?
+# def _get_h264_encoder() -> str:
+#     """Get the best available H.264 encoder.
+#
+#     Returns the first available encoder from the priority list.
+#     Caches the result to avoid repeated subprocess calls.
+#
+#     Priority order:
+#     1. libx264 (GPL, best quality)
+#     2. libopenh264 (BSD-licensed)
+#     3. h264_videotoolbox (macOS hardware)
+#     4. h264_nvenc (NVIDIA hardware)
+#     5. h264_qsv (Intel Quick Sync)
+#     """
+#     global _h264_encoder_cache
+#
+#     if _h264_encoder_cache is not None:
+#         return _h264_encoder_cache
+#
+#     # Priority order of encoders to try
+#     encoders_to_try = [
+#         'libx264',  # GPL, best quality
+#         'libopenh264',  # BSD-licensed
+#         'h264_videotoolbox',  # macOS hardware encoder
+#         'h264_nvenc',  # NVIDIA hardware encoder
+#         'h264_qsv',  # Intel Quick Sync
+#     ]
+#
+#     try:
+#         # Get list of available encoders
+#         result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=5)
+#
+#         if result.returncode == 0:
+#             available_encoders = result.stdout
+#
+#             # Check each encoder in priority order
+#             for encoder in encoders_to_try:
+#                 # ffmpeg -encoders output format: " V..... encoder_name  description"
+#                 if f' {encoder} ' in available_encoders or f' {encoder}\n' in available_encoders:
+#                     _h264_encoder_cache = encoder
+#                     _logger.debug(f'Using H.264 encoder: {encoder}')
+#                     return encoder
+#
+#     except (subprocess.TimeoutExpired, FileNotFoundError):
+#         pass
+#
+#     # Fallback: try each encoder directly to see what works
+#     for encoder in encoders_to_try:
+#         try:
+#             # Test if encoder works with a minimal command
+#             test_cmd = ['ffmpeg', '-f', 'lavfi', '-i', 'nullsrc=s=2x2:d=0.1', '-c:v', encoder, '-f', 'null', '-']
+#             result = subprocess.run(test_cmd, capture_output=True, timeout=2)
+#             if result.returncode == 0:
+#                 _h264_encoder_cache = encoder
+#                 _logger.debug(f'Using H.264 encoder (tested): {encoder}')
+#                 return encoder
+#         except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+#             continue
+#
+#     # If we get here, no H.264 encoder is available
+#     raise pxt.Error(
+#         'No H.264 encoder found. Please install FFmpeg with at least one H.264 encoder '
+#         '(libx264, libopenh264, or a hardware encoder).'
+#     )
 
 
 @pxt.udf(is_method=True)
@@ -538,7 +536,7 @@ def clip(
 
 
 @pxt.udf(is_method=True)
-def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
+def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
     """
     Split a video into fixed-size segments.
 
@@ -559,20 +557,20 @@ def get_segments(video: pxt.Video, *, duration: float) -> list[str]:
     Examples:
         Split a video at 1 minute intervals
 
-        >>> tbl.select(segment_paths=tbl.video.get_segments(duration=60)).collect()
+        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60)).collect()
 
         Split video into two parts at the midpoint:
 
         >>> duration = tbl.video.get_metadata().streams[0].duration_seconds
-        >>> tbl.select(segment_paths=tbl.video.get_segments(duration=duration / 2 + 1)).collect()
+        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()
     """
     if duration <= 0:
         raise pxt.Error(f'duration must be positive, got {duration}')
     if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_segments().')
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use segment_video().')
     video_duration = _get_video_duration(video)
     if video_duration is None:
-        raise pxt.Error(f'get_segments(): could not determine duration of video {video}')
+        raise pxt.Error(f'segment_video(): could not determine duration of video {video}')
 
     base_path = TempStore.create_path(extension='')
 
@@ -701,7 +699,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
                     '-map',
                     '[outa]',
                     '-c:v',
-                    _get_h264_encoder(),
+                    'libx264',
                     '-c:a',
                     'aac',
                     str(output_path),
@@ -716,7 +714,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
                     '-map',
                     '[outv]',
                     '-c:v',
-                    _get_h264_encoder(),
+                    'libx264',
                     '-pix_fmt',
                     'yuv420p',
                     str(output_path),
