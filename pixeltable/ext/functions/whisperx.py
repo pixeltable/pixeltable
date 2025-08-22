@@ -159,7 +159,7 @@ def _lookup_diarization_model(device: str, model_name: Optional[str]) -> 'Diariz
 
     key = (device, model_name)
     if key not in _diarization_model_cache:
-        auth_token = Config.get().get_string_value('auth_token', section='hugging_face')
+        auth_token = Config.get().get_string_value('auth_token', section='hf')
         kwargs: dict[str, Any] = {'device': device, 'use_auth_token': auth_token}
         if model_name is not None:
             kwargs['model_name'] = model_name

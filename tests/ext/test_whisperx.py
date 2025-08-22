@@ -4,6 +4,7 @@ import sysconfig
 import pytest
 
 import pixeltable as pxt
+from pixeltable.config import Config
 
 from ..utils import get_audio_files, skip_test_if_not_installed, validate_update_status
 
@@ -13,7 +14,7 @@ from ..utils import get_audio_files, skip_test_if_not_installed, validate_update
 )
 @pytest.mark.skipif(os.environ.get('PXTTEST_CI_OS') == 'ubuntu-x64-t4', reason='crashes on t4 CI instances')
 class TestWhisperx:
-    def test_whisperx(self, reset_db: None) -> None:
+    def test_transcription(self, reset_db: None) -> None:
         skip_test_if_not_installed('whisperx')
         from pixeltable.ext.functions import whisperx
 
@@ -27,6 +28,27 @@ class TestWhisperx:
                 t.audio, model='tiny.en', compute_type='int8', language='en', task='transcribe', chunk_size=10
             )
         )
+        validate_update_status(t.insert(audio=audio_file), expected_rows=1)
+        results = t.collect()[0]
+
+        assert results['transcription']['language'] == 'en'
+        assert 'city upon a hill' in results['transcription']['segments'][1]['text']
+
+        assert results['transcription2']['language'] == 'en'
+        assert 'long and deliberate process' in results['transcription2']['segments'][1]['text']
+        assert 'city upon a hill' not in results['transcription2']['segments'][1]['text']  # due to shorter chunk size
+
+    def test_diarization(self, reset_db: None) -> None:
+        skip_test_if_not_installed('whisperx')
+        if Config.get().get_string_value('auth_token', section='hf') is None:
+            # Diarization requires a HF access token for the opt-in pyannote models
+            pytest.skip('Skipping WhisperX diarization test (no HF_AUTH_TOKEN configured)')
+        from pixeltable.ext.functions import whisperx
+
+        audio_file = next(
+            file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
+        )
+        t = pxt.create_table('whisperx', {'audio': pxt.Audio})
         t.add_computed_column(diarization=whisperx.transcribe(t.audio, model='tiny.en', diarize=True))
         t.add_computed_column(
             diarization2=whisperx.transcribe(
@@ -44,12 +66,6 @@ class TestWhisperx:
         )
         validate_update_status(t.insert(audio=audio_file), expected_rows=1)
         results = t.collect()[0]
-        assert results['transcription']['language'] == 'en'
-        assert 'city upon a hill' in results['transcription']['segments'][1]['text']
-
-        assert results['transcription2']['language'] == 'en'
-        assert 'long and deliberate process' in results['transcription2']['segments'][1]['text']
-        assert 'city upon a hill' not in results['transcription2']['segments'][1]['text']  # due to shorter chunk size
 
         assert results['diarization']['segments'][1]['speaker'] == 'SPEAKER_00'
         assert 'I have been at the task' in results['diarization']['segments'][1]['text']
