@@ -1,15 +1,18 @@
 import datetime
+import enum
 import math
 import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Optional, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
 
 import av
 import numpy as np
 import pandas as pd
 import PIL
+import PIL.Image
+import pydantic
 import pytest
 from jsonschema.exceptions import ValidationError
 
@@ -535,6 +538,269 @@ class TestTable:
 
         t1.insert(df1)
         assert len(t1.collect()) == 2 * len(df1.collect())
+
+    def test_insert_pydantic_scalars(self, reset_db: None) -> None:
+        schema = {
+            's': pxt.Required[pxt.String],
+            'opt_s': pxt.String,
+            'i': pxt.Required[pxt.Int],
+            'f': pxt.Required[pxt.Float],
+            'b': pxt.Required[pxt.Bool],
+            't': pxt.Required[pxt.Timestamp],
+            'r': pxt.Required[pxt.String],
+            'en': pxt.Required[pxt.Int],
+        }
+        t = pxt.create_table('test_pydantic_basic', schema)
+        t.add_computed_column(c1=t.i + 1)
+
+        # TODO: remove this line
+
+        # pydantic model matches schema exactly
+        class E1(enum.Enum):
+            A = 1
+            B = 2
+
+        class TestModel1(pydantic.BaseModel):
+            s: str
+            i: int
+            f: float
+            b: bool
+            t: datetime.datetime
+            r: Literal['abc', 'def']
+            en: E1
+            opt_s: str | None = None
+
+        now = datetime.datetime.now()
+        rows1 = [
+            TestModel1(
+                s=f'str_{i}',
+                i=i,
+                f=i * 1.0,
+                b=i % 2 == 0,
+                t=now + datetime.timedelta(hours=i),
+                r='abc' if i % 2 == 0 else 'def',
+                en=E1.A if i % 2 == 0 else E1.B,
+                opt_s=f'opt_{i}' if i % 2 == 0 else None,
+            )
+            for i in range(100)
+        ]
+
+        status = t.insert(rows1)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 50
+
+        # optional fields are accepted if present in the input
+        class TestModel2(pydantic.BaseModel):
+            s: str | None = None
+            i: int | None = None
+            f: float | None = None
+            b: bool | None = None
+            t: datetime.datetime | None = None
+            r: Literal['abc', 'def'] | None = None
+            en: E1 | None = None
+
+        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A) for i in range(100)]
+
+        status = t.insert(rows2)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 100
+
+        # missing required keys in input
+        with pytest.raises(pxt.Error, match="Missing required column 's'"):
+            rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
+            _ = t.insert(rows3)
+
+        # mixed models
+        with pytest.raises(pxt.Error, match="Expected 'TestModel1' instance, got 'TestModel2'"):
+            _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
+
+    def test_pydantic_errors(self, reset_db: None) -> None:
+        # value provided for computed column
+        with pytest.raises(pxt.Error, match="has fields for computed columns: 'c1'"):
+            t = pxt.create_table('bad1', {'i': pxt.Int})
+            t.add_computed_column(c1=t.i + 1)
+
+            class BadModel1(pydantic.BaseModel):
+                i: int
+                c1: int
+
+            _ = t.insert([BadModel1(i=0, c1=1)])
+
+        # wrong enum value type
+        with pytest.raises(pxt.Error, match=r"incompatible type \(E1\) for column 'en' \(String\)"):
+            t = pxt.create_table('bad2', {'i': pxt.Int, 'en': pxt.Required[pxt.String]})
+
+            class E1(enum.Enum):
+                A = 1
+                B = 2
+
+            class BadModel2(pydantic.BaseModel):
+                i: int
+                en: E1
+
+            _ = t.insert([BadModel2(i=0, en=E1.A)])
+
+        # wrong Literal type
+        with pytest.raises(pxt.Error, match=r"incompatible type \(Literal\) for column 'r' \(String\)"):
+            t = pxt.create_table('bad7', {'i': pxt.Int, 'r': pxt.Required[pxt.String]})
+
+            class BadModel3(pydantic.BaseModel):
+                i: int
+                r: Literal[1, 2, 3]
+
+            _ = t.insert([BadModel3(i=0, r=1)])
+
+        # missing required field in model
+        with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
+            t = pxt.create_table('bad3', {'i': pxt.Int, 's': pxt.Required[pxt.String]})
+
+            class BadModel4(pydantic.BaseModel):
+                i: int
+
+            _ = t.insert([BadModel4(i=0)])
+
+        # missing required field in model instance
+        with pytest.raises(pxt.Error, match="Missing required column 's' in row 0"):
+            t = pxt.create_table('bad6', {'i': pxt.Int, 's': pxt.Required[pxt.String]})
+
+            class BadModel5(pydantic.BaseModel):
+                i: int
+                s: str | None = None
+
+            _ = t.insert([BadModel5(i=0)])
+
+        # incompatible field type
+        with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
+            t = pxt.create_table('bad4', {'i': pxt.Required[pxt.Int]})
+
+            class BadModel6(pydantic.BaseModel):
+                i: str
+
+            _ = t.insert([BadModel6(i='0')])
+
+        # bad field type
+        with pytest.raises(pxt.Error, match="cannot infer Pixeltable type for column 's'"):
+            t = pxt.create_table('bad5', {'s': pxt.String})
+
+            class BadModel7(pydantic.BaseModel):
+                s: set[int]
+
+            _ = t.insert([BadModel7(s={1, 2, 3})])
+
+        # no matching fields
+        with pytest.raises(pxt.Error, match='has no fields that map to columns'):
+            t = pxt.create_table('errors', {'s': pxt.String}, if_exists='replace')
+
+            class BadModel8(pydantic.BaseModel):
+                t: str
+
+            _ = t.insert([BadModel8(t='0')])
+
+    def test_insert_nested_pydantic(self, reset_db: None) -> None:
+        schema = {'s': pxt.Required[pxt.String], 'j': pxt.Required[pxt.Json]}
+        t = pxt.create_table('test_nested_pydantic', schema)
+
+        class N(pydantic.BaseModel):
+            n: int
+
+        class M1(pydantic.BaseModel):
+            s: str
+            i: int
+            h: Literal['abc', 'def']
+            u: int | str
+            r: list[int]
+            t: tuple[int, str]
+            d: dict[str, int]
+            n: N
+
+        class M2(pydantic.BaseModel):
+            s: str
+            j: M1
+
+        rows = [
+            M2(
+                s=f'str_{i}',
+                j=M1(
+                    s=f'str_{i}',
+                    i=i,
+                    h='abc' if i % 2 == 0 else 'def',
+                    u=i if i % 2 == 0 else f'str_{i}',
+                    r=[i, i + 1],
+                    t=(i, f'str_{i}'),
+                    d={'a': i},
+                    n=N(n=i),
+                ),
+            )
+            for i in range(100)
+        ]
+
+        status = t.insert(rows)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        rs = t.select(t.s, i=t.j.i).collect()
+        assert rs['s'] == [f'str_{i}' for i in rs['i']]
+
+        # nested model with field that's not json-convertible
+        with pytest.raises(pxt.Error, match="field 'j' with nested model 'N2', which is not JSON-convertible"):
+
+            class N2(pydantic.BaseModel):
+                s: str
+                i: int
+                c: PIL.Image.Image
+
+                class Config:
+                    arbitrary_types_allowed = True
+
+            class BadModel1(pydantic.BaseModel):
+                s: str
+                j: N2
+
+            _ = t.insert([BadModel1(s='str_0', j=N2(s='str_0', i=0, c=PIL.Image.new('RGB', (100, 100))))])
+
+        # nested model with field that's not json-convertible
+        with pytest.raises(pxt.Error, match="field 'j' with nested model 'N4', which is not JSON-convertible"):
+
+            class N3(pydantic.BaseModel):
+                s: set[int]
+
+            class N4(pydantic.BaseModel):
+                s: str
+                n: N3
+
+            class BadModel2(pydantic.BaseModel):
+                s: str
+                j: N4
+
+            _ = t.insert([BadModel2(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
+
+    def test_pydantic_media(self, reset_db: None) -> None:
+        schema = {'img': pxt.Required[pxt.Image]}
+        t = pxt.create_table('test_pydantic_media', schema)
+
+        class M1(pydantic.BaseModel):
+            img: str
+
+        rows1 = [M1(img=f) for f in get_image_files()[:10]]
+        status = t.insert(rows1)
+        assert status.num_rows == 10
+        assert status.num_excs == 0
+
+        class M2(pydantic.BaseModel):
+            img: Path
+
+        rows2 = [M2(img=Path(f)) for f in get_image_files()[:10]]
+        status = t.insert(rows2)
+        assert status.num_rows == 10
+        assert status.num_excs == 0
+
+        with pytest.raises(pxt.Error, match="Column 'img' requires a 'str' or 'Path' field in 'M3', but it is 'int'"):
+
+            class M3(pydantic.BaseModel):
+                img: int
+
+            _ = t.insert([M3(img=1)])
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
@@ -1201,9 +1467,8 @@ class TestTable:
         assert status.num_excs == 0
 
         # empty input
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Cannot insert an empty sequence'):
             t.insert([])
-        assert 'Unsupported data source type' in str(exc_info.value)
 
         # missing column
         with pytest.raises(pxt.Error) as exc_info:
