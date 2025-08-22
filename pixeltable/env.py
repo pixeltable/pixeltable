@@ -515,6 +515,7 @@ class Env:
         assert self._sa_engine is not None
         from pixeltable import metadata
 
+        self._logger.debug('Creating pixeltable metadata')
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
