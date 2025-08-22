@@ -27,6 +27,7 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -104,10 +105,12 @@ class Env:
             cls._instance._clean_up()
         cls._instance = None
         env = Env()
-        env._set_up(reinit_db=reinit_db)
-        env._upgrade_metadata()
-        cls._instance = env
-        cls.__initializing = False
+        try:
+            env._set_up(reinit_db=reinit_db)
+            env._upgrade_metadata()
+            cls._instance = env
+        finally:
+            cls.__initializing = False
 
     def __init__(self) -> None:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
@@ -500,6 +503,10 @@ class Env:
         assert self._db_url is not None
         assert self._db_name is not None
 
+    @retry(
+        stop=stop_after_attempt(3),  # Stop after 3 attempts
+        wait=wait_exponential_jitter(initial=0.2, max=1.0, jitter=0.2),  # Exponential backoff with jitter
+    )
     def _init_metadata(self) -> None:
         """
         Create pixeltable metadata tables and system metadata.
@@ -508,6 +515,7 @@ class Env:
         assert self._sa_engine is not None
         from pixeltable import metadata
 
+        self._logger.debug('Creating pixeltable metadata')
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
