@@ -38,6 +38,9 @@ def transcribe(
     equivalent to the WhisperX `transcribe` function, as described in the
     [WhisperX library documentation](https://github.com/m-bain/whisperX).
 
+    If `diarize=True`, then speaker diarization will also be performed. Several of the UDF parameters are only valid if
+    `diarize=True`, as documented in the parameters list below.
+
     WhisperX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
 
     __Requirements:__
@@ -47,18 +50,44 @@ def transcribe(
     Args:
         audio: The audio file to transcribe.
         model: The name of the model to use for transcription.
-
-    See the [WhisperX library documentation](https://github.com/m-bain/whisperX) for details
-    on the remaining parameters.
+        diarize: Whether to perform speaker diarization.
+        compute_type: The compute type to use for the model (e.g., `'int8'`, `'float16'`). If `None`,
+            defaults to `'float16'` on CUDA devices and `'int8'` otherwise.
+        language: The language code for the transcription (e.g., `'en'` for English).
+        task: The task to perform (e.g., `'transcribe'` or `'translate'`). Defaults to `'transcribe'`.
+        chunk_size: The size of the audio chunks to process, in seconds. Defaults to `30`.
+        alignment_model_name: The name of the alignment model to use. If `None`, uses the default model for the given
+            language. Only valid if `diarize=True`.
+        interpolate_method: The method to use for interpolation of the alignment results. If not specified, uses the
+            WhisperX default (`'nearest'`). Only valid if `diarize=True`.
+        return_char_alignments: Whether to return character-level alignments. Defaults to `False`.
+            Only valid if `diarize=True`.
+        diarization_model_name: The name of the diarization model to use. Defaults to
+            `pyannote/speaker-diarization-3.1`. Only valid if `diarize=True`.
+        num_speakers: The number of speakers to expect in the audio. By default, the model with try to detect the
+            number of speakers. Only valid if `diarize=True`.
+        min_speakers: If specified, the minimum number of speakers to expect in the audio.
+            Only valid if `diarize=True`.
+        max_speakers: If specified, the maximum number of speakers to expect in the audio.
+            Only valid if `diarize=True`.
 
     Returns:
-        A dictionary containing the transcription and various other metadata.
+        A dictionary containing the audio transcription, diarization (if enabled), and various other metadata.
 
     Examples:
         Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
         >>> tbl.add_computed_column(result=transcribe(tbl.audio, model='tiny.en'))
+
+        Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio`
+        of the table `tbl`, with speaker diarization enabled, expecting at least 2 speakers:
+
+        >>> tbl.add_computed_column(
+        ...     result=transcribe(
+        ...         tbl.audio, model='tiny.en', diarize=True, min_speakers=2
+        ...     )
+        ... )
     """
     import whisperx  # type: ignore[import-untyped]
 
