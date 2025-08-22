@@ -129,7 +129,7 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         # libiconv and ffmpeg are needed by WhisperX.
         if: ${{ matrix.uv-options == '' }}
-        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv ffmpeg==6.1.1 x264=='1!164.3095'
+        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv x264=='1!164.3095' ffmpeg==6.1.1
       - name: Install ollama
         if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-22.04' }}
         run: |
