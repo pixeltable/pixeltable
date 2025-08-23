@@ -6,12 +6,12 @@ import logging
 import pathlib
 import shutil
 import subprocess
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
+import PIL.Image
 import av
 import av.stream
 import numpy as np
-import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -111,10 +111,7 @@ class make_video(pxt.Aggregator):
         if self.container is None:
             self.out_file = TempStore.create_path(extension='.mp4')
             self.container = av.open(str(self.out_file), mode='w')
-            self.stream = cast(
-                av.video.stream.VideoStream,
-                self.container.add_stream(Env.get().default_video_encoder or 'h264', rate=self.fps),
-            )
+            self.stream = self.container.add_stream('h264', rate=self.fps)
             self.stream.pix_fmt = 'yuv420p'
             self.stream.width = frame.width
             self.stream.height = frame.height
