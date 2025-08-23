@@ -1,5 +1,7 @@
 import logging
 import math
+import shutil
+import subprocess
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional
@@ -8,8 +10,11 @@ import av
 import pandas as pd
 import PIL.Image
 
+import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+import pixeltable.utils.av as av_utils
+from pixeltable.utils.media_store import TempStore
 
 from .base import ComponentIterator
 
@@ -224,3 +229,147 @@ class FrameIterator(ComponentIterator):
         # then the iterator will step forward to the desired frame on the subsequent call to next().
         self.container.seek(seek_pos, backward=True, stream=self.container.streams.video[0])
         self.next_pos = pos
+
+
+class VideoSplitter(ComponentIterator):
+    """
+    Iterator over segments of a video file, which is split into fixed-size segments of length `segment_duration`
+    seconds.
+
+    Args:
+        segment_duration: Video segment duration in seconds
+        overlap: Overlap between consecutive segments in seconds.
+        min_segment_duration: Drop the last segment if it is smaller than min_segment_duration
+    """
+
+    # Input parameters
+    video_path: Path
+    segment_duration: float
+    overlap: float
+    min_segment_duration: float
+
+    # Video metadata
+    video_duration: float
+    video_time_base: Fraction
+    video_start_time: int
+
+    # Current position tracking
+    current_start_time_sec: float
+
+    def __init__(self, video: str, segment_duration: float, *, overlap: float = 0.0, min_segment_duration: float = 0.0):
+        assert segment_duration > 0.0
+        assert segment_duration >= min_segment_duration
+        assert overlap < segment_duration
+
+        video_path = Path(video)
+        assert video_path.exists() and video_path.is_file()
+
+        if not shutil.which('ffmpeg'):
+            raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use VideoSplitter.')
+
+        self.video_path = video_path
+        self.segment_duration = segment_duration
+        self.overlap = overlap
+        self.min_segment_duration = min_segment_duration
+
+        # Get video metadata
+        self.video_duration = av_utils.get_video_duration(str(video_path))
+        if self.video_duration is None:
+            raise pxt.Error(f'VideoSplitter: could not determine duration of video {video}')
+
+        # Get time_base and start_time for PTS calculations
+        with av.open(str(video_path)) as container:
+            video_stream = container.streams.video[0]
+            self.video_time_base = video_stream.time_base
+            self.video_start_time = video_stream.start_time or 0
+
+        self.current_start_time_sec = 0.0
+
+    @classmethod
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
+        return {
+            'video': ts.VideoType(nullable=False),
+            'segment_duration': ts.FloatType(nullable=False),
+            'overlap': ts.FloatType(nullable=True),
+            'min_segment_duration': ts.FloatType(nullable=True),
+        }
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        param_names = ['segment_duration', 'overlap', 'min_segment_duration']
+        params = dict(zip(param_names, args))
+        params.update(kwargs)
+
+        segment_duration = params['segment_duration']
+        min_segment_duration = params.get('min_segment_duration', 0.0)
+        overlap = params.get('overlap', 0.0)
+
+        if segment_duration <= 0.0:
+            raise excs.Error('segment_duration must be a positive number')
+        if segment_duration < min_segment_duration:
+            raise excs.Error('segment_duration must be at least min_segment_duration')
+        if overlap >= segment_duration:
+            raise excs.Error('overlap_sec must be less than segment_duration')
+
+        return {
+            'segment_start': ts.FloatType(nullable=False),
+            'segment_start_pts': ts.IntType(nullable=False),
+            'segment_end': ts.FloatType(nullable=False),
+            'segment_end_pts': ts.IntType(nullable=False),
+            'video_segment': ts.VideoType(nullable=False),
+        }, []
+
+    def __next__(self) -> dict[str, Any]:
+        if self.current_start_time_sec >= self.video_duration:
+            raise StopIteration
+
+        segment_path = str(TempStore.create_path(extension='.mp4'))
+        try:
+            cmd = av_utils.ffmpeg_clip_cmd(
+                str(self.video_path), segment_path, self.current_start_time_sec, self.segment_duration
+            )
+            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            # use the actual duration
+            segment_duration = av_utils.get_video_duration(segment_path)
+            if segment_duration == 0.0:
+                # we're done
+                Path(segment_path).unlink()
+                raise StopIteration
+
+            # Check if this is the last segment and if it's too short
+            end_time_sec = self.current_start_time_sec + segment_duration
+            is_last_segment = end_time_sec >= self.video_duration
+
+            if is_last_segment and segment_duration < self.min_segment_duration:
+                Path(segment_path).unlink()
+                raise StopIteration
+
+            # Calculate PTS values
+            start_pts = int(self.current_start_time_sec / float(self.video_time_base)) + self.video_start_time
+            end_pts = start_pts + round(segment_duration / float(self.video_time_base))
+
+            result = {
+                'segment_start': self.current_start_time_sec,
+                'segment_start_pts': start_pts,
+                'segment_end': end_time_sec,
+                'segment_end_pts': end_pts,
+                'video_segment': segment_path,
+            }
+            self.current_start_time_sec = end_time_sec - self.overlap
+
+            return result
+
+        except subprocess.CalledProcessError as e:
+            if Path(segment_path).exists():
+                Path(segment_path).unlink()
+            error_msg = f'ffmpeg failed with return code {e.returncode}'
+            if e.stderr:
+                error_msg += f': {e.stderr.strip()}'
+            raise pxt.Error(error_msg) from e
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int) -> None:
+        pass

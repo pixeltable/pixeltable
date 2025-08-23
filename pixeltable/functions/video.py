@@ -6,7 +6,7 @@ import logging
 import pathlib
 import shutil
 import subprocess
-from typing import Any, NoReturn
+from typing import NoReturn
 
 import av
 import av.stream
@@ -14,6 +14,7 @@ import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
 from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.media_store import TempStore
@@ -222,86 +223,7 @@ def get_metadata(video: pxt.Video) -> dict:
 
         >>> tbl.select(tbl.video_col.get_metadata()).collect()
     """
-    return _get_metadata(video)
-
-
-def _get_metadata(path: str) -> dict:
-    with av.open(path) as container:
-        assert isinstance(container, av.container.InputContainer)
-        streams_info = [__get_stream_metadata(stream) for stream in container.streams]
-        result = {
-            'bit_exact': getattr(container, 'bit_exact', False),
-            'bit_rate': container.bit_rate,
-            'size': container.size,
-            'metadata': container.metadata,
-            'streams': streams_info,
-        }
-    return result
-
-
-def __get_stream_metadata(stream: av.stream.Stream) -> dict:
-    if stream.type not in ('audio', 'video'):
-        return {'type': stream.type}  # Currently unsupported
-
-    codec_context = stream.codec_context
-    codec_context_md: dict[str, Any] = {
-        'name': codec_context.name,
-        'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
-        'profile': codec_context.profile,
-    }
-    metadata = {
-        'type': stream.type,
-        'duration': stream.duration,
-        'time_base': float(stream.time_base) if stream.time_base is not None else None,
-        'duration_seconds': float(stream.duration * stream.time_base)
-        if stream.duration is not None and stream.time_base is not None
-        else None,
-        'frames': stream.frames,
-        'metadata': stream.metadata,
-        'codec_context': codec_context_md,
-    }
-
-    if stream.type == 'audio':
-        # Additional metadata for audio
-        channels = getattr(stream.codec_context, 'channels', None)
-        codec_context_md['channels'] = int(channels) if channels is not None else None
-    else:
-        assert stream.type == 'video'
-        assert isinstance(stream, av.video.stream.VideoStream)
-        # Additional metadata for video
-        codec_context_md['pix_fmt'] = getattr(stream.codec_context, 'pix_fmt', None)
-        metadata.update(
-            **{
-                'width': stream.width,
-                'height': stream.height,
-                'frames': stream.frames,
-                'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
-                'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
-                'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
-            }
-        )
-
-    return metadata
-
-
-def _get_video_duration(path: str) -> float | None:
-    """Return video duration in seconds."""
-    md = _get_metadata(path)
-    # check first video stream for duration
-    return next(
-        (
-            stream['duration_seconds']
-            for stream in md['streams']
-            if stream['type'] == 'video' and stream['duration_seconds'] is not None
-        ),
-        None,
-    )
-
-
-def _has_audio_stream(path: str) -> bool:
-    """Check if video has audio stream using PyAV."""
-    md = _get_metadata(path)
-    return any(stream['type'] == 'audio' for stream in md['streams'])
+    return av_utils.get_metadata(video)
 
 
 @pxt.udf(is_method=True)
@@ -362,28 +284,6 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
         raise pxt.Error(f'get_frame2(): failed to extract frame: {e}') from e
 
 
-def _ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, duration: float | None = None) -> list[str]:
-    # the order of arguments is critical: -ss <start> -t <duration> -i <input>
-    cmd = ['ffmpeg', '-ss', str(start_time)]
-    if duration is not None:
-        cmd.extend(['-t', str(duration)])
-    cmd.extend(
-        [
-            '-i',  # Input file
-            input_path,
-            '-y',  # Overwrite output file
-            '-loglevel',
-            'error',  # Only show errors
-            '-c',
-            'copy',  # Stream copy (no re-encoding)
-            '-map',
-            '0',  # Copy all streams from input
-            output_path,
-        ]
-    )
-    return cmd
-
-
 def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
     error_msg = f'ffmpeg failed with return code {e.returncode}'
     if e.stderr is not None:
@@ -425,7 +325,7 @@ def clip(
     if not shutil.which('ffmpeg'):
         raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_clip().')
 
-    video_duration = _get_video_duration(video)
+    video_duration = av_utils.get_video_duration(video)
     if video_duration is not None and start_time > video_duration:
         return None
 
@@ -433,7 +333,7 @@ def clip(
 
     if end_time is not None:
         duration = end_time - start_time
-    cmd = _ffmpeg_clip_cmd(str(video), output_path, start_time, duration)
+    cmd = av_utils.ffmpeg_clip_cmd(str(video), output_path, start_time, duration)
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -492,7 +392,7 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
         raise pxt.Error(f'duration must be positive, got {duration}')
     if not shutil.which('ffmpeg'):
         raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use segment_video().')
-    video_duration = _get_video_duration(video)
+    video_duration = av_utils.get_video_duration(video)
     if video_duration is None:
         raise pxt.Error(f'segment_video(): could not determine duration of video {video}')
 
@@ -504,10 +404,10 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
     try:
         while start_time < video_duration:
             segment_path = f'{base_path}_segment_{len(result)}.mp4'
-            cmd = _ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
+            cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
 
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            segment_duration = _get_video_duration(segment_path)
+            segment_duration = av_utils.get_video_duration(segment_path)
             if segment_duration == 0.0:
                 # we're done
                 pathlib.Path(segment_path).unlink()
@@ -547,7 +447,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
     for video in videos:
-        metadata = _get_metadata(str(video))
+        metadata = av_utils.get_metadata(str(video))
         video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
         if video_stream is None:
             raise pxt.Error(f'concat_videos(): file {video} has no video stream')
@@ -591,7 +491,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         for video in videos:
             cmd.extend(['-i', video])
 
-        all_have_audio = all(_has_audio_stream(str(video)) for video in videos)
+        all_have_audio = all(av_utils.has_audio_stream(str(video)) for video in videos)
         video_inputs = ''.join([f'[{i}:v:0]' for i in range(len(videos))])
         # concat video streams
         filter_str = f'{video_inputs}concat=n={len(videos)}:v=1:a=0[outv]'
