@@ -6,7 +6,7 @@ import logging
 import pathlib
 import shutil
 import subprocess
-from typing import Any, Optional
+from typing import Any, NoReturn
 
 import av
 import av.stream
@@ -92,8 +92,8 @@ class make_video(pxt.Aggregator):
         ... ).show()
     """
 
-    container: Optional[av.container.OutputContainer]
-    stream: Optional[av.video.stream.VideoStream]
+    container: av.container.OutputContainer | None
+    stream: av.video.stream.VideoStream | None
     fps: int
 
     def __init__(self, fps: int = 25):
@@ -130,7 +130,7 @@ class make_video(pxt.Aggregator):
 
 @pxt.udf(is_method=True)
 def extract_audio(
-    video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: Optional[str] = None
+    video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: str | None = None
 ) -> pxt.Audio:
     """
     Extract an audio stream from a video.
@@ -384,6 +384,13 @@ def _ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, durat
     return cmd
 
 
+def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
+    error_msg = f'ffmpeg failed with return code {e.returncode}'
+    if e.stderr is not None:
+        error_msg += f': {e.stderr.strip()}'
+    raise pxt.Error(error_msg) from e
+
+
 @pxt.udf(is_method=True)
 def clip(
     video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
@@ -429,13 +436,7 @@ def clip(
     cmd = _ffmpeg_clip_cmd(str(video), output_path, start_time, duration)
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout
-            check=True,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         # Check if output file was created
         output_file = pathlib.Path(output_path)
@@ -455,13 +456,7 @@ def clip(
         return output_path
 
     except subprocess.CalledProcessError as e:
-        error_msg = f'ffmpeg failed with return code {e.returncode}'
-        if e.stderr is not None:
-            error_msg += f': {e.stderr.strip()}'
-        raise pxt.Error(error_msg) from e
-
-    except subprocess.TimeoutExpired:
-        raise pxt.Error('ffmpeg timed out for command line {" ".join(cmd)}') from None
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
@@ -506,19 +501,12 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
     # we extract consecutive clips instead of running ffmpeg -f segment, which is inexplicably much slower
     start_time = 0.0
     result: list[str] = []
-    has_error = False
     try:
         while start_time < video_duration:
             segment_path = f'{base_path}_segment_{len(result)}.mp4'
             cmd = _ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
 
-            _ = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout
-                check=True,
-            )
+            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
             segment_duration = _get_video_duration(segment_path)
             if segment_duration == 0.0:
                 # we're done
@@ -530,18 +518,10 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
         return result
 
     except subprocess.CalledProcessError as e:
-        has_error = True
-        error_msg = f'ffmpeg failed with return code {e.returncode}'
-        if e.stderr:
-            error_msg += f': {e.stderr.strip()}'
-        raise pxt.Error(error_msg) from e
-    except subprocess.TimeoutExpired:
-        has_error = True
-        raise pxt.Error(f'ffmpeg timed out for command: {" ".join(cmd)}') from None
-    finally:
-        if has_error:
-            for segment_path in result:
-                pathlib.Path(segment_path).unlink()
+        # clean up partial results
+        for segment_path in result:
+            pathlib.Path(segment_path).unlink()
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
@@ -613,10 +593,10 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
 
         all_have_audio = all(_has_audio_stream(str(video)) for video in videos)
         video_inputs = ''.join([f'[{i}:v:0]' for i in range(len(videos))])
-        # concat video
+        # concat video streams
         filter_str = f'{video_inputs}concat=n={len(videos)}:v=1:a=0[outv]'
         if all_have_audio:
-            # also concat audio
+            # also concat audio streams
             audio_inputs = ''.join([f'[{i}:a:0]' for i in range(len(videos))])
             filter_str += f';{audio_inputs}concat=n={len(videos)}:v=0:a=1[outa]'
         cmd.extend(['-filter_complex', filter_str, '-map', '[outv]'])
@@ -630,16 +610,11 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
             cmd.extend(['-c:a', 'aac'])
         cmd.extend(['-pix_fmt', 'yuv420p', str(output_path)])
 
-        _logger.debug(f'concat_videos(): {" ".join(cmd)}')
         _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return str(output_path)
 
     except subprocess.CalledProcessError as e:
-        error_msg = f'ffmpeg failed with return code {e.returncode}'
-        if e.stderr:
-            error_msg += f': {e.stderr.strip()}'
-        raise pxt.Error(error_msg) from e
-
+        _handle_ffmpeg_error(e)
     finally:
         filelist_path.unlink()
 
