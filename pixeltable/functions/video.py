@@ -52,7 +52,8 @@ class make_video(pxt.Aggregator):
         fps: Frames per second for the output video.
 
     Returns:
-        The created video.
+
+    - The created video.
 
     Examples:
         Create a video from frames extracted using `FrameIterator`:
@@ -605,49 +606,29 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         if output_path.exists():
             output_path.unlink()
 
-        # general approach: re-encode with filter_complex
+        # general approach: re-encode with -f filter_complex
         cmd = ['ffmpeg']
         for video in videos:
             cmd.extend(['-i', video])
 
+        all_have_audio = all(_has_audio_stream(str(video)) for video in videos)
         video_inputs = ''.join([f'[{i}:v:0]' for i in range(len(videos))])
+        # concat video
         filter_str = f'{video_inputs}concat=n={len(videos)}:v=1:a=0[outv]'
-
-        has_audio = [_has_audio_stream(str(video)) for video in videos]
-        if all(has_audio):
-            # concat both video and audio
+        if all_have_audio:
+            # also concat audio
             audio_inputs = ''.join([f'[{i}:a:0]' for i in range(len(videos))])
             filter_str += f';{audio_inputs}concat=n={len(videos)}:v=0:a=1[outa]'
-            cmd.extend(
-                [
-                    '-filter_complex',
-                    filter_str,
-                    '-map',
-                    '[outv]',
-                    '-map',
-                    '[outa]',
-                    '-c:v',
-                    Env.get().default_video_encoder,
-                    '-c:a',
-                    'aac',
-                    str(output_path),
-                ]
-            )
-        else:
-            # video-only concatenation
-            cmd.extend(
-                [
-                    '-filter_complex',
-                    filter_str,
-                    '-map',
-                    '[outv]',
-                    '-c:v',
-                    Env.get().default_video_encoder,
-                    '-pix_fmt',
-                    'yuv420p',
-                    str(output_path),
-                ]
-            )
+        cmd.extend(['-filter_complex', filter_str, '-map', '[outv]'])
+        if all_have_audio:
+            cmd.extend(['-map', '[outa]'])
+
+        video_encoder = Env.get().default_video_encoder
+        if video_encoder is not None:
+            cmd.extend(['-c:v', video_encoder])
+        if all_have_audio:
+            cmd.extend(['-c:a', 'aac'])
+        cmd.extend(['-pix_fmt', 'yuv420p', str(output_path)])
 
         _logger.debug(f'concat_videos(): {" ".join(cmd)}')
         _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
