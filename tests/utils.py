@@ -316,7 +316,9 @@ def generate_test_video(
     cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
     if has_audio:
         cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
-    cmd.extend(['-c:v', Env.get().default_video_encoder, '-pix_fmt', pix_fmt])
+    if Env.get().default_video_encoder is not None:
+        cmd.extend(['-c:v', Env.get().default_video_encoder])
+    cmd.extend(['-pix_fmt', pix_fmt])
     if has_audio:
         cmd.extend(['-c:a', 'aac'])
     output_path = tmp_path / f'{uuid4()}.mp4'

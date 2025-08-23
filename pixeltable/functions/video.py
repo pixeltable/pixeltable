@@ -8,10 +8,10 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-import PIL.Image
 import av
 import av.stream
 import numpy as np
+import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -584,7 +584,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
 
     # ffmpeg -f concat needs an input file list
     filelist_path = TempStore.create_path(extension='.txt')
-    with filelist_path.open('w') as f:
+    with filelist_path.open('w', encoding='utf-8') as f:
         for video in videos:
             f.write(f"file '{video}'\n")
 
