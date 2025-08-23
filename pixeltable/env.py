@@ -112,6 +112,8 @@ class Env:
             env._upgrade_metadata()
             cls._instance = env
         finally:
+            # Reset the initializing flag, even if setup fails.
+            # This prevents the environment from being left in a broken state.
             cls.__initializing = False
 
     def __init__(self) -> None:
@@ -514,6 +516,11 @@ class Env:
         """
         Create pixeltable metadata tables and system metadata.
         This is an idempotent operation.
+
+        Retry logic handles race conditions when multiple Pixeltable processes
+        attempt to initialize metadata tables simultaneously. The first process may succeed
+        in creating tables while others encounter database constraints (e.g., "table already exists").
+        Exponential backoff with jitter reduces contention between competing processes.
         """
         assert self._sa_engine is not None
         from pixeltable import metadata
