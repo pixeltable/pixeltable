@@ -695,7 +695,7 @@ class Env:
 
         try:
             # Get list of available encoders
-            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10)
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
 
             if result.returncode == 0:
                 available_encoders = result.stdout
@@ -704,7 +704,7 @@ class Env:
                     if f' {encoder} ' in available_encoders:
                         _logger.debug(f'Using H.264 encoder: {encoder}')
                         return encoder
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except Exception:
             pass
         return None
 
