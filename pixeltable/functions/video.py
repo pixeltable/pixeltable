@@ -556,11 +556,7 @@ def overlay_text(
         box: Whether to draw a background box behind the text.
         box_color: Background box color as a string.
         box_opacity: Background box opacity from 0.0 to 1.0.
-        box_border: Padding around text in the box. Can be:
-            - int: Same padding on all sides
-            - tuple[int, int]: (horizontal, vertical) padding
-            - tuple[int, int, int, int]: (left, top, right, bottom) padding
-            Default is 16 pixels on all sides.
+        box_border: Padding around text in the box.
 
     Returns:
         A new video with the text overlay applied.
@@ -570,18 +566,22 @@ def overlay_text(
 
         >>> tbl.select(tbl.video.overlay_text('Sample Text')).collect()
 
-        Add a styled text overlay with custom positioning:
+        Add a YouTube-style caption:
 
         >>> tbl.select(
         ...     tbl.video.overlay_text(
-        ...         'Watermark',
-        ...         font_size=18,
+        ...         'Caption text',
+        ...         font_size=32,
         ...         color='white',
-        ...         opacity=0.7,
-        ...         horizontal_align='right',
+        ...         opacity=1.0,
+        ...         box=True,
+        ...         box_color='black',
+        ...         box_opacity=0.8,
+        ...         box_border=[6, 14],
+        ...         horizontal_align='center',
         ...         horizontal_margin=10,
-        ...         vertical_align='top',
-        ...         vertical_margin=10
+        ...         vertical_align='bottom',
+        ...         vertical_margin=70
         ...     )
         ... ).collect()
 
