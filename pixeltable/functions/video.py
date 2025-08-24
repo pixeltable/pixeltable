@@ -6,7 +6,7 @@ import logging
 import pathlib
 import shutil
 import subprocess
-from typing import NoReturn
+from typing import Literal, NoReturn
 
 import av
 import av.stream
@@ -515,6 +515,91 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         _handle_ffmpeg_error(e)
     finally:
         filelist_path.unlink()
+
+
+@pxt.udf(is_method=True)
+def overlay_text(
+    video: pxt.Video,
+    text: str,
+    *,
+    font: str | None = None,
+    font_size: int = 24,
+    color: str = 'white',
+    opacity: float = 1.0,
+    horizontal_align: Literal['left', 'center', 'right'] = 'center',
+    horizontal_margin: int = 0,
+    vertical_align: Literal['top', 'center', 'bottom'] = 'bottom',
+    vertical_margin: int = 0,
+    box: bool = False,
+    box_color: str = 'black',
+    box_opacity: float = 0.8,
+    box_border: list[int] | None = None
+) -> pxt.Video:
+    """
+    Overlay text on a video with customizable positioning and styling.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video to overlay text on.
+        text: The text string to overlay on the video.
+        font: Font family or path to font file. If None, uses the system default.
+        font_size: Size of the text in points.
+        color: Text color as a string (e.g., `'white'`, `'red'`, `'#FF0000'`).
+        opacity: Text opacity from 0.0 (transparent) to 1.0 (opaque).
+        horizontal_align: Horizontal text alignment (`'left'`, `'center'`, `'right'`).
+        horizontal_margin: Horizontal margin in pixels from the alignment edge.
+        vertical_align: Vertical text alignment (`'top'`, `'center'`, `'bottom'`).
+        vertical_margin: Vertical margin in pixels from the alignment edge.
+        box: Whether to draw a background box behind the text.
+        box_color: Background box color as a string.
+        box_opacity: Background box opacity from 0.0 to 1.0.
+        box_border: Padding around text in the box. Can be:
+            - int: Same padding on all sides
+            - tuple[int, int]: (horizontal, vertical) padding
+            - tuple[int, int, int, int]: (left, top, right, bottom) padding
+            Default is 16 pixels on all sides.
+
+    Returns:
+        A new video with the text overlay applied.
+
+    Examples:
+        Add a simple text overlay to videos in a table:
+
+        >>> tbl.select(tbl.video.overlay_text('Sample Text')).collect()
+
+        Add a styled text overlay with custom positioning:
+
+        >>> tbl.select(
+        ...     tbl.video.overlay_text(
+        ...         'Watermark',
+        ...         font_size=18,
+        ...         color='white',
+        ...         opacity=0.7,
+        ...         horizontal_align='right',
+        ...         horizontal_margin=10,
+        ...         vertical_align='top',
+        ...         vertical_margin=10
+        ...     )
+        ... ).collect()
+
+        Add text with a semi-transparent background box:
+
+        >>> tbl.select(
+        ...     tbl.video.overlay_text(
+        ...         'Important Message',
+        ...         font_size=32,
+        ...         color='yellow',
+        ...         box=True,
+        ...         box_color='black',
+        ...         box_opacity=0.6,
+        ...         box_border=(20, 10)
+        ...     )
+        ... ).collect()
+    """
+    pass
 
 
 __all__ = local_public_names(__name__)
