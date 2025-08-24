@@ -1,0 +1,243 @@
+---
+title: "image.rotate"
+description: "image.rotate(angle) - Shift perspectives and unlock new visual orientations"
+---
+
+<Badge text="Media Processing" color="purple" size="small" />
+
+## Function Signature
+
+```python
+image.rotate(angle: float) -> pxt.Image
+```
+
+## Description
+
+Transform visual perspective through intelligent rotation, where every degree of change opens new possibilities for understanding. Rotation is not merely geometric transformation—it's **perspective liberation** that adapts visual data to correct orientations, augment datasets, and reveal hidden insights.
+
+In the realm of computer vision and AI, image orientation can determine the difference between recognition and confusion. This function embodies Pixeltable's philosophy that **spatial transformations should be as effortless as they are powerful**, enabling data scientists to correct, augment, and explore visual data with declarative simplicity.
+
+## Parameters
+
+<ParamField path="angle" type="float" required>
+  The angle to rotate the image, in degrees. Positive angles rotate counter-clockwise, negative angles rotate clockwise.
+  
+  **Common Use Cases:**
+  - `90`, `180`, `270` - Standard orthogonal rotations for orientation correction
+  - `45` - Diagonal rotation for artistic effects or data augmentation
+  - `0.5`, `1.2` - Micro-rotations for subtle image corrections
+  - `-15`, `-30` - Clockwise rotations for perspective adjustment
+  - `random.uniform(-10, 10)` - Random rotation for data augmentation pipelines
+</ParamField>
+
+## Returns
+
+<ResponseField name="rotated_image" type="pxt.Image">
+  A new image rotated by the specified angle. The image dimensions may increase to accommodate the rotated content, with transparent or black pixels filling any empty areas.
+</ResponseField>
+
+## Examples
+
+### Orientation Correction Pipeline
+
+Fix image orientations automatically in your data pipeline:
+
+```python
+import pixeltable as pxt
+
+# Create table for images with orientation issues
+photos = pxt.create_table('photo_collection', {
+    'id': pxt.String,
+    'raw_photo': pxt.Image,
+    'rotation_needed': pxt.Float  # Degrees to rotate for correction
+})
+
+# Add computed column that applies rotation correction
+photos.add_computed_column(
+    corrected=photos.raw_photo.rotate(photos.rotation_needed)
+)
+
+# Insert photos with their required corrections
+photos.insert([
+    {'id': 'portrait_001', 'raw_photo': '/photos/sideways.jpg', 'rotation_needed': 90},
+    {'id': 'landscape_002', 'raw_photo': '/photos/upside_down.jpg', 'rotation_needed': 180},
+    {'id': 'perfect_003', 'raw_photo': '/photos/correct.jpg', 'rotation_needed': 0}
+])
+
+# All photos are now properly oriented in the corrected column
+results = photos.select(photos.id, photos.corrected).collect()
+```
+
+### Data Augmentation for Machine Learning
+
+Create rotated variants for training robust AI models:
+
+```python
+import random
+
+# Create training data with multiple rotations
+training_images = pxt.create_table('augmented_training', {
+    'original_id': pxt.String,
+    'base_image': pxt.Image
+})
+
+# Add multiple rotation variants
+training_images.add_computed_column(
+    rotated_15=training_images.base_image.rotate(15)  # Slight rotation
+)
+training_images.add_computed_column(
+    rotated_neg15=training_images.base_image.rotate(-15)  # Opposite direction
+)
+training_images.add_computed_column(
+    rotated_45=training_images.base_image.rotate(45)  # Diagonal
+)
+training_images.add_computed_column(
+    rotated_90=training_images.base_image.rotate(90)  # Quarter turn
+)
+
+# One original image becomes 5 training samples automatically
+training_images.insert([
+    {'original_id': 'cat_001', 'base_image': '/dataset/cat_001.jpg'}
+])
+```
+
+### Document Processing Pipeline
+
+Correct scanned document orientations for OCR processing:
+
+```python
+# Create document processing pipeline
+documents = pxt.create_table('scanned_docs', {
+    'doc_id': pxt.String,
+    'scanned_image': pxt.Image,
+    'detected_orientation': pxt.Float  # From OCR orientation detection
+})
+
+# Auto-rotate to correct reading orientation
+documents.add_computed_column(
+    readable=documents.scanned_image.rotate(documents.detected_orientation)
+)
+
+# Insert scanned documents with detected orientation angles
+documents.insert([
+    {'doc_id': 'invoice_001', 'scanned_image': '/scans/inv001.jpg', 'detected_orientation': 270},
+    {'doc_id': 'receipt_002', 'scanned_image': '/scans/rec002.jpg', 'detected_orientation': 90}
+])
+
+# Documents are now properly oriented for OCR processing
+readable_docs = documents.select(documents.doc_id, documents.readable).collect()
+```
+
+### Creative Effects and Art Generation
+
+Apply artistic rotations for creative visual effects:
+
+```python
+# Create artistic variations
+gallery = pxt.create_table('artistic_gallery', {
+    'artwork_id': pxt.String,
+    'original': pxt.Image
+})
+
+# Multiple artistic rotation variants
+gallery.add_computed_column(
+    diamond=gallery.original.rotate(45)  # Diamond orientation
+)
+gallery.add_computed_column(
+    kaleidoscope_1=gallery.original.rotate(120)  # Triplet symmetry
+)
+gallery.add_computed_column(
+    kaleidoscope_2=gallery.original.rotate(240)  # Triplet symmetry
+)
+
+# One artwork becomes multiple artistic perspectives
+gallery.insert([
+    {'artwork_id': 'abstract_001', 'original': '/art/painting_001.jpg'}
+])
+```
+
+### Error Handling and Validation
+
+Robust rotation processing with edge case handling:
+
+```python
+try:
+    # Insert image with rotation
+    photos.insert([
+        {'id': 'test_rotate', 'raw_photo': '/path/to/image.jpg', 'rotation_needed': 90}
+    ])
+    
+    # Verify rotation was applied
+    result = photos.select(photos.corrected).where(
+        photos.id == 'test_rotate'
+    ).collect()
+    
+    if result:
+        rotated_img = result[0]['corrected']
+        print(f"Successfully rotated image")
+    else:
+        print("Rotation operation failed")
+        
+except Exception as e:
+    print(f"Error in rotation pipeline: {e}")
+```
+
+## Technical Implementation Notes
+
+### Rotation Mechanics
+
+- **Counter-clockwise**: Positive angles (0° to 360°)
+- **Clockwise**: Negative angles (-360° to 0°)
+- **Full rotation**: 360° returns to original orientation
+- **Dimension changes**: Rotated images may have larger dimensions to fit rotated content
+
+### Performance Characteristics
+
+- **Incremental Computation**: Rotation operations are cached and only recomputed when source images or angles change
+- **Memory Efficiency**: Optimized memory usage for intermediate rotation buffers
+- **Batch Processing**: Multiple rotations on the same image are processed efficiently
+
+### Image Quality Preservation
+
+The rotation operation uses high-quality interpolation to preserve image clarity:
+
+```python
+# PIL equivalent (manual approach):
+from PIL import Image
+img = Image.open('/path/to/image.jpg')
+rotated = img.rotate(45, expand=True)
+
+# Pixeltable equivalent (declarative):
+images.add_computed_column(
+    rotated=images.raw_image.rotate(45)
+)
+```
+
+## Related Functions
+
+- **[`resize`](./resize)** - Scale images to new dimensions
+- **[`crop`](./crop)** - Extract rectangular regions from images
+- **[`alpha_composite`](./alpha_composite)** - Composite images with transparency
+- **[`width`](./width)** - Get image width dimension
+- **[`height`](./height)** - Get image height dimension
+
+## Use Cases in Production
+
+### Computer Vision Model Training
+Create robust training datasets with rotation-augmented images for improved model generalization.
+
+### Document Processing Systems
+Automatically correct document orientations for optimal OCR and text extraction accuracy.
+
+### Photo Management Applications
+Enable bulk photo orientation correction for large image collections.
+
+### Creative Content Generation
+Generate artistic variations and effects through systematic rotation transformations.
+
+### Quality Control Systems
+Rotate product images to standard orientations for consistent visual inspection.
+
+---
+
+*Sometimes the perfect perspective is just a rotation away. This is where **dimensional transformation meets visual possibility**, turning every angle into an opportunity for insight.*

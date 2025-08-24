@@ -1,0 +1,291 @@
+---
+title: "table.insert"
+description: "table.insert() - Add rows from data sources or individual records"
+---
+
+<Badge text="Data Operations" color="green" size="small" />
+
+Insert rows into a table from various data sources or individual records.
+
+## Function Signatures
+
+The `insert` method supports two distinct call patterns:
+
+### Multiple Row Insert
+```python
+table.insert(
+    source: TableSourceDataType,
+    /,
+    *,
+    on_error: Literal['abort', 'ignore'] = 'abort',
+    print_stats: bool = False,
+    **kwargs: Any,
+) -> UpdateStatus
+```
+
+### Single Row Insert
+```python
+table.insert(
+    *,
+    on_error: Literal['abort', 'ignore'] = 'abort',
+    print_stats: bool = False,
+    **kwargs: Any
+) -> UpdateStatus
+```
+
+## Description
+
+The `insert` method provides flexible data insertion capabilities for Pixeltable tables. You can insert data from various sources including lists of dictionaries, DataFrames, CSV files, or insert individual rows using keyword arguments.
+
+The method handles schema validation, computed column evaluation, and provides comprehensive error handling options for robust data operations.
+
+## Parameters
+
+### Multiple Row Insert
+
+<ParamField path="source" type="TableSourceDataType" required>
+  A data source from which data can be imported. Can be:
+  - List of dictionaries
+  - pandas DataFrame  
+  - Path to CSV file
+  - Other supported data sources
+</ParamField>
+
+### Common Parameters
+
+<ParamField path="on_error" type="Literal['abort', 'ignore']" default="abort">
+  Determines behavior when errors occur during computed column evaluation or media file validation:
+  - `'abort'`: Raises exception and prevents insertion
+  - `'ignore'`: Continues execution, setting error cells to `None` with error details stored
+</ParamField>
+
+<ParamField path="print_stats" type="bool" default="False">
+  If `True`, prints statistics about the cost of computed columns during insertion.
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  **Multiple row insert**: Additional keyword arguments passed to the data source.
+  
+  **Single row insert**: Column names and values for the row being inserted.
+</ParamField>
+
+### Advanced Parameters
+
+<ParamField path="source_format" type="str" optional>
+  A hint about the format of the source data to optimize parsing.
+</ParamField>
+
+<ParamField path="schema_overrides" type="dict" optional>
+  Override column types during insertion. Maps column names to desired types.
+</ParamField>
+
+## Returns
+
+<ResponseField name="UpdateStatus" type="UpdateStatus">
+  An object containing information about the update operation, including number of rows inserted and any errors encountered.
+</ResponseField>
+
+## Examples
+
+### Insert Multiple Rows from List
+
+```python
+import pixeltable as pxt
+
+# Get table handle
+tbl = pxt.get_table('my_table')
+
+# Insert multiple rows using list of dictionaries
+rows_data = [
+    {'a': 1, 'b': 1, 'c': 1},
+    {'a': 2, 'b': 2, 'c': 2},
+    {'a': 3, 'b': 3}  # Column 'c' is nullable, so omitting is OK
+]
+
+status = tbl.insert(rows_data)
+print(f"Inserted {status.num_rows} rows")
+```
+
+### Insert Single Row with Keyword Arguments
+
+```python
+# Insert a single row using keyword syntax
+status = tbl.insert(a=4, b=4, c=4)
+print(f"Inserted {status.num_rows} row")
+
+# Insert row with missing nullable column
+status = tbl.insert(a=5, b=5)  # 'c' will be None
+```
+
+### Insert from CSV File
+
+```python
+# Insert data from CSV file
+status = tbl.insert(source='data/users.csv')
+print(f"Imported {status.num_rows} rows from CSV")
+
+# Insert with schema overrides
+status = tbl.insert(
+    source='data/mixed_types.csv',
+    schema_overrides={'age': int, 'score': float}
+)
+```
+
+### Insert from DataFrame
+
+```python
+import pandas as pd
+
+# Create sample DataFrame
+df = pd.DataFrame({
+    'name': ['Alice', 'Bob', 'Charlie'],
+    'age': [25, 30, 35],
+    'city': ['NYC', 'SF', 'LA']
+})
+
+# Insert DataFrame data
+status = tbl.insert(df)
+print(f"Inserted {len(df)} rows from DataFrame")
+```
+
+### Error Handling Strategies
+
+```python
+# Abort on first error (default behavior)
+try:
+    status = tbl.insert(problematic_data, on_error='abort')
+    print("All rows inserted successfully")
+except Exception as e:
+    print(f"Insert failed: {e}")
+
+# Continue on errors, collect error information
+status = tbl.insert(problematic_data, on_error='ignore')
+print(f"Inserted {status.num_rows} rows")
+if status.num_excs > 0:
+    print(f"Encountered {status.num_excs} errors")
+    
+    # Query error details
+    errors = tbl.select(tbl.col_name.errortype, tbl.col_name.errormsg).collect()
+    for error in errors:
+        if error['errortype'] is not None:
+            print(f"Error: {error['errortype']} - {error['errormsg']}")
+```
+
+### Batch Insert with Performance Monitoring
+
+```python
+# Large dataset insertion with statistics
+large_dataset = [{'id': i, 'value': f'data_{i}'} for i in range(10000)]
+
+status = tbl.insert(large_dataset, print_stats=True)
+print(f"Batch insert completed:")
+print(f"  Rows inserted: {status.num_rows}")
+print(f"  Processing time: {status.processing_time}")
+```
+
+### Working with Media Files
+
+```python
+# Insert table with image column
+image_table = pxt.get_table('images')
+
+# Insert with local image files
+image_data = [
+    {'name': 'photo1', 'image_path': '/path/to/photo1.jpg'},
+    {'name': 'photo2', 'image_path': '/path/to/photo2.png'},
+]
+
+# Handle potential media file errors gracefully
+status = image_table.insert(image_data, on_error='ignore')
+
+# Check for media processing errors
+if status.num_excs > 0:
+    print(f"Some images failed to process: {status.num_excs} errors")
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in the following conditions:
+  - The table is a view or snapshot (not insertable)
+  - The table has been dropped
+  - Row data doesn't conform to table schema
+  - Error during computed column processing (when `on_error='abort'`)
+  - Error during data import (when `on_error='abort'`)
+</ResponseField>
+
+## Related Functions
+
+- [`update()`](./update) - Update existing rows in a table
+- [`delete()`](./delete) - Delete rows from a table
+- [`select()`](./select) - Query data from a table
+- [`create_table()`](../table_management/create_table) - Create a new table
+
+## Advanced Usage
+
+### Conditional Insertion
+
+```python
+def conditional_insert(tbl, new_data, unique_column):
+    """Insert only if records don't already exist."""
+    
+    # Get existing values
+    existing = tbl.select(unique_column).collect()
+    existing_values = {row[unique_column] for row in existing}
+    
+    # Filter new data
+    filtered_data = [
+        row for row in new_data 
+        if row[unique_column] not in existing_values
+    ]
+    
+    if filtered_data:
+        status = tbl.insert(filtered_data)
+        print(f"Inserted {status.num_rows} new records")
+    else:
+        print("No new records to insert")
+
+# Usage
+new_users = [
+    {'user_id': 123, 'name': 'Alice'},
+    {'user_id': 124, 'name': 'Bob'},
+]
+conditional_insert(users_table, new_users, 'user_id')
+```
+
+### Incremental Data Loading
+
+```python
+def incremental_load(tbl, data_source, batch_size=1000):
+    """Load data in batches for better memory management."""
+    
+    total_inserted = 0
+    
+    for i in range(0, len(data_source), batch_size):
+        batch = data_source[i:i + batch_size]
+        status = tbl.insert(batch, on_error='ignore')
+        total_inserted += status.num_rows
+        
+        print(f"Batch {i//batch_size + 1}: {status.num_rows} rows")
+        
+        if status.num_excs > 0:
+            print(f"  Warnings: {status.num_excs} errors in batch")
+    
+    print(f"Total inserted: {total_inserted} rows")
+
+# Usage for large datasets
+large_data = load_big_dataset()  # Your data loading function
+incremental_load(my_table, large_data)
+```
+
+## Usage Notes
+
+- **Schema Validation**: All inserted data must conform to the table schema
+- **Computed Columns**: Automatically evaluated during insertion
+- **Media Files**: Validated and processed during insertion
+- **Performance**: Use batch insertion for better performance with large datasets
+- **Error Recovery**: Use `on_error='ignore'` for fault-tolerant data loading
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*

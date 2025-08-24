@@ -1,0 +1,204 @@
+---
+title: "Basic Types"
+description: "Fundamental scalar data types for storing simple values in Pixeltable"
+---
+
+<Badge text="Data Type" color="purple" size="small" />
+
+## Overview
+
+Pixeltable provides fundamental scalar data types for storing simple values like text, numbers, booleans, and timestamps. These basic types serve as the foundation for table schemas and are essential building blocks for more complex data structures.
+
+## String Type
+
+### Definition
+```python
+pxt.String
+```
+
+Stores text data of any length.
+
+### Usage
+```python
+schema = {
+    'name': pxt.String,
+    'description': pxt.String,
+    'category': pxt.String
+}
+```
+
+---
+
+## Integer Type
+
+### Definition
+```python
+pxt.Int
+```
+
+Stores whole numbers (positive, negative, or zero).
+
+### Usage
+```python
+schema = {
+    'user_id': pxt.Int,
+    'age': pxt.Int,
+    'count': pxt.Int
+}
+```
+
+---
+
+## Float Type
+
+### Definition
+```python
+pxt.Float
+```
+
+Stores decimal numbers with floating-point precision.
+
+### Usage
+```python
+schema = {
+    'price': pxt.Float,
+    'score': pxt.Float,
+    'latitude': pxt.Float
+}
+```
+
+---
+
+## Boolean Type
+
+### Definition
+```python
+pxt.Bool
+```
+
+Stores true/false values.
+
+### Usage
+```python
+schema = {
+    'is_active': pxt.Bool,
+    'verified': pxt.Bool,
+    'premium_user': pxt.Bool
+}
+```
+
+---
+
+## Timestamp Type
+
+### Definition
+```python
+pxt.Timestamp
+```
+
+Stores date and time information with timezone support.
+
+### Usage
+```python
+schema = {
+    'created_at': pxt.Timestamp,
+    'updated_at': pxt.Timestamp,
+    'last_login': pxt.Timestamp
+}
+```
+
+### Data Insertion
+```python
+from datetime import datetime
+
+table.insert([{
+    'created_at': datetime.now(),
+    'updated_at': '2025-01-15T10:30:00Z',  # ISO format string
+    'last_login': 1705317000  # Unix timestamp
+}])
+```
+
+---
+
+## Complete Schema Example
+
+```python
+import pixeltable as pxt
+from datetime import datetime
+
+# Table using all basic types
+users = pxt.create_table('users', {
+    'user_id': pxt.Int,              # Integer
+    'username': pxt.String,          # String
+    'email': pxt.String,             # String
+    'age': pxt.Int,                  # Integer  
+    'account_balance': pxt.Float,    # Float
+    'is_verified': pxt.Bool,         # Boolean
+    'created_at': pxt.Timestamp,     # Timestamp
+    'last_login': pxt.Timestamp      # Timestamp
+})
+
+# Insert data
+users.insert([{
+    'user_id': 1001,
+    'username': 'alice_smith',
+    'email': 'alice@example.com',
+    'age': 28,
+    'account_balance': 1250.75,
+    'is_verified': True,
+    'created_at': datetime(2024, 1, 15, 10, 30),
+    'last_login': datetime.now()
+}])
+```
+
+## Type Validation
+
+Pixeltable automatically validates data types during insertion:
+
+```python
+# ✅ Valid insertions
+users.insert([{'age': 25}])                    # Int
+users.insert([{'account_balance': 99.99}])     # Float  
+users.insert([{'is_verified': False}])         # Bool
+users.insert([{'username': 'john_doe'}])       # String
+
+# ❌ Invalid insertions (will raise errors)
+# users.insert([{'age': 'twenty-five'}])       # String in Int field
+# users.insert([{'is_verified': 'yes'}])       # String in Bool field
+```
+
+## Common Patterns
+
+### Nullable Fields
+```python
+# Optional fields that can be None/NULL
+schema = {
+    'user_id': pxt.Int,
+    'middle_name': pxt.String,      # Can be None
+    'phone_number': pxt.String      # Can be None
+}
+```
+
+### Default Values
+```python
+# Set defaults during insertion
+users.insert([{
+    'username': 'new_user',
+    'is_verified': False,           # Default to False
+    'created_at': datetime.now()    # Default to current time
+}])
+```
+
+### Type Conversions
+```python
+# Automatic type conversions where possible
+users.insert([{
+    'age': '30',                    # String '30' → Int 30
+    'account_balance': '99.95',     # String '99.95' → Float 99.95
+    'is_verified': 1                # Int 1 → Bool True
+}])
+```
+
+---
+
+*These basic types form the foundation of all Pixeltable schemas. For complex data structures, see Array and Json types. For multimedia content, see Image, Video, and Audio types.*

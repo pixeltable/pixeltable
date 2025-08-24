@@ -1,0 +1,245 @@
+---
+title: "pxt.Image"
+description: "Image data type for storing and processing visual content in Pixeltable"
+---
+
+<Badge text="Data Type" color="purple" size="small" />
+
+## Type Definition
+
+```python
+pxt.Image
+```
+
+## Description
+
+The Image data type is designed for storing and processing visual content in Pixeltable. It provides seamless integration with PIL (Python Imaging Library) while offering native support for AI/ML workflows, multimodal operations, and efficient storage.
+
+Images are automatically validated, optimized, and indexed for fast retrieval and processing.
+
+## Schema Usage
+
+```python
+import pixeltable as pxt
+
+# Define table schema with Image column
+schema = {
+    'image_path': pxt.String,
+    'image': pxt.Image,
+    'caption': pxt.String
+}
+
+table = pxt.create_table('photos', schema)
+```
+
+## Data Insertion
+
+```python
+# Insert from file path
+table.insert([{
+    'image_path': '/path/to/photo.jpg',
+    'image': '/path/to/photo.jpg',
+    'caption': 'Sunset over mountains'
+}])
+
+# Insert from PIL Image
+from PIL import Image
+pil_image = Image.open('/path/to/photo.jpg')
+table.insert([{
+    'image_path': 'memory_image',
+    'image': pil_image,
+    'caption': 'Loaded in memory'
+}])
+
+# Insert from URL
+table.insert([{
+    'image_path': 'https://example.com/image.jpg',
+    'image': 'https://example.com/image.jpg',
+    'caption': 'Remote image'
+}])
+```
+
+## Supported Formats
+
+| Format | Extension | Description |
+|--------|-----------|-------------|
+| **JPEG** | `.jpg`, `.jpeg` | Compressed format, good for photos |
+| **PNG** | `.png` | Lossless format, supports transparency |
+| **GIF** | `.gif` | Animated images support |
+| **BMP** | `.bmp` | Uncompressed bitmap format |
+| **TIFF** | `.tiff`, `.tif` | High-quality format for professional use |
+| **WebP** | `.webp` | Modern web-optimized format |
+
+## AI/ML Integration
+
+```python
+# Add CLIP embeddings
+table.add_computed_column(
+    embedding=pxt.functions.clip(
+        table.image, 
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+
+# Object detection with YOLOX
+table.add_computed_column(
+    objects=pxt.functions.yolox(
+        table.image, 
+        model_id='yolox_m', 
+        threshold=0.7
+    )
+)
+
+# Create searchable vector index
+table.add_embedding_index('embedding')
+```
+
+## Image Processing Operations
+
+```python
+# Resize images
+table.add_computed_column(
+    thumbnail=pxt.functions.resize(table.image, size=(256, 256))
+)
+
+# Rotate images
+table.add_computed_column(
+    rotated=pxt.functions.rotate(table.image, angle=90)
+)
+
+# Crop images
+table.add_computed_column(
+    cropped=pxt.functions.crop(table.image, box=(100, 100, 400, 400))
+)
+
+# Get image dimensions
+table.add_computed_column(
+    width=pxt.functions.width(table.image)
+)
+table.add_computed_column(
+    height=pxt.functions.height(table.image)
+)
+```
+
+## Querying and Filtering
+
+```python
+# Find images by dimensions
+large_images = table.where(
+    (pxt.functions.width(table.image) > 1920) & 
+    (pxt.functions.height(table.image) > 1080)
+)
+
+# Semantic search using embeddings
+similar_images = table.order_by(
+    table.embedding.similarity("sunset landscape photo"),
+    asc=False
+).limit(10)
+```
+
+## Storage and Performance
+
+**Automatic Optimization:**
+- Images are automatically compressed for efficient storage
+- Metadata preservation for EXIF data
+- Lazy loading for large image collections
+- Built-in caching for frequently accessed images
+
+**Storage Locations:**
+- Local filesystem paths
+- Cloud storage URLs (S3, GCS, etc.)
+- In-memory PIL Image objects
+- Base64 encoded data
+
+## Validation and Error Handling
+
+```python
+# Pixeltable automatically validates image data
+try:
+    table.insert([{'image': '/path/to/corrupted.jpg'}])
+except pxt.Error as e:
+    print(f"Image validation failed: {e}")
+
+# Check image validity before insertion
+if pxt.functions.is_image_type('/path/to/file.jpg'):
+    table.insert([{'image': '/path/to/file.jpg'}])
+```
+
+## Advanced Features
+
+### Custom Image Constraints
+
+```python
+# Define constrained image types
+thumbnail_schema = {
+    'thumbnail': pxt.Image  # Could be constrained to specific dimensions
+}
+```
+
+### Batch Operations
+
+```python
+# Efficient batch processing
+image_paths = [f'/photos/img_{i}.jpg' for i in range(100)]
+batch_data = [{'image': path} for path in image_paths]
+table.insert(batch_data)
+```
+
+### Integration with Computer Vision
+
+```python
+# Chain multiple CV operations
+table.add_computed_column(
+    processed=pxt.functions.resize(
+        pxt.functions.rotate(table.image, angle=90),
+        size=(512, 512)
+    )
+)
+```
+
+## Best Practices
+
+1. **Use appropriate formats**: JPEG for photos, PNG for graphics with transparency
+2. **Optimize file sizes**: Consider image dimensions and compression before insertion
+3. **Leverage computed columns**: Process images once, query results many times
+4. **Use embedding indexes**: Enable fast semantic search capabilities
+5. **Batch operations**: Insert multiple images at once for better performance
+
+## Common Patterns
+
+### Photo Gallery Application
+
+```python
+# Photo metadata extraction
+photos = pxt.create_table('photos', {
+    'filename': pxt.String,
+    'image': pxt.Image,
+    'upload_date': pxt.Timestamp
+})
+
+photos.add_computed_column(
+    dimensions=pxt.functions.array([
+        pxt.functions.width(photos.image),
+        pxt.functions.height(photos.image)
+    ])
+)
+```
+
+### E-commerce Product Images
+
+```python
+products = pxt.create_table('products', {
+    'product_id': pxt.String,
+    'main_image': pxt.Image,
+    'thumbnail': pxt.Image
+})
+
+# Auto-generate thumbnails
+products.add_computed_column(
+    auto_thumbnail=pxt.functions.resize(products.main_image, size=(200, 200))
+)
+```
+
+---
+
+*This documentation represents the Image data type capabilities in Pixeltable. For implementation details and updates, refer to the official Pixeltable documentation.*

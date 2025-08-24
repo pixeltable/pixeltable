@@ -63,6 +63,10 @@
       "url": "https://pixeltable.github.io/pixeltable/"
     },
     {
+      "name": "SDK",
+      "url": "/docs/sdk/latest"
+    },
+    {
       "name": "Integrations",
       "url": "/docs/integrations"
     },
@@ -174,6 +178,14 @@
       "group": "Bring Your Own",
       "pages": [
         "docs/integrations/embedding-model"
+      ]
+    },
+    {
+      "group": "SDK",
+      "pages": [
+        "docs/sdk/latest/overview",
+        "docs/sdk/v0.3/overview",
+        "docs/sdk/v0.2/overview"
       ]
     }
   ],
