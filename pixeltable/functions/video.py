@@ -528,12 +528,12 @@ def overlay_text(
     opacity: float = 1.0,
     horizontal_align: Literal['left', 'center', 'right'] = 'center',
     horizontal_margin: int = 0,
-    vertical_align: Literal['top', 'center', 'bottom'] = 'bottom',
+    vertical_align: Literal['top', 'center', 'bottom'] = 'center',
     vertical_margin: int = 0,
     box: bool = False,
     box_color: str = 'black',
-    box_opacity: float = 0.8,
-    box_border: list[int] | None = None
+    box_opacity: float = 1.0,
+    box_border: list[int] | None = None,
 ) -> pxt.Video:
     """
     Overlay text on a video with customizable positioning and styling.
@@ -547,7 +547,7 @@ def overlay_text(
         text: The text string to overlay on the video.
         font: Font family or path to font file. If None, uses the system default.
         font_size: Size of the text in points.
-        color: Text color as a string (e.g., `'white'`, `'red'`, `'#FF0000'`).
+        color: Text color (e.g., `'white'`, `'red'`, `'#FF0000'`).
         opacity: Text opacity from 0.0 (transparent) to 1.0 (opaque).
         horizontal_align: Horizontal text alignment (`'left'`, `'center'`, `'right'`).
         horizontal_margin: Horizontal margin in pixels from the alignment edge.
@@ -556,7 +556,12 @@ def overlay_text(
         box: Whether to draw a background box behind the text.
         box_color: Background box color as a string.
         box_opacity: Background box opacity from 0.0 to 1.0.
-        box_border: Padding around text in the box.
+        box_border: Padding around text in the box in pixels.
+
+            - `[10]`: 10 pixels on all sides
+            - `[10, 20]`: 10 pixels on top/bottom, 20 on left/right
+            - `[10, 20, 30]`: 10 pixels on top, 20 on left/right, 30 on bottom
+            - `[10, 20, 30, 40]`: 10 pixels on top, 20 on right, 30 on bottom, 40 on left
 
     Returns:
         A new video with the text overlay applied.
@@ -578,7 +583,6 @@ def overlay_text(
         ...         box_color='black',
         ...         box_opacity=0.8,
         ...         box_border=[6, 14],
-        ...         horizontal_align='center',
         ...         horizontal_margin=10,
         ...         vertical_align='bottom',
         ...         vertical_margin=70
@@ -595,11 +599,95 @@ def overlay_text(
         ...         box=True,
         ...         box_color='black',
         ...         box_opacity=0.6,
-        ...         box_border=(20, 10)
+        ...         box_border=[20, 10]
         ...     )
         ... ).collect()
     """
-    pass
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use overlay_text().')
+    if font_size <= 0:
+        raise pxt.Error(f'font_size must be positive, got {font_size}')
+    if opacity < 0.0 or opacity > 1.0:
+        raise pxt.Error(f'opacity must be between 0.0 and 1.0, got {opacity}')
+    if horizontal_margin < 0:
+        raise pxt.Error(f'horizontal_margin must be non-negative, got {horizontal_margin}')
+    if vertical_margin < 0:
+        raise pxt.Error(f'vertical_margin must be non-negative, got {vertical_margin}')
+    if box_opacity < 0.0 or box_opacity > 1.0:
+        raise pxt.Error(f'box_opacity must be between 0.0 and 1.0, got {box_opacity}')
+    if box_border is not None and not (
+        isinstance(box_border, (list, tuple))
+        and len(box_border) >= 1
+        and len(box_border) <= 4
+        and all(isinstance(x, int) for x in box_border)
+        and all(x >= 0 for x in box_border)
+    ):
+        raise pxt.Error(f'box_border must be a list or tuple of 1-4 non-negative ints, got {box_border!s} instead')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    escaped_text = text.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
+
+    # Build drawtext filter parameters
+    drawtext_params: list[str] = []
+    drawtext_params.append(f"text='{escaped_text}'")
+    drawtext_params.append(f'fontsize={font_size}')
+
+    if font is not None:
+        if pathlib.Path(font).exists():
+            drawtext_params.append(f"fontfile='{font}'")
+        else:
+            drawtext_params.append(f"font='{font}'")
+    if opacity < 1.0:
+        drawtext_params.append(f'fontcolor={color}@{opacity}')
+    else:
+        drawtext_params.append(f'fontcolor={color}')
+
+    if horizontal_align == 'left':
+        x_expr = str(horizontal_margin)
+    elif horizontal_align == 'center':
+        x_expr = '(w-text_w)/2'
+    else:  # right
+        x_expr = f'w-text_w-{horizontal_margin}' if horizontal_margin != 0 else 'w-text_w'
+    if vertical_align == 'top':
+        y_expr = str(vertical_margin)
+    elif vertical_align == 'center':
+        y_expr = '(h-text_h)/2'
+    else:  # bottom
+        y_expr = f'h-text_h-{vertical_margin}' if vertical_margin != 0 else 'h-text_h'
+    drawtext_params.extend([f'x={x_expr}', f'y={y_expr}'])
+
+    if box:
+        drawtext_params.append('box=1')
+        if box_opacity < 1.0:
+            drawtext_params.append(f'boxcolor={box_color}@{box_opacity}')
+        else:
+            drawtext_params.append(f'boxcolor={box_color}')
+        if box_border is not None:
+            drawtext_params.append(f'boxborderw={"|".join(map(str, box_border))}')
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        'drawtext=' + ':'.join(drawtext_params),
+        '-c:a',
+        'copy',  # Copy audio stream unchanged
+        '-loglevel',
+        'error',  # Only show errors
+        output_path,
+    ]
+    _logger.debug(f'overlay_text(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 __all__ = local_public_names(__name__)
