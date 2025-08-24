@@ -253,8 +253,9 @@ class VideoSplitter(ComponentIterator):
     video_time_base: Fraction
     video_start_time: int
 
-    # Current position tracking
-    current_start_time_sec: float
+    # position tracking
+    next_segment_start: float
+    next_segment_start_pts: int
 
     def __init__(self, video: str, segment_duration: float, *, overlap: float = 0.0, min_segment_duration: float = 0.0):
         assert segment_duration > 0.0
@@ -272,18 +273,13 @@ class VideoSplitter(ComponentIterator):
         self.overlap = overlap
         self.min_segment_duration = min_segment_duration
 
-        # Get video metadata
-        self.video_duration = av_utils.get_video_duration(str(video_path))
-        if self.video_duration is None:
-            raise pxt.Error(f'VideoSplitter: could not determine duration of video {video}')
-
-        # Get time_base and start_time for PTS calculations
         with av.open(str(video_path)) as container:
             video_stream = container.streams.video[0]
             self.video_time_base = video_stream.time_base
             self.video_start_time = video_stream.start_time or 0
 
-        self.current_start_time_sec = 0.0
+        self.next_segment_start = float(self.video_start_time * self.video_time_base)
+        self.next_segment_start_pts = self.video_start_time
 
     @classmethod
     def input_schema(cls) -> dict[str, ts.ColumnType]:
@@ -309,7 +305,7 @@ class VideoSplitter(ComponentIterator):
         if segment_duration < min_segment_duration:
             raise excs.Error('segment_duration must be at least min_segment_duration')
         if overlap >= segment_duration:
-            raise excs.Error('overlap_sec must be less than segment_duration')
+            raise excs.Error('overlap must be less than segment_duration')
 
         return {
             'segment_start': ts.FloatType(nullable=False),
@@ -320,43 +316,36 @@ class VideoSplitter(ComponentIterator):
         }, []
 
     def __next__(self) -> dict[str, Any]:
-        if self.current_start_time_sec >= self.video_duration:
-            raise StopIteration
-
         segment_path = str(TempStore.create_path(extension='.mp4'))
         try:
             cmd = av_utils.ffmpeg_clip_cmd(
-                str(self.video_path), segment_path, self.current_start_time_sec, self.segment_duration
+                str(self.video_path), segment_path, self.next_segment_start, self.segment_duration
             )
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             # use the actual duration
             segment_duration = av_utils.get_video_duration(segment_path)
-            if segment_duration == 0.0:
+            if segment_duration - self.overlap == 0.0:
                 # we're done
                 Path(segment_path).unlink()
                 raise StopIteration
 
-            # Check if this is the last segment and if it's too short
-            end_time_sec = self.current_start_time_sec + segment_duration
-            is_last_segment = end_time_sec >= self.video_duration
-
-            if is_last_segment and segment_duration < self.min_segment_duration:
+            if segment_duration < self.min_segment_duration:
                 Path(segment_path).unlink()
                 raise StopIteration
 
-            # Calculate PTS values
-            start_pts = int(self.current_start_time_sec / float(self.video_time_base)) + self.video_start_time
-            end_pts = start_pts + round(segment_duration / float(self.video_time_base))
+            segment_end = self.next_segment_start + segment_duration
+            segment_end_pts = self.next_segment_start_pts + round(segment_duration / self.video_time_base)
 
             result = {
-                'segment_start': self.current_start_time_sec,
-                'segment_start_pts': start_pts,
-                'segment_end': end_time_sec,
-                'segment_end_pts': end_pts,
+                'segment_start': self.next_segment_start,
+                'segment_start_pts': self.next_segment_start_pts,
+                'segment_end': segment_end,
+                'segment_end_pts': segment_end_pts,
                 'video_segment': segment_path,
             }
-            self.current_start_time_sec = end_time_sec - self.overlap
+            self.next_segment_start = segment_end - self.overlap
+            self.next_segment_start_pts = segment_end_pts - round(self.overlap / self.video_time_base)
 
             return result
 

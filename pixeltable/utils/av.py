@@ -65,16 +65,22 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
 
 def get_video_duration(path: str) -> float | None:
     """Return video duration in seconds."""
-    md = get_metadata(path)
-    # check first video stream for duration
-    return next(
-        (
-            stream['duration_seconds']
-            for stream in md['streams']
-            if stream['type'] == 'video' and stream['duration_seconds'] is not None
-        ),
-        None,
-    )
+    with av.open(path) as container:
+        video_stream = container.streams.video[0]
+        if video_stream is None:
+            return None
+        if video_stream.duration is not None:
+            return float(video_stream.duration * video_stream.time_base)
+
+        # if duration is not in the header, look for it in the last packet
+        last_pts: int | None = None
+        for packet in container.demux(video_stream):
+            if packet.pts is not None:
+                last_pts = packet.pts
+        if last_pts is not None:
+            return float(last_pts * video_stream.time_base)
+
+        return None
 
 
 def has_audio_stream(path: str) -> bool:

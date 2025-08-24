@@ -227,6 +227,20 @@ def get_metadata(video: pxt.Video) -> dict:
 
 
 @pxt.udf(is_method=True)
+def get_duration(video: pxt.Video) -> float | None:
+    """
+    Get video duration in seconds.
+
+    Args:
+        video: The video for which to get the duration.
+
+    Returns:
+        The duration in seconds, or None if the duration cannot be determined.
+    """
+    return av_utils.get_video_duration(video)
+
+
+@pxt.udf(is_method=True)
 def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     """
     Extract a single frame from a video at a specific timestamp.
@@ -392,9 +406,6 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
         raise pxt.Error(f'duration must be positive, got {duration}')
     if not shutil.which('ffmpeg'):
         raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use segment_video().')
-    video_duration = av_utils.get_video_duration(video)
-    if video_duration is None:
-        raise pxt.Error(f'segment_video(): could not determine duration of video {video}')
 
     base_path = TempStore.create_path(extension='')
 
@@ -402,7 +413,7 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
     start_time = 0.0
     result: list[str] = []
     try:
-        while start_time < video_duration:
+        while True:
             segment_path = f'{base_path}_segment_{len(result)}.mp4'
             cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
 

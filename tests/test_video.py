@@ -7,7 +7,6 @@ import pytest
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
-
 from .utils import (
     generate_test_video,
     get_video_files,
@@ -414,9 +413,6 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='duration must be positive'):
             t.select(invalid=t.video.segment_video(duration=0.0)).collect()
 
-        with pytest.raises(pxt.Error, match='could not determine duration of video'):
-            _ = t.select(segments=t.video.segment_video(duration=3.0)).collect()
-
     def test_concat_videos(self, reset_db: None) -> None:
         skip_test_if_not_in_path('ffmpeg')
         video_filepaths = get_video_files()[:3]  # Use first 3 videos
@@ -426,15 +422,14 @@ class TestVideo:
         t.insert({'video': p} for p in video_filepaths)
 
         # basic test: reassemble segments into original video
-        t.add_computed_column(segments=t.video.segment_video(duration=5.0), on_error='ignore')
+        t.add_computed_column(segments=t.video.segment_video(duration=5.0))
         t.add_computed_column(concat=concat_videos(t.segments))
         res_df = (
-            t.where(t.segments.errortype == None)
-            .select(
+            t.select(
                 url=t.video.fileurl,
                 segments=t.segments,
-                duration=t.video.get_metadata().streams[0].duration_seconds,
-                concat_duration=t.concat.get_metadata().streams[0].duration_seconds,
+                duration=t.video.get_duration(),
+                concat_duration=t.concat.get_duration(),
             )
             .collect()
             .to_pandas()
@@ -504,4 +499,88 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
             _ = t.add_computed_column(
                 concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
+            )
+
+    def _validate_splitter_segments(
+        self, base: pxt.Table, segments_view: pxt.Table, overlap: float, min_segment_duration: float
+    ) -> None:
+        t = base
+        s = segments_view
+
+        # we cannot directly verify the number of segments, because they can diverge from the target duration;
+        res = t.select(t.video, time_base=t.video.get_metadata().streams[0].time_base).collect()
+        time_bases = {row['video']: row['time_base'] for row in res}
+        res = t.select(t.video, duration=t.video.get_duration()).collect()
+        video_durations = {row['video']: row['duration'] for row in res}
+        segments_md = (
+            s.select(s.video, s.pos, s.segment_start, s.segment_end, s.segment_start_pts, s.segment_end_pts)
+            .order_by(s.video, s.pos)
+            .collect()
+        )
+        for i in range(len(segments_md)):
+            assert segments_md[i]['segment_end'] >= segments_md[i]['segment_start']
+            assert segments_md[i]['segment_end_pts'] >= segments_md[i]['segment_start_pts']
+            if segments_md[i]['pos'] > 0:
+                # verify segment_end/start are consecutive, minus overlap
+                assert segments_md[i]['segment_start'] == pytest.approx(
+                    segments_md[i - 1]['segment_end'] - overlap, abs=0.1
+                )
+                assert segments_md[i]['segment_start_pts'] == pytest.approx(
+                    segments_md[i - 1]['segment_end_pts'] - round(overlap / time_bases[segments_md[i]['video']]), abs=1
+                )
+                assert segments_md[i]['segment_end'] - segments_md[i]['segment_start'] >= min_segment_duration
+
+            if min_segment_duration == 0.0 and i > 0 and segments_md[i]['pos'] == 0:
+                # verify that the last segment's segment_end matches video duration
+                assert segments_md[i - 1]['segment_end'] == pytest.approx(
+                    video_durations[segments_md[i - 1]['video']], abs=0.1
+                )
+        if min_segment_duration == 0.0:
+            assert segments_md[-1]['segment_end'] == pytest.approx(video_durations[segments_md[-1]['video']], abs=0.1)
+
+        # Verify segments are valid videos by inserting them into a table with validation
+        segments = s.select(url=s.video_segment.fileurl).collect()
+        if len(segments) > 0:
+            validation_t = pxt.create_table('segment_validation', {'segment': pxt.Video}, media_validation='on_write')
+            validation_t.insert([{'segment': row['url']} for row in segments], on_error='abort')
+            pxt.drop_table('segment_validation')
+
+    @pytest.mark.parametrize('segment_duration', [5.0, 10.0, 100.0])
+    def test_video_splitter(self, segment_duration: float, reset_db: None) -> None:
+        skip_test_if_not_in_path('ffmpeg')
+        from pixeltable.iterators.video import VideoSplitter
+
+        video_filepaths = get_video_files()
+        for min_segment_duration in [0.0, segment_duration]:
+            for overlap in [0.0, 1.0, 4.0]:
+                t = pxt.create_table('videos', {'video': pxt.Video})
+                t.insert([{'video': p} for p in video_filepaths])
+                s = pxt.create_view(
+                    'segments_5s',
+                    t,
+                    iterator=VideoSplitter.create(
+                        video=t.video,
+                        segment_duration=segment_duration,
+                        overlap=overlap,
+                        min_segment_duration=min_segment_duration,
+                    ),
+                )
+                self._validate_splitter_segments(t, s, overlap, min_segment_duration)
+                pxt.drop_table('videos', force=True)
+
+    def test_video_splitter_errors(self, reset_db: None) -> None:
+        skip_test_if_not_in_path('ffmpeg')
+
+        from pixeltable.iterators.video import VideoSplitter
+
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        with pytest.raises(pxt.Error, match='segment_duration must be a positive number'):
+            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_duration=-1))
+
+        with pytest.raises(pxt.Error, match='overlap must be less than segment_duration'):
+            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_duration=1, overlap=1))
+
+        with pytest.raises(pxt.Error, match='segment_duration must be at least min_segment_duration'):
+            _ = pxt.create_view(
+                's', t, iterator=VideoSplitter.create(video=t.video, segment_duration=1, min_segment_duration=2)
             )
