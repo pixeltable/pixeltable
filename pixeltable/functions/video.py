@@ -351,24 +351,11 @@ def clip(
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-        # Check if output file was created
         output_file = pathlib.Path(output_path)
         if not output_file.exists() or output_file.stat().st_size == 0:
-            error_msg = 'ffmpeg failed to create output file'
-            if result.stderr is not None:
-                error_msg += f'. ffmpeg stderr: {result.stderr.strip()}'
-            raise pxt.Error(error_msg)
-
-        # check for indications of errors in stderr
-        stderr_output = result.stderr.strip() if result.stderr is not None else ''
-        if len(stderr_output) > 0 and any(
-            error_word in stderr_output.lower() for error_word in ['error', 'failed', 'invalid']
-        ):
-            raise pxt.Error(f'ffmpeg reported errors: {stderr_output}')
-
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
         return output_path
-
     except subprocess.CalledProcessError as e:
         _handle_ffmpeg_error(e)
 

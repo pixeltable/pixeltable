@@ -7,6 +7,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
+
 from .utils import (
     generate_test_video,
     get_video_files,
