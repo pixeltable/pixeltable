@@ -585,3 +585,135 @@ class TestVideo:
             _ = pxt.create_view(
                 's', t, iterator=VideoSplitter.create(video=t.video, segment_duration=1, min_segment_duration=2)
             )
+
+    def test_overlay_text(self, reset_db: None, tmp_path: Path) -> None:
+        skip_test_if_not_in_path('ffmpeg')
+
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
+
+        text = "Line 1\nLine2: 'quoted text'"
+        t.add_computed_column(
+            o1=t.clip_5s.overlay_text(
+                text,
+                color='black',
+                opacity=0.5,
+                horizontal_align='left',
+                horizontal_margin=10,
+                vertical_align='top',
+                box=False,
+            )
+        )
+        t.add_computed_column(
+            o2=t.clip_5s.overlay_text(
+                text,
+                color='red',
+                opacity=0.8,
+                horizontal_align='center',
+                vertical_margin=10,
+                vertical_align='bottom',
+                box=True,
+                box_color='blue',
+                box_opacity=0.5,
+                box_border=[10, 20, 30, 40],
+            )
+        )
+        t.add_computed_column(
+            o3=t.clip_5s.overlay_text(
+                text,
+                color='yellow',
+                opacity=1.0,
+                horizontal_align='right',
+                vertical_margin=10,
+                vertical_align='center',
+                box=True,
+                box_color='red',
+                box_opacity=0.8,
+                box_border=[10, 20, 30],
+            )
+        )
+        t.add_computed_column(
+            o4=t.clip_5s.overlay_text(
+                text,
+                color='red',
+                opacity=0.8,
+                horizontal_align='center',
+                vertical_margin=10,
+                vertical_align='bottom',
+                box=True,
+                box_color='blue',
+                box_opacity=0.5,
+                box_border=[10, 20],
+            )
+        )
+        t.add_computed_column(
+            o5=t.clip_5s.overlay_text(
+                text,
+                color='yellow',
+                opacity=1.0,
+                horizontal_align='right',
+                vertical_margin=10,
+                vertical_align='center',
+                box=True,
+                box_color='red',
+                box_opacity=0.8,
+                box_border=[10],
+            )
+        )
+        rows = [{'video': v} for v in get_video_files()]
+        status = t.insert(rows)
+        assert status.num_excs == 0
+
+        # make sure the clips are still the same length
+        res = t.select(
+            d=t.clip_5s.get_duration(),
+            d_o1=t.o1.get_duration(),
+            d_o2=t.o2.get_duration(),
+            d_o3=t.o3.get_duration(),
+            d_o4=t.o4.get_duration(),
+            d_o5=t.o5.get_duration(),
+        ).collect()
+        df = res.to_pandas()
+        assert df['d'].eq(df['d_o1']).all()
+        assert df['d'].eq(df['d_o2']).all()
+        assert df['d'].eq(df['d_o3']).all()
+        assert df['d'].eq(df['d_o4']).all()
+        assert df['d'].eq(df['d_o5']).all()
+
+    def test_overlay_text_errors(self, reset_db: None, tmp_path: Path) -> None:
+        import re
+
+        skip_test_if_not_in_path('ffmpeg')
+
+        t = pxt.create_table('videos_errors', {'video': pxt.Video})
+        t.insert([{'video': v} for v in get_video_files()])
+
+        with pytest.raises(pxt.Error, match='font_size must be positive'):
+            t.select(t.video.overlay_text('Test', font_size=0)).collect()
+
+        with pytest.raises(pxt.Error, match='font_size must be positive'):
+            t.select(t.video.overlay_text('Test', font_size=-10)).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('opacity must be between 0.0 and 1.0')):
+            t.select(t.video.overlay_text('Test', opacity=-0.1)).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('opacity must be between 0.0 and 1.0')):
+            t.select(t.video.overlay_text('Test', opacity=1.1)).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('horizontal_margin must be non-negative')):
+            t.select(t.video.overlay_text('Test', horizontal_margin=-5)).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('vertical_margin must be non-negative')):
+            t.select(t.video.overlay_text('Test', vertical_margin=-10)).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('box_opacity must be between 0.0 and 1.0')):
+            t.select(t.video.overlay_text('Test', box=True, box_opacity=-0.5)).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('box_opacity must be between 0.0 and 1.0')):
+            t.select(t.video.overlay_text('Test', box=True, box_opacity=2.0)).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
+            t.select(t.video.overlay_text('Test', box=True, box_border=[1, 2, 3, 4, 5])).collect()
+
+        with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
+            t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
