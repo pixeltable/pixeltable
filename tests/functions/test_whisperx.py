@@ -16,7 +16,7 @@ from ..utils import get_audio_files, skip_test_if_not_installed, validate_update
 class TestWhisperx:
     def test_transcription(self, reset_db: None) -> None:
         skip_test_if_not_installed('whisperx')
-        from pixeltable.ext.functions import whisperx
+        from pixeltable.functions import whisperx
 
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
@@ -43,7 +43,7 @@ class TestWhisperx:
         if Config.get().get_string_value('auth_token', section='hf') is None:
             # Diarization requires a HF access token for the opt-in pyannote models
             pytest.skip('Skipping WhisperX diarization test (no HF_AUTH_TOKEN configured)')
-        from pixeltable.ext.functions import whisperx
+        from pixeltable.functions import whisperx
 
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
@@ -75,7 +75,7 @@ class TestWhisperx:
 
     def test_whisperx_errors(self, reset_db: None) -> None:
         skip_test_if_not_installed('whisperx')
-        from pixeltable.ext.functions import whisperx
+        from pixeltable.functions import whisperx
 
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
