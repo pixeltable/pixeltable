@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, Any, Iterator, Optional
 from botocore.exceptions import ClientError
 
 from pixeltable import exceptions as excs
+from pixeltable.utils.client_container import ClientContainer
 from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
 from pixeltable.utils.media_store_base import MediaStoreBase
-from pixeltable.utils.s3 import S3ClientContainer
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -66,29 +66,12 @@ class S3Store(MediaStoreBase):
 
     def client(self, for_write: bool = False) -> Any:
         """Return the S3 client."""
-        if not self.a_key:
-            return S3ClientContainer.get().get_client(for_write=for_write)
-        return S3ClientContainer.get_client_raw(
-            aws_access_key_id=self.a_key,
-            aws_secret_access_key=self.s_key,
-            region_name='auto',
-            endpoint_url=self.soa.container_free_uri,
+        return ClientContainer.get().get_client(
+            for_write=for_write, storage_target=self.soa.storage_target, soa=self.soa
         )
 
     def get_resource(self) -> Any:
-        import boto3
-
-        if not self.a_key:
-            return S3ClientContainer.get().get_resource()
-        else:
-            s3_resource = boto3.resource(
-                's3',
-                endpoint_url=self.soa.container_free_uri,
-                aws_access_key_id=self.a_key,
-                aws_secret_access_key=self.s_key,
-                region_name='auto',  # Or a specific R2 region
-            )
-            return s3_resource
+        return ClientContainer.get().get_resource(storage_target=self.soa.storage_target, soa=self.soa)
 
     @property
     def bucket_name(self) -> str:

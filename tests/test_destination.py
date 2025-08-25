@@ -185,8 +185,6 @@ class TestDestination:
         assert self.count(dest1_uri, save_id) == 0
         assert self.count(dest2_uri, save_id) == 0
 
-    #        assert None == 'We made it to the end'
-
     def test_dest_local_3x3(self, reset_db: None) -> None:
         """Test destination with two local Paths receiving copies of the same computed image"""
 
@@ -298,6 +296,38 @@ class TestDestination:
         for i in range(1, 4):
             _, dest_uri = self.dest(i)
             assert self.count(dest_uri, save_id) == 0
+
+    @pytest.mark.skip(reason='Requires current credentials for all 3 supported cloud destinations')
+    def test_dest_all(self, reset_db: None) -> None:
+        """Test destination with all available storage targets"""
+        n = 1
+        dest_path = self.base_dest() / f'img_rot{n}'
+        if not dest_path.exists():
+            dest_path.mkdir()
+        lc_uri = dest_path.resolve().as_uri()
+        gs_uri = f'gs://pixeltable/my_folder/img_rot{n}'
+        s3_uri = f's3://jimpeterson-test/img_rot{n}'
+        r2_uri = (
+            f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/jimpeterson-testr2/images/img_rot{n}'
+        )
+        t = pxt.create_table('test_dest', schema={'img': pxt.Image})
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        t.add_computed_column(**{'img_rot_1': t.img.rotate(90)}, destination=lc_uri)
+        t.add_computed_column(**{'img_rot_2': t.img.rotate(180)}, destination=gs_uri)
+        t.add_computed_column(**{'img_rot_3': t.img.rotate(270)}, destination=s3_uri)
+        t.add_computed_column(**{'img_rot_4': t.img.rotate(360)}, destination=r2_uri)
+        t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+
+        assert t.count() == 2
+        assert self.count(lc_uri, t._id) == 2
+        assert self.count(gs_uri, t._id) == 2
+        assert self.count(s3_uri, t._id) == 2
+        assert self.count(r2_uri, t._id) == 2
+
+        r_dest = t.select(
+            t.img.fileurl, t.img_rot_1.fileurl, t.img_rot_2.fileurl, t.img_rot_3.fileurl, t.img_rot_4.fileurl
+        ).collect()
+        print(r_dest)
 
     def test_dest_list(self, reset_db: None) -> None:
         """Test destination listing with GCS URIs"""

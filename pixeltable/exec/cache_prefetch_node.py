@@ -14,11 +14,10 @@ from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
 from pixeltable.env import Env
+from pixeltable.utils.client_container import ClientContainer
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.gcs import GCSClientContainer
 from pixeltable.utils.media_destination import MediaDestination
 from pixeltable.utils.media_store import TempStore
-from pixeltable.utils.s3 import S3ClientContainer
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -78,9 +77,8 @@ class CachePrefetchNode(ExecNode):
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
         self.num_threads = max(4, Env.get().cpu_count)
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
-        # Ensure that the S3ClientContainer is initialized before using threading
-        S3ClientContainer.get()
-        GCSClientContainer.get()
+        # Ensure that the ClientContainer is initialized before using threading
+        ClientContainer.get()
 
     @property
     def queued_work(self) -> int:

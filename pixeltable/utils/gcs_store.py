@@ -11,7 +11,7 @@ from google.api_core.exceptions import GoogleAPIError
 from google.cloud.exceptions import Forbidden, NotFound
 
 from pixeltable import exceptions as excs
-from pixeltable.utils.gcs import GCSClientContainer
+from pixeltable.utils.client_container import ClientContainer
 from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
 from pixeltable.utils.media_store_base import MediaStoreBase
 
@@ -48,7 +48,7 @@ class GCSStore(MediaStoreBase):
     @classmethod
     def client(cls, for_write: bool = False) -> Any:
         """Return the GCS client."""
-        return GCSClientContainer.get().get_client(for_write=for_write)
+        return ClientContainer.get().get_client(for_write=for_write, storage_target='gs', soa=None)
 
     @property
     def bucket_name(self) -> str:
