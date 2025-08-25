@@ -241,7 +241,7 @@ def get_duration(video: pxt.Video) -> float | None:
 
 
 @pxt.udf(is_method=True)
-def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
+def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     """
     Extract a single frame from a video at a specific timestamp.
 
@@ -255,11 +255,11 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     Examples:
         Extract the first frame from each video in the `video` column of the table `tbl`:
 
-        >>> tbl.select(tbl.video.get_frame(0.0)).collect()
+        >>> tbl.select(tbl.video.extract_frame(0.0)).collect()
 
         Extract a frame close to the end of each video in the `video` column of the table `tbl`:
 
-        >>> tbl.select(tbl.video.get_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
+        >>> tbl.select(tbl.video.extract_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
     """
     if timestamp < 0:
         raise ValueError("'timestamp' must be non-negative")
@@ -295,7 +295,7 @@ def get_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
             return None
 
     except Exception as e:
-        raise pxt.Error(f'get_frame2(): failed to extract frame: {e}') from e
+        raise pxt.Error(f'extract_frame(): failed to extract frame: {e}') from e
 
 
 def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:

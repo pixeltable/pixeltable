@@ -337,16 +337,16 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='end_time and duration cannot both be specified'):
             _ = t.select(invalid_clip=t.video.clip(start_time=10.0, end_time=20.0, duration=10.0)).collect()
 
-    def test_get_frame(self, reset_db: None) -> None:
+    def test_extract_frame(self, reset_db: None) -> None:
         skip_test_if_not_in_path('ffmpeg')
         video_filepaths = get_video_files()
         t = pxt.create_table('video_tbl', {'video': pxt.Video})
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
 
-        status = t.add_computed_column(frame_at_1s=t.video.get_frame(timestamp=1.0))
+        status = t.add_computed_column(frame_at_1s=t.video.extract_frame(timestamp=1.0))
         assert status.num_excs == 0
         status = t.add_computed_column(
-            frame_at_minus_1s=t.video.get_frame(timestamp=t.video.get_metadata().streams[0].duration_seconds - 1.0)
+            frame_at_minus_1s=t.video.extract_frame(timestamp=t.video.get_metadata().streams[0].duration_seconds - 1.0)
         )
         assert status.num_excs == 0
         _ = t.select(t.video.get_metadata()).collect()
@@ -377,11 +377,11 @@ class TestVideo:
         assert result_df['height'].eq(result_df['at_minus_1s_height']).all()
 
         # get frame past the end of the video
-        result_df = t.select(frame=t.video.get_frame(timestamp=1000.0)).collect().to_pandas()
+        result_df = t.select(frame=t.video.extract_frame(timestamp=1000.0)).collect().to_pandas()
         assert result_df['frame'].isnull().all()
 
         with pytest.raises(pxt.Error):
-            t.add_computed_column(invalid3=t.video.get_frame(timestamp=-1.0))
+            t.add_computed_column(invalid3=t.video.extract_frame(timestamp=-1.0))
 
     def _validate_segments(self, segments: list[str], max_duration: float | None = None) -> None:
         t = pxt.create_table('validate_segments', {'segment': pxt.Video}, media_validation='on_write')
