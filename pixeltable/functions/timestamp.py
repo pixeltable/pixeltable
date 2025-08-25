@@ -309,7 +309,25 @@ def posix_timestamp(self: datetime) -> float:
     return self.timestamp()
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'year',
+    'month', 
+    'day',
+    'hour',
+    'minute',
+    'second',
+    'microsecond',
+    'astimezone',
+    'weekday',
+    'isoweekday',
+    'isocalendar',
+    'isoformat',
+    'strftime',
+    'make_timestamp',
+    'replace',
+    'toordinal',
+    'posix_timestamp'
+]
 
 
 def __dir__() -> list[str]:

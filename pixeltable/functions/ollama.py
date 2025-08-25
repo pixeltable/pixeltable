@@ -126,7 +126,7 @@ def embed(
     return [np.array(data, dtype=np.float64) for data in results['embeddings']]
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['generate', 'chat', 'embed']
 
 
 def __dir__() -> list[str]:

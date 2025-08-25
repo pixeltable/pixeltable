@@ -66,7 +66,7 @@ async def run(input: dict[str, Any], *, ref: str) -> pxt.Json:
     return await _replicate_client().async_run(ref, input, use_file_output=False)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['run']
 
 
 def __dir__() -> list[str]:

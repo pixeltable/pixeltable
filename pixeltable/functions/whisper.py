@@ -90,3 +90,10 @@ def _lookup_model(model_id: str, device: str) -> 'Whisper':
 
 
 _model_cache: dict[tuple[str, str], 'Whisper'] = {}
+
+
+__all__ = ['transcribe']
+
+
+def __dir__() -> list[str]:
+    return __all__

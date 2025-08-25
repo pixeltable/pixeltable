@@ -99,7 +99,7 @@ async def chat_completions(
     return json.loads(result.text)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions']
 
 
 def __dir__() -> list[str]:

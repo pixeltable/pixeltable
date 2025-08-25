@@ -107,7 +107,7 @@ _model_cache: dict[tuple[str, str], 'Yolox'] = {}
 _processor_cache: dict[str, 'YoloxProcessor'] = {}
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['yolox', 'yolo_to_coco']
 
 
 def __dir__() -> list[str]:

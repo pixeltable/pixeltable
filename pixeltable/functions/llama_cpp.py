@@ -105,7 +105,7 @@ def cleanup() -> None:
     _model_cache.clear()
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['create_chat_completion', 'cleanup']
 
 
 def __dir__() -> list[str]:

@@ -178,7 +178,11 @@ def add_days(self: date, n: int) -> date:
     return self + timedelta(days=n)
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'year', 'month', 'day', 'make_date', 'weekday',
+    'isoweekday', 'isocalendar', 'isoformat', 'toordinal',
+    'strftime', 'add_days'
+]
 
 
 def __dir__() -> list[str]:

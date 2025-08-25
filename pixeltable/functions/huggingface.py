@@ -487,7 +487,17 @@ _model_cache: dict[tuple[str, Callable, Optional[str]], Any] = {}
 _processor_cache: dict[tuple[str, Callable], Any] = {}
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'sentence_transformer',
+    'sentence_transformer_list',
+    'cross_encoder',
+    'cross_encoder_list',
+    'clip',
+    'detr_for_object_detection',
+    'vit_for_image_classification',
+    'speech2text_for_conditional_generation',
+    'detr_to_coco'
+]
 
 
 def __dir__() -> list[str]:

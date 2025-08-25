@@ -391,7 +391,7 @@ def draw_bounding_boxes(
     return img_to_draw
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['eval_detections', 'mean_ap', 'draw_bounding_boxes']
 
 
 def __dir__() -> list[str]:

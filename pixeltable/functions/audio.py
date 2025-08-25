@@ -50,7 +50,7 @@ def get_metadata(audio: pxt.Audio) -> dict:
     return pxt.functions.video._get_metadata(audio)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['get_metadata']
 
 
 def __dir__() -> list[str]:

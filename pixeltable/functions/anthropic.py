@@ -256,7 +256,7 @@ def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
     return pxt_tool_calls
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['messages', 'invoke_tools']
 
 
 def __dir__() -> list[str]:

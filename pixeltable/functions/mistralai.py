@@ -154,7 +154,7 @@ def _(model: str) -> ts.ArrayType:
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'fim_completions', 'embeddings']
 
 
 def __dir__() -> list[str]:

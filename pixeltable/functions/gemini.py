@@ -232,3 +232,10 @@ async def generate_videos(
 @generate_videos.resource_pool
 def _(model: str) -> str:
     return f'request-rate:veo:{model}'
+
+
+__all__ = ['generate_content', 'invoke_tools', 'generate_images', 'generate_videos']
+
+
+def __dir__() -> list[str]:
+    return __all__

@@ -164,7 +164,7 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     return exprs.JsonMapper(expr, target_expr)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['cast', 'sum', 'count', 'min', 'max', 'mean', 'map']
 
 
 def __dir__() -> list[str]:

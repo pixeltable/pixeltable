@@ -35,7 +35,7 @@ class make_list(pxt.Aggregator):
         return self.output
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['make_list']
 
 
 def __dir__() -> list[str]:

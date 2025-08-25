@@ -1,3 +1,7 @@
+# TODO: This module contains internal utility functions and should be made explicitly private.
+# Consider renaming to _util.py or moving these utilities to a private subpackage.
+# These functions are only meant for internal use by other pixeltable.functions modules.
+
 import PIL.Image
 
 from pixeltable.config import Config

@@ -422,7 +422,14 @@ def mode(self: PIL.Image.Image) -> str:
     return self.mode
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'b64_encode', 'alpha_composite', 'blend', 'composite',
+    'convert', 'crop', 'getchannel', 'get_metadata', 'point',
+    'resize', 'rotate', 'effect_spread', 'transpose',
+    'entropy', 'getbands', 'getbbox', 'getcolors', 'getextrema',
+    'getpalette', 'getpixel', 'getprojection', 'histogram',
+    'quantize', 'reduce', 'width', 'height', 'mode'
+]
 
 
 def __dir__() -> list[str]:

@@ -283,7 +283,7 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
     return metadata
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['make_video', 'extract_audio', 'get_metadata']
 
 
 def __dir__() -> list[str]:

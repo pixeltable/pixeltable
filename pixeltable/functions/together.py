@@ -238,7 +238,7 @@ async def image_generations(
     raise excs.Error('Response does not contain a generated image.')
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['completions', 'chat_completions', 'embeddings', 'image_generations']
 
 
 def __dir__() -> list[str]:

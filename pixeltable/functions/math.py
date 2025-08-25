@@ -163,7 +163,7 @@ def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
     return self.bitwise_xor(other)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['abs', 'ceil', 'floor', 'round', 'pow', 'bitwise_and', 'bitwise_or', 'bitwise_xor']
 
 
 def __dir__() -> list[str]:

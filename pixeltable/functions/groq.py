@@ -101,7 +101,7 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
     return tools._invoke(_openai_response_to_pxt_tool_calls(response))
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'invoke_tools']
 
 
 def __dir__() -> list[str]:

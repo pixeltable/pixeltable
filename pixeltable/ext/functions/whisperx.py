@@ -172,7 +172,7 @@ _alignment_model_cache: dict[tuple[str, str, Optional[str]], tuple['Wav2Vec2Mode
 _diarization_model_cache: dict[tuple[str, Optional[str]], 'DiarizationPipeline'] = {}
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['transcribe']
 
 
 def __dir__() -> list[str]:

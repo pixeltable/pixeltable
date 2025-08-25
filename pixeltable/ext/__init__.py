@@ -10,7 +10,7 @@ from pixeltable.utils.code import local_public_names
 
 from . import functions
 
-__all__ = local_public_names(__name__)
+__all__ = ['functions']
 
 
 def __dir__() -> list[str]:
