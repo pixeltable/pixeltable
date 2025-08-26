@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime
 import io
-import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -14,7 +13,8 @@ import PIL
 import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import catalog, env
+from pixeltable import catalog, env, type_system as ts
+from pixeltable.utils import TrackedBufferedWriter
 from pixeltable.utils.media_store import MediaStore, TempStore
 
 
@@ -298,10 +298,10 @@ class DataRow:
     def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
         element = self.vals[index]
         if self.__has_media(element):
-            path = env.Env.get().create_tmp_path('.tar')
-            with tarfile.open(path, 'w') as tf:
-                self.stored_vals[index] = self.__rewrite_json(element, tf)
-            url = MediaStore.relocate_local_media_file(path, col)
+            path = TempStore.create_path(extension='.bin')
+            with open(path, 'wb') as fp:
+                self.stored_vals[index] = self.__rewrite_json(element, fp)
+            url = MediaStore.get().relocate_local_media_file(path, col)
             self.__update_json(self.stored_vals[index], url)
             self.vals[index] = None
 
@@ -314,24 +314,22 @@ class DataRow:
         return isinstance(element, (np.ndarray, PIL.Image.Image))
 
     @classmethod
-    def __rewrite_json(cls, element: Any, tf: tarfile.TarFile) -> Any:
+    def __rewrite_json(cls, element: Any, fp: io.BufferedWriter) -> Any:
         if isinstance(element, list):
-            return [cls.__rewrite_json(v, tf) for v in element]
+            return [cls.__rewrite_json(v, fp) for v in element]
         if isinstance(element, dict):
-            return {k: cls.__rewrite_json(v, tf) for k, v in element.items()}
+            return {k: cls.__rewrite_json(v, fp) for k, v in element.items()}
         if isinstance(element, np.ndarray):
-            npy_path = env.Env.get().create_tmp_path('.npy')
-            np.save(npy_path, element, allow_pickle=False)
-            arcname = f'content/{npy_path.name}'
-            tf.add(npy_path, arcname=arcname)
-            return {'__pxtref__': arcname}
+            begin = fp.tell()
+            np.save(fp, element, allow_pickle=False)
+            end = fp.tell()
+            return {'__pxttype__': ts.ColumnType.Type.ARRAY.name, '__pxtbegin__': begin, '__pxtend__': end}
         if isinstance(element, PIL.Image.Image):
             format = 'webp' if element.has_transparency_data else 'jpeg'
-            img_path = env.Env.get().create_tmp_path(f'.{format}')
-            element.save(img_path, format=format)
-            arcname = f'content/{img_path.name}'
-            tf.add(img_path, arcname=arcname)
-            return {'__pxtref__': arcname}
+            begin = fp.tell()
+            element.save(fp, format=format)
+            end = fp.tell()
+            return {'__pxttype__': ts.ColumnType.Type.IMAGE.name, '__pxtbegin__': begin, '__pxtend__': end}
         return element
 
     @classmethod
@@ -340,7 +338,7 @@ class DataRow:
             for v in element:
                 cls.__update_json(v, url)
         if isinstance(element, dict):
-            if '__pxtref__' in element:
+            if '__pxttype__' in element:
                 element['__pxturl__'] = url
             else:
                 for v in element.values():
@@ -354,8 +352,8 @@ class DataRow:
         parsed = urllib.parse.urlparse(url)
         assert parsed.scheme == 'file'
         path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-        with tarfile.open(path, 'r') as tf:
-            return cls.__unpack_json(element, tf)
+        with open(path, 'rb') as fp:
+            return cls.__unpack_json(element, fp)
 
     @classmethod
     def __find_pxturl(cls, element: Any) -> Optional[str]:
@@ -375,24 +373,30 @@ class DataRow:
             return None
 
     @classmethod
-    def __unpack_json(cls, element: Any, tf: tarfile.TarFile) -> Any:
+    def __unpack_json(cls, element: Any, fp: io.BufferedReader) -> Any:
         if isinstance(element, list):
-            return [cls.__unpack_json(v, tf) for v in element]
+            return [cls.__unpack_json(v, fp) for v in element]
         if isinstance(element, dict):
-            if '__pxtref__' in element:
-                arcname = element['__pxtref__']
-                assert isinstance(arcname, str)
-                with tf.extractfile(arcname) as f:
-                    if arcname.endswith('.npy'):
-                        return np.load(io.BytesIO(f.read()), allow_pickle=False)
-                    elif arcname.endswith('.webp') or arcname.endswith('.jpeg'):
-                        img = PIL.Image.open(f)
-                        img.load()
-                        return img
-                    else:
-                        raise AssertionError()
+            if '__pxttype__' in element:
+                begin = element['__pxtbegin__']
+                end = element['__pxtend__']
+                assert isinstance(begin, int)
+                assert isinstance(end, int)
+                fp.seek(begin)
+                assert fp.tell() == begin
+                if element['__pxttype__'] == ts.ColumnType.Type.ARRAY.name:
+                    arr = np.load(fp, allow_pickle=False)
+                    assert fp.tell() == end
+                    return arr
+                else:
+                    assert element['__pxttype__'] == ts.ColumnType.Type.IMAGE.name
+                    bytesio = io.BytesIO(fp.read(end - begin))
+                    img = PIL.Image.open(bytesio)
+                    img.load()
+                    assert fp.tell() == end, f'{fp.tell()} != {end} / {begin}'
+                    return img
             else:
-                return {k: cls.__unpack_json(v, tf) for k, v in element.items()}
+                return {k: cls.__unpack_json(v, fp) for k, v in element.items()}
         return element
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:

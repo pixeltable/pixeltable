@@ -1,8 +1,9 @@
 import hashlib
+import io
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 
 def print_perf_counter_delta(delta: float) -> str:
@@ -56,3 +57,23 @@ def parse_local_file_path(file_or_url: str) -> Optional[Path]:
         return Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
     else:
         return None
+
+
+class TrackedBufferedWriter(io.BufferedWriter):
+    """
+    A buffered writer that maintains a running total of the number of bytes written.
+    """
+    __bytes_written: int
+
+    def __init__(self, raw: io.RawIOBase, buffer_size: int = io.DEFAULT_BUFFER_SIZE):
+        super().__init__(raw, buffer_size)
+        self.__bytes_written = 0
+
+    def write(self, buf: Any) -> int:
+        n = super().write(buf)
+        self.__bytes_written += n
+        return n
+
+    @property
+    def bytes_written(self) -> int:
+        return self.__bytes_written
