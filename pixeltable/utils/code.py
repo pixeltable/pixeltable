@@ -19,12 +19,18 @@ def local_public_names(mod_name: str, exclude: Optional[list[str]] = None) -> li
     mod = importlib.import_module(mod_name)
     names = []
     for obj in mod.__dict__.values():
+        # Check for private/protected names at the top
+        if hasattr(obj, '__name__') and obj.__name__.startswith('_'):
+            continue
+        
         if isinstance(obj, Function):
-            # Pixeltable function
+            # Pixeltable function - check name attribute for private functions
+            if obj.name.startswith('_'):
+                continue
             names.append(obj.name)
         elif isinstance(obj, types.FunctionType):
             # Python function
-            if obj.__module__ == mod.__name__ and not obj.__name__.startswith('_'):
+            if obj.__module__ == mod.__name__:
                 names.append(obj.__name__)
         elif isinstance(obj, types.ModuleType):
             # Module
