@@ -432,9 +432,7 @@ def __json_comparer(x: Any, y: Any) -> bool:
     if type(x) is not type(y):
         return False
     if isinstance(x, dict):
-        return set(x.keys()) == set(y.keys()) and all(
-            __json_comparer(x[k], y[k]) for k in x.keys()
-        )
+        return set(x.keys()) == set(y.keys()) and all(__json_comparer(x[k], y[k]) for k in x)
     if isinstance(x, list):
         return len(x) == len(y) and all(__json_comparer(a, b) for a, b in zip(x, y))
     if isinstance(x, float):

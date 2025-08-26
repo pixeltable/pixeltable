@@ -14,7 +14,6 @@ import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import catalog, env, type_system as ts
-from pixeltable.utils import TrackedBufferedWriter
 from pixeltable.utils.media_store import MediaStore, TempStore
 
 
@@ -272,6 +271,7 @@ class DataRow:
         assert self.excs[index] is None
         if col.col_type.is_image_type():
             self.flush_img(index, col)
+        if col.col_type.is_media_type():
             self.move_tmp_media_file(index, col)
         if col.col_type.is_json_type():
             self.flush_json(index, col)
@@ -364,15 +364,16 @@ class DataRow:
                 url = cls.__find_pxturl(v)
                 if url is not None:
                     return url
-        elif isinstance(element, dict):
+
+        if isinstance(element, dict):
             if '__pxturl__' in element:
                 return element['__pxturl__']
             for v in element.values():
                 url = cls.__find_pxturl(v)
                 if url is not None:
                     return url
-        else:
-            return None
+
+        return None
 
     @classmethod
     def __unpack_json(cls, element: Any, fp: io.BufferedReader) -> Any:

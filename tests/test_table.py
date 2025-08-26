@@ -1434,6 +1434,7 @@ class TestTable:
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Image],
             'c8': pxt.Required[pxt.Video],
+            'c9': pxt.Required[pxt.Timestamp],
         }
         tbl_name = 'test1'
         t = pxt.create_table(tbl_name, schema)
@@ -1453,6 +1454,7 @@ class TestTable:
             c6={'key': 'val'},
             c7=get_image_files()[0],
             c8=get_video_files()[0],
+            c9=datetime.datetime.now(tz=datetime.timezone.utc),
         )
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -1480,26 +1482,24 @@ class TestTable:
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
-            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c5', 'c2', 'c2']
+            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c9', 'c2', 'c2', 'c2']
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
             t = pxt.create_table(tbl_name, {col_name: col_type})
-            with pytest.raises(pxt.Error, match=r'expected|not a valid Pixeltable JSON object') as exc_info:
+            with pytest.raises(pxt.Error, match=r'expected|not a valid Pixeltable JSON object'):
                 t.insert({col_name: r[value_col_name]} for r in rows)
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.String})
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Unsupported data source type'):
             t.insert(['1'])  # xtype: ignore[list-item]
-        assert 'Unsupported data source type' in str(exc_info.value)
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.Required[pxt.String]})
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='expected non-None'):
             t.insert(c1=None)
-        assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
@@ -1546,10 +1546,7 @@ class TestTable:
         Test that images and numpy arrays embedded in JSON structures properly survive a round trip to the database.
         """
         imgs = [PIL.Image.open(file) for file in get_image_files()[:10]]
-        arrays = [
-            np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64),
-            np.array(['abc', 'def'], dtype=np.str_),
-        ]
+        arrays = [np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64), np.array(['abc', 'def'], dtype=np.str_)]
 
         t = pxt.create_table('test', {'col': pxt.Json})
         val = {
