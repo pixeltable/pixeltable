@@ -61,9 +61,10 @@ class DataRow:
     # the primary key of a store row is a sequence of ints (the number is different for table vs view)
     pk: Optional[tuple[int, ...]]
 
-    # file_urls:
-    # - stored url of file for media in vals[i]
-    # - None if vals[i] is not media type
+    # stored_vals:
+    # - stored value for data in vals[i]
+    # - can be a URL in the case of media types, or a modified JSON structure for JSON objects that contain media
+    #   or arrays
     # - not None if file_paths[i] is not None
     stored_vals: np.ndarray  # of str
 
@@ -271,6 +272,7 @@ class DataRow:
         assert self.excs[index] is None
         if col.col_type.is_image_type():
             self.flush_img(index, col)
+            self.move_tmp_media_file(index, col)
         if col.col_type.is_json_type():
             self.flush_json(index, col)
 
@@ -401,16 +403,18 @@ class DataRow:
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
         """If a media url refers to data in a temporary file, move the data to a MediaStore"""
-        if self.file_urls[index] is None:
+        if self.stored_vals[index] is None:
             return
+        url = self.stored_vals[index]
+        assert isinstance(url, str)  # This will only be called if stored_vals[index] is a URL
         assert self.excs[index] is None
         assert col.col_type.is_media_type()
-        src_path = TempStore.resolve_url(self.file_urls[index])
+        src_path = TempStore.resolve_url(url)
         if src_path is None:
             # The media url does not point to a temporary file, leave it as is
             return
         new_file_url = MediaStore.get().relocate_local_media_file(src_path, col)
-        self.file_urls[index] = new_file_url
+        self.stored_vals[index] = new_file_url
 
     @property
     def rowid(self) -> tuple[int, ...]:
