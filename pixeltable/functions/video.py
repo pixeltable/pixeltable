@@ -301,7 +301,7 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
 def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
     error_msg = f'ffmpeg failed with return code {e.returncode}'
     if e.stderr is not None:
-        error_msg += f': {e.stderr.strip()}'
+        error_msg += f':\n{e.stderr.strip()}'
     raise pxt.Error(error_msg) from e
 
 
@@ -386,7 +386,7 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
 
         Split video into two parts at the midpoint:
 
-        >>> duration = tbl.video.get_metadata().streams[0].duration_seconds
+        >>> duration = tbl.video.get_duration()
         >>> tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()
     """
     if duration <= 0:
@@ -448,24 +448,24 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         metadata = av_utils.get_metadata(str(video))
         video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
         if video_stream is None:
-            raise pxt.Error(f'concat_videos(): file {video} has no video stream')
+            raise pxt.Error(f'concat_videos(): file {video!r} has no video stream')
         resolutions.append((video_stream['width'], video_stream['height']))
 
     # check for divergence
-    first_res = resolutions[0]
-    for i, res in enumerate(resolutions[1:], start=1):
-        if res != first_res:
+    x0, y0 = resolutions[0]
+    for i, (x, y) in enumerate(resolutions[1:], start=1):
+        if (x0, y0) != (x, y):
             raise pxt.Error(
-                f'concat_videos(): requires that all videos have the same resolution, but '
-                f'video 0 ({videos[0]}) has resolution {first_res[0]}x{first_res[1]} and '
-                f'video {i} ({videos[i]}) has resolution {res[0]}x{res[1]}.'
+                f'concat_videos(): requires that all videos have the same resolution, but:'
+                f'\n  video 0 ({videos[0]!r}): {x0}x{y0}'
+                f'\n  video {i} ({videos[i]!r}): {x}x{y}.'
             )
 
     # ffmpeg -f concat needs an input file list
     filelist_path = TempStore.create_path(extension='.txt')
     with filelist_path.open('w', encoding='utf-8') as f:
         for video in videos:
-            f.write(f"file '{video}'\n")
+            f.write(f'file {video!r}\n')
 
     output_path = TempStore.create_path(extension='.mp4')
 
@@ -480,7 +480,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
             # Expected for mixed formats - continue to fallback
             pass
 
-        # we might some corrupted output
+        # we might have some corrupted output
         if output_path.exists():
             output_path.unlink()
 
