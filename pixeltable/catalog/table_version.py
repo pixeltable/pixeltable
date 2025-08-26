@@ -327,7 +327,7 @@ class TableVersion:
             from .table_version_path import TableVersionPath
 
             # clear out any remaining media files from an aborted previous attempt
-            MediaStore.delete(self.id)
+            MediaStore.get().delete(self.id)
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
@@ -374,7 +374,7 @@ class TableVersion:
         #     if self.base.get().is_mutable:
         #         self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        MediaStore.delete(self.id)
+        MediaStore.get().delete(self.id)
         FileCache.get().clear(tbl_id=self.id)
         self.store_tbl.drop()
 
@@ -827,14 +827,17 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
-        assert self.is_mutable
-        if old_name not in self.cols_by_name:
+        if not self.is_mutable:
+            raise excs.Error(f'Cannot rename column for immutable table {self.name!r}')
+        col = self.path.get_column(old_name)
+        if col is None:
             raise excs.Error(f'Unknown column: {old_name}')
+        if col.tbl.id != self.id:
+            raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
             raise excs.Error(f"Invalid column name: '{new_name}'")
         if new_name in self.cols_by_name:
             raise excs.Error(f'Column {new_name} already exists')
-        col = self.cols_by_name[old_name]
         del self.cols_by_name[old_name]
         col.name = new_name
         self.cols_by_name[new_name] = col
@@ -1024,10 +1027,11 @@ class TableVersion:
                 for el in val:
                     assert isinstance(el, int)
                 continue
-            col = self.path.get_column(col_name, include_bases=False)
+            col = self.path.get_column(col_name)
             if col is None:
-                # TODO: return more informative error if this is trying to update a base column
                 raise excs.Error(f'Column {col_name} unknown')
+            if col.tbl.id != self.id:
+                raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
@@ -1235,7 +1239,7 @@ class TableVersion:
             )
 
         # delete newly-added data
-        MediaStore.delete(self.id, tbl_version=self.version)
+        MediaStore.get().delete(self.id, tbl_version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions

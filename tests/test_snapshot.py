@@ -341,3 +341,63 @@ class TestSnapshot:
         t, v = pxt.get_table('test_tbl'), pxt.get_table('v')
         s1, s2, s3, s4 = pxt.get_table('s1'), pxt.get_table('s2'), pxt.get_table('s3'), pxt.get_table('s4')
         validate(t, v, s1, s2, s3, s4)
+
+    def test_drop_column_in_view_predicate(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+        _ = pxt.create_snapshot('base_snap', t, additional_columns={'s1': pxt.Int})
+        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})  # uses c1
+        v1s = pxt.create_snapshot('v1_snap', v1, additional_columns={'v1s1': v1.c2 + v1.vc1})  # snapshot uses c2
+        v2 = pxt.create_view(
+            'view2', v1.where((v1.c2 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int}
+        )  # uses c2
+        v2s = pxt.create_snapshot('v2_snap', v2, additional_columns={'v2s1': v2.c1 + v2.vc2})  # snapshot uses c1
+
+        # Create view on snapshot
+        _ = pxt.create_view('view_snap1', v1s.where(v1s.c1 % 4 == 0))
+        _ = pxt.create_view('view_snap2', v2s.where(v2s.c2 % 4 == 0))
+
+        # Delete first column, only mutable tables will show up in error
+        with pytest.raises(pxt.Error, match='Cannot drop column `c1` because the following views depend on it') as e:
+            t.drop_column('c1')
+        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
+        assert 'v2_snap' not in str(e.value).lower()  # v2_snap uses c1
+        assert 'view_snap1' not in str(e.value).lower()
+
+        # Delete 2nd column
+        with pytest.raises(pxt.Error, match='Cannot drop column `c2` because the following views depend on it') as e:
+            t.drop_column('c2')
+        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'v1_snap' not in str(e.value).lower()  # v1_snap uses c2
+        assert 'view_snap2' not in str(e.value).lower()
+
+        # Delete view's column
+        with pytest.raises(pxt.Error, match='Cannot drop column `vc1` because the following views depend on it') as e:
+            v1.drop_column('vc1')
+        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'v2_snap' not in str(e.value).lower()
+        assert 'view_snap1' not in str(e.value).lower()
+        assert 'view_snap2' not in str(e.value).lower()
+
+    def test_rename_column(self, reset_db: None) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+
+        s1 = pxt.create_snapshot('base_snap', t, additional_columns={'s1': pxt.Int})
+        v1 = pxt.create_view('view_snap', s1, additional_columns={'v1': pxt.Int})
+
+        v2 = pxt.create_view('view', t, additional_columns={'v2': pxt.Int})
+        s2 = pxt.create_snapshot('snap_view', v2, additional_columns={'s2': pxt.Int})
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'base_snap'"):
+            s1.rename_column('s1', 'new_s1')
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'snap_view'"):
+            s2.rename_column('v2', 'new_v2')
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'c1'"):
+            v1.rename_column('c1', 'new_c1')
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 's1'"):
+            v1.rename_column('s1', 'new_s1')
+
+        # should work
+        v1.rename_column('v1', 'new_v1')

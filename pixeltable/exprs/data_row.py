@@ -15,7 +15,7 @@ import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import catalog, env
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.media_store import MediaStore, TempStore
 
 
 class DataRow:
@@ -284,7 +284,7 @@ class DataRow:
                     # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
                     # In that case, use WebP instead.
                     format = 'webp' if image.has_transparency_data else 'jpeg'
-                filepath, url = MediaStore.save_media_object(image, col, format=format)
+                filepath, url = MediaStore.get().save_media_object(image, col, format=format)
                 self.file_paths[index] = str(filepath)
                 self.stored_vals[index] = url
             else:
@@ -396,16 +396,16 @@ class DataRow:
         return element
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
-        """If a media url refers to data in a temporary file, move the data to the MediaStore"""
+        """If a media url refers to data in a temporary file, move the data to a MediaStore"""
         if self.file_urls[index] is None:
             return
         assert self.excs[index] is None
         assert col.col_type.is_media_type()
-        src_path = MediaStore.resolve_tmp_url(self.file_urls[index])
+        src_path = TempStore.resolve_url(self.file_urls[index])
         if src_path is None:
             # The media url does not point to a temporary file, leave it as is
             return
-        new_file_url = MediaStore.relocate_local_media_file(src_path, col)
+        new_file_url = MediaStore.get().relocate_local_media_file(src_path, col)
         self.file_urls[index] = new_file_url
 
     @property

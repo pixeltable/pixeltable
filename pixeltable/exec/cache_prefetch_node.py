@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, Optional
 from uuid import UUID
 
-from pixeltable import env, exceptions as excs, exprs
+from pixeltable import exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.media_store import TempStore
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -219,7 +220,7 @@ class CachePrefetchNode(ExecNode):
             self.in_flight_requests[f] = url
 
     def __fetch_url(self, url: str) -> tuple[Optional[Path], Optional[Exception]]:
-        """Fetches a remote URL into Env.tmp_dir and returns its path"""
+        """Fetches a remote URL into the TempStore and returns its path"""
         _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
         parsed = urllib.parse.urlparse(url)
         # Use len(parsed.scheme) > 1 here to ensure we're not being passed
@@ -230,7 +231,7 @@ class CachePrefetchNode(ExecNode):
         if parsed.path:
             p = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             extension = p.suffix
-        tmp_path = env.Env.get().create_tmp_path(extension=extension)
+        tmp_path = TempStore.create_path(extension=extension)
         try:
             _logger.debug(f'Downloading {url} to {tmp_path}')
             if parsed.scheme == 's3':

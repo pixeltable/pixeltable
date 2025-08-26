@@ -15,7 +15,6 @@ import sys
 import threading
 import types
 import typing
-import uuid
 import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -28,6 +27,7 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -105,10 +105,14 @@ class Env:
             cls._instance._clean_up()
         cls._instance = None
         env = Env()
-        env._set_up(reinit_db=reinit_db)
-        env._upgrade_metadata()
-        cls._instance = env
-        cls.__initializing = False
+        try:
+            env._set_up(reinit_db=reinit_db)
+            env._upgrade_metadata()
+            cls._instance = env
+        finally:
+            # Reset the initializing flag, even if setup fails.
+            # This prevents the environment from being left in a broken state.
+            cls.__initializing = False
 
     def __init__(self) -> None:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
@@ -501,14 +505,24 @@ class Env:
         assert self._db_url is not None
         assert self._db_name is not None
 
+    @retry(
+        stop=stop_after_attempt(3),  # Stop after 3 attempts
+        wait=wait_exponential_jitter(initial=0.2, max=1.0, jitter=0.2),  # Exponential backoff with jitter
+    )
     def _init_metadata(self) -> None:
         """
         Create pixeltable metadata tables and system metadata.
         This is an idempotent operation.
+
+        Retry logic handles race conditions when multiple Pixeltable processes
+        attempt to initialize metadata tables simultaneously. The first process may succeed
+        in creating tables while others encounter database constraints (e.g., "table already exists").
+        Exponential backoff with jitter reduces contention between competing processes.
         """
         assert self._sa_engine is not None
         from pixeltable import metadata
 
+        self._logger.debug('Creating pixeltable metadata')
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
@@ -752,12 +766,6 @@ class Env:
                 shutil.rmtree(path)
             else:
                 os.remove(path)
-
-    def num_tmp_files(self) -> int:
-        return len(glob.glob(f'{self._tmp_dir}/*'))
-
-    def create_tmp_path(self, extension: str = '') -> Path:
-        return self._tmp_dir / f'{uuid.uuid4()}{extension}'
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:

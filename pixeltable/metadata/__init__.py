@@ -25,6 +25,7 @@ def create_system_info(engine: sql.engine.Engine) -> None:
     """Create the system metadata record"""
     system_md = SystemInfoMd(schema_version=VERSION)
     record = SystemInfo(md=dataclasses.asdict(system_md))
+    _logger.debug(f'Creating pixeltable system info record {record}')
     with orm.Session(engine, future=True) as session:
         # Write system metadata only once for idempotency
         if session.query(SystemInfo).count() == 0:
@@ -54,7 +55,8 @@ for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/convert
 def upgrade_md(engine: sql.engine.Engine) -> None:
     """Upgrade the metadata schema to the current version"""
     with orm.Session(engine) as session:
-        system_info = session.query(SystemInfo).one().md
+        # Get exclusive lock on SystemInfo row
+        system_info = session.query(SystemInfo).with_for_update().one().md
         md_version = system_info['schema_version']
         assert isinstance(md_version, int)
         _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
