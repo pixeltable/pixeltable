@@ -7,14 +7,14 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-from botocore.exceptions import ClientError
-
 from pixeltable import exceptions as excs
 from pixeltable.utils.client_container import ClientContainer
 from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
 from pixeltable.utils.media_store_base import MediaStoreBase
 
 if TYPE_CHECKING:
+    from botocore.exceptions import ClientError
+
     from pixeltable.catalog import Column
 
 _logger = logging.getLogger('pixeltable')
@@ -71,6 +71,8 @@ class S3Store(MediaStoreBase):
         Returns:
             bool: True if the S3 URI exists and is accessible, False otherwise.
         """
+        from botocore.exceptions import ClientError
+
         try:
             self.client().head_bucket(Bucket=self.bucket_name)
             return self.__base_uri
@@ -97,6 +99,8 @@ class S3Store(MediaStoreBase):
 
     def download_media_object(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
+        from botocore.exceptions import ClientError
+
         try:
             self.client(for_write=False).download_file(
                 Bucket=self.bucket_name, Key=self.prefix + src_path, Filename=str(dest_path)
@@ -107,6 +111,8 @@ class S3Store(MediaStoreBase):
 
     def copy_local_media_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
+        from botocore.exceptions import ClientError
+
         new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
@@ -131,6 +137,8 @@ class S3Store(MediaStoreBase):
         Returns:
             Tuple of (iterator over S3 objects matching the criteria, bucket object)
         """
+        from botocore.exceptions import ClientError
+
         # Use MediaPath to construct the prefix for this table
 
         table_prefix = MediaPath.media_table_prefix(tbl_id)
@@ -189,6 +197,8 @@ class S3Store(MediaStoreBase):
         Returns:
             Number of objects deleted
         """
+        from botocore.exceptions import ClientError
+
         assert tbl_id is not None
 
         # Use shared method to get filtered objects and bucket
@@ -225,6 +235,8 @@ class S3Store(MediaStoreBase):
         Each returned object includes the full set of prefixes.
         if return_uri is True, full URI's are returned; otherwise, just the object keys.
         """
+        from botocore.exceptions import ClientError
+
         p = self.soa.prefix_free_uri if return_uri else ''
 
         s3_client = self.client(for_write=False)
