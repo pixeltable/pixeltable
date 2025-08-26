@@ -34,16 +34,14 @@ class GCSStore(MediaStoreBase):
     # prefix path within the bucket, either empty or ending with a slash
     __prefix_name: str
 
+    soa: StorageObjectAddress
+
     def __init__(self, soa: StorageObjectAddress):
         assert soa.storage_target == 'gs', f'Expected storage_target "gs", got {soa.storage_target}'
+        self.soa = soa
         self.__base_uri = soa.prefix_free_uri + soa.prefix
         self.__bucket_name = soa.container
         self.__prefix_name = soa.prefix
-        if 0:
-            print(
-                f'=============> Initialized GCSStore with base URI: {self.__base_uri},',
-                f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}',
-            )
 
     @classmethod
     def client(cls, for_write: bool = False) -> Any:
@@ -213,7 +211,6 @@ class GCSStore(MediaStoreBase):
                         b.delete()
                 total_deleted += len(blobs_to_delete)
 
-            print(f"Deleted {total_deleted} objects from bucket '{self.bucket_name}'.")
             return total_deleted
 
         except GoogleAPIError as e:
@@ -221,11 +218,11 @@ class GCSStore(MediaStoreBase):
             raise
 
     def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:
-        """Return a list of objects found with the specified GCS uri
+        """Return a list of objects found in the specified destination bucket.
         Each returned object includes the full set of prefixes.
-        if return_uri is True, the full GCS URI is returned; otherwise, just the object key.
+        if return_uri is True, full URI's are returned; otherwise, just the object keys.
         """
-        p = f'gs://{self.bucket_name}/' if return_uri else ''
+        p = self.soa.prefix_free_uri if return_uri else ''
         gcs_client = self.client(for_write=False)
         r: list[str] = []
 

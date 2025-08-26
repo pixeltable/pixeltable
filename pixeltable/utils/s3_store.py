@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import urllib.parse
 import uuid
@@ -34,9 +33,6 @@ class S3Store(MediaStoreBase):
     # prefix path within the bucket, either empty or ending with a slash
     __prefix_name: str
 
-    a_key: str
-    s_key: str
-    acct: str
     soa: StorageObjectAddress
 
     def __init__(self, soa: StorageObjectAddress):
@@ -44,25 +40,10 @@ class S3Store(MediaStoreBase):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
-        if soa.storage_target == 'r2':
-            self.a_key = os.environ['R2_ACCESS_KEY']
-            self.s_key = os.environ['R2_SECRET_KEY']
-            self.acct = self.soa.account
-            self.acct = self.soa.container
-            self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
-            print(self.a_key, self.s_key, self.acct)
-        else:
-            self.a_key = ''
-            assert soa.storage_target == 's3', f'Expected storage_target "s3", got {soa.storage_target}'
-            self.__base_uri = soa.prefix_free_uri + soa.prefix
-        if 1:
-            self.show()
-
-    def show(self) -> None:
-        print(
-            f'S3Store with: base URI: {self.__base_uri},', f'bucket: {self.__bucket_name}, prefix: {self.__prefix_name}'
+        assert self.soa.storage_target in {'r2', 's3'}, (
+            f'Expected storage_target "s3" or "r2", got {self.soa.storage_target}'
         )
-        print(repr(self.soa))
+        self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def client(self, for_write: bool = False) -> Any:
         """Return the S3 client."""
@@ -116,16 +97,7 @@ class S3Store(MediaStoreBase):
 
     def download_media_object(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
-        # import time
-        # time.sleep(3.0)
         try:
-            print(
-                '============= Download media object (S3)'
-                + f'\nMedia Storage: downloading {src_path} to {dest_path}'
-                + f'\nMedia Storage: downloading {self.bucket_name}, {self.prefix}, {src_path} to {dest_path}'
-                + '\n'
-                + repr(self.soa)
-            )
             self.client(for_write=False).download_file(
                 Bucket=self.bucket_name, Key=self.prefix + src_path, Filename=str(dest_path)
             )
@@ -242,7 +214,6 @@ class S3Store(MediaStoreBase):
                 bucket.delete_objects(Delete={'Objects': objects_to_delete, 'Quiet': True})
                 total_deleted += len(objects_to_delete)
 
-            print(f"Deleted {total_deleted} objects from bucket '{self.bucket_name}'.")
             return total_deleted
 
         except ClientError as e:
@@ -250,17 +221,11 @@ class S3Store(MediaStoreBase):
             raise
 
     def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:
-        """Return a list of objects found with the specified S3 uri
+        """Return a list of objects found in the specified destination bucket.
         Each returned object includes the full set of prefixes.
-        if return_uri is True, the full S3 URI is returned; otherwise, just the object key.
+        if return_uri is True, full URI's are returned; otherwise, just the object keys.
         """
-        # I think the n_max parameter should be passed into the list_objects_v2 call
-        if self.soa.storage_target == 's3':
-            p = f's3://{self.bucket_name}/' if return_uri else ''
-        elif self.soa.storage_target == 'r2':
-            p = f'https://{self.a_key}.r2.cloudflarestorage.com/{self.bucket_name}/' if return_uri else ''
-        else:
-            raise ValueError(f'Unsupported storage target: {self.soa.storage_target}')
+        p = self.soa.prefix_free_uri if return_uri else ''
 
         s3_client = self.client(for_write=False)
         r: list[str] = []

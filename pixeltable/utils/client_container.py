@@ -112,7 +112,6 @@ class ClientContainer:
         import boto3
         import botocore
 
-        print('\n===========> Creating boto client with args:', client_args, '\n')
         try:
             if len(client_args) == 0:
                 # No client args supplibed, attempt to get default (s3) credentials

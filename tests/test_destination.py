@@ -318,16 +318,25 @@ class TestDestination:
         t.add_computed_column(**{'img_rot_4': t.img.rotate(360)}, destination=r2_uri)
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
 
+        tbl_id = t._id
         assert t.count() == 2
-        assert self.count(lc_uri, t._id) == 2
-        assert self.count(gs_uri, t._id) == 2
-        assert self.count(s3_uri, t._id) == 2
-        assert self.count(r2_uri, t._id) == 2
+        for t_uri in [lc_uri, gs_uri, s3_uri, r2_uri]:
+            assert self.count(t_uri, tbl_id) == 2
 
         r_dest = t.select(
             t.img.fileurl, t.img_rot_1.fileurl, t.img_rot_2.fileurl, t.img_rot_3.fileurl, t.img_rot_4.fileurl
         ).collect()
         print(r_dest)
+        for t_uri in [lc_uri, gs_uri, s3_uri, r2_uri]:
+            olist = MediaDestination.list_uris(t_uri, n_max=20)
+            print('list of files in the destination')
+            for item in olist:
+                print(item)
+            assert len(olist) >= 2
+
+        pxt.drop_table(t)
+        for t_uri in [lc_uri, gs_uri, s3_uri, r2_uri]:
+            assert self.count(t_uri, tbl_id) == 0
 
     def test_dest_list(self, reset_db: None) -> None:
         """Test destination listing with GCS URIs"""

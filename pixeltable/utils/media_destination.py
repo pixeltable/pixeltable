@@ -127,10 +127,10 @@ class MediaDestination:
 
     @classmethod
     def list_objects(cls, dest: Optional[str], return_uri: bool, n_max: int = 10) -> list[str]:
-        """Return a list of objects found with the specified dest
+        """Return a list of objects found in the specified destination bucket.
         The dest specification string must not contain an object name.
         Each returned object includes the full set of prefixes.
-        if return_uri is True, the full S3 URI is returned; otherwise, just the object key.
+        if return_uri is True, full URI's are returned; otherwise, just the object keys.
         """
         soa = None if dest is None else MediaPath.parse_media_storage_addr(dest, may_contain_object_name=False)
         store = cls.get_store(dest, soa)
