@@ -1,0 +1,71 @@
+---
+title: "pixeltable.functions.audio.get_metadata"
+sidebarTitle: "get_metadata"
+description: "Gets various metadata associated with an audio file and returns it as a dictionary."
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+pixeltable.functions.audio.get_metadata(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="audio" type="string" required>
+  The audio to get metadata for.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A `dict` such as the following:
+
+``` json
+\{
+    'size': 2568827,
+    'streams': [
+        \{
+            'type': 'audio',
+            'frames': 0,
+            'duration': 2646000,
+            'metadata': \{\},
+            'time_base': 2.2675736961451248e-05,
+            'codec_context': \{
+                'name': 'flac',
+                'profile': None,
+                'channels': 1,
+                'codec_tag': '\x00\x00\x00\x00',
+            \},
+            'duration_seconds': 60.0,
+        \}
+    ],
+    'bit_rate': 342510,
+    'metadata': \{'encoder': 'Lavf61.1.100'\},
+    'bit_exact': False,
+\}
+```
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Extract metadata for files in the `audio_col` column of the table `tbl`:
+
+>>> tbl.select(tbl.audio_col.get_metadata()).collect()
+```
+

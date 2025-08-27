@@ -1,0 +1,71 @@
+---
+title: "pixeltable.functions.huggingface.cross_encoder"
+sidebarTitle: "cross_encoder"
+description: "Performs predicts on the given sentence pair."
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+`model_id` should be a pretrained Cross-Encoder model, as described in the [Cross-Encoder Pretrained Models](https://www.sbert.net/docs/cross_encoder/pretrained_models.html) documentation.
+
+**Requirements:**
+
+- `pip install torch sentence-transformers`
+
+
+## Signature
+
+```python
+pixeltable.functions.huggingface.cross_encoder(
+    *args: 'Any',
+    **kwargs: 'Any'
+) -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="sentences1" type="string" required>
+  The first sentence to be paired.
+
+
+</ParamField>
+
+<ParamField path="sentences2" type="string" required>
+  The second sentence to be paired.
+
+
+</ParamField>
+
+<ParamField path="model_id" type="string" required>
+  The identifier of the cross-encoder model to use.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  The similarity score between the inputs.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Add a computed column that applies the model `ms-marco-MiniLM-L-4-v2` to the sentences in
+columns `tbl.sentence1` and `tbl.sentence2`:
+
+>>> tbl.add_computed_column(result=sentence_transformer(
+...     tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
+... ))
+```
+

@@ -1,0 +1,81 @@
+---
+title: "pixeltable.functions.video.get_metadata"
+sidebarTitle: "get_metadata"
+description: "Gets various metadata associated with a video file and returns it as a dictionary."
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+pixeltable.functions.video.get_metadata(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="video" type="string" required>
+  The video to get metadata for.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A `dict` such as the following:
+
+``` json
+\{
+    'bit_exact': False,
+    'bit_rate': 967260,
+    'size': 2234371,
+    'metadata': \{
+        'encoder': 'Lavf60.16.100',
+        'major_brand': 'isom',
+        'minor_version': '512',
+        'compatible_brands': 'isomiso2avc1mp41',
+    \},
+    'streams': [
+        \{
+            'type': 'video',
+            'width': 640,
+            'height': 360,
+            'frames': 462,
+            'time_base': 1.0 / 12800,
+            'duration': 236544,
+            'duration_seconds': 236544.0 / 12800,
+            'average_rate': 25.0,
+            'base_rate': 25.0,
+            'guessed_rate': 25.0,
+            'metadata': \{
+                'language': 'und',
+                'handler_name': 'L-SMASH Video Handler',
+                'vendor_id': '[0][0][0][0]',
+                'encoder': 'Lavc60.31.102 libx264',
+            \},
+            'codec_context': \{'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'\},
+        \}
+    ],
+\}
+```
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Extract metadata for files in the `video_col` column of the table `tbl`:
+
+>>> tbl.select(tbl.video_col.get_metadata()).collect()
+```
+

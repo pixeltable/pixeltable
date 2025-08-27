@@ -1,0 +1,27 @@
+---
+title: "pixeltable.functions.image.convert"
+sidebarTitle: "convert"
+description: "Convert the image to a different mode."
+icon: "circle-u"
+---
+Equivalent to [`PIL.Image.Image.convert()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.convert).
+
+
+## Signature
+
+```python
+pixeltable.functions.image.convert(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="mode" type="string" required>
+  The mode to convert to. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes) for a list of supported modes.
+
+
+</ParamField>
+

@@ -1,0 +1,68 @@
+---
+title: "pixeltable.functions.gemini.generate_images"
+sidebarTitle: "generate_images"
+description: "Generates images based on a text description and configuration. For additional details, see:"
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+https://ai.google.dev/gemini-api/docs/image-generation
+
+Request throttling: Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install google-genai`
+
+
+## Signature
+
+```python
+pixeltable.functions.gemini.generate_images(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="prompt" type="string" required>
+  A text description of the images to generate.
+
+
+</ParamField>
+
+<ParamField path="model" type="string" required>
+  The model to use.
+
+
+</ParamField>
+
+<ParamField path="config" type="string" required>
+  Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateImagesConfig`. For details on the parameters, see: https://googleapis.github.io/python-genai/genai.html#module-genai.types
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  The generated image.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Add a computed column that applies the model `imagen-3.0-generate-002`
+to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+
+>>> tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-3.0-generate-002'))
+```
+

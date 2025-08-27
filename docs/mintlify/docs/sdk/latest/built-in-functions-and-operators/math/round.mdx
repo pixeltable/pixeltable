@@ -1,0 +1,15 @@
+---
+title: "pixeltable.functions.math.round"
+sidebarTitle: "round"
+description: "Round a number to a given precision in decimal digits."
+icon: "circle-u"
+---
+Equivalent to Python [`builtins.round(self, digits or 0)`](https://docs.python.org/3/library/functions.html#round). Note that if `digits` is not specified, the behavior matches `builtins.round(self, 0)` rather than `builtins.round(self)`; this ensures that the return type is always `float` (as in SQL) rather than `int`.
+
+
+## Signature
+
+```python
+pixeltable.functions.math.round(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+

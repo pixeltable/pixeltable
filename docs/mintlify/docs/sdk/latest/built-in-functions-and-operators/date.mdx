@@ -1,0 +1,33 @@
+---
+title: "pixeltable.functions.date"
+sidebarTitle: "date"
+description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `DateType`."
+icon: "square-m"
+---
+
+Usage example:
+
+``` python
+import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.date_col.year, t.date_col.weekday()).collect()
+```
+
+
+## Module Contents
+
+### Functions
+
+- [add_days](./add_days)
+- [day](./day)
+- [isocalendar](./isocalendar)
+- [isoformat](./isoformat)
+- [isoweekday](./isoweekday)
+- [make_date](./make_date)
+- [month](./month)
+- [strftime](./strftime)
+- [toordinal](./toordinal)
+- [weekday](./weekday)
+- [year](./year)
+

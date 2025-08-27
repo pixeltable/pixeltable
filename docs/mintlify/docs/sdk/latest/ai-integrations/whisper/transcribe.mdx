@@ -1,0 +1,60 @@
+---
+title: "pixeltable.functions.whisper.transcribe"
+sidebarTitle: "transcribe"
+description: "Transcribe an audio file using Whisper."
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+This UDF runs a transcription model *locally* using the Whisper library, equivalent to the Whisper `transcribe` function, as described in the [Whisper library documentation](https://github.com/openai/whisper).
+
+**Requirements:**
+
+- `pip install openai-whisper`
+
+
+## Signature
+
+```python
+pixeltable.functions.whisper.transcribe(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="audio" type="string" required>
+  The audio file to transcribe.
+
+
+</ParamField>
+
+<ParamField path="model" type="string" required>
+  The name of the model to use for transcription.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A dictionary containing the transcription and various other metadata.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Add a computed column that applies the model `base.en` to an existing Pixeltable column `tbl.audio`
+of the table `tbl`:
+
+>>> tbl.add_computed_column(result=transcribe(tbl.audio, model='base.en'))
+```
+

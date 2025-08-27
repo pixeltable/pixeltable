@@ -1,0 +1,47 @@
+---
+title: "pixeltable.functions.mistralai.embeddings"
+sidebarTitle: "embeddings"
+description: "Embeddings API."
+icon: "circle-u"
+---
+Equivalent to the Mistral AI `embeddings` API endpoint. For additional details, see: https://docs.mistral.ai/api/#tag/embeddings
+
+Request throttling: Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install mistralai`
+
+
+## Signature
+
+```python
+pixeltable.functions.mistralai.embeddings(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="input" type="string" required>
+  Text to embed.
+
+
+</ParamField>
+
+<ParamField path="model" type="string" required>
+  ID of the model to use. (See overview here: https://docs.mistral.ai/getting-started/models/)
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  An array representing the application of the given embedding to `input`.
+
+
+</ResponseField>
+

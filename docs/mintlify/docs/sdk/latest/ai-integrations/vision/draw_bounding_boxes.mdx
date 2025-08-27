@@ -1,0 +1,90 @@
+---
+title: "pixeltable.functions.vision.draw_bounding_boxes"
+sidebarTitle: "draw_bounding_boxes"
+description: "Draws bounding boxes on the given image."
+icon: "circle-u"
+---
+Labels can be any type that supports `str()` and is hashable (e.g., strings, ints, etc.).
+
+Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as RGB hex codes (e.g., '#FF0000').
+
+If no colors are specified, this function randomly assigns each label a specific color based on a hash of the label.
+
+
+## Signature
+
+```python
+pixeltable.functions.vision.draw_bounding_boxes(
+    *args: 'Any',
+    **kwargs: 'Any'
+) -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="img" type="string" required>
+  The image on which to draw the bounding boxes.
+
+
+</ParamField>
+
+<ParamField path="boxes" type="string" required>
+  List of bounding boxes, each represented as \[xmin, ymin, xmax, ymax\].
+
+
+</ParamField>
+
+<ParamField path="labels" type="string" required>
+  List of labels for each bounding box.
+
+
+</ParamField>
+
+<ParamField path="color" type="string" required>
+  Single color to be used for all bounding boxes and labels.
+
+
+</ParamField>
+
+<ParamField path="box_colors" type="string" required>
+  List of colors, one per bounding box.
+
+
+</ParamField>
+
+<ParamField path="fill" type="string" required>
+  Whether to fill the bounding boxes with color.
+
+
+</ParamField>
+
+<ParamField path="width" type="string" required>
+  Width of the bounding box borders.
+
+
+</ParamField>
+
+<ParamField path="font" type="string" required>
+  Name of a system font or path to a TrueType font file, as required by [`PIL.ImageFont.truetype()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype). If `None`, uses the default provided by [`PIL.ImageFont.load_default()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.load_default).
+
+
+</ParamField>
+
+<ParamField path="font_size" type="string" required>
+  Size of the font used for labels in points. Only used in conjunction with non-`None` `font` argument.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  The image with bounding boxes drawn on it.
+
+
+</ResponseField>
+

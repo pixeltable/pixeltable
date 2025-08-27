@@ -1,0 +1,41 @@
+---
+title: "pixeltable.functions.string.index"
+sidebarTitle: "index"
+description: "Return the lowest index in string where `substr` is found within the slice `[start:end]`."
+icon: "circle-u"
+---
+Raises ValueError if `substr` is not found.
+
+Equivalent to [`str.index()`](https://docs.python.org/3/library/stdtypes.html#str.index).
+
+
+## Signature
+
+```python
+pixeltable.functions.string.index(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="substr" type="string" required>
+  substring to search for
+
+
+</ParamField>
+
+<ParamField path="start" type="string" required>
+  slice start
+
+
+</ParamField>
+
+<ParamField path="end" type="string" required>
+  slice end
+
+
+</ParamField>
+

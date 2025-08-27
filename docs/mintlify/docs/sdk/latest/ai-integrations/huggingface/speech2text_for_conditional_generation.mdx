@@ -1,0 +1,81 @@
+---
+title: "pixeltable.functions.huggingface.speech2text_for_conditional_generation"
+sidebarTitle: "speech2text_for_conditi"
+description: "Transcribes or translates speech to text using a Speech2Text model. `model_id` should be a reference to a"
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/speech_to_text) model.
+
+**Requirements:**
+
+- `pip install torch torchaudio sentencepiece transformers`
+
+
+## Signature
+
+```python
+pixeltable.functions.huggingface.speech2text_for_conditional_generation(
+    *args: 'Any',
+    **kwargs: 'Any'
+) -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="audio" type="string" required>
+  The audio clip to transcribe or translate.
+
+
+</ParamField>
+
+<ParamField path="model_id" type="string" required>
+  The pretrained model to use for the transcription or translation.
+
+
+</ParamField>
+
+<ParamField path="language" type="string" required>
+  If using a multilingual translation model, the language code to translate to. If not provided, the model's default language will be used. If the model is not translation model, is not a multilingual model, or does not support the specified language, an error will be raised.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  The transcribed or translated text.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Add a computed column that applies the model `facebook/s2t-small-librispeech-asr` to an existing
+Pixeltable column `audio` of the table `tbl`:
+
+>>> tbl.add_computed_column(transcription=speech2text_for_conditional_generation(
+...     tbl.audio,
+...     model_id='facebook/s2t-small-librispeech-asr'
+... ))
+
+Add a computed column that applies the model `facebook/s2t-medium-mustc-multilingual-st` to an existing
+Pixeltable column `audio` of the table `tbl`, translating the audio to French:
+
+>>> tbl.add_computed_column(translation=speech2text_for_conditional_generation(
+...     tbl.audio,
+...     model_id='facebook/s2t-medium-mustc-multilingual-st',
+...     language='fr'
+... ))
+```
+

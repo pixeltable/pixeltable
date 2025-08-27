@@ -1,0 +1,85 @@
+---
+title: "pixeltable.Table.drop_embedding_index"
+sidebarTitle: "drop_embedding_index"
+description: "Drop an embedding index from the table. Either a column name or an index name (but not both) must be"
+icon: "circle-m"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+specified. If a column name or reference is specified, it must be a column containing exactly one embedding index; otherwise the specific index name must be provided instead.
+
+
+## Signature
+
+```python
+drop_embedding_index(*, column: 'str | ColumnRef | None' = None, idx_name: 'Optional[str]' = None, if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1071" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="column" type="any" >
+  The name of, or reference to, the column from which to drop the index. The column must have only one embedding index.
+
+</ParamField>
+
+<ParamField path="idx_name" type="any" >
+  The name of the index to drop.
+
+</ParamField>
+
+<ParamField path="if_not_exists" type="any" >
+  Directive for handling a non-existent index. Must be one of the following:
+
+- `'error'`: raise an error if the index does not exist.
+- `'ignore'`: do nothing if the index does not exist.
+
+Note that `if_not_exists` parameter is only applicable when an `idx_name` is specified and it does not exist, or when `column` is specified and it has no index. `if_not_exists` does not apply to non-exisitng column.
+
+</ParamField>
+
+## Raises
+
+### `Error`
+
+If `column` is specified, but the column does not exist, or it contains no embedding indices and `if_not_exists='error'`, or the column has multiple embedding indices.
+
+
+### `Error`
+
+If `idx_name` is specified, but the index is not an embedding index, or the index does not exist and `if_not_exists='error'`.
+
+
+## Examples
+
+```python
+Drop the embedding index on the `img` column of the table `my_table` by column name:
+
+>>> tbl = pxt.get_table('my_table')
+... tbl.drop_embedding_index(column='img')
+
+Drop the embedding index on the `img` column of the table `my_table` by column reference:
+
+>>> tbl = pxt.get_table('my_table')
+... tbl.drop_embedding_index(column=tbl.img)
+
+Drop the embedding index `idx1` of the table `my_table` by index name:
+>>> tbl = pxt.get_table('my_table')
+... tbl.drop_embedding_index(idx_name='idx1')
+
+Drop the embedding index `idx1` of the table `my_table` by index name, if it exists, otherwise do nothing:
+>>> tbl = pxt.get_table('my_table')
+... tbl.drop_embedding_index(idx_name='idx1', if_not_exists='ignore')
+```
+
+
+---
+
+<Note>
+This method belongs to the [`Table`](../Table) class.
+</Note>

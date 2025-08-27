@@ -1,0 +1,75 @@
+---
+title: "pixeltable.functions.vision.eval_detections"
+sidebarTitle: "eval_detections"
+description: "Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes."
+icon: "circle-u"
+---
+## Signature
+
+```python
+pixeltable.functions.vision.eval_detections(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="pred_bboxes" type="string" required>
+  List of predicted bounding boxes, each represented as \[xmin, ymin, xmax, ymax\].
+
+
+</ParamField>
+
+<ParamField path="pred_labels" type="string" required>
+  List of predicted labels.
+
+
+</ParamField>
+
+<ParamField path="pred_scores" type="string" required>
+  List of predicted scores.
+
+
+</ParamField>
+
+<ParamField path="gt_bboxes" type="string" required>
+  List of ground truth bounding boxes, each represented as \[xmin, ymin, xmax, ymax\].
+
+
+</ParamField>
+
+<ParamField path="gt_labels" type="string" required>
+  List of ground truth labels.
+
+
+</ParamField>
+
+<ParamField path="min_iou" type="string" required>
+  Minimum intersection-over-union (IoU) threshold for a predicted bounding box to be considered a true positive.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A list of dictionaries, one per label class, with the following structure:
+
+``` python
+\{
+    'min_iou': float,  # The value of `min_iou` used for the detections
+    'class': int,  # The label class
+    'tp': list[int],  # List of 1's and 0's indicating true positives for each
+                      # predicted bounding box of this class
+    'fp': list[int],  # List of 1's and 0's indicating false positives for each
+                      # predicted bounding box of this class; `fp[n] == 1 - tp[n]`
+    'scores': list[float],  # List of predicted scores for each bounding box of this class
+    'num_gts': int,  # Number of ground truth bounding boxes of this class
+\}
+```
+
+
+</ResponseField>
+

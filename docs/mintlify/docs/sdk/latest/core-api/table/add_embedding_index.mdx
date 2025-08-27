@@ -1,0 +1,122 @@
+---
+title: "pixeltable.Table.add_embedding_index"
+sidebarTitle: "add_embedding_index"
+description: "Add an embedding index to the table. Once the index is created, it will be automatically kept up-to-date as new"
+icon: "circle-m"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+rows are inserted into the table.
+
+To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF. Only `String` and `Image` columns are currently supported. Here's an example that uses a \[CLIP embedding\]\[pixeltable.functions.huggingface.clip\] to index an image column:
+
+> > > from pixeltable.functions.huggingface import clip ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32') ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+
+Once the index is created, similiarity lookups can be performed using the `similarity` pseudo-function.
+
+> > > reference_img = PIL.Image.open('my_image.jpg') ... sim = tbl.img.similarity(reference_img) ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be performed using any of its supported types. In our example, CLIP supports both text and images, so we can also search for images using a text description:
+
+> > > sim = tbl.img.similarity('a picture of a train') ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+
+## Signature
+
+```python
+add_embedding_index(column: 'str | ColumnRef', *, idx_name: 'Optional[str]' = None, embedding: 'Optional[pxt.Function]' = None, string_embed: 'Optional[pxt.Function]' = None, image_embed: 'Optional[pxt.Function]' = None, metric: 'str' = 'cosine', if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error') -> 'None'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L945" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="column" type="any" required>
+  The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
+
+</ParamField>
+
+<ParamField path="idx_name" type="any" >
+  An optional name for the index. If not specified, a name such as `'idx0'` will be generated automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
+
+</ParamField>
+
+<ParamField path="embedding" type="any" >
+  The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String` or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional array of floats.
+
+</ParamField>
+
+<ParamField path="string_embed" type="any" >
+  An optional UDF to use for the string embedding component of this index. Can be used in conjunction with `image_embed` to construct multimodal embeddings manually, by specifying different embedding functions for different data types.
+
+</ParamField>
+
+<ParamField path="image_embed" type="any" >
+  An optional UDF to use for the image embedding component of this index. Can be used in conjunction with `string_embed` to construct multimodal embeddings manually, by specifying different embedding functions for different data types.
+
+</ParamField>
+
+<ParamField path="metric" type="any" >
+  Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`. The default is `'cosine'`.
+
+</ParamField>
+
+<ParamField path="if_exists" type="any" >
+  Directive for handling an existing index with the same name. Must be one of the following:
+
+- `'error'`: raise an error if an index with the same name already exists.
+- `'ignore'`: do nothing if an index with the same name already exists.
+- `'replace'` or `'replace_force'`: replace the existing index with the new one.
+
+</ParamField>
+
+## Raises
+
+### `Error`
+
+If an index with the specified name already exists for the table and `if_exists='error'`, or if the specified column does not exist.
+
+
+## Examples
+
+```python
+Add an index to the `img` column of the table `my_table`:
+
+>>> from pixeltable.functions.huggingface import clip
+... tbl = pxt.get_table('my_table')
+... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+
+Alternatively, the `img` column may be specified by name:
+
+>>> tbl.add_embedding_index('img', embedding=embedding_fn)
+
+Add a second index to the `img` column, using the inner product as the distance metric,
+and with a specific name:
+
+>>> tbl.add_embedding_index(
+...     tbl.img,
+...     idx_name='ip_idx',
+...     embedding=embedding_fn,
+...     metric='ip'
+... )
+
+Add an index using separately specified string and image embeddings:
+
+>>> tbl.add_embedding_index(
+...     tbl.img,
+...     string_embed=string_embedding_fn,
+...     image_embed=image_embedding_fn
+... )
+```
+
+
+---
+
+<Note>
+This method belongs to the [`Table`](../Table) class.
+</Note>

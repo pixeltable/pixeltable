@@ -1,0 +1,67 @@
+---
+title: "pixeltable.get_table"
+sidebarTitle: "get_table"
+description: "Get a handle to an existing table, view, or snapshot."
+icon: "circle-f"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+pixeltable.get_table(path: 'str') -> 'catalog.Table'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L435" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="path" type="str" required>
+  Path to the table.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A handle to the \[`Table`\]\[pixeltable.Table\].
+
+
+</ResponseField>
+
+## Raises
+
+### `Error`
+
+If the path does not exist or does not designate a table object.
+
+
+## Examples
+
+```python
+Get handle for a table in the top-level directory:
+
+>>> tbl = pxt.get_table('my_table')
+
+For a table in a subdirectory:
+
+>>> tbl = pxt.get_table('subdir.my_table')
+
+Handles to views and snapshots are retrieved in the same way:
+
+>>> tbl = pxt.get_table('my_snapshot')
+
+Get a handle to a specific version of a table:
+
+>>> tbl = pxt.get_table('my_table:722')
+```
+

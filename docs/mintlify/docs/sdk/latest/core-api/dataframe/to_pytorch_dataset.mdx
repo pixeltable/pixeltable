@@ -1,0 +1,39 @@
+---
+title: "pixeltable.DataFrame.to_pytorch_dataset"
+sidebarTitle: "to_pytorch_dataset"
+description: "Convert the dataframe to a pytorch IterableDataset suitable for parallel loading"
+icon: "circle-m"
+---
+with torch.utils.data.DataLoader.
+
+This method requires pyarrow \>= 13, torch and torchvision to work.
+
+This method serializes data so it can be read from disk efficiently and repeatedly without re-executing the query. This data is cached to disk for future re-use.
+
+
+## Signature
+
+```python
+to_pytorch_dataset(image_format: 'str' = 'pt') -> "'torch.utils.data.IterableDataset'"
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1382" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="image_format" type="any" >
+  format of the images. Can be 'pt' (pytorch tensor) or 'np' (numpy array). 'np' means image columns return as an RGB uint8 array of shape HxWxC. 'pt' means image columns return as a CxHxW tensor with values in \[0,1\] and type torch.float32. (the format output by torchvision.transforms.ToTensor())
+
+</ParamField>
+
+## Returns
+
+A pytorch IterableDataset: Columns become fields of the dataset, where rows are returned as a dictionary compatible with torch.utils.data.DataLoader default collation.
+
+
+
+---
+
+<Note>
+This method belongs to the [`DataFrame`](../DataFrame) class.
+</Note>

@@ -1,0 +1,132 @@
+---
+title: "pixeltable.create_snapshot"
+sidebarTitle: "create_snapshot"
+description: "Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table)."
+icon: "circle-f"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+pixeltable.create_snapshot(
+    path_str: 'str',
+    base: 'catalog.Table | DataFrame',
+    *,
+    additional_columns: 'Optional[dict[str, Any]]' = None,
+    iterator: 'Optional[tuple[type[ComponentIterator], dict[str, Any]]]' = None,
+    num_retained_versions: 'int' = 10,
+    comment: 'str' = '',
+    media_validation: "Literal['on_read', 'on_write']" = 'on_write',
+    if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error'
+) -> 'Optional[catalog.Table]'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L318" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="path_str" type="str" required>
+  A name for the snapshot; can be either a simple name such as `my_snapshot`, or a pathname such as `dir1.my_snapshot`.
+
+
+</ParamField>
+
+<ParamField path="base" type="catalog.Table | DataFrame" required>
+  \[`Table`\]\[pixeltable.Table\] (i.e., table or view or snapshot) or \[`DataFrame`\]\[pixeltable.DataFrame\] to base the snapshot on.
+
+
+</ParamField>
+
+<ParamField path="additional_columns" type="Optional[dict[str, Any]]" >
+  If specified, will add these columns to the snapshot once it is created. The format of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in \[`create_table`\]\[pixeltable.create_table\].
+
+
+</ParamField>
+
+<ParamField path="iterator" type="Optional[tuple[type[ComponentIterator], dict[str, Any]]]" >
+  The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of the base table.
+
+
+</ParamField>
+
+<ParamField path="num_retained_versions" type="int" >
+  Number of versions of the view to retain.
+
+
+</ParamField>
+
+<ParamField path="comment" type="str" >
+  Optional comment for the snapshot.
+
+
+</ParamField>
+
+<ParamField path="media_validation" type="Literal['on_read', 'on_write']" >
+  Media validation policy for the snapshot.
+
+- `'on_read'`: validate media files at query time
+- `'on_write'`: validate media files during insert/update operations
+
+</ParamField>
+
+<ParamField path="if_exists" type="Literal['error', 'ignore', 'replace', 'replace_force']" >
+  Directive regarding how to handle if the path already exists. Must be one of the following:
+
+- `'error'`: raise an error
+- `'ignore'`: do nothing and return the existing snapshot handle
+- `'replace'`: if the existing snapshot has no dependents, drop and replace it with a new one
+- `'replace_force'`: drop the existing snapshot and all its dependents, and create a new one
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A handle to the \[`Table`\]\[pixeltable.Table\] representing the newly created snapshot. Please note the schema or base of the existing snapshot may not match those provided in the call.
+
+
+</ResponseField>
+
+## Raises
+
+### `Error`
+
+if
+
+- the path is invalid, or
+- the path already exists and `if_exists='error'`, or
+- the path already exists and is not a snapshot, or
+- an error occurs while attempting to create the snapshot.
+
+
+## Examples
+
+```python
+Create a snapshot `my_snapshot` of a table `my_table`:
+
+>>> tbl = pxt.get_table('my_table')
+... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+
+Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`,
+if `my_snapshot` does not already exist:
+
+>>> view = pxt.get_table('my_view')
+... snapshot = pxt.create_snapshot(
+...     'my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore'
+... )
+
+Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
+
+>>> tbl = pxt.get_table('my_table')
+... snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
+```
+

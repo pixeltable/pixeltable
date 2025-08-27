@@ -1,0 +1,33 @@
+---
+title: "pixeltable.functions.timestamp.isoformat"
+sidebarTitle: "isoformat"
+description: "Return a string representing the date and time in ISO 8601 format."
+icon: "circle-u"
+---
+Equivalent to [`datetime.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoformat).
+
+
+## Signature
+
+```python
+pixeltable.functions.timestamp.isoformat(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="sep" type="string" required>
+  Separator between date and time.
+
+
+</ParamField>
+
+<ParamField path="timespec" type="string" required>
+  The number of additional terms in the output. See the [`datetime.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoformat) documentation for more details.
+
+
+</ParamField>
+

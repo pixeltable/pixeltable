@@ -1,0 +1,49 @@
+---
+title: "pixeltable.functions.image.blend"
+sidebarTitle: "blend"
+description: "Creates a new image by interpolating between two input images, using"
+icon: "circle-u"
+---
+a constant alpha::
+
+    out = image1 * (1.0 - alpha) + image2 * alpha
+
+
+## Signature
+
+```python
+pixeltable.functions.image.blend(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="im1" type="string" required>
+  The first image.
+
+
+</ParamField>
+
+<ParamField path="im2" type="string" required>
+  The second image. Must have the same mode and size as the first image.
+
+
+</ParamField>
+
+<ParamField path="alpha" type="string" required>
+  The interpolation alpha factor. If alpha is 0.0, a copy of the first image is returned. If alpha is 1.0, a copy of the second image is returned. There are no restrictions on the alpha value. If necessary, the result is clipped to fit into the allowed output range.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  An :py:class:`~PIL.Image.Image` object.
+
+
+</ResponseField>
+

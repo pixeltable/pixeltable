@@ -1,0 +1,83 @@
+---
+title: "pixeltable.DataFrame.join"
+sidebarTitle: "join"
+description: "Join this DataFrame with a table."
+icon: "circle-m"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+join(other: 'catalog.Table', on: 'exprs.Expr | Sequence[exprs.ColumnRef] | None' = None, how: 'plan.JoinType.LiteralType' = 'inner') -> 'DataFrame'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L828" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="other" type="any" required>
+  the table to join with
+
+</ParamField>
+
+<ParamField path="on" type="any" >
+  the join condition, which can be either a) references to one or more columns or b) a boolean expression.
+
+- column references: implies an equality predicate that matches columns in both this DataFrame and `other` by name.
+
+  - column in `other`: A column with that same name must be present in this DataFrame, and **it must be unique** (otherwise the join is ambiguous).
+  - column in this DataFrame: A column with that same name must be present in `other`.
+
+- boolean expression: The expressions must be valid in the context of the joined tables.
+
+</ParamField>
+
+<ParamField path="how" type="any" >
+  the type of join to perform.
+
+- `'inner'`: only keep rows that have a match in both
+- `'left'`: keep all rows from this DataFrame and only matching rows from the other table
+- `'right'`: keep all rows from the other table and only matching rows from this DataFrame
+- `'full_outer'`: keep all rows from both this DataFrame and the other table
+- `'cross'`: Cartesian product; no `on` condition allowed
+
+</ParamField>
+
+## Returns
+
+A new DataFrame.
+
+
+## Examples
+
+```python
+Perform an inner join between t1 and t2 on the column id:
+
+>>> join1 = t1.join(t2, on=t2.id)
+
+Perform a left outer join of join1 with t3, also on id (note that we can't specify `on=t3.id` here,
+because that would be ambiguous, since both t1 and t2 have a column named id):
+
+>>> join2 = join1.join(t3, on=t2.id, how='left')
+
+Do the same, but now with an explicit join predicate:
+
+>>> join2 = join1.join(t3, on=t2.id == t3.id, how='left')
+
+Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
+key columns d1 and d2 in t):
+
+>>> df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
+```
+
+
+---
+
+<Note>
+This method belongs to the [`DataFrame`](../DataFrame) class.
+</Note>

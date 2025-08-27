@@ -1,0 +1,35 @@
+---
+title: "pixeltable.functions.string.wrap"
+sidebarTitle: "wrap"
+description: "Wraps the single paragraph in string so every line is at most `width` characters long."
+icon: "circle-u"
+---
+Returns a list of output lines, without final newlines.
+
+Equivalent to [`textwrap.fill()`](https://docs.python.org/3/library/textwrap.html#textwrap.fill).
+
+
+## Signature
+
+```python
+pixeltable.functions.string.wrap(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="width" type="string" required>
+  Maximum line width.
+
+
+</ParamField>
+
+<ParamField path="kwargs" type="Any" required>
+  Additional keyword arguments to pass to `textwrap.fill()`.
+
+
+</ParamField>
+

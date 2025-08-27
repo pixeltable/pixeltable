@@ -1,0 +1,37 @@
+---
+title: "pixeltable.functions.image.crop"
+sidebarTitle: "crop"
+description: "Returns a rectangular region from this image. The box is a"
+icon: "circle-u"
+---
+4-tuple defining the left, upper, right, and lower pixel coordinate. See :ref:`coordinate-system`.
+
+Note: Prior to Pillow 3.4.0, this was a lazy operation.
+
+
+## Signature
+
+```python
+pixeltable.functions.image.crop(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="box" type="string" required>
+  The crop rectangle, as a (left, upper, right, lower)-tuple.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  An :py:class:`~PIL.Image.Image` object.
+
+
+</ResponseField>
+

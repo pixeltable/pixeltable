@@ -1,0 +1,65 @@
+---
+title: "pixeltable.get_dir_contents"
+sidebarTitle: "get_dir_contents"
+description: "Get the contents of a Pixeltable directory."
+icon: "circle-f"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+pixeltable.get_dir_contents(dir_path: 'str' = '', recursive: 'bool' = True) -> "'DirContents'"
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L548" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="dir_path" type="str" >
+  Path to the directory. Defaults to the root directory.
+
+
+</ParamField>
+
+<ParamField path="recursive" type="bool" >
+  If `False`, returns only those tables and directories that are directly contained in specified directory; if `True`, returns all tables and directories that are descendants of the specified directory, recursively.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A \[`DirContents`\]\[pixeltable.DirContents\] object representing the contents of the specified directory.
+
+
+</ResponseField>
+
+## Raises
+
+### `Error`
+
+If the path does not exist or does not designate a directory.
+
+
+## Examples
+
+```python
+Get contents of top-level directory:
+
+>>> pxt.get_dir_contents()
+
+Get contents of 'dir1':
+
+>>> pxt.get_dir_contents('dir1')
+```
+

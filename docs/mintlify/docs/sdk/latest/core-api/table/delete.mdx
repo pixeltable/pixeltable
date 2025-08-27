@@ -1,0 +1,45 @@
+---
+title: "pixeltable.Table.delete"
+sidebarTitle: "delete"
+description: "Delete rows in this table."
+icon: "circle-m"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+delete(where: "Optional['exprs.Expr']" = None) -> 'UpdateStatus'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1533" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="where" type="any" >
+  a predicate to filter rows to delete.
+
+</ParamField>
+
+## Examples
+
+```python
+Delete all rows in a table:
+
+>>> tbl.delete()
+
+Delete all rows in a table where column `a` is greater than 5:
+
+>>> tbl.delete(tbl.a > 5)
+```
+
+
+---
+
+<Note>
+This method belongs to the [`Table`](../Table) class.
+</Note>

@@ -1,0 +1,75 @@
+---
+title: "pixeltable.functions.openai.chat_completions"
+sidebarTitle: "chat_completions"
+description: "Creates a model response for the given chat conversation."
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+Equivalent to the OpenAI `chat/completions` API endpoint. For additional details, see: https://platform.openai.com/docs/guides/chat-completions
+
+Request throttling: Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available request and token capacity. No configuration is necessary.
+
+**Requirements:**
+
+- `pip install openai`
+
+
+## Signature
+
+```python
+pixeltable.functions.openai.chat_completions(
+    *args: 'Any',
+    **kwargs: 'Any'
+) -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="messages" type="string" required>
+  A list of messages to use for chat completion, as described in the OpenAI API documentation.
+
+
+</ParamField>
+
+<ParamField path="model" type="string" required>
+  The model to use for chat completion.
+
+
+</ParamField>
+
+<ParamField path="model_kwargs" type="string" required>
+  Additional keyword args for the OpenAI `chat/completions` API. For details on the available parameters, see: https://platform.openai.com/docs/api-reference/chat/create
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A dictionary containing the response and other metadata.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
+of the table `tbl`:
+
+>>> messages = [
+        {'role': 'system', 'content': 'You are a helpful assistant.'},
+        {'role': 'user', 'content': tbl.prompt}
+    ]
+    tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
+```
+

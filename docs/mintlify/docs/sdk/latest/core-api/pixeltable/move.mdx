@@ -1,0 +1,57 @@
+---
+title: "pixeltable.move"
+sidebarTitle: "move"
+description: "Move a schema object to a new directory and/or rename a schema object."
+icon: "circle-f"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+pixeltable.move(path: 'str', new_path: 'str') -> 'None'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L469" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="path" type="str" required>
+  absolute path to the existing schema object.
+
+
+</ParamField>
+
+<ParamField path="new_path" type="str" required>
+  absolute new path for the schema object.
+
+
+</ParamField>
+
+## Raises
+
+### `Error`
+
+If path does not exist or new_path already exists.
+
+
+## Examples
+
+```python
+Move a table to a different directory:
+
+>>>> pxt.move('dir1.my_table', 'dir2.my_table')
+
+Rename a table:
+
+>>>> pxt.move('dir1.my_table', 'dir1.new_name')
+```
+

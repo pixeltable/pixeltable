@@ -1,0 +1,73 @@
+---
+title: "pixeltable.functions.together.image_generations"
+sidebarTitle: "image_generations"
+description: "Generate images based on a given prompt using a specified model."
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+Equivalent to the Together AI `images/generations` API endpoint. For additional details, see: https://docs.together.ai/reference/post_images-generations
+
+Request throttling: Applies the rate limit set in the config (section `together.rate_limits`, key `images`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install together`
+
+
+## Signature
+
+```python
+pixeltable.functions.together.image_generations(
+    *args: 'Any',
+    **kwargs: 'Any'
+) -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="prompt" type="string" required>
+  A description of the desired images.
+
+
+</ParamField>
+
+<ParamField path="model" type="string" required>
+  The model to use for image generation.
+
+
+</ParamField>
+
+<ParamField path="model_kwargs" type="string" required>
+  Additional keyword args for the Together `images/generations` API. For details on the available parameters, see: https://docs.together.ai/reference/post_images-generations
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  The generated image.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Add a computed column that applies the model `stabilityai/stable-diffusion-xl-base-1.0`
+to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+
+>>> tbl.add_computed_column(
+...     response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
+... )
+```
+

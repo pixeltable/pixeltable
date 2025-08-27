@@ -1,0 +1,54 @@
+---
+title: "pixeltable.Table.rename_column"
+sidebarTitle: "rename_column"
+description: "Rename a column."
+icon: "circle-m"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+rename_column(old_name: 'str', new_name: 'str') -> 'None'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L911" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="old_name" type="any" required>
+  The current name of the column.
+
+</ParamField>
+
+<ParamField path="new_name" type="any" required>
+  The new name of the column.
+
+</ParamField>
+
+## Raises
+
+### `Error`
+
+If the column does not exist, or if the new name is invalid or already exists.
+
+
+## Examples
+
+```python
+Rename the column `col1` to `col2` of the table `my_table`:
+
+>>> tbl = pxt.get_table('my_table')
+... tbl.rename_column('col1', 'col2')
+```
+
+
+---
+
+<Note>
+This method belongs to the [`Table`](../Table) class.
+</Note>

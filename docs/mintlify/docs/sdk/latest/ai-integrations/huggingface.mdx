@@ -1,0 +1,26 @@
+---
+title: "pixeltable.functions.huggingface"
+sidebarTitle: "huggingface"
+description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)"
+icon: "square-m"
+---
+
+that wrap various models from the Hugging Face `transformers` package.
+
+These UDFs will cause Pixeltable to invoke the relevant models locally. In order to use them, you must first `pip install transformers` (or in some cases, `sentence-transformers`, as noted in the specific UDFs).
+
+
+## Module Contents
+
+### Functions
+
+- [clip](./clip)
+- [cross_encoder](./cross_encoder)
+- [cross_encoder_list](./cross_encoder_list)
+- [detr_for_object_detection](./detr_for_object_detection)
+- [detr_to_coco](./detr_to_coco)
+- [sentence_transformer](./sentence_transformer)
+- [sentence_transformer_list](./sentence_transformer_list)
+- [speech2text_for_conditional_generation](./speech2text_for_conditional_generation)
+- [vit_for_image_classification](./vit_for_image_classification)
+

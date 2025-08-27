@@ -1,0 +1,28 @@
+---
+title: "pixeltable.DataFrame.to_coco_dataset"
+sidebarTitle: "to_coco_dataset"
+description: "Convert the dataframe to a COCO dataset."
+icon: "circle-m"
+---
+This dataframe must return a single json-typed output column in the following format: \{ 'image': PIL.Image.Image, 'annotations': \[ \{ 'bbox': \[x: int, y: int, w: int, h: int\], 'category': str \| int, \}, ... \], \}
+
+
+## Signature
+
+```python
+to_coco_dataset() -> 'Path'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1350" target="_self">View source on GitHub</a>
+
+## Returns
+
+Path to the COCO dataset file.
+
+
+
+---
+
+<Note>
+This method belongs to the [`DataFrame`](../DataFrame) class.
+</Note>

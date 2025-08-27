@@ -1,0 +1,67 @@
+---
+title: "pixeltable.DataFrame.order_by"
+sidebarTitle: "order_by"
+description: "Add an order-by clause to this DataFrame."
+icon: "circle-m"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+order_by(*expr_list: 'exprs.Expr', asc: 'bool' = True) -> 'DataFrame'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1005" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="expr_list" type="any" required>
+  expressions to order by
+
+</ParamField>
+
+<ParamField path="asc" type="any" >
+  whether to order in ascending order (True) or descending order (False). Default is True.
+
+</ParamField>
+
+## Returns
+
+A new DataFrame with the specified order-by clause.
+
+
+## Raises
+
+### `Error`
+
+If the order-by clause is already specified, or if the specified expression is invalid, or refer to tables not in the DataFrame.
+
+
+## Examples
+
+```python
+Given the DataFrame book from a table t with all its columns and rows:
+
+>>> book = t.select()
+
+Order the above DataFrame book by two columns (price, pages) in descending order:
+
+>>> df = book.order_by(t.price, t.pages, asc=False)
+
+Order the above DataFrame book by price in descending order, but order the pages
+in ascending order:
+
+>>> df = book.order_by(t.price, asc=False).order_by(t.pages)
+```
+
+
+---
+
+<Note>
+This method belongs to the [`DataFrame`](../DataFrame) class.
+</Note>

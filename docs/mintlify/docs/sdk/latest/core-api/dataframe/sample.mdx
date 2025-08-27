@@ -1,0 +1,95 @@
+---
+title: "pixeltable.DataFrame.sample"
+sidebarTitle: "sample"
+description: "Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order."
+icon: "circle-m"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+The size of the sample can be specified in three ways:
+
+- `n`: the total number of rows to produce as a sample
+- `n_per_stratum`: the number of rows to produce per stratum as a sample
+- `fraction`: the fraction of available rows to produce as a sample
+
+The sample can be stratified by one or more columns, which means that the sample will be selected from each stratum separately.
+
+The data is shuffled before creating the sample.
+
+
+## Signature
+
+```python
+sample(n: 'Optional[int]' = None, n_per_stratum: 'Optional[int]' = None, fraction: 'Optional[float]' = None, seed: 'Optional[int]' = None, stratify_by: 'Any' = None) -> 'DataFrame'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1075" target="_self">View source on GitHub</a>
+
+## Parameters
+
+<ParamField path="n" type="any" >
+  Total number of rows to produce as a sample.
+
+</ParamField>
+
+<ParamField path="n_per_stratum" type="any" >
+  Number of rows to produce per stratum as a sample. This parameter is only valid if `stratify_by` is specified. Only one of `n` or `n_per_stratum` can be specified.
+
+</ParamField>
+
+<ParamField path="fraction" type="any" >
+  Fraction of available rows to produce as a sample. This parameter is not usable with `n` or `n_per_stratum`. The fraction must be between 0.0 and 1.0.
+
+</ParamField>
+
+<ParamField path="seed" type="any" >
+  Random seed for reproducible shuffling
+
+</ParamField>
+
+<ParamField path="stratify_by" type="any" >
+  If specified, the sample will be stratified by these values.
+
+</ParamField>
+
+## Returns
+
+A new DataFrame which specifies the sampled rows
+
+
+## Examples
+
+```python
+Given the Table `person` containing the field 'age', we can create samples of the table in various ways:
+
+Sample 100 rows from the above Table:
+
+>>> df = person.sample(n=100)
+
+Sample 10% of the rows from the above Table:
+
+>>> df = person.sample(fraction=0.1)
+
+Sample 10% of the rows from the above Table, stratified by the column 'age':
+
+>>> df = person.sample(fraction=0.1, stratify_by=t.age)
+
+Equal allocation sampling: Sample 2 rows from each age present in the above Table:
+
+>>> df = person.sample(n_per_stratum=2, stratify_by=t.age)
+
+Sampling is compatible with the where clause, so we can also sample from a filtered DataFrame:
+
+>>> df = person.where(t.age > 30).sample(n=100)
+```
+
+
+---
+
+<Note>
+This method belongs to the [`DataFrame`](../DataFrame) class.
+</Note>

@@ -1,0 +1,56 @@
+---
+title: "pixeltable.functions.llama_cpp.create_chat_completion"
+sidebarTitle: "create_chat_completion"
+description: "Generate a chat completion from a list of messages."
+icon: "circle-u"
+---
+The model can be specified either as a local path, or as a repo_id and repo_filename that reference a pretrained model on the Hugging Face model hub. Exactly one of `model_path` or `repo_id` must be provided; if `model_path` is provided, then an optional `repo_filename` can also be specified.
+
+For additional details, see the [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
+
+
+## Signature
+
+```python
+pixeltable.functions.llama_cpp.create_chat_completion(
+    *args: 'Any',
+    **kwargs: 'Any'
+) -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="messages" type="string" required>
+  A list of messages to generate a response for.
+
+
+</ParamField>
+
+<ParamField path="model_path" type="string" required>
+  Path to the model (if using a local model).
+
+
+</ParamField>
+
+<ParamField path="repo_id" type="string" required>
+  The Hugging Face model repo id (if using a pretrained model).
+
+
+</ParamField>
+
+<ParamField path="repo_filename" type="string" required>
+  A filename or glob pattern to match the model file in the repo (optional, if using a pretrained model).
+
+
+</ParamField>
+
+<ParamField path="model_kwargs" type="string" required>
+  Additional keyword args for the llama_cpp `create_chat_completions` API, such as `max_tokens`, `temperature`, `top_p`, and `top_k`. For details, see the [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
+
+
+</ParamField>
+

@@ -1,0 +1,68 @@
+---
+title: "pixeltable.functions.openai.transcriptions"
+sidebarTitle: "transcriptions"
+description: "Transcribes audio into the input language."
+icon: "circle-u"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+Equivalent to the OpenAI `audio/transcriptions` API endpoint. For additional details, see: https://platform.openai.com/docs/guides/speech-to-text
+
+Request throttling: Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install openai`
+
+
+## Signature
+
+```python
+pixeltable.functions.openai.transcriptions(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="audio" type="string" required>
+  The audio to transcribe.
+
+
+</ParamField>
+
+<ParamField path="model" type="string" required>
+  The model to use for speech transcription.
+
+
+</ParamField>
+
+<ParamField path="model_kwargs" type="string" required>
+  Additional keyword args for the OpenAI `audio/transcriptions` API. For details on the available parameters, see: https://platform.openai.com/docs/api-reference/audio/createTranscription
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A dictionary containing the transcription and other metadata.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
+of the table `tbl`:
+
+>>> tbl.add_computed_column(transcription=transcriptions(tbl.audio, model='whisper-1', language='en'))
+```
+

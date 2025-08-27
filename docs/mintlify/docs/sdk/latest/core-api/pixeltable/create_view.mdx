@@ -1,0 +1,138 @@
+---
+title: "pixeltable.create_view"
+sidebarTitle: "create_view"
+description: "Create a view of an existing table object (which itself can be a view or a snapshot or a base table)."
+icon: "circle-f"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+## Signature
+
+```python
+pixeltable.create_view(
+    path: 'str',
+    base: 'catalog.Table | DataFrame',
+    *,
+    additional_columns: 'Optional[dict[str, Any]]' = None,
+    is_snapshot: 'bool' = False,
+    iterator: 'Optional[tuple[type[ComponentIterator], dict[str, Any]]]' = None,
+    num_retained_versions: 'int' = 10,
+    comment: 'str' = '',
+    media_validation: "Literal['on_read', 'on_write']" = 'on_write',
+    if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error'
+) -> 'Optional[catalog.Table]'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L198" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="path" type="str" required>
+  A name for the view; can be either a simple name such as `my_view`, or a pathname such as `dir1.my_view`.
+
+
+</ParamField>
+
+<ParamField path="base" type="catalog.Table | DataFrame" required>
+  \[`Table`\]\[pixeltable.Table\] (i.e., table or view or snapshot) or \[`DataFrame`\]\[pixeltable.DataFrame\] to base the view on.
+
+
+</ParamField>
+
+<ParamField path="additional_columns" type="Optional[dict[str, Any]]" >
+  If specified, will add these columns to the view once it is created. The format of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in \[`create_table`\]\[pixeltable.create_table\].
+
+
+</ParamField>
+
+<ParamField path="is_snapshot" type="bool" >
+  Whether the view is a snapshot. Setting this to `True` is equivalent to calling \[`create_snapshot`\]\[pixeltable.create_snapshot\].
+
+
+</ParamField>
+
+<ParamField path="iterator" type="Optional[tuple[type[ComponentIterator], dict[str, Any]]]" >
+  The iterator to use for this view. If specified, then this view will be a one-to-many view of the base table.
+
+
+</ParamField>
+
+<ParamField path="num_retained_versions" type="int" >
+  Number of versions of the view to retain.
+
+
+</ParamField>
+
+<ParamField path="comment" type="str" >
+  Optional comment for the view.
+
+
+</ParamField>
+
+<ParamField path="media_validation" type="Literal['on_read', 'on_write']" >
+  Media validation policy for the view.
+
+- `'on_read'`: validate media files at query time
+- `'on_write'`: validate media files during insert/update operations
+
+</ParamField>
+
+<ParamField path="if_exists" type="Literal['error', 'ignore', 'replace', 'replace_force']" >
+  Directive regarding how to handle if the path already exists. Must be one of the following:
+
+- `'error'`: raise an error
+- `'ignore'`: do nothing and return the existing view handle
+- `'replace'`: if the existing view has no dependents, drop and replace it with a new one
+- `'replace_force'`: drop the existing view and all its dependents, and create a new one
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A handle to the \[`Table`\]\[pixeltable.Table\] representing the newly created view. If the path already exists and `if_exists='ignore'`, returns a handle to the existing view. Please note the schema or the base of the existing view may not match those provided in the call.
+
+
+</ResponseField>
+
+## Raises
+
+### `Error`
+
+if
+
+- the path is invalid, or
+- the path already exists and `if_exists='error'`, or
+- the path already exists and is not a view, or
+- an error occurs while attempting to create the view.
+
+
+## Examples
+
+```python
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
+
+>>> tbl = pxt.get_table('my_table')
+... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10,
+and if it not already exist. Otherwise, get the existing view named `my_view`:
+
+>>> tbl = pxt.get_table('my_table')
+... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100,
+and replace any existing view named `my_view`:
+
+>>> tbl = pxt.get_table('my_table')
+... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
+```
+

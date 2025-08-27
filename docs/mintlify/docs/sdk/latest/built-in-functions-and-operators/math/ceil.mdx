@@ -1,0 +1,15 @@
+---
+title: "pixeltable.functions.math.ceil"
+sidebarTitle: "ceil"
+description: "Return the ceiling of the given number."
+icon: "circle-u"
+---
+Equivalent to Python [`float(math.ceil(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self` is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of `math.ceil(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior in Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
+
+
+## Signature
+
+```python
+pixeltable.functions.math.ceil(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+```
+

@@ -1,0 +1,45 @@
+---
+title: "pixeltable.Table"
+sidebarTitle: "Table"
+description: "A handle to a table, view, or snapshot. This class is the primary interface through which table operations"
+icon: "square-c"
+---
+
+(queries, insertions, updates, etc.) are performed in Pixeltable.
+
+Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call FileCache.emit_eviction_warnings() at the end of the operation.
+
+
+## Constructor
+
+```python
+Table(self, id: 'UUID', dir_id: 'UUID', name: 'str', tbl_version_path: 'TableVersionPath')
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L49" target="_blank">View source on GitHub</a>
+
+## Methods
+
+- [add_column](./add_column) - Adds an ordinary (non-computed) column to the table.
+
+- [add_embedding_index](./add_embedding_index) - Add an embedding index to the table. Once the index is created, it will be automatically kept up-to-date as new
+
+- [delete](./delete) - Delete rows in this table.
+
+- [drop_column](./drop_column) - Drop a column from the table.
+
+- [drop_embedding_index](./drop_embedding_index) - Drop an embedding index from the table. Either a column name or an index name (but not both) must be
+
+- [drop_index](./drop_index) - Drop an index from the table. Either a column name or an index name (but not both) must be
+
+- [insert](./insert) - Inserts rows into this table. There are two mutually exclusive call patterns:
+
+- [recompute_columns](./recompute_columns) - Recompute the values in one or more computed columns of this table.
+
+- [rename_column](./rename_column) - Rename a column.
+
+- [revert](./revert) - Reverts the table to the previous version.
+
+- [update](./update) - Update rows in this table.
+
+

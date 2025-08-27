@@ -1,0 +1,66 @@
+---
+title: "pixeltable.DataFrame"
+sidebarTitle: "DataFrame"
+description: "Class documentation"
+icon: "square-c"
+---
+
+## ⚠️ No Documentation
+
+<Warning>
+Documentation for `DataFrame` is not available.
+</Warning>
+
+## Constructor
+
+```python
+DataFrame(
+    self,
+    from_clause: 'Optional[plan.FromClause]' = None,
+    select_list: 'Optional[list[tuple[exprs.Expr, Optional[str]]]]' = None,
+    where_clause: 'Optional[exprs.Expr]' = None,
+    group_by_clause: 'Optional[list[exprs.Expr]]' = None,
+    grouping_tbl: 'Optional[catalog.TableVersion]' = None,
+    order_by_clause: 'Optional[list[tuple[exprs.Expr, bool]]]' = None,
+    limit: 'Optional[exprs.Expr]' = None,
+    sample_clause: 'Optional[SampleClause]' = None
+)
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L188" target="_blank">View source on GitHub</a>
+
+## Methods
+
+- [collect](./collect)
+- [distinct](./distinct) - Remove duplicate rows from this DataFrame.
+
+- [group_by](./group_by) - Add a group-by clause to this DataFrame.
+
+- [head](./head) - Return the first n rows of the DataFrame, in insertion order of the underlying Table.
+
+- [join](./join) - Join this DataFrame with a table.
+
+- [limit](./limit) - Limit the number of rows in the DataFrame.
+
+- [order_by](./order_by) - Add an order-by clause to this DataFrame.
+
+- [sample](./sample) - Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.
+
+- [select](./select) - Select columns or expressions from the DataFrame.
+
+- [show](./show)
+- [tail](./tail) - Return the last n rows of the DataFrame, in insertion order of the underlying Table.
+
+- [to_coco_dataset](./to_coco_dataset) - Convert the dataframe to a COCO dataset.
+
+- [to_pytorch_dataset](./to_pytorch_dataset) - Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
+
+- [where](./where) - Filter rows based on a predicate.
+
+
+## Properties
+
+### schema
+
+**Type:** Property (read)
+

@@ -1,0 +1,39 @@
+---
+title: "pixeltable.functions.timestamp"
+sidebarTitle: "timestamp"
+description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `TimestampType`."
+icon: "square-m"
+---
+
+Usage example:
+
+``` python
+import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
+```
+
+
+## Module Contents
+
+### Functions
+
+- [astimezone](./astimezone)
+- [day](./day)
+- [hour](./hour)
+- [isocalendar](./isocalendar)
+- [isoformat](./isoformat)
+- [isoweekday](./isoweekday)
+- [make_timestamp](./make_timestamp)
+- [microsecond](./microsecond)
+- [minute](./minute)
+- [month](./month)
+- [posix_timestamp](./posix_timestamp)
+- [replace](./replace)
+- [second](./second)
+- [strftime](./strftime)
+- [toordinal](./toordinal)
+- [weekday](./weekday)
+- [year](./year)
+
