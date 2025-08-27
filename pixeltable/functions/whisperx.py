@@ -41,8 +41,6 @@ def transcribe(
     If `diarize=True`, then speaker diarization will also be performed. Several of the UDF parameters are only valid if
     `diarize=True`, as documented in the parameters list below.
 
-    WhisperX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
-
     __Requirements:__
 
     - `pip install whisperx`

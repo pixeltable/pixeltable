@@ -6,7 +6,7 @@ from ..utils import get_image_files, skip_test_if_not_installed, validate_update
 class TestYolox:
     def test_yolox(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
-        from pixeltable.ext.functions.yolox import yolox
+        from pixeltable.functions.yolox import yolox
 
         t = pxt.create_table('yolox_test', {'image': pxt.Image})
         t.add_computed_column(detect_yolox_tiny=yolox(t.image, model_id='yolox_tiny'))
