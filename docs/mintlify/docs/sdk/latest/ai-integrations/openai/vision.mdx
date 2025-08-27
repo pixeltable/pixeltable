@@ -24,7 +24,7 @@ Request throttling: Uses the rate limit-related headers returned by the API to t
 ## Signature
 
 ```python
-pixeltable.functions.openai.vision(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.openai.vision(prompt: String, image: Image, model: String, model_kwargs: Optional[Json]) -> String
 ```
 
 ## Args
@@ -33,19 +33,19 @@ pixeltable.functions.openai.vision(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="prompt" type="string" required>
+<ParamField path="prompt" type="String" required>
   A prompt for the OpenAI vision request.
 
 
 </ParamField>
 
-<ParamField path="image" type="string" required>
+<ParamField path="image" type="Image" required>
   The image to analyze.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for OpenAI vision.
 
 

@@ -10,7 +10,7 @@ image.
 ## Signature
 
 ```python
-pixeltable.functions.image.getbbox(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.getbbox(self: Image, alpha_only: Bool) -> Json
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.image.getbbox(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="alpha_only" type="string" required>
+<ParamField path="alpha_only" type="Bool" required>
   Optional flag, defaulting to `True`. If `True` and the image has an alpha channel, trim transparent pixels. Otherwise, trim pixels when all channels are zero. Keyword-only argument.
 
 

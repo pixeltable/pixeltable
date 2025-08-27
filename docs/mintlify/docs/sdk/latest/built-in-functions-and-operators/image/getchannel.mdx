@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.image.getchannel(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.getchannel(self: Image, channel: Int) -> Image
 ```
 
 ## Args
@@ -16,7 +16,7 @@ pixeltable.functions.image.getchannel(*args: 'Any', **kwargs: 'Any') -> "'exprs.
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="channel" type="string" required>
+<ParamField path="channel" type="Int" required>
   What channel to return. Could be index (0 for "R" channel of "RGB") or channel name ("A" for alpha channel of "RGBA").
 
 

@@ -10,7 +10,7 @@ Equivalent to [`PIL.Image.Image.convert()`](https://pillow.readthedocs.io/en/sta
 ## Signature
 
 ```python
-pixeltable.functions.image.convert(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.convert(self: Image, mode: String) -> Image
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.image.convert(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="mode" type="string" required>
+<ParamField path="mode" type="String" required>
   The mode to convert to. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes) for a list of supported modes.
 
 

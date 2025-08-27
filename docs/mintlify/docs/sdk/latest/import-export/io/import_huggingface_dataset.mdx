@@ -1,0 +1,68 @@
+---
+title: "pixeltable.io.import_huggingface_dataset"
+sidebarTitle: "import_huggingface_data"
+description: "Create a new base table from a Huggingface dataset, or dataset dict with multiple splits."
+icon: "circle-f"
+---
+Requires `datasets` library to be installed.
+
+
+## Signature
+
+```python
+pixeltable.io.import_huggingface_dataset(
+    table_path: 'str',
+    dataset: 'datasets.Dataset | datasets.DatasetDict',
+    *,
+    schema_overrides: 'Optional[dict[str, Any]]' = None,
+    primary_key: 'str | list[str] | None' = None,
+    **kwargs: 'Any'
+) -> 'pxt.Table'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/hf_datasets.py#L92" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="table_path" type="str" required>
+  Path to the table.
+
+
+</ParamField>
+
+<ParamField path="dataset" type="datasets.Dataset | datasets.DatasetDict" required>
+  Huggingface [`datasets.Dataset`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.Dataset) or [`datasets.DatasetDict`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.DatasetDict) to insert into the table.
+
+
+</ParamField>
+
+<ParamField path="schema_overrides" type="Optional[dict[str, Any]]" >
+  If specified, then for each (name, type) pair in `schema_overrides`, the column with name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`. The keys in `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not they are valid Pixeltable identifiers).
+
+
+</ParamField>
+
+<ParamField path="primary_key" type="str | list[str] | None" >
+  The primary key of the table (see \[`create_table()`\]\[pixeltable.create_table\]).
+
+
+</ParamField>
+
+<ParamField path="kwargs" type="Any" required>
+  Additional arguments to pass to `create_table`. An argument of `column_name_for_split` must be provided if the source is a DatasetDict. This column name will contain the split information. If None, no split information will be stored.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A handle to the newly created \[`Table`\]\[pixeltable.Table\].
+
+
+</ResponseField>
+

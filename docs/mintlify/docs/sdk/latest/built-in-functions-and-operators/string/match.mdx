@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.string.match(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.match(self: String, pattern: String, case: Bool, flags: Int) -> Bool
 ```
 
 ## Args
@@ -16,19 +16,19 @@ pixeltable.functions.string.match(*args: 'Any', **kwargs: 'Any') -> "'exprs.Func
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="pattern" type="string" required>
+<ParamField path="pattern" type="String" required>
   regular expression pattern
 
 
 </ParamField>
 
-<ParamField path="case" type="string" required>
+<ParamField path="case" type="Bool" required>
   if False, ignore case
 
 
 </ParamField>
 
-<ParamField path="flags" type="string" required>
+<ParamField path="flags" type="Int" required>
   [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
 
 

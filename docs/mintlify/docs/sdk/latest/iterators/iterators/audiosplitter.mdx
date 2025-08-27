@@ -1,0 +1,38 @@
+---
+title: "pixeltable.iterators.AudioSplitter"
+sidebarTitle: "AudioSplitter"
+description: "Iterator over chunks of an audio file. The audio file is split into smaller chunks,"
+icon: "square-c"
+---
+
+where the duration of each chunk is determined by chunk_duration_sec. The iterator yields audio chunks as pxt.Audio, along with the start and end time of each chunk. If the input contains no audio, no chunks are yielded.
+
+
+## Constructor
+
+```python
+AudioSplitter(
+    self,
+    audio: str,
+    chunk_duration_sec: float,
+    *,
+    overlap_sec: float = 0.0,
+    min_chunk_duration_sec: float = 0.0
+)
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/audio.py#L16" target="_blank">View source on GitHub</a>
+
+## Methods
+
+- [build_chunks](./build_chunks)
+- [close](./close) - Close the iterator and release all resources
+
+- [create](./create)
+- [input_schema](./input_schema) - Provide the Pixeltable types of the init() parameters
+
+- [output_schema](./output_schema) - Specify the dictionary returned by next() and a list of unstored column names
+
+- [set_pos](./set_pos) - Set the iterator position to pos
+
+

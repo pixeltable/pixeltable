@@ -20,7 +20,7 @@ This UDF runs a transcription model *locally* using the Whisper library, equival
 ## Signature
 
 ```python
-pixeltable.functions.whisper.transcribe(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.whisper.transcribe(audio: Audio, model: String, temperature: Optional[Json], compression_ratio_threshold: Optional[Float], logprob_threshold: Optional[Float], no_speech_threshold: Optional[Float], condition_on_previous_text: Bool, initial_prompt: Optional[String], word_timestamps: Bool, prepend_punctuations: String, append_punctuations: String, decode_options: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -29,13 +29,13 @@ pixeltable.functions.whisper.transcribe(*args: 'Any', **kwargs: 'Any') -> "'expr
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="audio" type="string" required>
+<ParamField path="audio" type="Audio" required>
   The audio file to transcribe.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The name of the model to use for transcription.
 
 

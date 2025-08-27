@@ -20,7 +20,7 @@ Equivalent to the AWS Bedrock `converse` API endpoint. For additional details, s
 ## Signature
 
 ```python
-pixeltable.functions.bedrock.converse(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.bedrock.converse(messages: Json, model_id: String, system: Optional[Json], inference_config: Optional[Json], additional_model_request_fields: Optional[Json], tool_config: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -29,31 +29,31 @@ pixeltable.functions.bedrock.converse(*args: 'Any', **kwargs: 'Any') -> "'exprs.
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   Input messages.
 
 
 </ParamField>
 
-<ParamField path="model_id" type="string" required>
+<ParamField path="model_id" type="String" required>
   The model that will complete your prompt.
 
 
 </ParamField>
 
-<ParamField path="system" type="string" required>
+<ParamField path="system" type="Optional[Json]" required>
   An optional system prompt.
 
 
 </ParamField>
 
-<ParamField path="inference_config" type="string" required>
+<ParamField path="inference_config" type="Optional[Json]" required>
   Base inference parameters to use.
 
 
 </ParamField>
 
-<ParamField path="additional_model_request_fields" type="string" required>
+<ParamField path="additional_model_request_fields" type="Optional[Json]" required>
   Additional inference parameters to use.
 
 

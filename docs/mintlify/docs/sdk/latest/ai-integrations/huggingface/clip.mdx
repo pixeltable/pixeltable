@@ -20,7 +20,13 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.huggingface.clip(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+# Polymorphic function with 2 signatures:
+
+# Signature 1:
+pixeltable.functions.huggingface.clip(text: String, model_id: String) -> Array[(None,), Float]
+
+# Signature 2:
+pixeltable.functions.huggingface.clip(image: Image, model_id: String) -> Array[(None,), Float]
 ```
 
 ## Args
@@ -29,13 +35,13 @@ pixeltable.functions.huggingface.clip(*args: 'Any', **kwargs: 'Any') -> "'exprs.
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="text" type="string" required>
+<ParamField path="text" type="String" required>
   The string to embed.
 
 
 </ParamField>
 
-<ParamField path="model_id" type="string" required>
+<ParamField path="model_id" type="String" required>
   The pretrained model to use for the embedding.
 
 

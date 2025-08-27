@@ -10,7 +10,7 @@ Equivalent to [`str.rjust()`](https://docs.python.org/3/library/stdtypes.html#st
 ## Signature
 
 ```python
-pixeltable.functions.string.rjust(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.rjust(self: String, width: Int, fillchar: String) -> String
 ```
 
 ## Args
@@ -19,13 +19,13 @@ pixeltable.functions.string.rjust(*args: 'Any', **kwargs: 'Any') -> "'exprs.Func
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="width" type="string" required>
+<ParamField path="width" type="Int" required>
   Minimum width of resulting string.
 
 
 </ParamField>
 
-<ParamField path="fillchar" type="string" required>
+<ParamField path="fillchar" type="String" required>
   Additional character for filling.
 
 

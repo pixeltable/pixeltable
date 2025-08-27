@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.string.count(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.count(self: String, pattern: String, flags: Int) -> Int
 ```
 
 ## Args
@@ -16,13 +16,13 @@ pixeltable.functions.string.count(*args: 'Any', **kwargs: 'Any') -> "'exprs.Func
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="pattern" type="string" required>
+<ParamField path="pattern" type="String" required>
   string literal or regular expression
 
 
 </ParamField>
 
-<ParamField path="flags" type="string" required>
+<ParamField path="flags" type="Int" required>
   [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
 
 

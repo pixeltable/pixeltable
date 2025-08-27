@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.string.slice_replace(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.slice_replace(self: String, start: Optional[Int], stop: Optional[Int], repl: Optional[String]) -> String
 ```
 
 ## Args
@@ -16,19 +16,19 @@ pixeltable.functions.string.slice_replace(*args: 'Any', **kwargs: 'Any') -> "'ex
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="start" type="string" required>
+<ParamField path="start" type="Optional[Int]" required>
   slice start
 
 
 </ParamField>
 
-<ParamField path="stop" type="string" required>
+<ParamField path="stop" type="Optional[Int]" required>
   slice end
 
 
 </ParamField>
 
-<ParamField path="repl" type="string" required>
+<ParamField path="repl" type="Optional[String]" required>
   replacement value
 
 

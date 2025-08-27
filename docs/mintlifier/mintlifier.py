@@ -190,6 +190,10 @@ class MintlifierGenerator:
                 navigation_pages[page.module_path] = result
             
             if llm_entry:
+                if llm_entry.get("error"):
+                    print(f"   ⚠️ LLM map error for {page.module_path}: {llm_entry.get('error')}")
+                else:
+                    print(f"   ✓ Added to LLM map: {page.module_path}")
                 self.llm_map_gen.add_to_map(llm_entry)
         
         print(f"\n✅ Generated: {generated_count} pages")

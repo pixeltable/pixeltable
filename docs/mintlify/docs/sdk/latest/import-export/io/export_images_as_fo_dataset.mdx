@@ -1,0 +1,115 @@
+---
+title: "pixeltable.io.export_images_as_fo_dataset"
+sidebarTitle: "export_images_as_fo_dat"
+description: "Export images from a Pixeltable table as a Voxel51 dataset. The data must consist of a single column"
+icon: "circle-f"
+---
+## ⚠️ Documentation Issues
+
+<Warning>
+- Examples section exists in docstring but was not parsed by docstring_parser
+</Warning>
+
+(or expression) containing image data, along with optional additional columns containing labels. Currently, only classification and detection labels are supported.
+
+The [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial contains a fully worked example showing how to export data from a Pixeltable table and load it into Voxel51.
+
+Images in the dataset that already exist on disk will be exported directly, in whatever format they are stored in. Images that are not already on disk (such as frames extracted using a \[`FrameIterator`\]\[pixeltable.iterators.FrameIterator\]) will first be written to disk in the specified `image_format`.
+
+The label parameters accept one or more sets of labels of each type. If a single `Expr` is provided, then it will be exported as a single set of labels with a default name such as `classifications`. (The single set of labels may still containing multiple individual labels; see below.) If a list of `Expr`s is provided, then each one will be exported as a separate set of labels with a default name such as `classifications`, `classifications_1`, etc. If a dictionary of `Expr`s is provided, then each entry will be exported as a set of labels with the specified name.
+
+**Requirements:**
+
+- `pip install fiftyone`
+
+
+## Signature
+
+```python
+pixeltable.io.export_images_as_fo_dataset(
+    tbl: 'pxt.Table',
+    images: 'exprs.Expr',
+    image_format: 'str' = 'webp',
+    classifications: 'exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None' = None,
+    detections: 'exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None' = None
+) -> "'fo.Dataset'"
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/globals.py#L142" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="tbl" type="pxt.Table" required>
+  The table from which to export data.
+
+
+</ParamField>
+
+<ParamField path="images" type="exprs.Expr" required>
+  A column or expression that contains the images to export.
+
+
+</ParamField>
+
+<ParamField path="image_format" type="str" >
+  The format to use when writing out images for export.
+
+
+</ParamField>
+
+<ParamField path="classifications" type="exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None" >
+  Optional image classification labels. If a single `Expr` is provided, it must be a table column or an expression that evaluates to a list of dictionaries. Each dictionary in the list corresponds to an image class and must have the following structure:
+
+``` python
+\{'label': 'zebra', 'confidence': 0.325\}
+```
+
+If multiple `Expr`s are provided, each one must evaluate to a list of such dictionaries.
+
+
+</ParamField>
+
+<ParamField path="detections" type="exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None" >
+  Optional image detection labels. If a single `Expr` is provided, it must be a table column or an expression that evaluates to a list of dictionaries. Each dictionary in the list corresponds to an image detection, and must have the following structure:
+
+``` python
+\{
+    'label': 'giraffe',
+    'confidence': 0.99,
+    'bounding_box': [0.081, 0.836, 0.202, 0.136]  # [x, y, w, h], fractional coordinates
+\}
+```
+
+If multiple `Expr`s are provided, each one must evaluate to a list of such dictionaries.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A Voxel51 dataset.
+
+
+</ResponseField>
+
+## Examples
+
+```python
+Export the images in the `image` column of the table `tbl` as a Voxel51 dataset, using classification
+labels from `tbl.classifications`:
+
+>>> export_as_fiftyone(
+...     tbl,
+...     tbl.image,
+...     classifications=tbl.classifications
+... )
+
+See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial
+for a fully worked example.
+```
+

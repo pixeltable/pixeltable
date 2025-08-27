@@ -22,10 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `gemini.ra
 ## Signature
 
 ```python
-pixeltable.functions.gemini.generate_content(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.gemini.generate_content(contents: String, model: String, config: Optional[Json], tools: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -34,25 +31,25 @@ pixeltable.functions.gemini.generate_content(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="contents" type="string" required>
+<ParamField path="contents" type="String" required>
   The input content to generate from.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The name of the model to use.
 
 
 </ParamField>
 
-<ParamField path="config" type="string" required>
+<ParamField path="config" type="Optional[Json]" required>
   Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateContentConfig`. For details on the parameters, see: https://googleapis.github.io/python-genai/genai.html#module-genai.types
 
 
 </ParamField>
 
-<ParamField path="tools" type="string" required>
+<ParamField path="tools" type="Optional[Json]" required>
   An optional list of Pixeltable tools to use. It is also possible to specify tools manually via the `config['tools']` parameter, but at most one of `config['tools']` or `tools` may be used.
 
 

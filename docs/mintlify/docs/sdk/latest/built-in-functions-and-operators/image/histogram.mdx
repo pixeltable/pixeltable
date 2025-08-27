@@ -14,7 +14,7 @@ If a mask is provided, the method returns a histogram for those parts of the ima
 ## Signature
 
 ```python
-pixeltable.functions.image.histogram(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.histogram(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -23,13 +23,13 @@ pixeltable.functions.image.histogram(*args: 'Any', **kwargs: 'Any') -> "'exprs.F
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="mask" type="string" required>
+<ParamField path="mask" type="Optional[Image]" required>
   An optional mask.
 
 
 </ParamField>
 
-<ParamField path="extrema" type="string" required>
+<ParamField path="extrema" type="Optional[Json]" required>
   An optional tuple of manually-specified extrema.
 
 

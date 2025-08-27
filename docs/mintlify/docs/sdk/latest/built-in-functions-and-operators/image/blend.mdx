@@ -12,7 +12,7 @@ a constant alpha::
 ## Signature
 
 ```python
-pixeltable.functions.image.blend(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.blend(im1: Image, im2: Image, alpha: Float) -> Image
 ```
 
 ## Args
@@ -21,19 +21,19 @@ pixeltable.functions.image.blend(*args: 'Any', **kwargs: 'Any') -> "'exprs.Funct
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="im1" type="string" required>
+<ParamField path="im1" type="Image" required>
   The first image.
 
 
 </ParamField>
 
-<ParamField path="im2" type="string" required>
+<ParamField path="im2" type="Image" required>
   The second image. Must have the same mode and size as the first image.
 
 
 </ParamField>
 
-<ParamField path="alpha" type="string" required>
+<ParamField path="alpha" type="Float" required>
   The interpolation alpha factor. If alpha is 0.0, a copy of the first image is returned. If alpha is 1.0, a copy of the second image is returned. There are no restrictions on the alpha value. If necessary, the result is clipped to fit into the allowed output range.
 
 

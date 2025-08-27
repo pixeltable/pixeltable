@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `groq`, ke
 ## Signature
 
 ```python
-pixeltable.functions.groq.chat_completions(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.groq.chat_completions(messages: Json, model: String, model_kwargs: Optional[Json], tools: Optional[Json], tool_choice: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -31,19 +31,19 @@ pixeltable.functions.groq.chat_completions(*args: 'Any', **kwargs: 'Any') -> "'e
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   A list of messages comprising the conversation so far.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   ID of the model to use. (See overview here: https://console.groq.com/docs/models)
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the Groq `chat/completions` API. For details on the available parameters, see: https://console.groq.com/docs/api-reference#chat-create
 
 

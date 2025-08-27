@@ -10,7 +10,7 @@ Equivalent to [`str.startswith()`](https://docs.python.org/3/library/stdtypes.ht
 ## Signature
 
 ```python
-pixeltable.functions.string.startswith(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.startswith(self: String, substr: String) -> Int
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.string.startswith(*args: 'Any', **kwargs: 'Any') -> "'exprs
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="substr" type="string" required>
+<ParamField path="substr" type="String" required>
   string literal
 
 

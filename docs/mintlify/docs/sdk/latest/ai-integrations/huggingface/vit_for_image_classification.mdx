@@ -22,10 +22,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.huggingface.vit_for_image_classification(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.huggingface.vit_for_image_classification(image: Image, model_id: String, top_k: Int) -> Json
 ```
 
 ## Args
@@ -34,19 +31,19 @@ pixeltable.functions.huggingface.vit_for_image_classification(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="image" type="string" required>
+<ParamField path="image" type="Image" required>
   The image to classify.
 
 
 </ParamField>
 
-<ParamField path="model_id" type="string" required>
+<ParamField path="model_id" type="String" required>
   The pretrained model to use for the classification.
 
 
 </ParamField>
 
-<ParamField path="top_k" type="string" required>
+<ParamField path="top_k" type="Int" required>
   The number of classes to return.
 
 

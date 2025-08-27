@@ -10,7 +10,7 @@ Equivalent to [`str.center()`](https://docs.python.org/3/library/stdtypes.html#s
 ## Signature
 
 ```python
-pixeltable.functions.string.center(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.center(self: String, width: Int, fillchar: String) -> String
 ```
 
 ## Args
@@ -19,13 +19,13 @@ pixeltable.functions.string.center(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="width" type="string" required>
+<ParamField path="width" type="Int" required>
   Total width of the resulting string.
 
 
 </ParamField>
 
-<ParamField path="fillchar" type="string" required>
+<ParamField path="fillchar" type="String" required>
   Character used for padding.
 
 

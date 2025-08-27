@@ -214,10 +214,13 @@ class ModulePageGenerator(PageBase):
                 
                 # Include if:
                 # 1. It's from this module
-                # 2. It's a Pixeltable CallableFunction (UDF) in a functions module
-                # 3. It's not an imported standard library item
+                # 2. It's from a submodule (e.g., FrameIterator from pixeltable.iterators.video)
+                # 3. It's a Pixeltable CallableFunction (UDF) in a functions module
+                # 4. It's not an imported standard library item
                 if obj_module:
                     is_from_this_module = obj_module == module.__name__
+                    # Include items from submodules (for iterators imported into parent module)
+                    is_from_submodule = obj_module.startswith(module.__name__ + '.')
                     # Only include UDFs if we're documenting a functions module
                     is_pixeltable_udf = ('functions' in module_path and 
                                        'pixeltable' in obj_module and
@@ -225,7 +228,7 @@ class ModulePageGenerator(PageBase):
                                        'CallableFunction' in obj.__class__.__name__)
                     is_stdlib = obj_module.startswith('builtins') or not '.' in obj_module
                     
-                    if not (is_from_this_module or is_pixeltable_udf) or is_stdlib:
+                    if not (is_from_this_module or is_from_submodule or is_pixeltable_udf) or is_stdlib:
                         continue
                 
                 items.append((name, obj))

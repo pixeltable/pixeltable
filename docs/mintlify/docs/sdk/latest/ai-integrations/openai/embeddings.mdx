@@ -22,7 +22,7 @@ Request throttling: Uses the rate limit-related headers returned by the API to t
 ## Signature
 
 ```python
-pixeltable.functions.openai.embeddings(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.openai.embeddings(input: String, model: String, model_kwargs: Optional[Json]) -> Array[(None,), Float]
 ```
 
 ## Args
@@ -31,19 +31,19 @@ pixeltable.functions.openai.embeddings(*args: 'Any', **kwargs: 'Any') -> "'exprs
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="input" type="string" required>
+<ParamField path="input" type="String" required>
   The text to embed.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for the embedding.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the OpenAI `embeddings` API. For details on the available parameters, see: https://platform.openai.com/docs/api-reference/embeddings
 
 

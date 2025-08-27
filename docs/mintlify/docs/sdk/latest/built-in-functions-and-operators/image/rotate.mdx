@@ -10,7 +10,7 @@ Equivalent to [`PIL.Image.Image.rotate()`](https://pillow.readthedocs.io/en/stab
 ## Signature
 
 ```python
-pixeltable.functions.image.rotate(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.rotate(self: Image, angle: Int) -> Image
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.image.rotate(*args: 'Any', **kwargs: 'Any') -> "'exprs.Func
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="angle" type="string" required>
+<ParamField path="angle" type="Int" required>
   The angle to rotate the image, in degrees. Positive angles are counter-clockwise.
 
 

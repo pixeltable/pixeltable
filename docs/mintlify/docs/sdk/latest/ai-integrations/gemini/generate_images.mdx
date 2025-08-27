@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `imagen.ra
 ## Signature
 
 ```python
-pixeltable.functions.gemini.generate_images(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.gemini.generate_images(prompt: String, model: String, config: Optional[Json]) -> Image
 ```
 
 ## Args
@@ -31,19 +31,19 @@ pixeltable.functions.gemini.generate_images(*args: 'Any', **kwargs: 'Any') -> "'
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="prompt" type="string" required>
+<ParamField path="prompt" type="String" required>
   A text description of the images to generate.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use.
 
 
 </ParamField>
 
-<ParamField path="config" type="string" required>
+<ParamField path="config" type="Optional[Json]" required>
   Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateImagesConfig`. For details on the parameters, see: https://googleapis.github.io/python-genai/genai.html#module-genai.types
 
 

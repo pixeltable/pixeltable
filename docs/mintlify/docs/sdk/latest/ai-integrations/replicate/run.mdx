@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `replicate
 ## Signature
 
 ```python
-pixeltable.functions.replicate.run(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.replicate.run(input: Json, ref: String) -> Json
 ```
 
 ## Args
@@ -31,13 +31,13 @@ pixeltable.functions.replicate.run(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="input" type="string" required>
+<ParamField path="input" type="Json" required>
   The input parameters for the model.
 
 
 </ParamField>
 
-<ParamField path="ref" type="string" required>
+<ParamField path="ref" type="String" required>
   The name of the model to run.
 
 

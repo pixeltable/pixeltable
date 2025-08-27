@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `together.
 ## Signature
 
 ```python
-pixeltable.functions.together.completions(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.together.completions(prompt: String, model: String, model_kwargs: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -31,19 +31,19 @@ pixeltable.functions.together.completions(*args: 'Any', **kwargs: 'Any') -> "'ex
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="prompt" type="string" required>
+<ParamField path="prompt" type="String" required>
   A string providing context for the model to complete.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The name of the model to query.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword arguments for the Together `completions` API. For details on the available parameters, see: https://docs.together.ai/reference/completions-1
 
 

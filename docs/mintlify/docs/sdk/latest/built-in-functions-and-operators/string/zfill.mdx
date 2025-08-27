@@ -10,7 +10,7 @@ Equivalent to [`str.zfill()`](https://docs.python.org/3/library/stdtypes.html#st
 ## Signature
 
 ```python
-pixeltable.functions.string.zfill(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.zfill(self: String, width: Int) -> String
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.string.zfill(*args: 'Any', **kwargs: 'Any') -> "'exprs.Func
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="width" type="string" required>
+<ParamField path="width" type="Int" required>
   Minimum width of resulting string.
 
 

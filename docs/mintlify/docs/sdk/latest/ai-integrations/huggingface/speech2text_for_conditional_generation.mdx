@@ -20,10 +20,7 @@ pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/s
 ## Signature
 
 ```python
-pixeltable.functions.huggingface.speech2text_for_conditional_generation(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.huggingface.speech2text_for_conditional_generation(audio: Audio, model_id: String, language: Optional[String]) -> String
 ```
 
 ## Args
@@ -32,19 +29,19 @@ pixeltable.functions.huggingface.speech2text_for_conditional_generation(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="audio" type="string" required>
+<ParamField path="audio" type="Audio" required>
   The audio clip to transcribe or translate.
 
 
 </ParamField>
 
-<ParamField path="model_id" type="string" required>
+<ParamField path="model_id" type="String" required>
   The pretrained model to use for the transcription or translation.
 
 
 </ParamField>
 
-<ParamField path="language" type="string" required>
+<ParamField path="language" type="Optional[String]" required>
   If using a multilingual translation model, the language code to translate to. If not provided, the model's default language will be used. If the model is not translation model, is not a multilingual model, or does not support the specified language, an error will be raised.
 
 

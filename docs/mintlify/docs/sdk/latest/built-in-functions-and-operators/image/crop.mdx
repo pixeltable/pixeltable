@@ -12,7 +12,7 @@ Note: Prior to Pillow 3.4.0, this was a lazy operation.
 ## Signature
 
 ```python
-pixeltable.functions.image.crop(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.crop(self: Image, box: Json) -> Image
 ```
 
 ## Args
@@ -21,7 +21,7 @@ pixeltable.functions.image.crop(*args: 'Any', **kwargs: 'Any') -> "'exprs.Functi
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="box" type="string" required>
+<ParamField path="box" type="Json" required>
   The crop rectangle, as a (left, upper, right, lower)-tuple.
 
 

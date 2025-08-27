@@ -13,10 +13,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.huggingface.detr_to_coco(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.huggingface.detr_to_coco(image: Image, detr_info: Json) -> Json
 ```
 
 ## Args
@@ -25,13 +22,13 @@ pixeltable.functions.huggingface.detr_to_coco(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="image" type="string" required>
+<ParamField path="image" type="Image" required>
   The image for which detections were computed.
 
 
 </ParamField>
 
-<ParamField path="detr_info" type="string" required>
+<ParamField path="detr_info" type="Json" required>
   The output of a DETR object detection model, as returned by `detr_for_object_detection`.
 
 

@@ -10,7 +10,7 @@ Equivalent to [`PIL.Image.Image.getpixel()`](https://pillow.readthedocs.io/en/st
 ## Signature
 
 ```python
-pixeltable.functions.image.getpixel(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.getpixel(self: Image, xy: Json) -> Json
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.image.getpixel(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fu
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="xy" type="string" required>
+<ParamField path="xy" type="Json" required>
   The coordinates, given as (x, y).
 
 

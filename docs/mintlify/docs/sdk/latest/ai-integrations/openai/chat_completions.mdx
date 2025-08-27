@@ -22,10 +22,7 @@ Request throttling: Uses the rate limit-related headers returned by the API to t
 ## Signature
 
 ```python
-pixeltable.functions.openai.chat_completions(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.openai.chat_completions(messages: Json, model: String, model_kwargs: Optional[Json], tools: Optional[Json], tool_choice: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -34,19 +31,19 @@ pixeltable.functions.openai.chat_completions(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   A list of messages to use for chat completion, as described in the OpenAI API documentation.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for chat completion.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the OpenAI `chat/completions` API. For details on the available parameters, see: https://platform.openai.com/docs/api-reference/chat/create
 
 

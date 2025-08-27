@@ -22,10 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `together.
 ## Signature
 
 ```python
-pixeltable.functions.together.image_generations(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.together.image_generations(prompt: String, model: String, model_kwargs: Optional[Json]) -> Image
 ```
 
 ## Args
@@ -34,19 +31,19 @@ pixeltable.functions.together.image_generations(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="prompt" type="string" required>
+<ParamField path="prompt" type="String" required>
   A description of the desired images.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for image generation.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the Together `images/generations` API. For details on the available parameters, see: https://docs.together.ai/reference/post_images-generations
 
 

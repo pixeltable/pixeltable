@@ -10,9 +10,6 @@ Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#dat
 ## Signature
 
 ```python
-pixeltable.functions.timestamp.make_timestamp(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.timestamp.make_timestamp(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int, microsecond: Int) -> Timestamp
 ```
 

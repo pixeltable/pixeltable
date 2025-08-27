@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.image.transpose(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.transpose(self: Image, method: Int) -> Image
 ```
 
 ## Args
@@ -16,7 +16,7 @@ pixeltable.functions.image.transpose(*args: 'Any', **kwargs: 'Any') -> "'exprs.F
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="method" type="string" required>
+<ParamField path="method" type="Int" required>
   One of :py:data:`Transpose.FLIP_LEFT_RIGHT`, :py:data:`Transpose.FLIP_TOP_BOTTOM`, :py:data:`Transpose.ROTATE_90`, :py:data:`Transpose.ROTATE_180`, :py:data:`Transpose.ROTATE_270`, :py:data:`Transpose.TRANSPOSE` or :py:data:`Transpose.TRANSVERSE`.
 
 

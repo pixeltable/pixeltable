@@ -13,7 +13,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.video.get_metadata(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.video.get_metadata(video: Video) -> Json
 ```
 
 ## Args
@@ -22,7 +22,7 @@ pixeltable.functions.video.get_metadata(*args: 'Any', **kwargs: 'Any') -> "'expr
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="video" type="string" required>
+<ParamField path="video" type="Video" required>
   The video to get metadata for.
 
 

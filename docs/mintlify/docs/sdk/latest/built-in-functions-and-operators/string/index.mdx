@@ -12,7 +12,7 @@ Equivalent to [`str.index()`](https://docs.python.org/3/library/stdtypes.html#st
 ## Signature
 
 ```python
-pixeltable.functions.string.index(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.index(self: String, substr: String, start: Int, end: Optional[Int]) -> Int
 ```
 
 ## Args
@@ -21,19 +21,19 @@ pixeltable.functions.string.index(*args: 'Any', **kwargs: 'Any') -> "'exprs.Func
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="substr" type="string" required>
+<ParamField path="substr" type="String" required>
   substring to search for
 
 
 </ParamField>
 
-<ParamField path="start" type="string" required>
+<ParamField path="start" type="Int" required>
   slice start
 
 
 </ParamField>
 
-<ParamField path="end" type="string" required>
+<ParamField path="end" type="Optional[Int]" required>
   slice end
 
 

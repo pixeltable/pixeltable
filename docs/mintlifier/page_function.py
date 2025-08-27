@@ -114,8 +114,26 @@ icon: "{icon}"
         content = "## Signature\n\n```python\n"
         
         try:
-            sig = inspect.signature(func)
-            content += f"{self._format_signature(full_path, sig)}\n"
+            # Check if it's a polymorphic function FIRST (before accessing .signature which throws)
+            if hasattr(func, 'is_polymorphic') and func.is_polymorphic:
+                # Show ALL signatures for polymorphic functions
+                if hasattr(func, 'signatures'):
+                    content += f"# Polymorphic function with {len(func.signatures)} signatures:\n\n"
+                    for i, sig in enumerate(func.signatures, 1):
+                        content += f"# Signature {i}:\n"
+                        content += f"{full_path}{sig}\n"
+                        if i < len(func.signatures):
+                            content += "\n"
+                else:
+                    content += f"{full_path}(...) # Polymorphic function\n"
+            elif hasattr(func, 'signature') and func.signature:
+                # Pixeltable CallableFunction stores signature as a string
+                sig_str = str(func.signature)
+                content += f"{full_path}{sig_str}\n"
+            else:
+                # Fall back to standard introspection
+                sig = inspect.signature(func)
+                content += f"{self._format_signature(full_path, sig)}\n"
         except (ValueError, TypeError):
             content += f"{full_path}(...)\n"
         
@@ -135,12 +153,41 @@ icon: "{icon}"
         params_with_defaults = {}
         params_with_types = {}
         try:
-            sig = inspect.signature(func)
-            for param_name, param in sig.parameters.items():
-                if param.default != inspect.Parameter.empty:
-                    params_with_defaults[param_name] = param.default
-                if param.annotation != inspect.Parameter.empty:
-                    params_with_types[param_name] = param.annotation
+            # For polymorphic functions, document ALL parameter variants
+            if hasattr(func, 'is_polymorphic') and func.is_polymorphic and hasattr(func, 'signatures'):
+                # Collect all unique parameters from all signatures
+                all_params = {}
+                for sig in func.signatures:
+                    if hasattr(sig, 'parameters'):
+                        for param_name, param in sig.parameters.items():
+                            if param_name not in all_params:
+                                # Store first occurrence of each param
+                                all_params[param_name] = param
+                                if hasattr(param, 'col_type'):
+                                    params_with_types[param_name] = str(param.col_type)
+                                if hasattr(param, 'default') and param.default is not None:
+                                    params_with_defaults[param_name] = param.default
+            # For regular Pixeltable functions, parse the signature string
+            elif hasattr(func, 'signature') and func.signature:
+                # Parse signature string like "(audio: Audio) -> Json"
+                sig_str = str(func.signature)
+                # Extract parameters from the string
+                if '(' in sig_str and ')' in sig_str:
+                    params_str = sig_str[sig_str.index('(')+1:sig_str.index(')')]
+                    if params_str:
+                        for param in params_str.split(','):
+                            param = param.strip()
+                            if ':' in param:
+                                name, type_str = param.split(':', 1)
+                                params_with_types[name.strip()] = type_str.strip()
+            else:
+                # Standard introspection
+                sig = inspect.signature(func)
+                for param_name, param in sig.parameters.items():
+                    if param.default != inspect.Parameter.empty:
+                        params_with_defaults[param_name] = param.default
+                    if param.annotation != inspect.Parameter.empty:
+                        params_with_types[param_name] = param.annotation
         except (ValueError, TypeError):
             pass
         

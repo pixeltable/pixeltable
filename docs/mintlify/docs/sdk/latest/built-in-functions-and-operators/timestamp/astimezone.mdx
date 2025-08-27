@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.timestamp.astimezone(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.timestamp.astimezone(self: Timestamp, tz: String) -> Timestamp
 ```
 
 ## Args
@@ -16,7 +16,7 @@ pixeltable.functions.timestamp.astimezone(*args: 'Any', **kwargs: 'Any') -> "'ex
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="tz" type="string" required>
+<ParamField path="tz" type="String" required>
   The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.
 
 

@@ -1,0 +1,37 @@
+---
+title: "pixeltable.iterators.FrameIterator"
+sidebarTitle: "FrameIterator"
+description: "Iterator over frames of a video. At most one of `fps` or `num_frames` may be specified. If `fps` is specified,"
+icon: "square-c"
+---
+
+then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified, then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
+
+
+## Constructor
+
+```python
+FrameIterator(
+    self,
+    video: str,
+    *,
+    fps: Optional[float] = None,
+    num_frames: Optional[int] = None,
+    all_frame_attrs: bool = False
+)
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/video.py#L19" target="_blank">View source on GitHub</a>
+
+## Methods
+
+- [close](./close) - Close the iterator and release all resources
+
+- [create](./create)
+- [input_schema](./input_schema) - Provide the Pixeltable types of the init() parameters
+
+- [output_schema](./output_schema) - Specify the dictionary returned by next() and a list of unstored column names
+
+- [set_pos](./set_pos) - Set the iterator position to pos
+
+

@@ -10,7 +10,7 @@ The colors will be in the image's mode. For example, an RGB image will return a 
 ## Signature
 
 ```python
-pixeltable.functions.image.getcolors(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.getcolors(self: Image, maxcolors: Int) -> Json
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.image.getcolors(*args: 'Any', **kwargs: 'Any') -> "'exprs.F
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="maxcolors" type="string" required>
+<ParamField path="maxcolors" type="Int" required>
   Maximum number of colors. If this number is exceeded, this method returns None. The default limit is 256 colors.
 
 

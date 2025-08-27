@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `openai.ra
 ## Signature
 
 ```python
-pixeltable.functions.openai.speech(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.openai.speech(input: String, model: String, voice: String, model_kwargs: Optional[Json]) -> Audio
 ```
 
 ## Args
@@ -31,25 +31,25 @@ pixeltable.functions.openai.speech(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="input" type="string" required>
+<ParamField path="input" type="String" required>
   The text to synthesize into speech.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for speech synthesis.
 
 
 </ParamField>
 
-<ParamField path="voice" type="string" required>
+<ParamField path="voice" type="String" required>
   The voice profile to use for speech synthesis. Supported options include: `alloy`, `echo`, `fable`, `onyx`, `nova`, and `shimmer`.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the OpenAI `audio/speech` API. For details on the available parameters, see: https://platform.openai.com/docs/api-reference/audio/createSpeech
 
 

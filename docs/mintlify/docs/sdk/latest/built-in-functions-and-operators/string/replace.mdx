@@ -10,7 +10,7 @@ Equivalent to [`str.replace()`](https://docs.python.org/3/library/stdtypes.html#
 ## Signature
 
 ```python
-pixeltable.functions.string.replace(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.replace(self: String, substr: String, repl: String, n: Optional[Int]) -> String
 ```
 
 ## Args
@@ -19,19 +19,19 @@ pixeltable.functions.string.replace(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fu
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="substr" type="string" required>
+<ParamField path="substr" type="String" required>
   string literal
 
 
 </ParamField>
 
-<ParamField path="repl" type="string" required>
+<ParamField path="repl" type="String" required>
   replacement string
 
 
 </ParamField>
 
-<ParamField path="n" type="string" required>
+<ParamField path="n" type="Optional[Int]" required>
   number of replacements to make (if `None`, replace all occurrences)
 
 

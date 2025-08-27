@@ -24,10 +24,7 @@ Request throttling: Applies the rate limit set in the config (section `deepseek`
 ## Signature
 
 ```python
-pixeltable.functions.deepseek.chat_completions(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.deepseek.chat_completions(messages: Json, model: String, model_kwargs: Optional[Json], tools: Optional[Json], tool_choice: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -36,31 +33,31 @@ pixeltable.functions.deepseek.chat_completions(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   A list of messages to use for chat completion, as described in the Deepseek API documentation.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for chat completion.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the Deepseek `chat/completions` API. For details on the available parameters, see: https://api-docs.deepseek.com/api/create-chat-completion
 
 
 </ParamField>
 
-<ParamField path="tools" type="string" required>
+<ParamField path="tools" type="Optional[Json]" required>
   An optional list of Pixeltable tools to use for the request.
 
 
 </ParamField>
 
-<ParamField path="tool_choice" type="string" required>
+<ParamField path="tool_choice" type="Optional[Json]" required>
   An optional tool choice configuration.
 
 

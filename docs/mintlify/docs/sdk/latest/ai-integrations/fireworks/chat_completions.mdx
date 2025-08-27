@@ -22,10 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `fireworks
 ## Signature
 
 ```python
-pixeltable.functions.fireworks.chat_completions(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.fireworks.chat_completions(messages: Json, model: String, model_kwargs: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -34,19 +31,19 @@ pixeltable.functions.fireworks.chat_completions(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   A list of messages comprising the conversation so far.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The name of the model to use.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the Fireworks `chat_completions` API. For details on the available parameters, see: https://docs.fireworks.ai/api-reference/post-chatcompletions
 
 

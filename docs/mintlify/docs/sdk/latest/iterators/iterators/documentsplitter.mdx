@@ -1,0 +1,65 @@
+---
+title: "pixeltable.iterators.DocumentSplitter"
+sidebarTitle: "DocumentSplitter"
+description: "Iterator over chunks of a document. The document is chunked according to the specified `separators`."
+icon: "square-c"
+---
+
+The iterator yields a `text` field containing the text of the chunk, and it may also include additional metadata fields if specified in the `metadata` parameter, as explained below.
+
+Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
+
+
+## Constructor
+
+```python
+DocumentSplitter(
+    self,
+    document: str,
+    *,
+    separators: str,
+    limit: Optional[int] = None,
+    overlap: Optional[int] = None,
+    metadata: str = '',
+    html_skip_tags: Optional[list[str]] = None,
+    tiktoken_encoding: Optional[str] = 'cl100k_base',
+    tiktoken_target_model: Optional[str] = None
+)
+```
+
+### Parameters
+
+#### `separators`
+separators to use to chunk the document. Options are: `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`. This may be a comma-separated string, e.g., `'heading,token_limit'`.
+
+
+#### `limit`
+the maximum number of tokens or characters in each chunk, if `'token_limit'` or `'char_limit'` is specified.
+
+
+#### `metadata`
+additional metadata fields to include in the output. Options are: `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'` (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/document.py#L90" target="_blank">View source on GitHub</a>
+
+## Methods
+
+- [close](./close) - Close the iterator and release all resources
+
+- [create](./create)
+- [input_schema](./input_schema) - Provide the Pixeltable types of the init() parameters
+
+- [output_schema](./output_schema) - Specify the dictionary returned by next() and a list of unstored column names
+
+- [set_pos](./set_pos) - Set the iterator position to pos
+
+
+## Class Attributes
+
+### METADATA_COLUMN_TYPES
+
+```python
+METADATA_COLUMN_TYPES = {<ChunkMetadata.TITLE: 1>: Optional[String], <ChunkMetadata.HEADING: 2>: Optional[Json], <ChunkMetadata.SOURCELINE: 3>: Optional[Int], <ChunkMetadata.PAGE: 4>: Optional[Int], <ChunkMetadata.BOUNDING_BOX: 5>: Optional[Json]}
+```
+

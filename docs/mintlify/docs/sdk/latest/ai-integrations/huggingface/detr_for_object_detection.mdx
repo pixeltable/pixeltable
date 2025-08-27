@@ -20,10 +20,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.huggingface.detr_for_object_detection(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.huggingface.detr_for_object_detection(image: Image, model_id: String, threshold: Float, revision: String) -> Json
 ```
 
 ## Args
@@ -32,13 +29,13 @@ pixeltable.functions.huggingface.detr_for_object_detection(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="image" type="string" required>
+<ParamField path="image" type="Image" required>
   The image to embed.
 
 
 </ParamField>
 
-<ParamField path="model_id" type="string" required>
+<ParamField path="model_id" type="String" required>
   The pretrained model to use for object detection.
 
 

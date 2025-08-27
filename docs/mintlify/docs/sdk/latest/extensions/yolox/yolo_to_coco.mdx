@@ -16,7 +16,7 @@ YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable i
 ## Signature
 
 ```python
-pixeltable.ext.functions.yolox.yolo_to_coco(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.ext.functions.yolox.yolo_to_coco(detections: Json) -> Json
 ```
 
 ## Args
@@ -25,7 +25,7 @@ pixeltable.ext.functions.yolox.yolo_to_coco(*args: 'Any', **kwargs: 'Any') -> "'
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="detections" type="string" required>
+<ParamField path="detections" type="Json" required>
   The output of a YOLOX object detection model, as returned by `yolox`.
 
 

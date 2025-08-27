@@ -1,0 +1,79 @@
+---
+title: "pixeltable.io.import_rows"
+sidebarTitle: "import_rows"
+description: "Creates a new base table from a list of dictionaries. The dictionaries must be of the"
+icon: "circle-f"
+---
+form `\{column_name: value, ...\}`. Pixeltable will attempt to infer the schema of the table from the supplied data, using the most specific type that can represent all the values in a column.
+
+If `schema_overrides` is specified, then for each entry `(column_name, type)` in `schema_overrides`, Pixeltable will force the specified column to the specified type (and will not attempt any type inference for that column).
+
+All column types of the new table will be nullable unless explicitly specified as non-nullable in `schema_overrides`.
+
+
+## Signature
+
+```python
+pixeltable.io.import_rows(
+    tbl_path: 'str',
+    rows: 'list[dict[str, Any]]',
+    *,
+    schema_overrides: 'Optional[dict[str, Any]]' = None,
+    primary_key: 'str | list[str] | None' = None,
+    num_retained_versions: 'int' = 10,
+    comment: 'str' = ''
+) -> 'pxt.Table'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/datarows.py#L59" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="tbl_path" type="str" required>
+  The qualified name of the table to create.
+
+
+</ParamField>
+
+<ParamField path="rows" type="list[dict[str, Any]]" required>
+  The list of dictionaries to import.
+
+
+</ParamField>
+
+<ParamField path="schema_overrides" type="Optional[dict[str, Any]]" >
+  If specified, then columns in `schema_overrides` will be given the specified types as described above.
+
+
+</ParamField>
+
+<ParamField path="primary_key" type="str | list[str] | None" >
+  The primary key of the table (see \[`create_table()`\]\[pixeltable.create_table\]).
+
+
+</ParamField>
+
+<ParamField path="num_retained_versions" type="int" >
+  The number of retained versions of the table (see \[`create_table()`\]\[pixeltable.create_table\]).
+
+
+</ParamField>
+
+<ParamField path="comment" type="str" >
+  A comment to attach to the table (see \[`create_table()`\]\[pixeltable.create_table\]).
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A handle to the newly created \[`Table`\]\[pixeltable.Table\].
+
+
+</ResponseField>
+

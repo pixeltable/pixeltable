@@ -127,16 +127,30 @@ icon: "{icon}"
         content = "## Signature\n\n```python\n"
         
         try:
-            sig = inspect.signature(method)
-            # Format as instance method
-            if 'self' in sig.parameters:
-                # Remove self from signature for display
-                params = list(sig.parameters.values())[1:]
-                new_sig = sig.replace(parameters=params)
-                content += f"{name}{new_sig}\n"
+            # Check for Pixeltable's custom signature attribute first
+            if hasattr(method, 'signature') and method.signature:
+                # Pixeltable CallableFunction stores signature as a string
+                sig_str = str(method.signature)
+                # For methods, replace 'self:' with instance notation
+                if sig_str.startswith('(self:'):
+                    sig_str = sig_str.replace('(self:', '(', 1)
+                    if sig_str.startswith('(,'):
+                        sig_str = '(' + sig_str[2:]  # Remove leading comma
+                    elif sig_str == '()':
+                        pass  # Keep empty parens
+                content += f"{name}{sig_str}\n"
             else:
-                # Class method or static method
-                content += f"{class_name}.{self._format_signature(name, sig)}\n"
+                # Standard introspection
+                sig = inspect.signature(method)
+                # Format as instance method
+                if 'self' in sig.parameters:
+                    # Remove self from signature for display
+                    params = list(sig.parameters.values())[1:]
+                    new_sig = sig.replace(parameters=params)
+                    content += f"{name}{new_sig}\n"
+                else:
+                    # Class method or static method
+                    content += f"{class_name}.{self._format_signature(name, sig)}\n"
         except (ValueError, TypeError):
             content += f"{name}(...)\n"
         

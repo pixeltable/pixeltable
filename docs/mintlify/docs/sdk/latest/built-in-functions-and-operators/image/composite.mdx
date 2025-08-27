@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.image.composite(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.composite(image1: Image, image2: Image, mask: Image) -> Image
 ```
 
 ## Args
@@ -16,19 +16,19 @@ pixeltable.functions.image.composite(*args: 'Any', **kwargs: 'Any') -> "'exprs.F
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="image1" type="string" required>
+<ParamField path="image1" type="Image" required>
   The first image.
 
 
 </ParamField>
 
-<ParamField path="image2" type="string" required>
+<ParamField path="image2" type="Image" required>
   The second image. Must have the same mode and size as the first image.
 
 
 </ParamField>
 
-<ParamField path="mask" type="string" required>
+<ParamField path="mask" type="Image" required>
   A mask image. This image can have mode "1", "L", or "RGBA", and must have the same size as the other two images.
 
 

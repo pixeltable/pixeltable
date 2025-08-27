@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.vision.eval_detections(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.vision.eval_detections(pred_bboxes: Json, pred_labels: Json, pred_scores: Json, gt_bboxes: Json, gt_labels: Json, min_iou: Float) -> Json
 ```
 
 ## Args
@@ -16,37 +16,37 @@ pixeltable.functions.vision.eval_detections(*args: 'Any', **kwargs: 'Any') -> "'
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="pred_bboxes" type="string" required>
+<ParamField path="pred_bboxes" type="Json" required>
   List of predicted bounding boxes, each represented as \[xmin, ymin, xmax, ymax\].
 
 
 </ParamField>
 
-<ParamField path="pred_labels" type="string" required>
+<ParamField path="pred_labels" type="Json" required>
   List of predicted labels.
 
 
 </ParamField>
 
-<ParamField path="pred_scores" type="string" required>
+<ParamField path="pred_scores" type="Json" required>
   List of predicted scores.
 
 
 </ParamField>
 
-<ParamField path="gt_bboxes" type="string" required>
+<ParamField path="gt_bboxes" type="Json" required>
   List of ground truth bounding boxes, each represented as \[xmin, ymin, xmax, ymax\].
 
 
 </ParamField>
 
-<ParamField path="gt_labels" type="string" required>
+<ParamField path="gt_labels" type="Json" required>
   List of ground truth labels.
 
 
 </ParamField>
 
-<ParamField path="min_iou" type="string" required>
+<ParamField path="min_iou" type="Float" required>
   Minimum intersection-over-union (IoU) threshold for a predicted bounding box to be considered a true positive.
 
 

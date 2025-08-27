@@ -10,7 +10,7 @@ Equivalent to [`date.isoformat()`](https://docs.python.org/3/library/datetime.ht
 ## Signature
 
 ```python
-pixeltable.functions.date.isoformat(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.date.isoformat(self: Date, sep: String, timespec: String) -> String
 ```
 
 ## Args
@@ -19,13 +19,13 @@ pixeltable.functions.date.isoformat(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fu
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="sep" type="string" required>
+<ParamField path="sep" type="String" required>
   Separator between date and time.
 
 
 </ParamField>
 
-<ParamField path="timespec" type="string" required>
+<ParamField path="timespec" type="String" required>
   The number of additional terms in the output. See the [`date.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.date.isoformat) documentation for more details.
 
 

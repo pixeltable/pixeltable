@@ -1,0 +1,63 @@
+---
+title: "pixeltable.io.import_pandas"
+sidebarTitle: "import_pandas"
+description: "Creates a new base table from a Pandas"
+icon: "circle-f"
+---
+[`DataFrame`](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html), with the specified name. The schema of the table will be inferred from the DataFrame.
+
+The column names of the new table will be identical to those in the DataFrame, as long as they are valid Pixeltable identifiers. If a column name is not a valid Pixeltable identifier, it will be normalized according to the following procedure:
+
+- first replace any non-alphanumeric characters with underscores;
+- then, preface the result with the letter 'c' if it begins with a number or an underscore;
+- then, if there are any duplicate column names, suffix the duplicates with '\_2', '\_3', etc., in column order.
+
+
+## Signature
+
+```python
+pixeltable.io.import_pandas(
+    tbl_name: str,
+    df: pandas.core.frame.DataFrame,
+    *,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    num_retained_versions: int = 10,
+    comment: str = ''
+) -> pixeltable.catalog.table.Table
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/pandas.py#L15" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="tbl_name" type="<class 'str'>" required>
+  The name of the table to create.
+
+
+</ParamField>
+
+<ParamField path="df" type="<class 'pandas.core.frame.DataFrame'>" required>
+  The Pandas `DataFrame`.
+
+
+</ParamField>
+
+<ParamField path="schema_overrides" type="optional<dict[str, Any>>" >
+  If specified, then for each (name, type) pair in `schema_overrides`, the column with name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid Pixeltable identifiers).
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A handle to the newly created \[`Table`\]\[pixeltable.Table\].
+
+
+</ResponseField>
+

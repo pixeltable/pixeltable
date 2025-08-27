@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.ollama.embed(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.ollama.embed(input: String, model: String, truncate: Bool, options: Optional[Json]) -> Array[(None,), Float]
 ```
 
 ## Args
@@ -16,25 +16,25 @@ pixeltable.functions.ollama.embed(*args: 'Any', **kwargs: 'Any') -> "'exprs.Func
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="input" type="string" required>
+<ParamField path="input" type="String" required>
   The input text to generate embeddings for.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model name.
 
 
 </ParamField>
 
-<ParamField path="truncate" type="string" required>
+<ParamField path="truncate" type="Bool" required>
   Truncates the end of each input to fit within context length. Returns error if false and context length is exceeded.
 
 
 </ParamField>
 
-<ParamField path="options" type="string" required>
+<ParamField path="options" type="Optional[Json]" required>
   Additional options to pass to the `embed` call. For details, see the [Valid Parameters and Values](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values) section of the Ollama documentation.
 
 

@@ -10,7 +10,7 @@ Equivalent to [`str.find()`](https://docs.python.org/3/library/stdtypes.html#str
 ## Signature
 
 ```python
-pixeltable.functions.string.find(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.find(self: String, substr: String, start: Int, end: Optional[Int]) -> Int
 ```
 
 ## Args
@@ -19,19 +19,19 @@ pixeltable.functions.string.find(*args: 'Any', **kwargs: 'Any') -> "'exprs.Funct
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="substr" type="string" required>
+<ParamField path="substr" type="String" required>
   substring to search for
 
 
 </ParamField>
 
-<ParamField path="start" type="string" required>
+<ParamField path="start" type="Int" required>
   slice start
 
 
 </ParamField>
 
-<ParamField path="end" type="string" required>
+<ParamField path="end" type="Optional[Int]" required>
   slice end
 
 

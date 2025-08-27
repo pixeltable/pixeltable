@@ -22,10 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `mistral`,
 ## Signature
 
 ```python
-pixeltable.functions.mistralai.fim_completions(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.mistralai.fim_completions(prompt: String, model: String, model_kwargs: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -34,19 +31,19 @@ pixeltable.functions.mistralai.fim_completions(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="prompt" type="string" required>
+<ParamField path="prompt" type="String" required>
   The text/code to complete.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   ID of the model to use. (See overview here: https://docs.mistral.ai/getting-started/models/)
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the Mistral `fim/completions` API. For details on the available parameters, see: https://docs.mistral.ai/api/#tag/fim
 
 

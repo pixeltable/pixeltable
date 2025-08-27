@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `veo.rate_
 ## Signature
 
 ```python
-pixeltable.functions.gemini.generate_videos(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.gemini.generate_videos(prompt: Optional[String], image: Optional[Image], model: String, config: Optional[Json]) -> Video
 ```
 
 ## Args
@@ -31,25 +31,25 @@ pixeltable.functions.gemini.generate_videos(*args: 'Any', **kwargs: 'Any') -> "'
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="prompt" type="string" required>
+<ParamField path="prompt" type="Optional[String]" required>
   A text description of the videos to generate.
 
 
 </ParamField>
 
-<ParamField path="image" type="string" required>
+<ParamField path="image" type="Optional[Image]" required>
   An optional image to use as the first frame of the video. At least one of `prompt` or `image` must be provided. (It is ok to specify both.)
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use.
 
 
 </ParamField>
 
-<ParamField path="config" type="string" required>
+<ParamField path="config" type="Optional[Json]" required>
   Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateVideosConfig`. For details on the parameters, see: https://googleapis.github.io/python-genai/genai.html#module-genai.types
 
 

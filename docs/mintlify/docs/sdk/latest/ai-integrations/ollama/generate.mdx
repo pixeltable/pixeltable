@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.ollama.generate(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.ollama.generate(prompt: String, model: String, suffix: String, system: String, template: String, context: Optional[Json], raw: Bool, format: Optional[String], options: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -16,55 +16,55 @@ pixeltable.functions.ollama.generate(*args: 'Any', **kwargs: 'Any') -> "'exprs.F
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="prompt" type="string" required>
+<ParamField path="prompt" type="String" required>
   The prompt to generate a response for.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model name.
 
 
 </ParamField>
 
-<ParamField path="suffix" type="string" required>
+<ParamField path="suffix" type="String" required>
   The text after the model response.
 
 
 </ParamField>
 
-<ParamField path="format" type="string" required>
+<ParamField path="format" type="Optional[String]" required>
   The format of the response; must be one of `'json'` or `None`.
 
 
 </ParamField>
 
-<ParamField path="system" type="string" required>
+<ParamField path="system" type="String" required>
   System message.
 
 
 </ParamField>
 
-<ParamField path="template" type="string" required>
+<ParamField path="template" type="String" required>
   Prompt template to use.
 
 
 </ParamField>
 
-<ParamField path="context" type="string" required>
+<ParamField path="context" type="Optional[Json]" required>
   The context parameter returned from a previous call to `generate()`.
 
 
 </ParamField>
 
-<ParamField path="raw" type="string" required>
+<ParamField path="raw" type="Bool" required>
   If `True`, no formatting will be applied to the prompt.
 
 
 </ParamField>
 
-<ParamField path="options" type="string" required>
+<ParamField path="options" type="Optional[Json]" required>
   Additional options for the Ollama `chat` call, such as `max_tokens`, `temperature`, `top_p`, and `top_k`. For details, see the [Valid Parameters and Values](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values) section of the Ollama documentation.
 
 

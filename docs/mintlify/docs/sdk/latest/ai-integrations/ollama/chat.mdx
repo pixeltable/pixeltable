@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.ollama.chat(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.ollama.chat(messages: Json, model: String, tools: Optional[Json], format: Optional[String], options: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -16,31 +16,31 @@ pixeltable.functions.ollama.chat(*args: 'Any', **kwargs: 'Any') -> "'exprs.Funct
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   The messages of the chat.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model name.
 
 
 </ParamField>
 
-<ParamField path="tools" type="string" required>
+<ParamField path="tools" type="Optional[Json]" required>
   Tools for the model to use.
 
 
 </ParamField>
 
-<ParamField path="format" type="string" required>
+<ParamField path="format" type="Optional[String]" required>
   The format of the response; must be one of `'json'` or `None`.
 
 
 </ParamField>
 
-<ParamField path="options" type="string" required>
+<ParamField path="options" type="Optional[Json]" required>
   Additional options to pass to the `chat` call, such as `max_tokens`, `temperature`, `top_p`, and `top_k`. For details, see the [Valid Parameters and Values](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values) section of the Ollama documentation.
 
 

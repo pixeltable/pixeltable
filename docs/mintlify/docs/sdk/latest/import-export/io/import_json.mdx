@@ -1,0 +1,82 @@
+---
+title: "pixeltable.io.import_json"
+sidebarTitle: "import_json"
+description: "Creates a new base table from a JSON file. This is a convenience method and is"
+icon: "circle-f"
+---
+equivalent to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents` is the contents of the specified `filepath_or_url`.
+
+
+## Signature
+
+```python
+pixeltable.io.import_json(
+    tbl_path: 'str',
+    filepath_or_url: 'str',
+    *,
+    schema_overrides: 'Optional[dict[str, Any]]' = None,
+    primary_key: 'str | list[str] | None' = None,
+    num_retained_versions: 'int' = 10,
+    comment: 'str' = '',
+    **kwargs: 'Any'
+) -> 'pxt.Table'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/datarows.py#L103" target="_self">View source on GitHub</a>
+
+## Args
+
+<Note>
+Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
+</Note>
+
+<ParamField path="tbl_path" type="str" required>
+  The name of the table to create.
+
+
+</ParamField>
+
+<ParamField path="filepath_or_url" type="str" required>
+  The path or URL of the JSON file.
+
+
+</ParamField>
+
+<ParamField path="schema_overrides" type="Optional[dict[str, Any]]" >
+  If specified, then columns in `schema_overrides` will be given the specified types (see \[`import_rows()`\]\[pixeltable.io.import_rows\]).
+
+
+</ParamField>
+
+<ParamField path="primary_key" type="str | list[str] | None" >
+  The primary key of the table (see \[`create_table()`\]\[pixeltable.create_table\]).
+
+
+</ParamField>
+
+<ParamField path="num_retained_versions" type="int" >
+  The number of retained versions of the table (see \[`create_table()`\]\[pixeltable.create_table\]).
+
+
+</ParamField>
+
+<ParamField path="comment" type="str" >
+  A comment to attach to the table (see \[`create_table()`\]\[pixeltable.create_table\]).
+
+
+</ParamField>
+
+<ParamField path="kwargs" type="Any" required>
+  Additional keyword arguments to pass to `json.loads`.
+
+
+</ParamField>
+
+## Returns
+
+<ResponseField name="return" type="any" required>
+  A handle to the newly created \[`Table`\]\[pixeltable.Table\].
+
+
+</ResponseField>
+

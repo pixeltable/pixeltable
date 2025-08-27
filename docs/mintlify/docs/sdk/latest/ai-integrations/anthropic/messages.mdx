@@ -22,7 +22,7 @@ Request throttling: Uses the rate limit-related headers returned by the API to t
 ## Signature
 
 ```python
-pixeltable.functions.anthropic.messages(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.anthropic.messages(messages: Json, model: String, max_tokens: Int, model_kwargs: Optional[Json], tools: Optional[Json], tool_choice: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -31,31 +31,31 @@ pixeltable.functions.anthropic.messages(*args: 'Any', **kwargs: 'Any') -> "'expr
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   Input messages.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model that will complete your prompt.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the Anthropic `messages` API. For details on the available parameters, see: https://docs.anthropic.com/en/api/messages
 
 
 </ParamField>
 
-<ParamField path="tools" type="string" required>
+<ParamField path="tools" type="Optional[Json]" required>
   An optional list of Pixeltable tools to use for the request.
 
 
 </ParamField>
 
-<ParamField path="tool_choice" type="string" required>
+<ParamField path="tool_choice" type="Optional[Json]" required>
   An optional tool choice configuration.
 
 

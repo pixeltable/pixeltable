@@ -12,7 +12,7 @@ Equivalent to [`textwrap.fill()`](https://docs.python.org/3/library/textwrap.htm
 ## Signature
 
 ```python
-pixeltable.functions.string.wrap(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.wrap(self: String, width: Int, **kwargs) -> Json
 ```
 
 ## Args
@@ -21,13 +21,13 @@ pixeltable.functions.string.wrap(*args: 'Any', **kwargs: 'Any') -> "'exprs.Funct
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="width" type="string" required>
+<ParamField path="width" type="Int" required>
   Maximum line width.
 
 
 </ParamField>
 
-<ParamField path="kwargs" type="Any" required>
+<ParamField path="kwargs" type="string" required>
   Additional keyword arguments to pass to `textwrap.fill()`.
 
 

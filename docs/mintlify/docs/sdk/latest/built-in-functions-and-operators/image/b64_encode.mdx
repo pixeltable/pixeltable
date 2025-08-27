@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.image.b64_encode(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.b64_encode(img: Image, image_format: String) -> String
 ```
 
 ## Args
@@ -16,13 +16,13 @@ pixeltable.functions.image.b64_encode(*args: 'Any', **kwargs: 'Any') -> "'exprs.
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="img" type="string" required>
+<ParamField path="img" type="Image" required>
   image
 
 
 </ParamField>
 
-<ParamField path="image_format" type="string" required>
+<ParamField path="image_format" type="String" required>
   image format [supported by PIL](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#fully-supported-formats)
 
 

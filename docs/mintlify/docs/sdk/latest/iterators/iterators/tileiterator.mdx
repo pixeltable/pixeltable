@@ -1,0 +1,36 @@
+---
+title: "pixeltable.iterators.TileIterator"
+sidebarTitle: "TileIterator"
+description: "Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be"
+icon: "square-c"
+---
+
+iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with blackspace, so that the output images all have the exact size `tile_size`.
+
+
+## Constructor
+
+```python
+TileIterator(
+    self,
+    image: PIL.Image.Image,
+    *,
+    tile_size: tuple[int, int],
+    overlap: tuple[int, int] = (0, 0)
+)
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/image.py#L10" target="_blank">View source on GitHub</a>
+
+## Methods
+
+- [close](./close) - Close the iterator and release all resources
+
+- [create](./create)
+- [input_schema](./input_schema) - Provide the Pixeltable types of the init() parameters
+
+- [output_schema](./output_schema) - Specify the dictionary returned by next() and a list of unstored column names
+
+- [set_pos](./set_pos) - Set the iterator position to pos
+
+

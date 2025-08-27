@@ -20,10 +20,7 @@ in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence
 ## Signature
 
 ```python
-pixeltable.functions.huggingface.sentence_transformer(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.huggingface.sentence_transformer(sentence: String, model_id: String, normalize_embeddings: Bool) -> Array[(None,), Float]
 ```
 
 ## Args
@@ -32,19 +29,19 @@ pixeltable.functions.huggingface.sentence_transformer(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="sentence" type="string" required>
+<ParamField path="sentence" type="String" required>
   The sentence to embed.
 
 
 </ParamField>
 
-<ParamField path="model_id" type="string" required>
+<ParamField path="model_id" type="String" required>
   The pretrained model to use for the encoding.
 
 
 </ParamField>
 
-<ParamField path="normalize_embeddings" type="string" required>
+<ParamField path="normalize_embeddings" type="Bool" required>
   If `True`, normalizes embeddings to length 1; see the [Sentence Transformers API Docs](https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html) for more details
 
 

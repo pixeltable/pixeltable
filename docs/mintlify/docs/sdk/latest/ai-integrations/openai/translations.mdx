@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `openai.ra
 ## Signature
 
 ```python
-pixeltable.functions.openai.translations(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.openai.translations(audio: Audio, model: String, model_kwargs: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -31,19 +31,19 @@ pixeltable.functions.openai.translations(*args: 'Any', **kwargs: 'Any') -> "'exp
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="audio" type="string" required>
+<ParamField path="audio" type="Audio" required>
   The audio to translate.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for speech transcription and translation.
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the OpenAI `audio/translations` API. For details on the available parameters, see: https://platform.openai.com/docs/api-reference/audio/createTranslation
 
 

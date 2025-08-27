@@ -10,7 +10,7 @@ Equivalent to [`str.endswith()`](https://docs.python.org/3/library/stdtypes.html
 ## Signature
 
 ```python
-pixeltable.functions.string.endswith(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.endswith(self: String, substr: String) -> Bool
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.string.endswith(*args: 'Any', **kwargs: 'Any') -> "'exprs.F
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="substr" type="string" required>
+<ParamField path="substr" type="String" required>
   string literal
 
 

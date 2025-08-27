@@ -10,7 +10,7 @@ Equivalent to [`PIL.Image.Image.point()`](https://pillow.readthedocs.io/en/stabl
 ## Signature
 
 ```python
-pixeltable.functions.image.point(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.point(self: Image, lut: Json, mode: Optional[String]) -> Image
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.image.point(*args: 'Any', **kwargs: 'Any') -> "'exprs.Funct
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="lut" type="string" required>
+<ParamField path="lut" type="Json" required>
   A lookup table.
 
 

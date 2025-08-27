@@ -10,7 +10,7 @@ Equivalent to [`date.strftime()`](https://docs.python.org/3/library/datetime.htm
 ## Signature
 
 ```python
-pixeltable.functions.date.strftime(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.date.strftime(self: Date, format: String) -> String
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.date.strftime(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="format" type="string" required>
+<ParamField path="format" type="String" required>
   The format string to control the output. For a complete list of formatting directives, see [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
 
 

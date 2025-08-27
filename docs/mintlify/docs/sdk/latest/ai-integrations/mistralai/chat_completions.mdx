@@ -22,10 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `mistral`,
 ## Signature
 
 ```python
-pixeltable.functions.mistralai.chat_completions(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.mistralai.chat_completions(messages: Json, model: String, model_kwargs: Optional[Json]) -> Json
 ```
 
 ## Args
@@ -34,19 +31,19 @@ pixeltable.functions.mistralai.chat_completions(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="messages" type="string" required>
+<ParamField path="messages" type="Json" required>
   The prompt(s) to generate completions for.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   ID of the model to use. (See overview here: https://docs.mistral.ai/getting-started/models/)
 
 
 </ParamField>
 
-<ParamField path="model_kwargs" type="string" required>
+<ParamField path="model_kwargs" type="Optional[Json]" required>
   Additional keyword args for the Mistral `chat/completions` API. For details on the available parameters, see: https://docs.mistral.ai/api/#tag/chat
 
 

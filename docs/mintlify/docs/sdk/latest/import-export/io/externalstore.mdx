@@ -1,0 +1,37 @@
+---
+title: "pixeltable.io.ExternalStore"
+sidebarTitle: "ExternalStore"
+description: "Abstract base class that represents an external data store that is linked to a Pixeltable"
+icon: "square-c"
+---
+
+table. Subclasses of `ExternalStore` provide functionality for synchronizing between Pixeltable and stateful external stores.
+
+
+## Constructor
+
+```python
+ExternalStore(self, name: 'str') -> 'None'
+```
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/external_store.py#L17" target="_blank">View source on GitHub</a>
+
+## Methods
+
+- [as_dict](./as_dict)
+- [from_dict](./from_dict)
+- [get_local_columns](./get_local_columns) - Gets a list of all local (Pixeltable) columns that are associated with this external store.
+
+- [link](./link) - Creates store-specific metadata needed to implement sync().
+
+- [sync](./sync) - Called by `Table.sync()` to implement store-specific synchronization logic.
+
+- [unlink](./unlink) - Removes store-specific metadata created in link().
+
+
+## Properties
+
+### name
+
+**Type:** Property (read)
+

@@ -14,10 +14,7 @@ If no colors are specified, this function randomly assigns each label a specific
 ## Signature
 
 ```python
-pixeltable.functions.vision.draw_bounding_boxes(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.functions.vision.draw_bounding_boxes(img: Image, boxes: Json, labels: Optional[Json], color: Optional[String], box_colors: Optional[Json], fill: Bool, width: Int, font: Optional[String], font_size: Optional[Int]) -> Image
 ```
 
 ## Args
@@ -26,55 +23,55 @@ pixeltable.functions.vision.draw_bounding_boxes(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="img" type="string" required>
+<ParamField path="img" type="Image" required>
   The image on which to draw the bounding boxes.
 
 
 </ParamField>
 
-<ParamField path="boxes" type="string" required>
+<ParamField path="boxes" type="Json" required>
   List of bounding boxes, each represented as \[xmin, ymin, xmax, ymax\].
 
 
 </ParamField>
 
-<ParamField path="labels" type="string" required>
+<ParamField path="labels" type="Optional[Json]" required>
   List of labels for each bounding box.
 
 
 </ParamField>
 
-<ParamField path="color" type="string" required>
+<ParamField path="color" type="Optional[String]" required>
   Single color to be used for all bounding boxes and labels.
 
 
 </ParamField>
 
-<ParamField path="box_colors" type="string" required>
+<ParamField path="box_colors" type="Optional[Json]" required>
   List of colors, one per bounding box.
 
 
 </ParamField>
 
-<ParamField path="fill" type="string" required>
+<ParamField path="fill" type="Bool" required>
   Whether to fill the bounding boxes with color.
 
 
 </ParamField>
 
-<ParamField path="width" type="string" required>
+<ParamField path="width" type="Int" required>
   Width of the bounding box borders.
 
 
 </ParamField>
 
-<ParamField path="font" type="string" required>
+<ParamField path="font" type="Optional[String]" required>
   Name of a system font or path to a TrueType font file, as required by [`PIL.ImageFont.truetype()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype). If `None`, uses the default provided by [`PIL.ImageFont.load_default()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.load_default).
 
 
 </ParamField>
 
-<ParamField path="font_size" type="string" required>
+<ParamField path="font_size" type="Optional[Int]" required>
   Size of the font used for labels in points. Only used in conjunction with non-`None` `font` argument.
 
 

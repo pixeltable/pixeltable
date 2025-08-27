@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.string.pad(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.pad(self: String, width: Int, side: String, fillchar: String) -> String
 ```
 
 ## Args
@@ -16,19 +16,19 @@ pixeltable.functions.string.pad(*args: 'Any', **kwargs: 'Any') -> "'exprs.Functi
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="width" type="string" required>
+<ParamField path="width" type="Int" required>
   Minimum width of resulting string; additional characters will be filled with character defined in `fillchar`.
 
 
 </ParamField>
 
-<ParamField path="side" type="string" required>
+<ParamField path="side" type="String" required>
   Side from which to fill resulting string (`'left'`, `'right'`, `'both'`)
 
 
 </ParamField>
 
-<ParamField path="fillchar" type="string" required>
+<ParamField path="fillchar" type="String" required>
   Additional character for filling
 
 

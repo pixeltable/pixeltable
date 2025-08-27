@@ -10,7 +10,7 @@ of colors.
 ## Signature
 
 ```python
-pixeltable.functions.image.quantize(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.quantize(self: Image, colors: Int, method: Optional[Int], kmeans: Int, palette: Optional[Int], dither: Int) -> Image
 ```
 
 ## Args
@@ -19,13 +19,13 @@ pixeltable.functions.image.quantize(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fu
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="colors" type="string" required>
+<ParamField path="colors" type="Int" required>
   The desired number of colors, \<= 256
 
 
 </ParamField>
 
-<ParamField path="method" type="string" required>
+<ParamField path="method" type="Optional[Int]" required>
   :data:`Quantize.MEDIANCUT` (median cut), :data:`Quantize.MAXCOVERAGE` (maximum coverage), :data:`Quantize.FASTOCTREE` (fast octree), :data:`Quantize.LIBIMAGEQUANT` (libimagequant; check support using :py:func:`PIL.features.check_feature` with `feature="libimagequant"`).
 
 By default, :data:`Quantize.MEDIANCUT` will be used.
@@ -35,19 +35,19 @@ The exception to this is RGBA images. :data:`Quantize.MEDIANCUT` and :data:`Quan
 
 </ParamField>
 
-<ParamField path="kmeans" type="string" required>
+<ParamField path="kmeans" type="Int" required>
   Integer greater than or equal to zero.
 
 
 </ParamField>
 
-<ParamField path="palette" type="string" required>
+<ParamField path="palette" type="Optional[Int]" required>
   Quantize to the palette of given :py:class:`PIL.Image.Image`.
 
 
 </ParamField>
 
-<ParamField path="dither" type="string" required>
+<ParamField path="dither" type="Int" required>
   Dithering method, used when converting from mode "RGB" to "P" or from "RGB" or "L" to "1". Available methods are :data:`Dither.NONE` or :data:`Dither.FLOYDSTEINBERG` (default).
 
 

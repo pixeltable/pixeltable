@@ -10,7 +10,7 @@ Equivalent to [`str.rstrip()`](https://docs.python.org/3/library/stdtypes.html#s
 ## Signature
 
 ```python
-pixeltable.functions.string.rstrip(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.rstrip(self: String, chars: Optional[String]) -> String
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.string.rstrip(*args: 'Any', **kwargs: 'Any') -> "'exprs.Fun
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="chars" type="string" required>
+<ParamField path="chars" type="Optional[String]" required>
   The set of characters to be removed. If omitted or `None`, whitespace characters are removed.
 
 

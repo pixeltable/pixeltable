@@ -13,7 +13,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.video.extract_audio(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.video.extract_audio(video_path: Video, stream_idx: Int, format: String, codec: Optional[String]) -> Audio
 ```
 
 ## Args
@@ -22,19 +22,19 @@ pixeltable.functions.video.extract_audio(*args: 'Any', **kwargs: 'Any') -> "'exp
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="stream_idx" type="string" required>
+<ParamField path="stream_idx" type="Int" required>
   Index of the audio stream to extract.
 
 
 </ParamField>
 
-<ParamField path="format" type="string" required>
+<ParamField path="format" type="String" required>
   The target audio format. (`'wav'`, `'mp3'`, `'flac'`).
 
 
 </ParamField>
 
-<ParamField path="codec" type="string" required>
+<ParamField path="codec" type="Optional[String]" required>
   The codec to use for the audio stream. If not provided, a default codec will be used.
 
 

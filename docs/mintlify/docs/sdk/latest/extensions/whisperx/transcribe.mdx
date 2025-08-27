@@ -22,10 +22,7 @@ WhisperX is part of the `pixeltable.ext` package: long-term support in Pixeltabl
 ## Signature
 
 ```python
-pixeltable.ext.functions.whisperx.transcribe(
-    *args: 'Any',
-    **kwargs: 'Any'
-) -> "'exprs.FunctionCall'"
+pixeltable.ext.functions.whisperx.transcribe(audio: Audio, model: String, compute_type: Optional[String], language: Optional[String], chunk_size: Int) -> Json
 ```
 
 ## Args
@@ -34,13 +31,13 @@ pixeltable.ext.functions.whisperx.transcribe(
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="audio" type="string" required>
+<ParamField path="audio" type="Audio" required>
   The audio file to transcribe.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The name of the model to use for transcription.
 
 

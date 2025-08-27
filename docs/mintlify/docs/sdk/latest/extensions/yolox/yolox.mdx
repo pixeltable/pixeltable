@@ -22,7 +22,7 @@ YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable i
 ## Signature
 
 ```python
-pixeltable.ext.functions.yolox.yolox(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.ext.functions.yolox.yolox(images: Image, model_id: String, threshold: Float) -> Json
 ```
 
 ## Args
@@ -31,13 +31,13 @@ pixeltable.ext.functions.yolox.yolox(*args: 'Any', **kwargs: 'Any') -> "'exprs.F
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="model_id" type="string" required>
+<ParamField path="model_id" type="String" required>
   one of: `yolox_nano`, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`
 
 
 </ParamField>
 
-<ParamField path="threshold" type="string" required>
+<ParamField path="threshold" type="Float" required>
   the threshold for object detection
 
 

@@ -10,7 +10,7 @@ Equivalent to [`unicodedata.normalize()`](https://docs.python.org/3/library/unic
 ## Signature
 
 ```python
-pixeltable.functions.string.normalize(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.string.normalize(self: String, form: String) -> String
 ```
 
 ## Args
@@ -19,7 +19,7 @@ pixeltable.functions.string.normalize(*args: 'Any', **kwargs: 'Any') -> "'exprs.
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="form" type="string" required>
+<ParamField path="form" type="String" required>
   Unicode normal form (`'NFC'`, `'NFKC'`, `'NFD'`, `'NFKD'`)
 
 

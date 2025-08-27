@@ -7,7 +7,7 @@ icon: "circle-u"
 ## Signature
 
 ```python
-pixeltable.functions.image.alpha_composite(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.image.alpha_composite(im1: Image, im2: Image) -> Image
 ```
 
 ## Args
@@ -16,13 +16,13 @@ pixeltable.functions.image.alpha_composite(*args: 'Any', **kwargs: 'Any') -> "'e
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="im1" type="string" required>
+<ParamField path="im1" type="Image" required>
   The first image. Must have mode RGBA.
 
 
 </ParamField>
 
-<ParamField path="im2" type="string" required>
+<ParamField path="im2" type="Image" required>
   The second image. Must have mode RGBA, and the same size as the first image.
 
 

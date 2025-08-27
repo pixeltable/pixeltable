@@ -22,7 +22,7 @@ Request throttling: Applies the rate limit set in the config (section `openai.ra
 ## Signature
 
 ```python
-pixeltable.functions.openai.moderations(*args: 'Any', **kwargs: 'Any') -> "'exprs.FunctionCall'"
+pixeltable.functions.openai.moderations(input: String, model: String) -> Json
 ```
 
 ## Args
@@ -31,13 +31,13 @@ pixeltable.functions.openai.moderations(*args: 'Any', **kwargs: 'Any') -> "'expr
 Parameter optional/required status may not be accurate if docstring doesn't specify defaults.
 </Note>
 
-<ParamField path="input" type="string" required>
+<ParamField path="input" type="String" required>
   Text to analyze with the moderations model.
 
 
 </ParamField>
 
-<ParamField path="model" type="string" required>
+<ParamField path="model" type="String" required>
   The model to use for moderations.
 
 
