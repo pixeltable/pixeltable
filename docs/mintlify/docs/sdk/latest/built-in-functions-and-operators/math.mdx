@@ -8,12 +8,115 @@ icon: "square-m"
 
 ### Functions
 
-- [abs](./abs)
-- [bitwise_and](./bitwise_and)
-- [bitwise_or](./bitwise_or)
-- [bitwise_xor](./bitwise_xor)
-- [ceil](./ceil)
-- [floor](./floor)
-- [pow](./pow)
-- [round](./round)
+### `abs()`
+
+Return the absolute value of the given number.
+
+
+Equivalent to Python [`builtins.abs()`](https://docs.python.org/3/library/functions.html#abs).
+
+
+**Signature:**
+
+```python
+abs(self: Float) -> Float
+```
+
+### `bitwise_and()`
+
+Bitwise AND of two integers.
+
+
+Equivalent to Python [`self & other`](https://docs.python.org/3/library/stdtypes.html#bitwise-operations-on-integer-types).
+
+
+**Signature:**
+
+```python
+bitwise_and(self: Int, other: Int) -> Int
+```
+
+### `bitwise_or()`
+
+Bitwise OR of two integers.
+
+
+Equivalent to Python [`self | other`](https://docs.python.org/3/library/stdtypes.html#bitwise-operations-on-integer-types).
+
+
+**Signature:**
+
+```python
+bitwise_or(self: Int, other: Int) -> Int
+```
+
+### `bitwise_xor()`
+
+Bitwise XOR of two integers.
+
+
+Equivalent to Python [`self ^ other`](https://docs.python.org/3/library/stdtypes.html#bitwise-operations-on-integer-types).
+
+
+**Signature:**
+
+```python
+bitwise_xor(self: Int, other: Int) -> Int
+```
+
+### `ceil()`
+
+Return the ceiling of the given number.
+
+
+Equivalent to Python [`float(math.ceil(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self` is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of `math.ceil(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior in Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
+
+
+**Signature:**
+
+```python
+ceil(self: Float) -> Float
+```
+
+### `floor()`
+
+Return the ceiling of the given number.
+
+
+Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self` is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of `math.floor(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior of Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
+
+
+**Signature:**
+
+```python
+floor(self: Float) -> Float
+```
+
+### `pow()`
+
+Raise `self` to the power of `other`.
+
+
+Equivalent to Python [`self ** other`](https://docs.python.org/3/library/functions.html#pow).
+
+
+**Signature:**
+
+```python
+pow(self: Int, other: Int) -> Float
+```
+
+### `round()`
+
+Round a number to a given precision in decimal digits.
+
+
+Equivalent to Python [`builtins.round(self, digits or 0)`](https://docs.python.org/3/library/functions.html#round). Note that if `digits` is not specified, the behavior matches `builtins.round(self, 0)` rather than `builtins.round(self)`; this ensures that the return type is always `float` (as in SQL) rather than `int`.
+
+
+**Signature:**
+
+```python
+round(self: Float, digits: Optional[Int]) -> Float
+```
 

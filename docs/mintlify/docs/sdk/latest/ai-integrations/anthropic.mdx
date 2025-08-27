@@ -12,6 +12,52 @@ that wrap various endpoints from the Anthropic API. In order to use them, you mu
 
 ### Functions
 
-- [invoke_tools](./invoke_tools)
-- [messages](./messages)
+### `invoke_tools()`
+
+Converts an Anthropic response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
+
+
+**Signature:**
+
+```python
+invoke_tools(tools: pixeltable.func.tools.Tools, response: pixeltable.exprs.expr.Expr) -> pixeltable.exprs.inline_expr.InlineDict
+```
+
+### `messages()`
+
+Create a Message.
+
+
+Equivalent to the Anthropic `messages` API endpoint. For additional details, see: [https://docs.anthropic.com/en/api/messages](https://docs.anthropic.com/en/api/messages)
+
+Request throttling: Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available request and token capacity. No configuration is necessary.
+
+**Requirements:**
+
+- `pip install anthropic`
+
+
+**Signature:**
+
+```python
+messages(messages: Json, model: String, max_tokens: Int, model_kwargs: Optional[Json], tools: Optional[Json], tool_choice: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`messages`** (*Json*): Input messages.
+
+- **`model`** (*String*): The model that will complete your prompt.
+
+- **`model_kwargs`** (*Optional[Json]*): Additional keyword args for the Anthropic `messages` API. For details on the available parameters, see: [https://docs.anthropic.com/en/api/messages](https://docs.anthropic.com/en/api/messages)
+
+- **`tools`** (*Optional[Json]*): An optional list of Pixeltable tools to use for the request.
+
+- **`tool_choice`** (*Optional[Json]*): An optional tool choice configuration.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the response and other metadata.
+
 

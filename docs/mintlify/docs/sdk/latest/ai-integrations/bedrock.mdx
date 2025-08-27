@@ -15,6 +15,50 @@ Documentation for `pixeltable.functions.bedrock` is not available.
 
 ### Functions
 
-- [converse](./converse)
-- [invoke_tools](./invoke_tools)
+### `converse()`
+
+Generate a conversation response.
+
+
+Equivalent to the AWS Bedrock `converse` API endpoint. For additional details, see: [https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html](https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html)
+
+**Requirements:**
+
+- `pip install boto3`
+
+
+**Signature:**
+
+```python
+converse(messages: Json, model_id: String, system: Optional[Json], inference_config: Optional[Json], additional_model_request_fields: Optional[Json], tool_config: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`messages`** (*Json*): Input messages.
+
+- **`model_id`** (*String*): The model that will complete your prompt.
+
+- **`system`** (*Optional[Json]*): An optional system prompt.
+
+- **`inference_config`** (*Optional[Json]*): Base inference parameters to use.
+
+- **`additional_model_request_fields`** (*Optional[Json]*): Additional inference parameters to use.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the response and other metadata.
+
+
+### `invoke_tools()`
+
+Converts an Anthropic response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
+
+
+**Signature:**
+
+```python
+invoke_tools(tools: pixeltable.func.tools.Tools, response: pixeltable.exprs.expr.Expr) -> pixeltable.exprs.inline_expr.InlineDict
+```
 

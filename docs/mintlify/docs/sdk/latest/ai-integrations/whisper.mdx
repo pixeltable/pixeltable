@@ -14,5 +14,33 @@ This UDF will cause Pixeltable to invoke the relevant model locally. In order to
 
 ### Functions
 
-- [transcribe](./transcribe)
+### `transcribe()`
+
+Transcribe an audio file using Whisper.
+
+
+This UDF runs a transcription model *locally* using the Whisper library, equivalent to the Whisper `transcribe` function, as described in the [Whisper library documentation](https://github.com/openai/whisper).
+
+**Requirements:**
+
+- `pip install openai-whisper`
+
+
+**Signature:**
+
+```python
+transcribe(audio: Audio, model: String, temperature: Optional[Json], compression_ratio_threshold: Optional[Float], logprob_threshold: Optional[Float], no_speech_threshold: Optional[Float], condition_on_previous_text: Bool, initial_prompt: Optional[String], word_timestamps: Bool, prepend_punctuations: String, append_punctuations: String, decode_options: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`audio`** (*Audio*): The audio file to transcribe.
+
+- **`model`** (*String*): The name of the model to use for transcription.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the transcription and various other metadata.
+
 

@@ -12,8 +12,137 @@ that wrap various endpoints from the Together AI API. In order to use them, you 
 
 ### Functions
 
-- [chat_completions](./chat_completions)
-- [completions](./completions)
-- [embeddings](./embeddings)
-- [image_generations](./image_generations)
+### `chat_completions()`
+
+Generate chat completions based on a given prompt using a specified model.
+
+
+Equivalent to the Together AI `chat/completions` API endpoint. For additional details, see: [https://docs.together.ai/reference/chat-completions-1](https://docs.together.ai/reference/chat-completions-1)
+
+Request throttling: Applies the rate limit set in the config (section `together.rate_limits`, key `chat`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install together`
+
+
+**Signature:**
+
+```python
+chat_completions(messages: Json, model: String, model_kwargs: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`messages`** (*Json*): A list of messages comprising the conversation so far.
+
+- **`model`** (*String*): The name of the model to query.
+
+- **`model_kwargs`** (*Optional[Json]*): Additional keyword arguments for the Together `chat/completions` API. For details on the available parameters, see: [https://docs.together.ai/reference/chat-completions-1](https://docs.together.ai/reference/chat-completions-1)
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the response and other metadata.
+
+
+### `completions()`
+
+Generate completions based on a given prompt using a specified model.
+
+
+Equivalent to the Together AI `completions` API endpoint. For additional details, see: [https://docs.together.ai/reference/completions-1](https://docs.together.ai/reference/completions-1)
+
+Request throttling: Applies the rate limit set in the config (section `together.rate_limits`, key `chat`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install together`
+
+
+**Signature:**
+
+```python
+completions(prompt: String, model: String, model_kwargs: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`prompt`** (*String*): A string providing context for the model to complete.
+
+- **`model`** (*String*): The name of the model to query.
+
+- **`model_kwargs`** (*Optional[Json]*): Additional keyword arguments for the Together `completions` API. For details on the available parameters, see: [https://docs.together.ai/reference/completions-1](https://docs.together.ai/reference/completions-1)
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the response and other metadata.
+
+
+### `embeddings()`
+
+Query an embedding model for a given string of text.
+
+
+Equivalent to the Together AI `embeddings` API endpoint. For additional details, see: [https://docs.together.ai/reference/embeddings-2](https://docs.together.ai/reference/embeddings-2)
+
+Request throttling: Applies the rate limit set in the config (section `together.rate_limits`, key `embeddings`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install together`
+
+
+**Signature:**
+
+```python
+embeddings(input: String, model: String) -> Array[(None,), Float]
+```
+
+**Parameters:**
+
+- **`input`** (*String*): A string providing the text for the model to embed.
+
+- **`model`** (*String*): The name of the embedding model to use.
+
+
+**Returns:**
+
+- *Any*: An array representing the application of the given embedding to `input`.
+
+
+### `image_generations()`
+
+Generate images based on a given prompt using a specified model.
+
+
+Equivalent to the Together AI `images/generations` API endpoint. For additional details, see: [https://docs.together.ai/reference/post_images-generations](https://docs.together.ai/reference/post_images-generations)
+
+Request throttling: Applies the rate limit set in the config (section `together.rate_limits`, key `images`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install together`
+
+
+**Signature:**
+
+```python
+image_generations(prompt: String, model: String, model_kwargs: Optional[Json]) -> Image
+```
+
+**Parameters:**
+
+- **`prompt`** (*String*): A description of the desired images.
+
+- **`model`** (*String*): The model to use for image generation.
+
+- **`model_kwargs`** (*Optional[Json]*): Additional keyword args for the Together `images/generations` API. For details on the available parameters, see: [https://docs.together.ai/reference/post_images-generations](https://docs.together.ai/reference/post_images-generations)
+
+
+**Returns:**
+
+- *Any*: The generated image.
+
 

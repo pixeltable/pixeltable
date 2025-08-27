@@ -14,13 +14,254 @@ These UDFs will cause Pixeltable to invoke the relevant models locally. In order
 
 ### Functions
 
-- [clip](./clip)
-- [cross_encoder](./cross_encoder)
-- [cross_encoder_list](./cross_encoder_list)
-- [detr_for_object_detection](./detr_for_object_detection)
-- [detr_to_coco](./detr_to_coco)
-- [sentence_transformer](./sentence_transformer)
-- [sentence_transformer_list](./sentence_transformer_list)
-- [speech2text_for_conditional_generation](./speech2text_for_conditional_generation)
-- [vit_for_image_classification](./vit_for_image_classification)
+### `clip()`
+
+Computes a CLIP embedding for the specified text or image. `model_id` should be a reference to a pretrained
+
+
+[CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
+
+**Requirements:**
+
+- `pip install torch transformers`
+
+
+**Signature:**
+
+```python
+# Signature 1:
+clip(text: String, model_id: String) -> Array[(None,), Float]
+
+# Signature 2:
+clip(image: Image, model_id: String) -> Array[(None,), Float]
+```
+
+**Parameters:**
+
+- **`text`** (*String*): The string to embed.
+
+- **`model_id`** (*String*): The pretrained model to use for the embedding.
+
+
+**Returns:**
+
+- *Any*: An array containing the output of the embedding model.
+
+
+### `cross_encoder()`
+
+Performs predicts on the given sentence pair.
+
+
+`model_id` should be a pretrained Cross-Encoder model, as described in the [Cross-Encoder Pretrained Models](https://www.sbert.net/docs/cross_encoder/pretrained_models.html) documentation.
+
+**Requirements:**
+
+- `pip install torch sentence-transformers`
+
+
+**Signature:**
+
+```python
+cross_encoder(sentences1: String, sentences2: String, model_id: String) -> Float
+```
+
+**Parameters:**
+
+- **`sentences1`** (*String*): The first sentence to be paired.
+
+- **`sentences2`** (*String*): The second sentence to be paired.
+
+- **`model_id`** (*String*): The identifier of the cross-encoder model to use.
+
+
+**Returns:**
+
+- *Any*: The similarity score between the inputs.
+
+
+### `cross_encoder_list()`
+
+**Signature:**
+
+```python
+cross_encoder_list(sentence1: String, sentences2: Json, model_id: String) -> Json
+```
+
+### `detr_for_object_detection()`
+
+Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
+
+
+[DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
+
+**Requirements:**
+
+- `pip install torch transformers`
+
+
+**Signature:**
+
+```python
+detr_for_object_detection(image: Image, model_id: String, threshold: Float, revision: String) -> Json
+```
+
+**Parameters:**
+
+- **`image`** (*Image*): The image to embed.
+
+- **`model_id`** (*String*): The pretrained model to use for object detection.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the output of the object detection model, in the following format:
+
+``` python
+\{
+    'scores': [0.99, 0.999],  # list of confidence scores for each detected object
+    'labels': [25, 25],  # list of COCO class labels for each detected object
+    'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
+    'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
+        # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
+\}
+```
+
+
+### `detr_to_coco()`
+
+Converts the output of a DETR object detection model to COCO format.
+
+
+**Signature:**
+
+```python
+detr_to_coco(image: Image, detr_info: Json) -> Json
+```
+
+**Parameters:**
+
+- **`image`** (*Image*): The image for which detections were computed.
+
+- **`detr_info`** (*Json*): The output of a DETR object detection model, as returned by `detr_for_object_detection`.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the data from `detr_info`, converted to COCO format.
+
+
+### `sentence_transformer()`
+
+Computes sentence embeddings. `model_id` should be a pretrained Sentence Transformers model, as described
+
+
+in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html) documentation.
+
+**Requirements:**
+
+- `pip install torch sentence-transformers`
+
+
+**Signature:**
+
+```python
+sentence_transformer(sentence: String, model_id: String, normalize_embeddings: Bool) -> Array[(None,), Float]
+```
+
+**Parameters:**
+
+- **`sentence`** (*String*): The sentence to embed.
+
+- **`model_id`** (*String*): The pretrained model to use for the encoding.
+
+- **`normalize_embeddings`** (*Bool*): If `True`, normalizes embeddings to length 1; see the [Sentence Transformers API Docs](https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html) for more details
+
+
+**Returns:**
+
+- *Any*: An array containing the output of the embedding model.
+
+
+### `sentence_transformer_list()`
+
+**Signature:**
+
+```python
+sentence_transformer_list(sentences: Json, model_id: String, normalize_embeddings: Bool) -> Json
+```
+
+### `speech2text_for_conditional_generation()`
+
+Transcribes or translates speech to text using a Speech2Text model. `model_id` should be a reference to a
+
+
+pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/speech_to_text) model.
+
+**Requirements:**
+
+- `pip install torch torchaudio sentencepiece transformers`
+
+
+**Signature:**
+
+```python
+speech2text_for_conditional_generation(audio: Audio, model_id: String, language: Optional[String]) -> String
+```
+
+**Parameters:**
+
+- **`audio`** (*Audio*): The audio clip to transcribe or translate.
+
+- **`model_id`** (*String*): The pretrained model to use for the transcription or translation.
+
+- **`language`** (*Optional[String]*): If using a multilingual translation model, the language code to translate to. If not provided, the model's default language will be used. If the model is not translation model, is not a multilingual model, or does not support the specified language, an error will be raised.
+
+
+**Returns:**
+
+- *Any*: The transcribed or translated text.
+
+
+### `vit_for_image_classification()`
+
+Computes image classifications for the specified image using a Vision Transformer (ViT) model.
+
+
+`model_id` should be a reference to a pretrained [ViT Model](https://huggingface.co/docs/transformers/en/model_doc/vit).
+
+**Note:** Be sure the model is a ViT model that is trained for image classification (that is, a model designed for use with the [ViTForImageClassification](https://huggingface.co/docs/transformers/en/model_doc/vit#transformers.ViTForImageClassification) class), such as `google/vit-base-patch16-224`. General feature-extraction models such as `google/vit-base-patch16-224-in21k` will not produce the desired results.
+
+**Requirements:**
+
+- `pip install torch transformers`
+
+
+**Signature:**
+
+```python
+vit_for_image_classification(image: Image, model_id: String, top_k: Int) -> Json
+```
+
+**Parameters:**
+
+- **`image`** (*Image*): The image to classify.
+
+- **`model_id`** (*String*): The pretrained model to use for the classification.
+
+- **`top_k`** (*Int*): The number of classes to return.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the output of the image classification model, in the following format:
+
+``` python
+\{
+    'scores': [0.325, 0.198, 0.105],  # list of probabilities of the top-k most likely classes
+    'labels': [340, 353, 386],  # list of class IDs for the top-k most likely classes
+    'label_text': ['zebra', 'gazelle', 'African elephant, Loxodonta africana'],
+        # corresponding text names of the top-k most likely classes
+```
+
 

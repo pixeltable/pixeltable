@@ -12,5 +12,37 @@ that wrap various endpoints from the Fireworks AI API. In order to use them, you
 
 ### Functions
 
-- [chat_completions](./chat_completions)
+### `chat_completions()`
+
+Creates a model response for the given chat conversation.
+
+
+Equivalent to the Fireworks AI `chat/completions` API endpoint. For additional details, see: [https://docs.fireworks.ai/api-reference/post-chatcompletions](https://docs.fireworks.ai/api-reference/post-chatcompletions)
+
+Request throttling: Applies the rate limit set in the config (section `fireworks`, key `rate_limit`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install fireworks-ai`
+
+
+**Signature:**
+
+```python
+chat_completions(messages: Json, model: String, model_kwargs: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`messages`** (*Json*): A list of messages comprising the conversation so far.
+
+- **`model`** (*String*): The name of the model to use.
+
+- **`model_kwargs`** (*Optional[Json]*): Additional keyword args for the Fireworks `chat_completions` API. For details on the available parameters, see: [https://docs.fireworks.ai/api-reference/post-chatcompletions](https://docs.fireworks.ai/api-reference/post-chatcompletions)
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the response and other metadata.
+
 

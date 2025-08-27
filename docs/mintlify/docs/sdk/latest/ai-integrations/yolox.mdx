@@ -1,0 +1,73 @@
+---
+title: "pixeltable.ext.functions.yolox"
+sidebarTitle: "yolox"
+description: "Module documentation"
+icon: "square-m"
+---
+
+## ⚠️ No Documentation
+
+<Warning>
+Documentation for `pixeltable.ext.functions.yolox` is not available.
+</Warning>
+
+## Module Contents
+
+### Functions
+
+### `yolo_to_coco()`
+
+Converts the output of a YOLOX object detection model to COCO format.
+
+
+YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
+
+
+**Signature:**
+
+```python
+yolo_to_coco(detections: Json) -> Json
+```
+
+**Parameters:**
+
+- **`detections`** (*Json*): The output of a YOLOX object detection model, as returned by `yolox`.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the data from `detections`, converted to COCO format.
+
+
+### `yolox()`
+
+Computes YOLOX object detections for the specified image. `model_id` should reference one of the models
+
+
+defined in the [YOLOX documentation](https://github.com/Megvii-BaseDetection/YOLOX).
+
+YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
+
+**Requirements**:
+
+- `pip install pixeltable-yolox`
+
+
+**Signature:**
+
+```python
+yolox(images: Image, model_id: String, threshold: Float) -> Json
+```
+
+**Parameters:**
+
+- **`model_id`** (*String*): one of: `yolox_nano`, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`
+
+- **`threshold`** (*Float*): the threshold for object detection
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the output of the object detection model.
+
+

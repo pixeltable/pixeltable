@@ -8,31 +8,543 @@ icon: "square-m"
 
 ### Functions
 
-- [alpha_composite](./alpha_composite)
-- [b64_encode](./b64_encode)
-- [blend](./blend)
-- [composite](./composite)
-- [convert](./convert)
-- [crop](./crop)
-- [effect_spread](./effect_spread)
-- [entropy](./entropy)
-- [get_metadata](./get_metadata)
-- [getbands](./getbands)
-- [getbbox](./getbbox)
-- [getchannel](./getchannel)
-- [getcolors](./getcolors)
-- [getextrema](./getextrema)
-- [getpalette](./getpalette)
-- [getpixel](./getpixel)
-- [getprojection](./getprojection)
-- [height](./height)
-- [histogram](./histogram)
-- [mode](./mode)
-- [point](./point)
-- [quantize](./quantize)
-- [reduce](./reduce)
-- [resize](./resize)
-- [rotate](./rotate)
-- [transpose](./transpose)
-- [width](./width)
+### `alpha_composite()`
+
+Alpha composite im2 over im1.
+
+
+**Signature:**
+
+```python
+alpha_composite(im1: Image, im2: Image) -> Image
+```
+
+**Parameters:**
+
+- **`im1`** (*Image*): The first image. Must have mode RGBA.
+
+- **`im2`** (*Image*): The second image. Must have mode RGBA, and the same size as the first image.
+
+
+**Returns:**
+
+- *Any*: An `~PIL.Image.Image` object.
+
+
+### `b64_encode()`
+
+Convert image to a base64-encoded string.
+
+
+**Signature:**
+
+```python
+b64_encode(img: Image, image_format: String) -> String
+```
+
+**Parameters:**
+
+- **`img`** (*Image*): image
+
+- **`image_format`** (*String*): image format [supported by PIL](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#fully-supported-formats)
+
+
+### `blend()`
+
+Creates a new image by interpolating between two input images, using
+
+
+a constant alpha::
+
+    out = image1 * (1.0 - alpha) + image2 * alpha
+
+
+**Signature:**
+
+```python
+blend(im1: Image, im2: Image, alpha: Float) -> Image
+```
+
+**Parameters:**
+
+- **`im1`** (*Image*): The first image.
+
+- **`im2`** (*Image*): The second image. Must have the same mode and size as the first image.
+
+- **`alpha`** (*Float*): The interpolation alpha factor. If alpha is 0.0, a copy of the first image is returned. If alpha is 1.0, a copy of the second image is returned. There are no restrictions on the alpha value. If necessary, the result is clipped to fit into the allowed output range.
+
+
+**Returns:**
+
+- *Any*: An `~PIL.Image.Image` object.
+
+
+### `composite()`
+
+Create composite image by blending images using a transparency mask.
+
+
+**Signature:**
+
+```python
+composite(image1: Image, image2: Image, mask: Image) -> Image
+```
+
+**Parameters:**
+
+- **`image1`** (*Image*): The first image.
+
+- **`image2`** (*Image*): The second image. Must have the same mode and size as the first image.
+
+- **`mask`** (*Image*): A mask image. This image can have mode "1", "L", or "RGBA", and must have the same size as the other two images.
+
+
+### `convert()`
+
+Convert the image to a different mode.
+
+
+Equivalent to [`PIL.Image.Image.convert()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.convert).
+
+
+**Signature:**
+
+```python
+convert(self: Image, mode: String) -> Image
+```
+
+**Parameters:**
+
+- **`mode`** (*String*): The mode to convert to. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes) for a list of supported modes.
+
+
+### `crop()`
+
+Returns a rectangular region from this image. The box is a
+
+
+4-tuple defining the left, upper, right, and lower pixel coordinate. See :ref:`coordinate-system`.
+
+Note: Prior to Pillow 3.4.0, this was a lazy operation.
+
+
+**Signature:**
+
+```python
+crop(self: Image, box: Json) -> Image
+```
+
+**Parameters:**
+
+- **`box`** (*Json*): The crop rectangle, as a (left, upper, right, lower)-tuple.
+
+
+**Returns:**
+
+- *:py:class:`~PIL.Image.Image`*: An `~PIL.Image.Image` object.
+
+
+### `effect_spread()`
+
+Randomly spread pixels in an image.
+
+
+**Signature:**
+
+```python
+effect_spread(self: Image, distance: Int) -> Image
+```
+
+**Parameters:**
+
+- **`distance`** (*Int*): Distance to spread pixels.
+
+
+### `entropy()`
+
+Calculates and returns the entropy for the image.
+
+
+A bilevel image (mode "1") is treated as a grayscale ("L") image by this method.
+
+If a mask is provided, the method employs the histogram for those parts of the image where the mask image is non-zero. The mask image must have the same size as the image, and be either a bi-level image (mode "1") or a grayscale image ("L").
+
+
+**Signature:**
+
+```python
+entropy(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Float
+```
+
+**Parameters:**
+
+- **`mask`** (*Optional[Image]*): An optional mask.
+
+- **`extrema`** (*Optional[Json]*): An optional tuple of manually-specified extrema.
+
+
+**Returns:**
+
+- *Any*: A float value representing the image entropy
+
+
+### `get_metadata()`
+
+Return metadata for the image.
+
+
+**Signature:**
+
+```python
+get_metadata(self: Image) -> Json
+```
+
+### `getbands()`
+
+Returns a tuple containing the name of each band in this image.
+
+
+For example, `getbands` on an RGB image returns ("R", "G", "B").
+
+
+**Signature:**
+
+```python
+getbands(self: Image) -> Json
+```
+
+**Returns:**
+
+- *tuple*: A tuple containing band names.
+
+
+### `getbbox()`
+
+Calculates the bounding box of the non-zero regions in the
+
+
+image.
+
+
+**Signature:**
+
+```python
+getbbox(self: Image, alpha_only: Bool) -> Json
+```
+
+**Parameters:**
+
+- **`alpha_only`** (*Bool*): Optional flag, defaulting to `True`. If `True` and the image has an alpha channel, trim transparent pixels. Otherwise, trim pixels when all channels are zero. Keyword-only argument.
+
+
+**Returns:**
+
+- *Any*: The bounding box is returned as a 4-tuple defining the left, upper, right, and lower pixel coordinate. See :ref:`coordinate-system`. If the image is completely empty, this method returns None.
+
+
+### `getchannel()`
+
+Returns an image containing a single channel of the source image.
+
+
+**Signature:**
+
+```python
+getchannel(self: Image, channel: Int) -> Image
+```
+
+**Parameters:**
+
+- **`channel`** (*Int*): What channel to return. Could be index (0 for "R" channel of "RGB") or channel name ("A" for alpha channel of "RGBA").
+
+
+**Returns:**
+
+- *Any*: An image in "L" mode. .. versionadded:: 4.3.0
+
+
+### `getcolors()`
+
+Returns a list of colors used in this image.
+
+
+The colors will be in the image's mode. For example, an RGB image will return a tuple of (red, green, blue) color values, and a P image will return the index of the color in the palette.
+
+
+**Signature:**
+
+```python
+getcolors(self: Image, maxcolors: Int) -> Json
+```
+
+**Parameters:**
+
+- **`maxcolors`** (*Int*): Maximum number of colors. If this number is exceeded, this method returns None. The default limit is 256 colors.
+
+
+**Returns:**
+
+- *Any*: An unsorted list of (count, pixel) values.
+
+
+### `getextrema()`
+
+Gets the minimum and maximum pixel values for each band in
+
+
+the image.
+
+
+**Signature:**
+
+```python
+getextrema(self: Image) -> Json
+```
+
+**Returns:**
+
+- *Any*: For a single-band image, a 2-tuple containing the minimum and maximum pixel value. For a multi-band image, a tuple containing one 2-tuple for each band.
+
+
+### `getpalette()`
+
+Returns the image palette as a list.
+
+
+**Signature:**
+
+```python
+getpalette(self: Image, mode: Optional[String]) -> Json
+```
+
+**Parameters:**
+
+- **`rawmode`** (*Any*): The mode in which to return the palette. `None` will return the palette in its current mode.
+
+.. versionadded:: 9.1.0
+
+
+**Returns:**
+
+- *Any*: A list of color values \[r, g, b, ...\], or None if the image has no palette.
+
+
+### `getpixel()`
+
+Return the pixel value at the given position. The position `xy` is a tuple containing the x and y coordinates.
+
+
+Equivalent to [`PIL.Image.Image.getpixel()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getpixel)
+
+
+**Signature:**
+
+```python
+getpixel(self: Image, xy: Json) -> Json
+```
+
+**Parameters:**
+
+- **`xy`** (*Json*): The coordinates, given as (x, y).
+
+
+### `getprojection()`
+
+Get projection to x and y axes
+
+
+**Signature:**
+
+```python
+getprojection(self: Image) -> Json
+```
+
+**Returns:**
+
+- *Any*: Two sequences, indicating where there are non-zero pixels along the X-axis and the Y-axis, respectively.
+
+
+### `height()`
+
+**Signature:**
+
+```python
+height(self: Image) -> Int
+```
+
+### `histogram()`
+
+Returns a histogram for the image. The histogram is returned as a
+
+
+list of pixel counts, one for each pixel value in the source image. Counts are grouped into 256 bins for each band, even if the image has more than 8 bits per band. If the image has more than one band, the histograms for all bands are concatenated (for example, the histogram for an "RGB" image contains 768 values).
+
+A bilevel image (mode "1") is treated as a grayscale ("L") image by this method.
+
+If a mask is provided, the method returns a histogram for those parts of the image where the mask image is non-zero. The mask image must have the same size as the image, and be either a bi-level image (mode "1") or a grayscale image ("L").
+
+
+**Signature:**
+
+```python
+histogram(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`mask`** (*Optional[Image]*): An optional mask.
+
+- **`extrema`** (*Optional[Json]*): An optional tuple of manually-specified extrema.
+
+
+**Returns:**
+
+- *Any*: A list containing pixel counts.
+
+
+### `mode()`
+
+**Signature:**
+
+```python
+mode(self: Image) -> String
+```
+
+### `point()`
+
+Map image pixels through a lookup table.
+
+
+Equivalent to [`PIL.Image.Image.point()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.point)
+
+
+**Signature:**
+
+```python
+point(self: Image, lut: Json, mode: Optional[String]) -> Image
+```
+
+**Parameters:**
+
+- **`lut`** (*Json*): A lookup table.
+
+
+### `quantize()`
+
+Convert the image to 'P' mode with the specified number
+
+
+of colors.
+
+
+**Signature:**
+
+```python
+quantize(self: Image, colors: Int, method: Optional[Int], kmeans: Int, palette: Optional[Int], dither: Int) -> Image
+```
+
+**Parameters:**
+
+- **`colors`** (*Int*): The desired number of colors, \<= 256
+
+- **`method`** (*Optional[Int]*): `Quantize.MEDIANCUT` (median cut), `Quantize.MAXCOVERAGE` (maximum coverage), `Quantize.FASTOCTREE` (fast octree), `Quantize.LIBIMAGEQUANT` (libimagequant; check support using `PIL.features.check_feature` with `feature="libimagequant"`).
+
+By default, `Quantize.MEDIANCUT` will be used.
+
+The exception to this is RGBA images. `Quantize.MEDIANCUT` and `Quantize.MAXCOVERAGE` do not support RGBA images, so `Quantize.FASTOCTREE` is used by default instead.
+
+- **`kmeans`** (*Int*): Integer greater than or equal to zero.
+
+- **`palette`** (*Optional[Int]*): Quantize to the palette of given `PIL.Image.Image`.
+
+- **`dither`** (*Int*): Dithering method, used when converting from mode "RGB" to "P" or from "RGB" or "L" to "1". Available methods are `Dither.NONE` or `Dither.FLOYDSTEINBERG` (default).
+
+
+**Returns:**
+
+- *Any*: A new image
+
+
+### `reduce()`
+
+Returns a copy of the image reduced `factor` times.
+
+
+If the size of the image is not dividable by `factor`, the resulting size will be rounded up.
+
+
+**Signature:**
+
+```python
+reduce(self: Image, factor: Int, box: Optional[Json]) -> Image
+```
+
+**Parameters:**
+
+- **`factor`** (*Int*): A greater than 0 integer or tuple of two integers for width and height separately.
+
+- **`box`** (*Optional[Json]*): An optional 4-tuple of ints providing the source image region to be reduced. The values must be within `(0, 0, width, height)` rectangle. If omitted or `None`, the entire source is used.
+
+
+### `resize()`
+
+Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.
+
+
+Equivalent to [`PIL.Image.Image.resize()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize)
+
+
+**Signature:**
+
+```python
+resize(self: Image, size: Json) -> Image
+```
+
+### `rotate()`
+
+Return a copy of the image rotated by the given angle.
+
+
+Equivalent to [`PIL.Image.Image.rotate()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.rotate)
+
+
+**Signature:**
+
+```python
+rotate(self: Image, angle: Int) -> Image
+```
+
+**Parameters:**
+
+- **`angle`** (*Int*): The angle to rotate the image, in degrees. Positive angles are counter-clockwise.
+
+
+### `transpose()`
+
+Transpose image (flip or rotate in 90 degree steps)
+
+
+**Signature:**
+
+```python
+transpose(self: Image, method: Int) -> Image
+```
+
+**Parameters:**
+
+- **`method`** (*Int*): One of :py`Transpose.FLIP_LEFT_RIGHT`, :py`Transpose.FLIP_TOP_BOTTOM`, :py`Transpose.ROTATE_90`, :py`Transpose.ROTATE_180`, :py`Transpose.ROTATE_270`, :py`Transpose.TRANSPOSE` or :py`Transpose.TRANSVERSE`.
+
+
+**Returns:**
+
+- *Any*: Returns a flipped or rotated copy of this image.
+
+
+### `width()`
+
+**Signature:**
+
+```python
+width(self: Image) -> Int
+```
 

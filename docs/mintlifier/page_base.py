@@ -207,22 +207,36 @@ Documentation for `{name}` is not available.
                 # MDX-specific escaping
                 escaped = escaped.replace('{', '\\{').replace('}', '\\}')
                 
-                # Strip angle brackets from URLs
-                escaped = re.sub(r'<(https?://[^>]+)>', r'\1', escaped)
-                escaped = re.sub(r'<(ftp://[^>]+)>', r'\1', escaped)
-                escaped = re.sub(r'<(mailto:[^>]+)>', r'\1', escaped)
+                # Convert URLs in angle brackets to markdown links
+                escaped = re.sub(r'<(https?://[^>]+)>', r'[\1](\1)', escaped)
+                escaped = re.sub(r'<(ftp://[^>]+)>', r'[\1](\1)', escaped)
+                escaped = re.sub(r'<(mailto:[^>]+)>', r'[\1](\1)', escaped)
                 
                 # Handle non-URL angle brackets
                 escaped = re.sub(r'<(?!https?://|ftp://|mailto:)([^>]+)>', r'`\1`', escaped)
+                
+                # Handle Sphinx/RST directives like :data:`Quantize.MEDIANCUT`
+                escaped = re.sub(r':data:`([^`]+)`', r'`\1`', escaped)
+                escaped = re.sub(r':(?:py:)?(?:func|class|meth|attr|mod):`([^`]+)`', r'`\1`', escaped)
                 
                 return escaped
             except Exception:
                 pass
         
         # Fallback: manual escaping
+        # Handle Sphinx/RST directives
+        text = re.sub(r':data:`([^`]+)`', r'`\1`', text)
         text = re.sub(r':(?:py:)?(?:func|class|meth|attr|mod):`([^`]+)`', r'`\1`', text)
+        
+        # Escape braces for MDX
         text = text.replace('{', '\\{').replace('}', '\\}')
-        text = re.sub(r'<(https?://[^>]+)>', r'\1', text)
+        
+        # Convert URLs in angle brackets to markdown links
+        text = re.sub(r'<(https?://[^>]+)>', r'[\1](\1)', text)
+        text = re.sub(r'<(ftp://[^>]+)>', r'[\1](\1)', text)
+        text = re.sub(r'<(mailto:[^>]+)>', r'[\1](\1)', text)
+        
+        # Handle other angle brackets
         text = re.sub(r'<([^>]+)>', r'`\1`', text)
         
         return text

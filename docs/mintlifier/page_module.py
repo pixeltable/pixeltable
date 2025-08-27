@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional, List, Any
 from page_base import PageBase
 from docstring_parser import parse as parse_docstring
-from page_function import FunctionPageGenerator
+from section_function import FunctionSectionGenerator
 from page_class import ClassPageGenerator
 
 
@@ -17,7 +17,7 @@ class ModulePageGenerator(PageBase):
         """Initialize with output directory, version, and error display setting."""
         super().__init__(output_dir, version, show_errors)
         # Initialize child generators
-        self.function_gen = FunctionPageGenerator(output_dir, version, show_errors)
+        self.function_gen = FunctionSectionGenerator(show_errors)
         self.class_gen = ClassPageGenerator(output_dir, version, show_errors)
     
     def generate_page(self, module_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] = None) -> Optional[dict]:
@@ -74,32 +74,14 @@ class ModulePageGenerator(PageBase):
         if hasattr(self, '_generated_classes') and self._generated_classes:
             nav_children.extend(self._generated_classes)
             
-        # Add function pages after classes (no Functions group)
-        if hasattr(self, '_generated_functions') and self._generated_functions:
-            nav_children.extend(self._generated_functions)
+        # Functions are now inline, so no navigation entries needed
         
         # Return navigation structure for module
-        # Modules become groups containing their page + child items
+        # Return module page and children as a flat list, not a group
         if nav_children:
-            # Module with children - return as a group
-            # Module page comes first, then functions, then classes
-            # Add mod| prefix to module group name
-            # Add visual prefixes to children for tree-like appearance
-            prefixed_children = []
-            for i, child in enumerate(nav_children):
-                if isinstance(child, str):
-                    # Simple page - add branch prefix
-                    # Use └ for last item, ├ for others
-                    prefix = "└" if i == len(nav_children) - 1 else "├"
-                    # We can't modify the page path, but could modify display
-                    prefixed_children.append(child)
-                else:
-                    prefixed_children.append(child)
-            
-            return {
-                "group": f"mod|{module_path}",  # Add mod| prefix for module groups
-                "pages": [module_page] + prefixed_children
-            }
+            # Module with children - return as a flat list
+            # Module page comes first, then classes (no grouping)
+            return [module_page] + nav_children
         else:
             # Module with no children - just return the page
             return module_page
@@ -158,27 +140,17 @@ class ModulePageGenerator(PageBase):
                 content += f"- [{name}](./{name})\n"
             content += "\n"
         
-        # Generate function pages
+        # Document functions inline (no separate pages)
         if functions_to_generate:
             content += "### Functions\n\n"
-            self._generated_functions = []
-            func_parent_groups = parent_groups + [module_name]
             
             for name, obj in sorted(functions_to_generate):
-                # Generate the function page
-                func_path = f"{module_path}.{name}"
-                print(f"      📄 Generating function: {name}")
-                func_result = self.function_gen.generate_page(func_path, func_parent_groups, 'func')
-                
-                if func_result:
-                    if isinstance(func_result, dict):
-                        self._generated_functions.append(func_result)
-                    else:
-                        self._generated_functions.append(func_result)
-                
-                # Add link to the list
-                content += f"- [{name}](./{name})\n"
-            content += "\n"
+                # Generate inline documentation
+                func_section = self.function_gen.generate_section(obj, name, module_path)
+                content += func_section
+            
+            # Clear the generated functions list since we're not creating separate pages
+            self._generated_functions = []
         
         return content
     
@@ -269,31 +241,17 @@ class ModulePageGenerator(PageBase):
                 content += f"- [{name}](./{name})\n"
             content += "\n"
         
-        # Document functions - list with links and generate their pages
+        # Document functions inline (no separate pages)
         if functions:
             content += "### Functions\n\n"
-            module_name = module_path.split('.')[-1]
-            func_parent_groups = parent_groups + [module_name]
-            
-            # Track generated function pages
-            self._generated_functions = []
             
             for name, obj in sorted(functions):
-                # Generate the function page
-                func_path = f"{module_path}.{name}"
-                print(f"      📄 Generating function: {name}")
-                func_result = self.function_gen.generate_page(func_path, func_parent_groups, 'func')
-                
-                if func_result:
-                    # If function returns dict, get the page path; otherwise it IS the path
-                    if isinstance(func_result, dict):
-                        self._generated_functions.append(func_result)
-                    else:
-                        self._generated_functions.append(func_result)
-                
-                # Add link to the list
-                content += f"- [{name}](./{name})\n"
-            content += "\n"
+                # Generate inline documentation
+                func_section = self.function_gen.generate_section(obj, name, module_path)
+                content += func_section
+            
+            # Clear the generated functions list since we're not creating separate pages
+            self._generated_functions = []
         
         # Document constants
         if constants:

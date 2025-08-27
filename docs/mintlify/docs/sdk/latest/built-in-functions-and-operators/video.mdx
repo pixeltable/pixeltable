@@ -8,6 +8,84 @@ icon: "square-m"
 
 ### Functions
 
-- [extract_audio](./extract_audio)
-- [get_metadata](./get_metadata)
+### `extract_audio()`
+
+Extract an audio stream from a video.
+
+
+**Signature:**
+
+```python
+extract_audio(video_path: Video, stream_idx: Int, format: String, codec: Optional[String]) -> Audio
+```
+
+**Parameters:**
+
+- **`stream_idx`** (*Int*): Index of the audio stream to extract.
+
+- **`format`** (*String*): The target audio format. (`'wav'`, `'mp3'`, `'flac'`).
+
+- **`codec`** (*Optional[String]*): The codec to use for the audio stream. If not provided, a default codec will be used.
+
+
+**Returns:**
+
+- *Any*: The extracted audio.
+
+
+### `get_metadata()`
+
+Gets various metadata associated with a video file and returns it as a dictionary.
+
+
+**Signature:**
+
+```python
+get_metadata(video: Video) -> Json
+```
+
+**Parameters:**
+
+- **`video`** (*Video*): The video to get metadata for.
+
+
+**Returns:**
+
+- *Any*: A `dict` such as the following:
+
+``` json
+\{
+    'bit_exact': False,
+    'bit_rate': 967260,
+    'size': 2234371,
+    'metadata': \{
+        'encoder': 'Lavf60.16.100',
+        'major_brand': 'isom',
+        'minor_version': '512',
+        'compatible_brands': 'isomiso2avc1mp41',
+    \},
+    'streams': [
+        \{
+            'type': 'video',
+            'width': 640,
+            'height': 360,
+            'frames': 462,
+            'time_base': 1.0 / 12800,
+            'duration': 236544,
+            'duration_seconds': 236544.0 / 12800,
+            'average_rate': 25.0,
+            'base_rate': 25.0,
+            'guessed_rate': 25.0,
+            'metadata': \{
+                'language': 'und',
+                'handler_name': 'L-SMASH Video Handler',
+                'vendor_id': '[0][0][0][0]',
+                'encoder': 'Lavc60.31.102 libx264',
+            \},
+            'codec_context': \{'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'\},
+        \}
+    ],
+\}
+```
+
 

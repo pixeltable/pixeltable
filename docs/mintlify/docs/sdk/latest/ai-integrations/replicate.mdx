@@ -12,5 +12,35 @@ that wrap various endpoints from the Replicate API. In order to use them, you mu
 
 ### Functions
 
-- [run](./run)
+### `run()`
+
+Run a model on Replicate.
+
+
+For additional details, see: [https://replicate.com/docs/topics/models/run-a-model](https://replicate.com/docs/topics/models/run-a-model)
+
+Request throttling: Applies the rate limit set in the config (section `replicate`, key `rate_limit`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install replicate`
+
+
+**Signature:**
+
+```python
+run(input: Json, ref: String) -> Json
+```
+
+**Parameters:**
+
+- **`input`** (*Json*): The input parameters for the model.
+
+- **`ref`** (*String*): The name of the model to run.
+
+
+**Returns:**
+
+- *Any*: The output of the model.
+
 

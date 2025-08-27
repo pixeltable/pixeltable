@@ -144,6 +144,8 @@
           <outline text="func|pixeltable.functions.vision.eval_detections" />
           <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
         </outline>
+        <outline text="module|pixeltable.ext.functions.yolox" />
+        <outline text="module|pixeltable.ext.functions.whisperx" />
       </outline>
 
 
@@ -155,12 +157,6 @@
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
         <outline text="module|pixeltable.io" />
-      </outline>
-
-      <!-- Extensions group -->
-      <outline text="group|Extensions">
-        <outline text="module|pixeltable.ext.functions.yolox" />
-        <outline text="module|pixeltable.ext.functions.whisperx" />
       </outline>
       
     </outline>

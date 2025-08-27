@@ -17,7 +17,7 @@ from page_function import FunctionPageGenerator
 from page_method import MethodPageGenerator
 from page_type import TypePageGenerator
 from docsjson_updater import DocsJsonUpdater
-from page_llmmap import LLMMapGenerator
+# from llm_map_gen import LLMMapGenerator  # Decoupled from main flow
 from public_api_generator import PublicAPIGenerator
 
 
@@ -34,7 +34,7 @@ class MintlifierGenerator:
         self.function_gen = None
         self.method_gen = None
         self.docs_updater = None
-        self.llm_map_gen = None
+        # self.llm_map_gen = None  # LLM map generation decoupled
         
     def _count_pages(self, structure: Dict) -> int:
         """Count the number of pages in the generated structure."""
@@ -127,7 +127,7 @@ class MintlifierGenerator:
         self.type_gen = TypePageGenerator(sdk_output_dir, version=version, show_errors=show_errors)
         
         # Initialize LLM map generator
-        self.llm_map_gen = LLMMapGenerator(sdk_output_dir, version=version)
+        # self.llm_map_gen = LLMMapGenerator(sdk_output_dir, version=version)  # Decoupled
         
         print(f"📝 Docs.json path: {docs_json_path}")
         self.docs_updater = DocsJsonUpdater(docs_json_path, sdk_tab)
@@ -157,44 +157,28 @@ class MintlifierGenerator:
         for page in all_pages:
             # Route to appropriate generator based on type
             result = None
-            llm_entry = None
+            # LLM map generation has been decoupled from main flow
             
             if page.item_type == 'module':
                 # Pass children list if specified for this module
                 result = self.module_gen.generate_page(page.module_path, page.parent_groups, page.item_type, page.children)
-                # Add to LLM map
-                llm_entry = self.llm_map_gen.add_module(page.module_path, page.children)
             elif page.item_type == 'class':
                 # Pass children list if specified for this class
                 result = self.class_gen.generate_page(page.module_path, page.parent_groups, page.item_type, page.children)
-                # Add to LLM map
-                llm_entry = self.llm_map_gen.add_class(page.module_path, page.children)
             elif page.item_type == 'func':
                 result = self.function_gen.generate_page(page.module_path, page.parent_groups, page.item_type)
-                # Add to LLM map
-                llm_entry = self.llm_map_gen.add_function(page.module_path)
             elif page.item_type == 'method':
                 result = self.method_gen.generate_page(page.module_path, page.parent_groups, page.item_type)
-                # Methods are added as part of their parent class
             elif page.item_type == 'type':
                 # Skip generating documentation pages for types
                 # They're just type markers used in signatures
                 result = None
-                # Still add to LLM map for signature purposes
-                llm_entry = self.llm_map_gen.add_type(page.module_path)
             else:
                 print(f"⚠️ Unknown item type: {page.item_type}")
             
             if result:
                 generated_count += 1
                 navigation_pages[page.module_path] = result
-            
-            if llm_entry:
-                if llm_entry.get("error"):
-                    print(f"   ⚠️ LLM map error for {page.module_path}: {llm_entry.get('error')}")
-                else:
-                    print(f"   ✓ Added to LLM map: {page.module_path}")
-                self.llm_map_gen.add_to_map(llm_entry)
         
         print(f"\n✅ Generated: {generated_count} pages")
         
@@ -231,11 +215,12 @@ class MintlifierGenerator:
             return
         
         # Save LLM map
-        print("\n📊 Generating LLM map...")
-        try:
-            self.llm_map_gen.save()
-        except Exception as e:
-            print(f"⚠️  Error saving LLM map: {e}")
+        # LLM map generation has been decoupled from main flow
+        # print("\n📊 Generating LLM map...")
+        # try:
+        #     self.llm_map_gen.save()
+        # except Exception as e:
+        #     print(f"⚠️  Error saving LLM map: {e}")
         
         # Generate public API listing
         print("\n📋 Generating public API listing...")
@@ -253,7 +238,7 @@ class MintlifierGenerator:
         print(f"   📄 Generated {generated_count} documentation pages")
         print(f"   📁 Output directory: {sdk_output_dir}")
         print(f"   📝 Updated navigation in: {docs_json_path}")
-        print(f"   📊 LLM map saved to: mintlifier/llm_map.jsonld")
+        # print(f"   📊 LLM map saved to: mintlifier/llm_map.jsonld")  # Decoupled
         
     
     def _build_navigation_structure(self, tab_structure, navigation_pages: Dict) -> Dict:

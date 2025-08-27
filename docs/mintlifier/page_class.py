@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional, List, Any
 from page_base import PageBase
 from docstring_parser import parse as parse_docstring
-from page_method import MethodPageGenerator
+from section_method import MethodSectionGenerator
 
 
 class ClassPageGenerator(PageBase):
@@ -14,8 +14,8 @@ class ClassPageGenerator(PageBase):
     def __init__(self, output_dir: Path, version: str = "main", show_errors: bool = True):
         """Initialize with output directory, version, and error display setting."""
         super().__init__(output_dir, version, show_errors)
-        # Initialize method generator
-        self.method_gen = MethodPageGenerator(output_dir, version, show_errors)
+        # Initialize method generator for inline sections
+        self.method_gen = MethodSectionGenerator(show_errors)
     
     def generate_page(self, class_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] = None) -> Optional[dict]:
         """Generate class documentation page and return navigation structure.
@@ -58,17 +58,9 @@ class ClassPageGenerator(PageBase):
         class_page = self._write_mdx_file(class_name, parent_groups, content)
         
         # Build navigation structure for class
-        if self._generated_methods:
-            # Class with methods - return as a group/folder
-            # Class page comes first, then methods directly (no Methods subgroup)
-            # Use full path for group name in menu
-            return {
-                "group": f"class|{class_path}",  # Add class| prefix for class groups  
-                "pages": [class_page] + self._generated_methods
-            }
-        else:
-            # Class with no methods - just return the page
-            return class_page
+        # Methods are now inline, so classes don't need to be groups anymore
+        # Just return the class page directly
+        return class_page
     
     def _build_frontmatter(self, cls: type, name: str, full_path: str) -> str:
         """Build MDX frontmatter."""
@@ -104,8 +96,7 @@ icon: "square-c"
                 content += f"\n## ⚠️ No Documentation\n\n"
                 content += f"<Warning>\nDocumentation for `{name}` is not available.\n</Warning>\n\n"
         
-        # Add constructor signature
-        content += self._document_constructor(cls, name)
+        # Skip constructor per Marcel's feedback - no longer documenting __init__
         
         # Add GitHub link
         github_link = self._get_github_link(cls)
@@ -123,44 +114,10 @@ icon: "square-c"
         
         return content
     
-    def _document_constructor(self, cls: type, name: str) -> str:
-        """Document class constructor."""
-        content = "## Constructor\n\n"
-        
-        try:
-            sig = inspect.signature(cls.__init__)
-            content += f"```python\n{self._format_signature(name, sig)}\n```\n\n"
-            
-            # Get constructor docstring
-            init_doc = inspect.getdoc(cls.__init__)
-            if init_doc and init_doc != inspect.getdoc(cls):
-                parsed = parse_docstring(init_doc)
-                
-                # Add parameters
-                if parsed.params:
-                    content += "### Parameters\n\n"
-                    for param in parsed.params:
-                        content += f"#### `{param.arg_name}`\n"
-                        if param.type_name:
-                            content += f"**Type:** `{param.type_name}`\n\n"
-                        if param.description:
-                            content += f"{self._escape_mdx(param.description)}\n\n"
-                
-                # Add returns
-                if parsed.returns:
-                    content += "### Returns\n\n"
-                    if parsed.returns.type_name:
-                        content += f"**Type:** `{parsed.returns.type_name}`\n\n"
-                    if parsed.returns.description:
-                        content += f"{self._escape_mdx(parsed.returns.description)}\n\n"
-        
-        except (ValueError, TypeError):
-            content += f"```python\n{name}()\n```\n\n"
-        
-        return content
+    # Constructor documentation removed per Marcel's feedback
     
     def _document_methods(self, cls: type, full_path: str) -> str:
-        """Document class methods - just list them as links."""
+        """Document class methods inline."""
         content = ""
         
         # Get methods to document
@@ -179,47 +136,29 @@ icon: "square-c"
             # Document all public methods
             for name, obj in inspect.getmembers(cls):
                 # Skip private methods except special methods we want to document
-                if name.startswith('_') and name not in ['__init__', '__call__', '__enter__', '__exit__']:
+                if name.startswith('_') and name not in ['__call__', '__enter__', '__exit__']:
                     continue
                 if inspect.ismethod(obj) or inspect.isfunction(obj):
-                    if name != '__init__':  # Skip init, already documented
-                        methods.append((name, obj))
+                    # Skip __init__ per Marcel's feedback
+                    methods.append((name, obj))
         
         if not methods:
             return content
         
         content += "## Methods\n\n"
         
-        # Get class name for parent groups
+        # Get class name for inline sections
         class_name = full_path.split('.')[-1]
-        method_parent_groups = self.current_parent_groups + [class_name]
         
-        # Just list methods as links and generate their pages
+        # Generate inline method documentation
         for method_name, method in sorted(methods):
-            # Generate the method page
-            method_path = f"{full_path}.{method_name}"
-            print(f"        📄 Generating method: {method_name}")
-            method_result = self.method_gen.generate_page(method_path, method_parent_groups, 'method')
-            
-            # Track the generated method page
-            if method_result:
-                if isinstance(method_result, dict):
-                    self._generated_methods.append(method_result["page"])
-                else:
-                    self._generated_methods.append(method_result)
-            
-            # Get short description if available
-            doc = inspect.getdoc(method)
-            if doc:
-                parsed = parse_docstring(doc)
-                if parsed.short_description:
-                    content += f"- [{method_name}](./{method_name}) - {self._escape_mdx(parsed.short_description)}\n"
-                else:
-                    content += f"- [{method_name}](./{method_name})\n"
-            else:
-                content += f"- [{method_name}](./{method_name})\n"
+            # Generate inline section (skips __init__ internally)
+            method_section = self.method_gen.generate_section(method, method_name, class_name)
+            content += method_section
         
-        content += "\n"
+        # Clear the generated methods list since we're not creating separate pages
+        self._generated_methods = []
+        
         return content
     
     def _document_properties(self, cls: type) -> str:

@@ -12,8 +12,120 @@ that wrap various endpoints from the Google Gemini API. In order to use them, yo
 
 ### Functions
 
-- [generate_content](./generate_content)
-- [generate_images](./generate_images)
-- [generate_videos](./generate_videos)
-- [invoke_tools](./invoke_tools)
+### `generate_content()`
+
+Generate content from the specified model. For additional details, see:
+
+
+[https://ai.google.dev/gemini-api/docs/text-generation](https://ai.google.dev/gemini-api/docs/text-generation)
+
+Request throttling: Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install google-genai`
+
+
+**Signature:**
+
+```python
+generate_content(contents: String, model: String, config: Optional[Json], tools: Optional[Json]) -> Json
+```
+
+**Parameters:**
+
+- **`contents`** (*String*): The input content to generate from.
+
+- **`model`** (*String*): The name of the model to use.
+
+- **`config`** (*Optional[Json]*): Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateContentConfig`. For details on the parameters, see: [https://googleapis.github.io/python-genai/genai.html#module-genai.types](https://googleapis.github.io/python-genai/genai.html#module-genai.types)
+
+- **`tools`** (*Optional[Json]*): An optional list of Pixeltable tools to use. It is also possible to specify tools manually via the `config['tools']` parameter, but at most one of `config['tools']` or `tools` may be used.
+
+
+**Returns:**
+
+- *Any*: A dictionary containing the response and other metadata.
+
+
+### `generate_images()`
+
+Generates images based on a text description and configuration. For additional details, see:
+
+
+[https://ai.google.dev/gemini-api/docs/image-generation](https://ai.google.dev/gemini-api/docs/image-generation)
+
+Request throttling: Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install google-genai`
+
+
+**Signature:**
+
+```python
+generate_images(prompt: String, model: String, config: Optional[Json]) -> Image
+```
+
+**Parameters:**
+
+- **`prompt`** (*String*): A text description of the images to generate.
+
+- **`model`** (*String*): The model to use.
+
+- **`config`** (*Optional[Json]*): Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateImagesConfig`. For details on the parameters, see: [https://googleapis.github.io/python-genai/genai.html#module-genai.types](https://googleapis.github.io/python-genai/genai.html#module-genai.types)
+
+
+**Returns:**
+
+- *Any*: The generated image.
+
+
+### `generate_videos()`
+
+Generates videos based on a text description and configuration. For additional details, see:
+
+
+[https://ai.google.dev/gemini-api/docs/video-generation](https://ai.google.dev/gemini-api/docs/video-generation)
+
+Request throttling: Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install google-genai`
+
+
+**Signature:**
+
+```python
+generate_videos(prompt: Optional[String], image: Optional[Image], model: String, config: Optional[Json]) -> Video
+```
+
+**Parameters:**
+
+- **`prompt`** (*Optional[String]*): A text description of the videos to generate.
+
+- **`image`** (*Optional[Image]*): An optional image to use as the first frame of the video. At least one of `prompt` or `image` must be provided. (It is ok to specify both.)
+
+- **`model`** (*String*): The model to use.
+
+- **`config`** (*Optional[Json]*): Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateVideosConfig`. For details on the parameters, see: [https://googleapis.github.io/python-genai/genai.html#module-genai.types](https://googleapis.github.io/python-genai/genai.html#module-genai.types)
+
+
+**Returns:**
+
+- *Any*: The generated video.
+
+
+### `invoke_tools()`
+
+Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
+
+
+**Signature:**
+
+```python
+invoke_tools(tools: pixeltable.func.tools.Tools, response: pixeltable.exprs.expr.Expr) -> pixeltable.exprs.inline_expr.InlineDict
+```
 
