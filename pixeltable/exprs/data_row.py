@@ -76,7 +76,7 @@ class DataRow:
     parent_row: Optional[DataRow]
     parent_slot_idx: Optional[int]
 
-    MAX_ARRAY_IN_DB = 10000  # arrays larger than this get stored outside the DB
+    MAX_ARRAY_IN_DB = 10_000  # arrays larger than this get stored outside the DB
 
     def __init__(
         self,
@@ -300,6 +300,17 @@ class DataRow:
             # we already have a file for this image, nothing left to do
             pass
         self.vals[index] = None
+
+    def flush_array(self, index: int, col: Optional[catalog.Column] = None) -> None:
+        array = self.vals[index]
+        assert isinstance(array, np.ndarray)
+        if array.size >= self.MAX_ARRAY_IN_DB:
+            path = TempStore.create_path(extension='.npy')
+            with open(path, 'wb') as fp:
+                np.save(fp, array, allow_pickle=False)
+            url = MediaStore.get().relocate_local_media_file(path, col)
+            self.stored_vals[index] = url
+            self.vals[index] = None
 
     def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
         """If the JSON object contains images or arrays, save them to a media store and rewrite the JSON object."""

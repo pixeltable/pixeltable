@@ -1541,7 +1541,21 @@ class TestTable:
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
-    def test_insert_media_json(self, reset_db: None) -> None:
+    def test_insert_large_array(self, reset_db: None) -> None:
+        """
+        Test that large arrays (larger than 10,000 elements) survive a round trip to the database.
+        """
+        array1 = np.arange(1000, dtype=np.int64).reshape((200, 5))
+        array2 = np.arange(15000, dtype=np.int64).reshape((3000, 5))
+
+        t = pxt.create_table('test', {'col': pxt.Array})
+        assert MediaStore.get().count(t._id) == 0
+        t.insert([{'col': array1}, {'col': array2}])
+        assert MediaStore.get().count(t._id) == 1  # Just the large array should be stored in the database
+        expected = pxt.dataframe.DataFrameResultSet([[array1], [array2]], t._get_schema())
+        assert_resultset_eq(expected, t.head())
+
+    def test_insert_nonstandard_json(self, reset_db: None) -> None:
         """
         Test that images and numpy arrays embedded in JSON structures properly survive a round trip to the database.
         """
