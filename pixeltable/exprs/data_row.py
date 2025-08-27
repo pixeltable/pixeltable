@@ -76,6 +76,8 @@ class DataRow:
     parent_row: Optional[DataRow]
     parent_slot_idx: Optional[int]
 
+    MAX_ARRAY_IN_DB = 10000  # arrays larger than this get stored outside the DB
+
     def __init__(
         self,
         size: int,
@@ -273,6 +275,8 @@ class DataRow:
             self.flush_img(index, col)
         if col.col_type.is_media_type():
             self.move_tmp_media_file(index, col)
+        if col.col_type.is_array_type():
+            self.flush_array(index, col)
         if col.col_type.is_json_type():
             self.flush_json(index, col)
 
@@ -298,13 +302,17 @@ class DataRow:
         self.vals[index] = None
 
     def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
+        """If the JSON object contains images or arrays, save them to a media store and rewrite the JSON object."""
+        # TODO: Do the same thing for lists that exceed a certain length?
+        # TODO: Also allow datetimes?
         element = self.vals[index]
         if self.__has_media(element):
             path = TempStore.create_path(extension='.bin')
             with open(path, 'wb') as fp:
                 self.stored_vals[index] = self.__rewrite_json(element, fp)
+            # Now move the temp file to the media store and update the JSON structure with the new URL
             url = MediaStore.get().relocate_local_media_file(path, col)
-            self.__update_json(self.stored_vals[index], url)
+            self.__add_url_to_json(self.stored_vals[index], url)
             self.vals[index] = None
 
     @classmethod
@@ -317,6 +325,7 @@ class DataRow:
 
     @classmethod
     def __rewrite_json(cls, element: Any, fp: io.BufferedWriter) -> Any:
+        """Recursively rewrites a JSON structure by exporting any arrays or images to a binary file."""
         if isinstance(element, list):
             return [cls.__rewrite_json(v, fp) for v in element]
         if isinstance(element, dict):
@@ -335,19 +344,23 @@ class DataRow:
         return element
 
     @classmethod
-    def __update_json(cls, element: Any, url: str) -> None:
+    def __add_url_to_json(cls, element: Any, url: str) -> None:
         if isinstance(element, list):
             for v in element:
-                cls.__update_json(v, url)
+                cls.__add_url_to_json(v, url)
         if isinstance(element, dict):
             if '__pxttype__' in element:
                 element['__pxturl__'] = url
             else:
                 for v in element.values():
-                    cls.__update_json(v, url)
+                    cls.__add_url_to_json(v, url)
 
     @classmethod
-    def unpack_json(cls, element: Any) -> Any:
+    def reconstruct_json(cls, element: Any) -> Any:
+        """
+        Recursively reconstructs a JSON structure that may contain references to image or array
+        data stored in a binary file.
+        """
         url = cls.__find_pxturl(element)
         if url is None:
             return element
@@ -355,7 +368,7 @@ class DataRow:
         assert parsed.scheme == 'file'
         path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
         with open(path, 'rb') as fp:
-            return cls.__unpack_json(element, fp)
+            return cls.__reconstruct_json(element, fp)
 
     @classmethod
     def __find_pxturl(cls, element: Any) -> Optional[str]:
@@ -376,9 +389,9 @@ class DataRow:
         return None
 
     @classmethod
-    def __unpack_json(cls, element: Any, fp: io.BufferedReader) -> Any:
+    def __reconstruct_json(cls, element: Any, fp: io.BufferedReader) -> Any:
         if isinstance(element, list):
-            return [cls.__unpack_json(v, fp) for v in element]
+            return [cls.__reconstruct_json(v, fp) for v in element]
         if isinstance(element, dict):
             if '__pxttype__' in element:
                 begin = element['__pxtbegin__']
@@ -399,7 +412,7 @@ class DataRow:
                     assert fp.tell() == end, f'{fp.tell()} != {end} / {begin}'
                     return img
             else:
-                return {k: cls.__unpack_json(v, fp) for k, v in element.items()}
+                return {k: cls.__reconstruct_json(v, fp) for k, v in element.items()}
         return element
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
