@@ -485,6 +485,18 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
             output_path.unlink()
 
         # general approach: re-encode with -f filter_complex
+        #
+        # example: 2 videos with audio:
+        #   ffmpeg -i video1.mp4 -i video2.mp4
+        #     -filter_complex "[0:v:0][1:v:0]concat=n=2:v=1:a=0[outv];[0:a:0][1:a:0]concat=n=2:v=0:a=1[outa]"
+        #     -map "[outv]" -map "[outa]"
+        #     ...
+        # breakdown:
+        # - [0:v:0][1:v:0] - video stream 0 from inputs 0 and 1
+        # - concat=n=2:v=1:a=0[outv] - concat 2 inputs, 1 video stream, 0 audio, output to [outv]
+        # - [0:a:0][1:a:0] - audio stream 0 from inputs 0 and 1
+        # - concat=n=2:v=0:a=1[outa] - concat 2 inputs, 0 video, 1 audio stream, output to [outa]
+
         cmd = ['ffmpeg']
         for video in videos:
             cmd.extend(['-i', video])
@@ -625,10 +637,66 @@ def overlay_text(
         raise pxt.Error(f'box_border must be a list or tuple of 1-4 non-negative ints, got {box_border!s} instead')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    escaped_text = text.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
 
-    # Build drawtext filter parameters
+    drawtext_params = _create_drawtext_params(
+        text,
+        font,
+        font_size,
+        color,
+        opacity,
+        horizontal_align,
+        horizontal_margin,
+        vertical_align,
+        vertical_margin,
+        box,
+        box_color,
+        box_opacity,
+        box_border,
+    )
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        'drawtext=' + ':'.join(drawtext_params),
+        '-c:a',
+        'copy',  # Copy audio stream unchanged
+        '-loglevel',
+        'error',  # Only show errors
+        output_path,
+    ]
+    _logger.debug(f'overlay_text(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
+def _create_drawtext_params(
+    text: str,
+    font: str | None,
+    font_size: int,
+    color: str,
+    opacity: float,
+    horizontal_align: str,
+    horizontal_margin: int,
+    vertical_align: str,
+    vertical_margin: int,
+    box: bool,
+    box_color: str,
+    box_opacity: float,
+    box_border: list[int] | None,
+) -> list[str]:
+    """Construct parameters for the ffmpeg drawtext filter"""
     drawtext_params: list[str] = []
+    escaped_text = text.replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
     drawtext_params.append(f"text='{escaped_text}'")
     drawtext_params.append(f'fontsize={font_size}')
 
@@ -665,29 +733,7 @@ def overlay_text(
         if box_border is not None:
             drawtext_params.append(f'boxborderw={"|".join(map(str, box_border))}')
 
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        'drawtext=' + ':'.join(drawtext_params),
-        '-c:a',
-        'copy',  # Copy audio stream unchanged
-        '-loglevel',
-        'error',  # Only show errors
-        output_path,
-    ]
-    _logger.debug(f'overlay_text(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = pathlib.Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return drawtext_params
 
 
 __all__ = local_public_names(__name__)

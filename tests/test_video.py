@@ -5,9 +5,9 @@ import PIL
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
-
 from .utils import (
     generate_test_video,
     get_video_files,
@@ -604,6 +604,21 @@ class TestVideo:
                 box=False,
             )
         )
+        assert pxtf.video._create_drawtext_params(
+            text,
+            color='black',
+            opacity=0.5,
+            horizontal_align='left',
+            horizontal_margin=10,
+            vertical_align='top',
+            box=False,
+        ) == [
+            "text='Line 1\\nLine2: 'quoted text''",
+            'fontsize=24',
+            'fontcolor=black@0.5',
+            'x=10',
+            'y=0',
+        ]
         t.add_computed_column(
             o2=t.clip_5s.overlay_text(
                 text,
