@@ -198,14 +198,13 @@ class DataRow:
             pass
         assert self.has_val[index]
 
-        if self.vals[index] is None and self.file_urls[index] is not None:
-            # the value has been flushed to a file; use the url instead
+        val = self.vals[index]
+
+        if (index in self.img_slot_idxs or index in self.media_slot_idxs) and self.file_urls[index] is not None:
+            # For media data, always prefer the file URL even if the value hasn't been flushed yet
+            # (for example, when doing a dynamic select())
             return self.file_urls[index]
 
-        return self.__as_stored_val(self.vals[index], sa_col_type)
-
-    @classmethod
-    def __as_stored_val(cls, val: Any, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
         if isinstance(val, np.ndarray):
             if isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
                 return val
@@ -265,37 +264,44 @@ class DataRow:
         if self.vals[index] is None:
             return
         assert self.excs[index] is None
+
+        if col is None:
+            # Discard the contents of this cell
+            self.has_val[index] = False
+            self.vals[index] = None
+            return
+
         if col.col_type.is_image_type():
             self.flush_img(index, col)
-        if col.col_type.is_media_type():
+        elif col.col_type.is_media_type():
+            # Non-image media
             self.move_tmp_media_file(index, col)
+            self.vals[index] = self.file_urls[index]
+
         if col.col_type.is_array_type():
             self.flush_array(index, col)
+
         if col.col_type.is_json_type():
             self.flush_json(index, col)
 
-    def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
-        """Save or discard the in-memory value (required to be a PIL.Image.Image)"""
-        if self.file_paths[index] is None:
-            if col is not None:
-                image = self.vals[index]
-                format = None
-                if isinstance(image, PIL.Image.Image):
-                    # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-                    # In that case, use WebP instead.
-                    format = 'webp' if image.has_transparency_data else 'jpeg'
-                filepath, url = MediaStore.get().save_media_object(image, col, format=format)
-                self.file_paths[index] = str(filepath)
-                self.file_urls[index] = url
-            else:
-                # we discard the content of this cell
-                self.has_val[index] = False
+    def flush_img(self, index: int, col: catalog.Column) -> None:
+        """Save the in-memory value (required to be a PIL.Image.Image)"""
+        if self.file_urls[index] is None:
+            image = self.vals[index]
+            assert isinstance(image, PIL.Image.Image)
+            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+            # In that case, use WebP instead.
+            format = 'webp' if image.has_transparency_data else 'jpeg'
+            filepath, url = MediaStore.get().save_media_object(image, col, format=format)
+            self.file_paths[index] = str(filepath)
+            self.file_urls[index] = url
+            self.vals[index] = url
         else:
-            # we already have a file for this image, nothing left to do
-            pass
-        self.vals[index] = None
+            # we already have a URL for this image, just update vals accordingly
+            self.move_tmp_media_file(index, col)
+            self.vals[index] = self.file_urls[index]
 
-    def flush_array(self, index: int, col: Optional[catalog.Column] = None) -> None:
+    def flush_array(self, index: int, col: catalog.Column) -> None:
         if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
             # Never flush pgvector-indexed arrays to external storage
             return
@@ -312,6 +318,7 @@ class DataRow:
             # serialized numpy array.
             self.vals[index] = b'\x01' + url.encode('utf-8')  # magic prefix + utf-8 encoded bytes
 
+    @classmethod
     def reconstruct_array(cls, data: bytes) -> np.ndarray:
         if data.startswith(b'\x93NUMPY'):  # npy magic string
             return np.load(io.BytesIO(data), allow_pickle=False)
@@ -324,7 +331,7 @@ class DataRow:
             with open(path, 'rb') as fp:
                 return np.load(fp, allow_pickle=False)
 
-    def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
+    def flush_json(self, index: int, col: catalog.Column) -> None:
         """If the JSON object contains images or arrays, save them to a media store and rewrite the JSON object."""
         # TODO: Do the same thing for lists that exceed a certain length?
         # TODO: Also allow datetimes?
