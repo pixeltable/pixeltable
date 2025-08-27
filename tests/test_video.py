@@ -8,6 +8,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
+
 from .utils import (
     generate_test_video,
     get_video_files,
@@ -604,21 +605,6 @@ class TestVideo:
                 box=False,
             )
         )
-        assert pxtf.video._create_drawtext_params(
-            text,
-            color='black',
-            opacity=0.5,
-            horizontal_align='left',
-            horizontal_margin=10,
-            vertical_align='top',
-            box=False,
-        ) == [
-            "text='Line 1\\nLine2: 'quoted text''",
-            'fontsize=24',
-            'fontcolor=black@0.5',
-            'x=10',
-            'y=0',
-        ]
         t.add_computed_column(
             o2=t.clip_5s.overlay_text(
                 text,
@@ -678,6 +664,119 @@ class TestVideo:
         rows = [{'video': v} for v in get_video_files()]
         status = t.insert(rows)
         assert status.num_excs == 0
+
+        # also check the generated drawtext commands
+        assert pxtf.video._create_drawtext_params(
+            text,
+            font=None,
+            font_size=24,
+            color='black',
+            opacity=0.5,
+            horizontal_align='left',
+            horizontal_margin=10,
+            vertical_align='top',
+            vertical_margin=0,
+            box=False,
+            box_color='black',
+            box_opacity=1.0,
+            box_border=None,
+        ) == ["text='Line 1\nLine2\\: \\'quoted text\\''", 'fontsize=24', 'fontcolor=black@0.5', 'x=10', 'y=0']
+        assert pxtf.video._create_drawtext_params(
+            text,
+            font=None,
+            font_size=24,
+            color='red',
+            opacity=0.8,
+            horizontal_align='center',
+            horizontal_margin=0,
+            vertical_align='bottom',
+            vertical_margin=10,
+            box=True,
+            box_color='blue',
+            box_opacity=0.5,
+            box_border=[10, 20, 30, 40],
+        ) == [
+            "text='Line 1\nLine2\\: \\'quoted text\\''",
+            'fontsize=24',
+            'fontcolor=red@0.8',
+            'x=(w-text_w)/2',
+            'y=h-text_h-10',
+            'box=1',
+            'boxcolor=blue@0.5',
+            'boxborderw=10|20|30|40',
+        ]
+        assert pxtf.video._create_drawtext_params(
+            text,
+            font=None,
+            font_size=24,
+            color='yellow',
+            opacity=1.0,
+            horizontal_align='right',
+            horizontal_margin=0,
+            vertical_align='center',
+            vertical_margin=10,
+            box=True,
+            box_color='red',
+            box_opacity=0.8,
+            box_border=[10, 20, 30],
+        ) == [
+            "text='Line 1\nLine2\\: \\'quoted text\\''",
+            'fontsize=24',
+            'fontcolor=yellow',
+            'x=w-text_w',
+            'y=(h-text_h)/2',
+            'box=1',
+            'boxcolor=red@0.8',
+            'boxborderw=10|20|30',
+        ]
+        assert pxtf.video._create_drawtext_params(
+            text,
+            font=None,
+            font_size=24,
+            color='red',
+            opacity=0.8,
+            horizontal_align='center',
+            horizontal_margin=0,
+            vertical_align='bottom',
+            vertical_margin=10,
+            box=True,
+            box_color='blue',
+            box_opacity=0.5,
+            box_border=[10, 20],
+        ) == [
+            "text='Line 1\nLine2\\: \\'quoted text\\''",
+            'fontsize=24',
+            'fontcolor=red@0.8',
+            'x=(w-text_w)/2',
+            'y=h-text_h-10',
+            'box=1',
+            'boxcolor=blue@0.5',
+            'boxborderw=10|20',
+        ]
+        assert pxtf.video._create_drawtext_params(
+            text,
+            font=None,
+            font_size=24,
+            color='yellow',
+            opacity=1.0,
+            horizontal_align='right',
+            horizontal_margin=0,
+            vertical_align='center',
+            vertical_margin=10,
+            box=True,
+            box_color='red',
+            box_opacity=0.8,
+            box_border=[10],
+        ) == [
+            "text='Line 1\nLine2\\: \\'quoted text\\''",
+            'fontsize=24',
+            'fontcolor=yellow',
+            'x=w-text_w',
+            'y=(h-text_h)/2',
+            'box=1',
+            'boxcolor=red@0.8',
+            'boxborderw=10',
+        ]
 
         # This doesn't work, because ffmpeg might add a few frames, due to re-encoding.
         # TODO: is this worth fixing?
