@@ -56,6 +56,7 @@ class DataRow:
     img_slot_idxs: list[int]
     media_slot_idxs: list[int]
     array_slot_idxs: list[int]
+    json_slot_idxs: list[int]
 
     # the primary key of a store row is a sequence of ints (the number is different for table vs view)
     pk: Optional[tuple[int, ...]]
@@ -82,12 +83,14 @@ class DataRow:
         img_slot_idxs: list[int],
         media_slot_idxs: list[int],
         array_slot_idxs: list[int],
+        json_slot_idxs: list[int],
         parent_row: Optional[DataRow] = None,
         parent_slot_idx: Optional[int] = None,
     ):
         self.img_slot_idxs = img_slot_idxs
         self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
+        self.json_slot_idxs = json_slot_idxs
         self.init(size)
         self.parent_row = parent_row
         self.parent_slot_idx = parent_slot_idx
@@ -200,7 +203,7 @@ class DataRow:
 
         val = self.vals[index]
 
-        if (index in self.img_slot_idxs or index in self.media_slot_idxs) and self.file_urls[index] is not None:
+        if self.file_urls[index] is not None and (index in self.img_slot_idxs or index in self.media_slot_idxs):
             # For media data, always prefer the file URL even if the value hasn't been flushed yet
             # (for example, when doing a dynamic select())
             return self.file_urls[index]
@@ -256,6 +259,8 @@ class DataRow:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = self.reconstruct_array(val)
+        elif idx in self.json_slot_idxs:
+            self.vals[idx] = self.reconstruct_json(val)
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
@@ -302,6 +307,7 @@ class DataRow:
             self.vals[index] = self.file_urls[index]
 
     def flush_array(self, index: int, col: catalog.Column) -> None:
+        """If the array size exceeds MAX_ARRAY_IN_DB, save it to a file and store the URL instead."""
         if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
             # Never flush pgvector-indexed arrays to external storage
             return
@@ -320,6 +326,7 @@ class DataRow:
 
     @classmethod
     def reconstruct_array(cls, data: bytes) -> np.ndarray:
+        """Reconstruct a numpy array from bytes in the database."""
         if data.startswith(b'\x93NUMPY'):  # npy magic string
             return np.load(io.BytesIO(data), allow_pickle=False)
         else:

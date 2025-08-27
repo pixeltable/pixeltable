@@ -1551,7 +1551,7 @@ class TestTable:
         t = pxt.create_table('test', {'col': pxt.Array})
         assert MediaStore.get().count(t._id) == 0
         t.insert([{'col': array1}, {'col': array2}])
-        assert MediaStore.get().count(t._id) == 1  # Just the large array should be stored in the database
+        assert MediaStore.get().count(t._id) == 1  # Just the large array should be exported as a data file
         expected = pxt.dataframe.DataFrameResultSet([[array1], [array2]], t._get_schema())
         assert_resultset_eq(expected, t.head())
 
