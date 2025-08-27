@@ -199,11 +199,7 @@ class DataRow:
         assert self.has_val[index]
 
         if self.vals[index] is None and self.file_urls[index] is not None:
-            # This respresents a value that has been flushed to storage outside the Postgres DB. When this happens,
-            # the alternative ("surrogate") DB value is registered in self.stored_vals[index]. Examples:
-            # - An image that has been flushed to the media store; self.stored_vals[index] holds its URL
-            # - A JSON structure containing media data that have been flushed to a tarball in the media store;
-            #   self.stored_vals[index] holds the modified structure whose media data have been stubbed out
+            # the value has been flushed to a file; use the url instead
             return self.file_urls[index]
 
         return self.__as_stored_val(self.vals[index], sa_col_type)
@@ -260,7 +256,7 @@ class DataRow:
             if idx in self.media_slot_idxs:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
-            self.vals[idx] = np.load(io.BytesIO(val))
+            self.vals[idx] = self.reconstruct_array(val)
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
@@ -300,6 +296,9 @@ class DataRow:
         self.vals[index] = None
 
     def flush_array(self, index: int, col: Optional[catalog.Column] = None) -> None:
+        if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
+            # Never flush pgvector-indexed arrays to external storage
+            return
         array = self.vals[index]
         assert isinstance(array, np.ndarray)
         if array.size >= self.MAX_ARRAY_IN_DB:
@@ -308,7 +307,22 @@ class DataRow:
                 np.save(fp, array, allow_pickle=False)
             url = MediaStore.get().relocate_local_media_file(path, col)
             self.file_urls[index] = url
-            self.vals[index] = None
+            # We need to store the URL in the DB in place of array data. The DB column type is BINARY, so we
+            # binary-encode the URL string, with a magic prefix to make sure it's distinguishable from a
+            # serialized numpy array.
+            self.vals[index] = b'\x01' + url.encode('utf-8')  # magic prefix + utf-8 encoded bytes
+
+    def reconstruct_array(cls, data: bytes) -> np.ndarray:
+        if data.startswith(b'\x93NUMPY'):  # npy magic string
+            return np.load(io.BytesIO(data), allow_pickle=False)
+        else:
+            assert data.startswith(b'\x01')
+            url = data[1:].decode('utf-8')
+            parsed = urllib.parse.urlparse(url)
+            assert parsed.scheme == 'file'
+            path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+            with open(path, 'rb') as fp:
+                return np.load(fp, allow_pickle=False)
 
     def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
         """If the JSON object contains images or arrays, save them to a media store and rewrite the JSON object."""
@@ -321,6 +335,7 @@ class DataRow:
             # Now move the temp file to the media store and update the JSON structure with the new URL
             url = MediaStore.get().relocate_local_media_file(path, col)
             self.__add_url_to_json(self.vals[index], url)
+            self.file_urls[index] = url
 
     @classmethod
     def __has_media(cls, element: Any) -> bool:
