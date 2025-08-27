@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional, Sequence
 
 import pixeltable as pxt
 from pixeltable.env import Env
+from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from whisper import Whisper  # type: ignore[import-untyped]
@@ -90,3 +91,10 @@ def _lookup_model(model_id: str, device: str) -> 'Whisper':
 
 
 _model_cache: dict[tuple[str, str], 'Whisper'] = {}
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__() -> list[str]:
+    return __all__
