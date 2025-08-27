@@ -187,7 +187,7 @@ class CachePrefetchNode(ExecNode):
             row_idx = next(self.row_idx)
 
             for info in self.file_col_info:
-                url = row.stored_vals[info.slot_idx]
+                url = row.file_urls[info.slot_idx]
                 if url is None or row.file_paths[info.slot_idx] is not None:
                     # nothing to do
                     continue

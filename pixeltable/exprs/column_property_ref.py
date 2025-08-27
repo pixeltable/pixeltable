@@ -88,7 +88,7 @@ class ColumnPropertyRef(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.prop == self.Property.FILEURL:
             assert data_row.has_val[self._col_ref.slot_idx]
-            data_row[self.slot_idx] = data_row.stored_vals[self._col_ref.slot_idx]
+            data_row[self.slot_idx] = data_row.file_urls[self._col_ref.slot_idx]
             return
         elif self.prop == self.Property.LOCALPATH:
             assert data_row.has_val[self._col_ref.slot_idx]

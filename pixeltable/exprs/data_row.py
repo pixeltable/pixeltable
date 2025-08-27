@@ -60,12 +60,10 @@ class DataRow:
     # the primary key of a store row is a sequence of ints (the number is different for table vs view)
     pk: Optional[tuple[int, ...]]
 
-    # stored_vals:
-    # - stored value for data in vals[i]
-    # - can be a URL in the case of media types, or a modified JSON structure for JSON objects that contain media
-    #   or arrays
-    # - not None if file_paths[i] is not None
-    stored_vals: np.ndarray  # of str
+    # file_urls:
+    # - stored url of file for media in vals[i]
+    # - None if vals[i] does not export data to a file
+    file_urls: np.ndarray  # of str
 
     # file_paths:
     # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
@@ -103,7 +101,7 @@ class DataRow:
         self.missing_dependents = np.zeros(num_slots, dtype=np.int16)
         self.is_scheduled = np.zeros(num_slots, dtype=bool)
         self.pk = None
-        self.stored_vals = np.full(num_slots, None, dtype=object)
+        self.file_urls = np.full(num_slots, None, dtype=object)
         self.file_paths = np.full(num_slots, None, dtype=object)
         self.parent_row = None
         self.parent_slot_idx = None
@@ -113,7 +111,7 @@ class DataRow:
             self.has_val[idxs] = False
             self.vals[idxs] = None
             self.excs[idxs] = None
-            self.stored_vals[idxs] = None
+            self.file_urls[idxs] = None
             self.file_paths[idxs] = None
         else:
             self.init(len(self.vals))
@@ -135,7 +133,7 @@ class DataRow:
         target.has_val = self.has_val.copy()
         target.excs = self.excs.copy()
         target.pk = self.pk
-        target.stored_vals = self.stored_vals.copy()
+        target.file_urls = self.file_urls.copy()
         target.file_paths = self.file_paths.copy()
 
     def set_pk(self, pk: tuple[int, ...]) -> None:
@@ -172,7 +170,7 @@ class DataRow:
         self.has_val[slot_idx] = True
         self.vals[slot_idx] = None
         self.file_paths[slot_idx] = None
-        self.stored_vals[slot_idx] = None
+        self.file_urls[slot_idx] = None
 
     def __getitem__(self, index: int) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
@@ -182,7 +180,7 @@ class DataRow:
             # even if python is running with -O.
             raise AssertionError(index)
 
-        if self.stored_vals[index] is not None and index in self.img_slot_idxs:
+        if self.file_urls[index] is not None and index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally
             # TODO this fails if the url was instantiated dynamically using astype()
             assert self.file_paths[index] is not None
@@ -200,13 +198,13 @@ class DataRow:
             pass
         assert self.has_val[index]
 
-        if self.stored_vals[index] is not None:
+        if self.vals[index] is None and self.file_urls[index] is not None:
             # This respresents a value that has been flushed to storage outside the Postgres DB. When this happens,
             # the alternative ("surrogate") DB value is registered in self.stored_vals[index]. Examples:
             # - An image that has been flushed to the media store; self.stored_vals[index] holds its URL
             # - A JSON structure containing media data that have been flushed to a tarball in the media store;
             #   self.stored_vals[index] holds the modified structure whose media data have been stubbed out
-            return self.stored_vals[index]
+            return self.file_urls[index]
 
         return self.__as_stored_val(self.vals[index], sa_col_type)
 
@@ -245,22 +243,22 @@ class DataRow:
             # by urllib as a URL with scheme equal to the drive letter.)
             if len(parsed.scheme) <= 1 or parsed.scheme == 'file':
                 # local file path
-                assert self.stored_vals[idx] is None and self.file_paths[idx] is None
+                assert self.file_urls[idx] is None and self.file_paths[idx] is None
                 if len(parsed.scheme) <= 1:
                     path = str(Path(val).absolute())  # Ensure we're using an absolute pathname.
-                    self.stored_vals[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(path))
+                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(path))
                     self.file_paths[idx] = path
                 else:  # file:// URL
-                    self.stored_vals[idx] = val
+                    self.file_urls[idx] = val
                     # Wrap the path in a url2pathname() call to ensure proper handling on Windows.
                     self.file_paths[idx] = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
             else:
                 # URL
-                assert self.stored_vals[idx] is None
-                self.stored_vals[idx] = val
+                assert self.file_urls[idx] is None
+                self.file_urls[idx] = val
 
             if idx in self.media_slot_idxs:
-                self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.stored_vals[idx]
+                self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
         else:
@@ -292,7 +290,7 @@ class DataRow:
                     format = 'webp' if image.has_transparency_data else 'jpeg'
                 filepath, url = MediaStore.get().save_media_object(image, col, format=format)
                 self.file_paths[index] = str(filepath)
-                self.stored_vals[index] = url
+                self.file_urls[index] = url
             else:
                 # we discard the content of this cell
                 self.has_val[index] = False
@@ -309,22 +307,20 @@ class DataRow:
             with open(path, 'wb') as fp:
                 np.save(fp, array, allow_pickle=False)
             url = MediaStore.get().relocate_local_media_file(path, col)
-            self.stored_vals[index] = url
+            self.file_urls[index] = url
             self.vals[index] = None
 
     def flush_json(self, index: int, col: Optional[catalog.Column] = None) -> None:
         """If the JSON object contains images or arrays, save them to a media store and rewrite the JSON object."""
         # TODO: Do the same thing for lists that exceed a certain length?
         # TODO: Also allow datetimes?
-        element = self.vals[index]
-        if self.__has_media(element):
+        if self.__has_media(self.vals[index]):
             path = TempStore.create_path(extension='.bin')
             with open(path, 'wb') as fp:
-                self.stored_vals[index] = self.__rewrite_json(element, fp)
+                self.vals[index] = self.__rewrite_json(self.vals[index], fp)
             # Now move the temp file to the media store and update the JSON structure with the new URL
             url = MediaStore.get().relocate_local_media_file(path, col)
-            self.__add_url_to_json(self.stored_vals[index], url)
-            self.vals[index] = None
+            self.__add_url_to_json(self.vals[index], url)
 
     @classmethod
     def __has_media(cls, element: Any) -> bool:
@@ -428,9 +424,9 @@ class DataRow:
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
         """If a media url refers to data in a temporary file, move the data to a MediaStore"""
-        if self.stored_vals[index] is None:
+        if self.file_urls[index] is None:
             return
-        url = self.stored_vals[index]
+        url = self.file_urls[index]
         assert isinstance(url, str)  # This will only be called if stored_vals[index] is a URL
         assert self.excs[index] is None
         assert col.col_type.is_media_type()
@@ -439,7 +435,7 @@ class DataRow:
             # The media url does not point to a temporary file, leave it as is
             return
         new_file_url = MediaStore.get().relocate_local_media_file(src_path, col)
-        self.stored_vals[index] = new_file_url
+        self.file_urls[index] = new_file_url
 
     @property
     def rowid(self) -> tuple[int, ...]:
