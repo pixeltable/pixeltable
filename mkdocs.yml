@@ -62,9 +62,8 @@ nav:
     - replicate: pixeltable/functions/replicate.md
     - together: pixeltable/functions/together.md
     - whisper: pixeltable/functions/whisper.md
-  - Extended Model and Inference Functions:
-    - whisperx: pixeltable/ext/functions/whisperx.md
-    - yolox: pixeltable/ext/functions/yolox.md
+    - whisperx: pixeltable/functions/whisperx.md
+    - yolox: pixeltable/functions/yolox.md
 
 validation:
   omitted_files: warn
