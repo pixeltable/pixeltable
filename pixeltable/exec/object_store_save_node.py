@@ -25,7 +25,7 @@ _logger = logging.getLogger('pixeltable')
 class ObjectStoreSaveNode(ExecNode):
     """Brings files with external URLs into the cache
 
-    Each row may have multipe files that need to be saved to a destination.
+    Each row may have multiple files that need to be saved to a destination.
     Each file may be referenced by more than one column in the row.
     Each file may have multiple destinations, e.g., S3 bucket and local file system.
     If there are multiple destinations, the file cannot be moved to any destination

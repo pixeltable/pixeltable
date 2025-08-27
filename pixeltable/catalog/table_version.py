@@ -366,6 +366,7 @@ class TableVersion:
 
     def delete_media(self, tbl_version: Optional[int] = None) -> None:
         # Assemble a set of column destinations and delete media from all of them
+        # None is a valid column destination which refers to the default media location
         destinations = {col.destination for col in self.cols if col.is_stored}
         for dest in destinations:
             MediaDestination.delete(dest, self.id, tbl_version=tbl_version)

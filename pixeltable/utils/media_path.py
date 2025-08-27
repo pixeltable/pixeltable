@@ -89,6 +89,7 @@ class MediaPath:
     @classmethod
     def media_table_prefix(cls, tbl_id: UUID) -> str:
         """Construct a unique unix-style prefix for a media table without leading/trailing slashes."""
+        assert isinstance(tbl_id, uuid.UUID)
         return f'{tbl_id.hex}'
 
     @classmethod

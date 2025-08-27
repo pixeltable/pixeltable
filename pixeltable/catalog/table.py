@@ -6,7 +6,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, Union, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import datetime
@@ -597,7 +597,7 @@ class Table(SchemaObject):
         self,
         *,
         stored: Optional[bool] = None,
-        destination: Optional[Union[str, Path]] = None,
+        destination: Optional[str | Path] = None,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',

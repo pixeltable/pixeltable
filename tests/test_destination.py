@@ -1,5 +1,6 @@
+import os
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 from uuid import UUID
 
 import pytest
@@ -24,7 +25,7 @@ class TestDestination:
         return base_path
 
     @classmethod
-    def dest(cls, n: int) -> tuple[Union[Path, str], str]:
+    def dest(cls, n: int) -> tuple[Path | str, str]:
         """Return the destination directory for test images"""
         if cls.USE_GS:
             gs_uri = f'gs://pixeltable/my_folder/img_rot{n}'
@@ -297,7 +298,7 @@ class TestDestination:
             _, dest_uri = self.dest(i)
             assert self.count(dest_uri, save_id) == 0
 
-    @pytest.mark.skip(reason='Requires current credentials for all 3 supported cloud destinations')
+    @pytest.mark.skipif(os.getenv('TEST_DEST_ALL', '').lower() != 'true', reason='Requires credentials for all clouds')
     def test_dest_all(self, reset_db: None) -> None:
         """Test destination with all available storage targets"""
         n = 1

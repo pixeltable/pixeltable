@@ -10,7 +10,7 @@ import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 import PIL.Image
@@ -42,7 +42,7 @@ class MediaStore(MediaStoreBase):
         self.__base_dir = base_dir
 
     @staticmethod
-    def validate_destination(col_name: str, dest: Union[StorageObjectAddress, Path]) -> str:
+    def validate_destination(col_name: str, dest: StorageObjectAddress | Path) -> str:
         """Convert a Column destination parameter to a URI, else raise errors."""
         if isinstance(dest, Path):
             dest_path = dest

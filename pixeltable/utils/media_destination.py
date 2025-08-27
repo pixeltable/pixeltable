@@ -4,7 +4,7 @@ import os
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 from pixeltable import exceptions as excs
@@ -56,7 +56,7 @@ class MediaDestination:
             raise excs.Error(f'"destination" must be a valid URI to a supported destination, got {dest!r}')
 
     @classmethod
-    def validate_destination(cls, col_name: Optional[str], dest: Union[str, Path, None]) -> str:
+    def validate_destination(cls, col_name: Optional[str], dest: str | Path | None) -> str:
         """Convert a Column destination parameter to a URI, else raise errors.
         Args:
             col_name: Used to raise error messages
