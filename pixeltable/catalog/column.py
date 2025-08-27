@@ -34,6 +34,7 @@ class Column:
     col_type: ts.ColumnType
     stored: bool
     is_pk: bool
+    destination: Optional[str]
     _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
@@ -62,6 +63,7 @@ class Column:
         stores_cellmd: Optional[bool] = None,
         value_expr_dict: Optional[dict[str, Any]] = None,
         tbl: Optional[TableVersion] = None,
+        destination: Optional[str] = None,
     ):
         """Column constructor.
 
@@ -126,6 +128,7 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
+        self.destination = destination
 
     def to_md(self, pos: Optional[int] = None) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -138,6 +141,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
+            destination=self.destination,
         )
         if pos is None:
             return col_md, None
@@ -172,6 +176,7 @@ class Column:
             schema_version_drop=col_md.schema_version_drop,
             value_expr_dict=col_md.value_expr,
             tbl=tbl,
+            destination=col_md.destination,
         )
         return col
 

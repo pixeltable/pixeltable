@@ -103,6 +103,5 @@ class AggregationNode(ExecNode):
             self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
             self.output_batch.add_row(prev_row)
 
-        self.output_batch.flush_imgs(None, self.row_builder.stored_img_cols, self.flushed_img_slots)
         _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(self.output_batch.rows)} rows')
         yield self.output_batch

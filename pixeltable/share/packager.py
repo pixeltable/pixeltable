@@ -24,7 +24,8 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_store import TempStore
 
 _logger = logging.getLogger('pixeltable')
 
@@ -619,7 +620,7 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = MediaStore.get().relocate_local_media_file(src_path, media_col)
+                self.media_files[url] = MediaDestination.put_file(media_col, src_path, relocate_or_delete=True)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
