@@ -6,7 +6,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators.audio import AudioSplitter
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_store import TempStore
 
 from .utils import ReloadTester, get_audio_file, get_audio_files, get_video_files, validate_update_status
 
@@ -38,7 +39,7 @@ class TestAudio:
         status = video_t.insert({'video': p} for p in video_filepaths)
         assert status.num_rows == len(video_filepaths)
         assert status.num_excs == 0
-        assert MediaStore.get().count(video_t._id) == len(video_filepaths) - 1
+        assert MediaDestination.count(None, video_t._id) == len(video_filepaths) - 1
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
         tmp_files_before = TempStore.count()
 
@@ -153,15 +154,15 @@ class TestAudio:
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.insert({'video': p} for p in video_filepaths)
 
-        pre_count = MediaStore.get().count(video_t._id)
+        pre_count = MediaDestination.count(None, video_t._id)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        post_count = MediaStore.get().count(video_t._id)
+        post_count = MediaDestination.count(None, video_t._id)
         assert post_count > pre_count  # Some files should have been added
 
         print(video_t.history())
         video_t.revert()
-        final_count = MediaStore.get().count(video_t._id)
+        final_count = MediaDestination.count(None, video_t._id)
         assert final_count == pre_count  # Reverting should remove the added files
 
     def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
