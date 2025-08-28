@@ -75,7 +75,6 @@ class ClassPageGenerator(PageBase):
         return f"""---
 title: "{full_path}"
 sidebarTitle: "{class_name}"
-description: "{description or 'Class documentation'}"
 icon: "square-c"
 ---
 """
@@ -87,10 +86,8 @@ icon: "square-c"
         # Get docstring
         doc = inspect.getdoc(cls)
         if doc:
-            parsed = parse_docstring(doc)
-            # Skip short description (it's in frontmatter), only add long description
-            if parsed.long_description:
-                content += f"\n{self._escape_mdx(parsed.long_description)}\n\n"
+            # Add the full docstring as the class description
+            content += f"\n{self._escape_mdx(doc)}\n\n"
         else:
             if self.show_errors:
                 content += f"\n## ⚠️ No Documentation\n\n"
@@ -228,7 +225,6 @@ icon: "square-c"
         """Generate error page when class can't be loaded."""
         content = f"""---
 title: "{class_name}"
-description: "Class documentation unavailable"
 icon: "triangle-exclamation"
 ---
 

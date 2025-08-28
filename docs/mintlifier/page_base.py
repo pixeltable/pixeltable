@@ -219,6 +219,10 @@ Documentation for `{name}` is not available.
                 escaped = re.sub(r':data:`([^`]+)`', r'`\1`', escaped)
                 escaped = re.sub(r':(?:py:)?(?:func|class|meth|attr|mod):`([^`]+)`', r'`\1`', escaped)
                 
+                # Fix escaped markdown links like \[`Table`\]\[pixeltable.Table\]
+                escaped = re.sub(r'\\\\\[`([^`]+)`\\\\\]\\\\\[([^\]]+)\\\\\]', r'[`\1`](\2)', escaped)
+                escaped = re.sub(r'\\\[`([^`]+)`\\\]\\\[([^\]]+)\\\]', r'[`\1`](\2)', escaped)
+                
                 return escaped
             except Exception:
                 pass

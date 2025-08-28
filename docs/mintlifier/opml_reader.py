@@ -115,6 +115,7 @@ class OPMLReader:
                         
                         # For modules, collect direct function children and process class children separately
                         children = None
+                        class_pages = []  # Store class pages to add after module
                         if item_type == 'module':
                             children = []
                             for grandchild in subchild:
@@ -132,7 +133,8 @@ class OPMLReader:
                                                 method_name = method_path.split('.')[-1]
                                                 class_children.append(method_name)
                                         
-                                        pages.append(PageItem(
+                                        # Store class pages to add after module
+                                        class_pages.append(PageItem(
                                             module_path=child_path,
                                             parent_groups=new_hierarchy,
                                             item_type='class',
@@ -153,12 +155,17 @@ class OPMLReader:
                                     child_name = child_path.split('.')[-1]
                                     children.append(child_name)
                         
+                        # Add module page first
                         pages.append(PageItem(
                             module_path=module_path,
                             parent_groups=new_hierarchy,
                             item_type=item_type,
                             children=children
                         ))
+                        
+                        # Then add any class pages that were found
+                        if item_type == 'module' and class_pages:
+                            pages.extend(class_pages)
                     elif subtext.startswith('group|'):
                         # Process nested group directly
                         # We need to process this single group element, not pass it to _process_groups

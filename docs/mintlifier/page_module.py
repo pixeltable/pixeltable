@@ -49,10 +49,8 @@ class ModulePageGenerator(PageBase):
                 content += f"\n## ⚠️ No Documentation\n\n"
                 content += f"<Warning>\nDocumentation for `{module_path}` is not available.\n</Warning>\n\n"
         else:
-            parsed_doc = parse_docstring(docstring)
-            # Skip short description (it's in frontmatter), only add long description
-            if parsed_doc.long_description:
-                content += f"\n{self._escape_mdx(parsed_doc.long_description)}\n\n"
+            # Add the full docstring as the module description
+            content += f"\n{self._escape_mdx(docstring)}\n\n"
         
         # Store parent groups for use in child generation
         self.current_parent_groups = parent_groups
@@ -137,7 +135,7 @@ class ModulePageGenerator(PageBase):
                         self._generated_classes.append(class_result)
                 
                 # Add link to the list
-                content += f"- [{name}](./{name})\n"
+                content += f"- [{name}](./{name.lower()})\n"
             content += "\n"
         
         # Document functions inline (no separate pages)
@@ -238,7 +236,7 @@ class ModulePageGenerator(PageBase):
                         self._generated_classes.append(class_result)
                 
                 # Add link to the list
-                content += f"- [{name}](./{name})\n"
+                content += f"- [{name}](./{name.lower()})\n"
             content += "\n"
         
         # Document functions inline (no separate pages)
@@ -355,7 +353,6 @@ class ModulePageGenerator(PageBase):
         return f"""---
 title: "{module_path}"
 sidebarTitle: "{module_name}"
-description: "{description or 'Module documentation'}"
 icon: "square-m"
 ---
 """
@@ -365,7 +362,6 @@ icon: "square-m"
         module_name = module_path.split('.')[-1]
         content = f"""---
 title: "{module_name}"
-description: "Module import failed"
 icon: "triangle-exclamation"
 ---
 
