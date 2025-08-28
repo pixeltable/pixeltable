@@ -88,7 +88,7 @@ endif
 
 .make-install/deps: uv.lock
 	@echo 'Installing dependencies from uv ...'
-	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:

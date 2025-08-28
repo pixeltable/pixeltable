@@ -7,10 +7,6 @@ import pixeltable as pxt
 from ..utils import IN_CI, rerun, skip_test_if_not_installed, validate_update_status
 
 
-# llama_cpp can be quite fussy, so we only run on Linux in CI environments.
-@pytest.mark.skipif(
-    IN_CI and platform.system() != 'Linux', reason='llama_cpp is unreliable in Windows/Mac CI environments.'
-)
 @rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, reset_db: None) -> None:

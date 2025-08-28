@@ -4398,7 +4398,7 @@ dev = [
     { name = "groq" },
     { name = "ipykernel" },
     { name = "label-studio-sdk" },
-    { name = "llama-cpp-python", marker = "sys_platform != 'win32'" },
+    { name = "llama-cpp-python", marker = "sys_platform == 'linux'" },
     { name = "mcp" },
     { name = "mistralai" },
     { name = "mistune" },
@@ -4441,6 +4441,9 @@ dev = [
     { name = "types-toml" },
     { name = "types-tqdm" },
     { name = "whisperx", marker = "(python_full_version < '3.13' and platform_machine != 'x86_64') or (python_full_version < '3.13' and sys_platform != 'darwin')" },
+]
+extra-dev = [
+    { name = "llama-cpp-python", marker = "sys_platform != 'win32'" },
 ]
 test = [
     { name = "coverage" },
@@ -4498,7 +4501,7 @@ dev = [
     { name = "groq", specifier = ">=0.26.0" },
     { name = "ipykernel", specifier = ">=6.27.1,<7" },
     { name = "label-studio-sdk", specifier = ">=1.0.18" },
-    { name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" },
+    { name = "llama-cpp-python", marker = "sys_platform == 'linux'", specifier = ">=0.3.16" },
     { name = "mcp", specifier = ">=1.9.4" },
     { name = "mistralai", specifier = ">=1.8.2" },
     { name = "mistune", specifier = ">=3.0.2,<4" },
@@ -4542,6 +4545,7 @@ dev = [
     { name = "types-tqdm", specifier = "~=4.64" },
     { name = "whisperx", marker = "(python_full_version < '3.13' and platform_machine != 'x86_64') or (python_full_version < '3.13' and sys_platform != 'darwin')", specifier = ">=3.3.4" },
 ]
+extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" }]
 test = [
     { name = "coverage", specifier = ">=7.9" },
     { name = "filelock", specifier = ">=3.13" },

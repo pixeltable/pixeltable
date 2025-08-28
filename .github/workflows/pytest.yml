@@ -128,9 +128,8 @@ jobs:
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        # llvm-openmp is needed for llama-cpp-python on MacOS.
         # libiconv and ffmpeg are needed by WhisperX.
-        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' llvm-openmp libiconv 'ffmpeg==6.1.1'
+        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1'
       - name: Install ollama
         if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-22.04' }}
         run: |
