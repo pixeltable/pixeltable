@@ -69,7 +69,6 @@ dependencies = [
     "pydantic>=2.7.4",
     "pyarrow>=13.0.0",
     "pixeltable-pgserver==0.3.1",
-    "google-cloud-storage>=2.18.0",
 ]
 
 [project.urls]
@@ -154,6 +153,7 @@ dev = [
     "mcp>=1.9.4",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
+    "google-cloud-storage>=2.18.0",
 ]
 test = [
     "pytest>=8.4",
