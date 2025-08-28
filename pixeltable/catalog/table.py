@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import builtins
+import datetime
 import json
 import logging
 from keyword import iskeyword as is_python_keyword
@@ -9,7 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-import datetime
 from uuid import UUID
 
 import pandas as pd
@@ -1356,6 +1356,15 @@ class Table(SchemaObject):
             Insert rows from a CSV file:
 
             >>> tbl.insert(source='path/to/file.csv')
+
+            Insert Pydantic model instances into a table with two `pxt.Int` columns `a` and `b`:
+
+            >>> class MyModel(pydantic.BaseModel):
+            ...     a: int
+            ...     b: int
+            ...
+            ... models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
+            ... tbl.insert(models)
         """
         raise NotImplementedError
 

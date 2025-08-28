@@ -3,10 +3,13 @@ import glob
 import json
 import os
 import random
+import shutil
+import subprocess
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 from unittest import TestCase
+from uuid import uuid4
 
 import more_itertools
 import numpy as np
@@ -301,6 +304,29 @@ def get_test_video_files() -> list[str]:
     return glob_result
 
 
+def generate_test_video(
+    tmp_path: Path,
+    duration: float = 1.0,
+    size: str = '640x360',
+    fps: int = 25,
+    has_audio: bool = True,
+    pix_fmt: str = 'yuv420p',
+) -> str:
+    """Create test video with specific properties using ffmpeg and return its path"""
+    cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
+    if has_audio:
+        cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
+    if Env.get().default_video_encoder is not None:
+        cmd.extend(['-c:v', Env.get().default_video_encoder])
+    cmd.extend(['-pix_fmt', pix_fmt])
+    if has_audio:
+        cmd.extend(['-c:a', 'aac'])
+    output_path = tmp_path / f'{uuid4()}.mp4'
+    cmd.extend(['-y', str(output_path)])
+    subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
+
+
 __IMAGE_FILES: list[str] = []
 __IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
 
@@ -471,6 +497,12 @@ def skip_test_if_not_installed(*packages: str) -> None:
     for package in packages:
         if not Env.get().is_installed_package(package):
             pytest.skip(f'Package `{package}` is not installed.')
+
+
+def skip_test_if_not_in_path(*binaries: str) -> None:
+    for binary in binaries:
+        if shutil.which(binary) is None:
+            pytest.skip(f'Binary `{binary}` is not in PATH.')
 
 
 def skip_test_if_no_client(client_name: str) -> None:
