@@ -9,7 +9,7 @@ from ..utils import get_video_files, skip_test_if_not_installed
 class TestVision:
     def test_eval(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
-        from pixeltable.ext.functions.yolox import yolox
+        from pixeltable.functions.yolox import yolox
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
@@ -52,7 +52,7 @@ class TestVision:
 
     def test_draw_bounding_boxes(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
-        from pixeltable.ext.functions.yolox import yolox
+        from pixeltable.functions.yolox import yolox
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view

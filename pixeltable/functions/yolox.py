@@ -20,8 +20,6 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     Computes YOLOX object detections for the specified image. `model_id` should reference one of the models
     defined in the [YOLOX documentation](https://github.com/Megvii-BaseDetection/YOLOX).
 
-    YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
-
     __Requirements__:
 
     - `pip install pixeltable-yolox`
@@ -54,8 +52,6 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
 def yolo_to_coco(detections: dict) -> list:
     """
     Converts the output of a YOLOX object detection model to COCO format.
-
-    YOLOX is part of the `pixeltable.ext` package: long-term support in Pixeltable is not guaranteed.
 
     Args:
         detections: The output of a YOLOX object detection model, as returned by `yolox`.
