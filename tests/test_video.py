@@ -13,7 +13,6 @@ from .utils import (
     generate_test_video,
     get_video_files,
     reload_catalog,
-    skip_test_if_not_in_path,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -293,7 +292,6 @@ class TestVideo:
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
     def test_clip(self, reset_db: None) -> None:
-        skip_test_if_not_in_path('ffmpeg')
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
         video_filepaths = get_video_files()
         t.insert({'video': p} for p in video_filepaths)
@@ -339,7 +337,6 @@ class TestVideo:
             _ = t.select(invalid_clip=t.video.clip(start_time=10.0, end_time=20.0, duration=10.0)).collect()
 
     def test_extract_frame(self, reset_db: None) -> None:
-        skip_test_if_not_in_path('ffmpeg')
         video_filepaths = get_video_files()
         t = pxt.create_table('video_tbl', {'video': pxt.Video})
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
@@ -396,7 +393,6 @@ class TestVideo:
         pxt.drop_table('validate_segments')
 
     def test_segment_video(self, reset_db: None) -> None:
-        skip_test_if_not_in_path('ffmpeg')
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         t.insert([{'video': f} for f in get_video_files()])
 
@@ -416,7 +412,6 @@ class TestVideo:
             t.select(invalid=t.video.segment_video(duration=0.0)).collect()
 
     def test_concat_videos(self, reset_db: None) -> None:
-        skip_test_if_not_in_path('ffmpeg')
         video_filepaths = get_video_files()[:3]  # Use first 3 videos
         from pixeltable.functions.video import concat_videos
 
@@ -458,8 +453,6 @@ class TestVideo:
         assert concat_duration is not None
 
     def test_concat_videos_mixed_formats(self, reset_db: None, tmp_path: Path) -> None:
-        skip_test_if_not_in_path('ffmpeg')
-
         from pixeltable.functions.video import concat_videos
 
         # mixed audio
@@ -549,7 +542,6 @@ class TestVideo:
 
     @pytest.mark.parametrize('segment_duration', [5.0, 10.0, 100.0])
     def test_video_splitter(self, segment_duration: float, reset_db: None) -> None:
-        skip_test_if_not_in_path('ffmpeg')
         from pixeltable.iterators.video import VideoSplitter
 
         video_filepaths = get_video_files()
@@ -571,8 +563,6 @@ class TestVideo:
                 pxt.drop_table('videos', force=True)
 
     def test_video_splitter_errors(self, reset_db: None) -> None:
-        skip_test_if_not_in_path('ffmpeg')
-
         from pixeltable.iterators.video import VideoSplitter
 
         t = pxt.create_table('videos', {'video': pxt.Video})
@@ -588,8 +578,6 @@ class TestVideo:
             )
 
     def test_overlay_text(self, reset_db: None, tmp_path: Path) -> None:
-        skip_test_if_not_in_path('ffmpeg')
-
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
 
@@ -798,8 +786,6 @@ class TestVideo:
 
     def test_overlay_text_errors(self, reset_db: None, tmp_path: Path) -> None:
         import re
-
-        skip_test_if_not_in_path('ffmpeg')
 
         t = pxt.create_table('videos_errors', {'video': pxt.Video})
         t.insert([{'video': v} for v in get_video_files()])
