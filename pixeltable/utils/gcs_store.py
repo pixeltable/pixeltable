@@ -7,9 +7,6 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-from google.api_core.exceptions import GoogleAPIError
-from google.cloud.exceptions import Forbidden, NotFound
-
 from pixeltable import exceptions as excs
 from pixeltable.utils.client_container import ClientContainer
 from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
@@ -65,6 +62,9 @@ class GCSStore(MediaStoreBase):
         Returns:
             str: The base URI if the GCS bucket exists and is accessible, None otherwise.
         """
+        from google.api_core.exceptions import GoogleAPIError
+        from google.cloud.exceptions import Forbidden, NotFound
+
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
@@ -93,6 +93,8 @@ class GCSStore(MediaStoreBase):
 
     def copy_local_media_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
+        from google.api_core.exceptions import GoogleAPIError
+
         new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         blob_name = parsed.path.lstrip('/')
@@ -110,6 +112,8 @@ class GCSStore(MediaStoreBase):
 
     def download_media_object(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe"""
+        from google.api_core.exceptions import GoogleAPIError
+
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
@@ -156,6 +160,8 @@ class GCSStore(MediaStoreBase):
         Returns:
             Number of objects matching the criteria
         """
+        from google.api_core.exceptions import GoogleAPIError
+
         assert tbl_id is not None
 
         try:
@@ -181,8 +187,9 @@ class GCSStore(MediaStoreBase):
         Returns:
             Number of objects deleted
         """
-        assert tbl_id is not None
+        from google.api_core.exceptions import GoogleAPIError
 
+        assert tbl_id is not None
         total_deleted = 0
 
         try:
@@ -222,6 +229,8 @@ class GCSStore(MediaStoreBase):
         Each returned object includes the full set of prefixes.
         if return_uri is True, full URI's are returned; otherwise, just the object keys.
         """
+        from google.api_core.exceptions import GoogleAPIError
+
         p = self.soa.prefix_free_uri if return_uri else ''
         gcs_client = self.client(for_write=False)
         r: list[str] = []
@@ -243,6 +252,8 @@ class GCSStore(MediaStoreBase):
     @classmethod
     def handle_gcs_error(cls, e: Exception, bucket_name: str, operation: str = '', *, ignore_404: bool = False) -> None:
         """Handle GCS-specific errors and convert them to appropriate exceptions"""
+        from google.api_core.exceptions import GoogleAPIError
+        from google.cloud.exceptions import Forbidden, NotFound
 
         if isinstance(e, NotFound):
             if ignore_404:
@@ -260,3 +271,16 @@ class GCSStore(MediaStoreBase):
         else:
             # Generic error handling
             raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}')
+
+    @classmethod
+    def create_client(cls) -> Any:
+        from google.cloud import storage  # type: ignore[attr-defined]
+
+        try:
+            # Try to create client with default credentials
+            client = storage.Client()
+            return client
+        except Exception:
+            # If no credentials are available, create anonymous client for public buckets
+            client = storage.Client.create_anonymous_client()
+            return client

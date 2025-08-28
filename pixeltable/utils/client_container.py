@@ -63,13 +63,15 @@ class ClientContainer:
 
     def create_client(self, storage_target: str, soa: Optional[StorageObjectAddress]) -> Any:
         """Create a new client for the given storage target and storage object address."""
+        from .gcs_store import GCSStore
+
         if storage_target == 'r2':
             assert soa is not None
             return self.create_r2_client(soa)
         if storage_target == 's3':
             return self.create_s3_client()
         if storage_target == 'gs':
-            return self.create_gs_client()
+            return GCSStore.create_client()
         raise ValueError(f'Unsupported storage target: {storage_target}')
 
     def create_s3_client(self) -> Any:
@@ -141,16 +143,3 @@ class ClientContainer:
         import boto3
 
         return boto3.resource('s3', **client_args)
-
-    @classmethod
-    def create_gs_client(cls) -> Any:
-        from google.cloud import storage  # type: ignore[attr-defined]
-
-        try:
-            # Try to create client with default credentials
-            client = storage.Client()
-            return client
-        except Exception:
-            # If no credentials are available, create anonymous client for public buckets
-            client = storage.Client.create_anonymous_client()
-            return client
