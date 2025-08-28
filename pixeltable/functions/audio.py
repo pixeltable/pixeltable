@@ -3,6 +3,7 @@ Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 """
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
 from pixeltable.utils.code import local_public_names
 
 
@@ -47,7 +48,7 @@ def get_metadata(audio: pxt.Audio) -> dict:
 
         >>> tbl.select(tbl.audio_col.get_metadata()).collect()
     """
-    return pxt.functions.video._get_metadata(audio)
+    return av_utils.get_metadata(audio)
 
 
 __all__ = local_public_names(__name__)
