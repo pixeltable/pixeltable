@@ -1,10 +1,6 @@
-import platform
-
-import pytest
-
 import pixeltable as pxt
 
-from ..utils import IN_CI, rerun, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_not_installed, validate_update_status
 
 
 @rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
