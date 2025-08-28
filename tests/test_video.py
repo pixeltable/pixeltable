@@ -542,7 +542,7 @@ class TestVideo:
 
     @pytest.mark.parametrize('segment_duration', [5.0, 10.0, 100.0])
     def test_video_splitter(self, segment_duration: float, reset_db: None) -> None:
-        from pixeltable.iterators.video import VideoSplitter
+        from pixeltable.iterators import VideoSplitter
 
         video_filepaths = get_video_files()
         for min_segment_duration in [0.0, segment_duration]:
