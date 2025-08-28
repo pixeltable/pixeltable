@@ -1,7 +1,6 @@
 ---
 title: "pixeltable.functions.ollama"
 sidebarTitle: "ollama"
-description: "Module documentation"
 icon: "square-m"
 ---
 
@@ -15,6 +14,9 @@ Documentation for `pixeltable.functions.ollama` is not available.
 
 ### Functions
 
+
+---
+
 ### `chat()`
 
 Generate the next message in a chat with a provided model.
@@ -23,7 +25,11 @@ Generate the next message in a chat with a provided model.
 **Signature:**
 
 ```python
-chat(messages: Json, model: String, tools: Optional[Json], format: Optional[String], options: Optional[Json]) -> Json
+chat(messages: Json,
+     model: String,
+     tools: Optional[Json],
+     format: Optional[String],
+     options: Optional[Json]) -> Json
 ```
 
 **Parameters:**
@@ -39,6 +45,9 @@ chat(messages: Json, model: String, tools: Optional[Json], format: Optional[Stri
 - **`options`** (*Optional[Json]*): Additional options to pass to the `chat` call, such as `max_tokens`, `temperature`, `top_p`, and `top_k`. For details, see the [Valid Parameters and Values](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values) section of the Ollama documentation.
 
 
+
+---
+
 ### `embed()`
 
 Generate embeddings from a model.
@@ -47,7 +56,11 @@ Generate embeddings from a model.
 **Signature:**
 
 ```python
-embed(input: String, model: String, truncate: Bool, options: Optional[Json]) -> Array[(None,), Float]
+embed(input: String,
+     model: String,
+     truncate: Bool,
+     options: Optional[Json]) -> Array[(None,),
+     Float]
 ```
 
 **Parameters:**
@@ -61,6 +74,9 @@ embed(input: String, model: String, truncate: Bool, options: Optional[Json]) -> 
 - **`options`** (*Optional[Json]*): Additional options to pass to the `embed` call. For details, see the [Valid Parameters and Values](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values) section of the Ollama documentation.
 
 
+
+---
+
 ### `generate()`
 
 Generate a response for a given prompt with a provided model.
@@ -69,7 +85,15 @@ Generate a response for a given prompt with a provided model.
 **Signature:**
 
 ```python
-generate(prompt: String, model: String, suffix: String, system: String, template: String, context: Optional[Json], raw: Bool, format: Optional[String], options: Optional[Json]) -> Json
+generate(prompt: String,
+     model: String,
+     suffix: String,
+     system: String,
+     template: String,
+     context: Optional[Json],
+     raw: Bool,
+     format: Optional[String],
+     options: Optional[Json]) -> Json
 ```
 
 **Parameters:**

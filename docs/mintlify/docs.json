@@ -327,9 +327,9 @@
                   {
                     "group": "Core API",
                     "pages": [
+                      "docs/sdk/latest/core-api/pixeltable",
                       "docs/sdk/latest/core-api/table",
-                      "docs/sdk/latest/core-api/dataframe",
-                      "docs/sdk/latest/core-api/pixeltable"
+                      "docs/sdk/latest/core-api/dataframe"
                     ]
                   },
                   {

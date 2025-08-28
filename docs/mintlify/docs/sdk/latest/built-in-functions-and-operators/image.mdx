@@ -1,12 +1,27 @@
 ---
 title: "pixeltable.functions.image"
 sidebarTitle: "image"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `ImageType`."
 icon: "square-m"
 ---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `ImageType`.
+
+Example:
+
+``` python
+import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.img_col.convert('L')).collect()
+```
+
+
 ## Module Contents
 
 ### Functions
+
+
+---
 
 ### `alpha_composite()`
 
@@ -16,7 +31,8 @@ Alpha composite im2 over im1.
 **Signature:**
 
 ```python
-alpha_composite(im1: Image, im2: Image) -> Image
+alpha_composite(im1: Image,
+     im2: Image) -> Image
 ```
 
 **Parameters:**
@@ -31,6 +47,9 @@ alpha_composite(im1: Image, im2: Image) -> Image
 - *Any*: An `~PIL.Image.Image` object.
 
 
+
+---
+
 ### `b64_encode()`
 
 Convert image to a base64-encoded string.
@@ -39,7 +58,8 @@ Convert image to a base64-encoded string.
 **Signature:**
 
 ```python
-b64_encode(img: Image, image_format: String) -> String
+b64_encode(img: Image,
+     image_format: String) -> String
 ```
 
 **Parameters:**
@@ -48,6 +68,9 @@ b64_encode(img: Image, image_format: String) -> String
 
 - **`image_format`** (*String*): image format [supported by PIL](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#fully-supported-formats)
 
+
+
+---
 
 ### `blend()`
 
@@ -62,7 +85,9 @@ a constant alpha::
 **Signature:**
 
 ```python
-blend(im1: Image, im2: Image, alpha: Float) -> Image
+blend(im1: Image,
+     im2: Image,
+     alpha: Float) -> Image
 ```
 
 **Parameters:**
@@ -79,6 +104,9 @@ blend(im1: Image, im2: Image, alpha: Float) -> Image
 - *Any*: An `~PIL.Image.Image` object.
 
 
+
+---
+
 ### `composite()`
 
 Create composite image by blending images using a transparency mask.
@@ -87,7 +115,9 @@ Create composite image by blending images using a transparency mask.
 **Signature:**
 
 ```python
-composite(image1: Image, image2: Image, mask: Image) -> Image
+composite(image1: Image,
+     image2: Image,
+     mask: Image) -> Image
 ```
 
 **Parameters:**
@@ -98,6 +128,9 @@ composite(image1: Image, image2: Image, mask: Image) -> Image
 
 - **`mask`** (*Image*): A mask image. This image can have mode "1", "L", or "RGBA", and must have the same size as the other two images.
 
+
+
+---
 
 ### `convert()`
 
@@ -110,13 +143,17 @@ Equivalent to [`PIL.Image.Image.convert()`](https://pillow.readthedocs.io/en/sta
 **Signature:**
 
 ```python
-convert(self: Image, mode: String) -> Image
+convert(self: Image,
+     mode: String) -> Image
 ```
 
 **Parameters:**
 
 - **`mode`** (*String*): The mode to convert to. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes) for a list of supported modes.
 
+
+
+---
 
 ### `crop()`
 
@@ -131,7 +168,8 @@ Note: Prior to Pillow 3.4.0, this was a lazy operation.
 **Signature:**
 
 ```python
-crop(self: Image, box: Json) -> Image
+crop(self: Image,
+     box: Json) -> Image
 ```
 
 **Parameters:**
@@ -144,6 +182,9 @@ crop(self: Image, box: Json) -> Image
 - *:py:class:`~PIL.Image.Image`*: An `~PIL.Image.Image` object.
 
 
+
+---
+
 ### `effect_spread()`
 
 Randomly spread pixels in an image.
@@ -152,13 +193,17 @@ Randomly spread pixels in an image.
 **Signature:**
 
 ```python
-effect_spread(self: Image, distance: Int) -> Image
+effect_spread(self: Image,
+     distance: Int) -> Image
 ```
 
 **Parameters:**
 
 - **`distance`** (*Int*): Distance to spread pixels.
 
+
+
+---
 
 ### `entropy()`
 
@@ -173,7 +218,9 @@ If a mask is provided, the method employs the histogram for those parts of the i
 **Signature:**
 
 ```python
-entropy(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Float
+entropy(self: Image,
+     mask: Optional[Image],
+     extrema: Optional[Json]) -> Float
 ```
 
 **Parameters:**
@@ -188,6 +235,9 @@ entropy(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Float
 - *Any*: A float value representing the image entropy
 
 
+
+---
+
 ### `get_metadata()`
 
 Return metadata for the image.
@@ -198,6 +248,9 @@ Return metadata for the image.
 ```python
 get_metadata(self: Image) -> Json
 ```
+
+
+---
 
 ### `getbands()`
 
@@ -218,6 +271,9 @@ getbands(self: Image) -> Json
 - *tuple*: A tuple containing band names.
 
 
+
+---
+
 ### `getbbox()`
 
 Calculates the bounding box of the non-zero regions in the
@@ -229,7 +285,8 @@ image.
 **Signature:**
 
 ```python
-getbbox(self: Image, alpha_only: Bool) -> Json
+getbbox(self: Image,
+     alpha_only: Bool) -> Json
 ```
 
 **Parameters:**
@@ -242,6 +299,9 @@ getbbox(self: Image, alpha_only: Bool) -> Json
 - *Any*: The bounding box is returned as a 4-tuple defining the left, upper, right, and lower pixel coordinate. See :ref:`coordinate-system`. If the image is completely empty, this method returns None.
 
 
+
+---
+
 ### `getchannel()`
 
 Returns an image containing a single channel of the source image.
@@ -250,7 +310,8 @@ Returns an image containing a single channel of the source image.
 **Signature:**
 
 ```python
-getchannel(self: Image, channel: Int) -> Image
+getchannel(self: Image,
+     channel: Int) -> Image
 ```
 
 **Parameters:**
@@ -263,6 +324,9 @@ getchannel(self: Image, channel: Int) -> Image
 - *Any*: An image in "L" mode. .. versionadded:: 4.3.0
 
 
+
+---
+
 ### `getcolors()`
 
 Returns a list of colors used in this image.
@@ -274,7 +338,8 @@ The colors will be in the image's mode. For example, an RGB image will return a 
 **Signature:**
 
 ```python
-getcolors(self: Image, maxcolors: Int) -> Json
+getcolors(self: Image,
+     maxcolors: Int) -> Json
 ```
 
 **Parameters:**
@@ -286,6 +351,9 @@ getcolors(self: Image, maxcolors: Int) -> Json
 
 - *Any*: An unsorted list of (count, pixel) values.
 
+
+
+---
 
 ### `getextrema()`
 
@@ -306,6 +374,9 @@ getextrema(self: Image) -> Json
 - *Any*: For a single-band image, a 2-tuple containing the minimum and maximum pixel value. For a multi-band image, a tuple containing one 2-tuple for each band.
 
 
+
+---
+
 ### `getpalette()`
 
 Returns the image palette as a list.
@@ -314,7 +385,8 @@ Returns the image palette as a list.
 **Signature:**
 
 ```python
-getpalette(self: Image, mode: Optional[String]) -> Json
+getpalette(self: Image,
+     mode: Optional[String]) -> Json
 ```
 
 **Parameters:**
@@ -329,6 +401,9 @@ getpalette(self: Image, mode: Optional[String]) -> Json
 - *Any*: A list of color values \[r, g, b, ...\], or None if the image has no palette.
 
 
+
+---
+
 ### `getpixel()`
 
 Return the pixel value at the given position. The position `xy` is a tuple containing the x and y coordinates.
@@ -340,13 +415,17 @@ Equivalent to [`PIL.Image.Image.getpixel()`](https://pillow.readthedocs.io/en/st
 **Signature:**
 
 ```python
-getpixel(self: Image, xy: Json) -> Json
+getpixel(self: Image,
+     xy: Json) -> Json
 ```
 
 **Parameters:**
 
 - **`xy`** (*Json*): The coordinates, given as (x, y).
 
+
+
+---
 
 ### `getprojection()`
 
@@ -364,6 +443,9 @@ getprojection(self: Image) -> Json
 - *Any*: Two sequences, indicating where there are non-zero pixels along the X-axis and the Y-axis, respectively.
 
 
+
+---
+
 ### `height()`
 
 **Signature:**
@@ -371,6 +453,9 @@ getprojection(self: Image) -> Json
 ```python
 height(self: Image) -> Int
 ```
+
+
+---
 
 ### `histogram()`
 
@@ -387,7 +472,9 @@ If a mask is provided, the method returns a histogram for those parts of the ima
 **Signature:**
 
 ```python
-histogram(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Json
+histogram(self: Image,
+     mask: Optional[Image],
+     extrema: Optional[Json]) -> Json
 ```
 
 **Parameters:**
@@ -402,6 +489,9 @@ histogram(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Json
 - *Any*: A list containing pixel counts.
 
 
+
+---
+
 ### `mode()`
 
 **Signature:**
@@ -409,6 +499,9 @@ histogram(self: Image, mask: Optional[Image], extrema: Optional[Json]) -> Json
 ```python
 mode(self: Image) -> String
 ```
+
+
+---
 
 ### `point()`
 
@@ -421,13 +514,18 @@ Equivalent to [`PIL.Image.Image.point()`](https://pillow.readthedocs.io/en/stabl
 **Signature:**
 
 ```python
-point(self: Image, lut: Json, mode: Optional[String]) -> Image
+point(self: Image,
+     lut: Json,
+     mode: Optional[String]) -> Image
 ```
 
 **Parameters:**
 
 - **`lut`** (*Json*): A lookup table.
 
+
+
+---
 
 ### `quantize()`
 
@@ -440,7 +538,12 @@ of colors.
 **Signature:**
 
 ```python
-quantize(self: Image, colors: Int, method: Optional[Int], kmeans: Int, palette: Optional[Int], dither: Int) -> Image
+quantize(self: Image,
+     colors: Int,
+     method: Optional[Int],
+     kmeans: Int,
+     palette: Optional[Int],
+     dither: Int) -> Image
 ```
 
 **Parameters:**
@@ -465,6 +568,9 @@ The exception to this is RGBA images. `Quantize.MEDIANCUT` and `Quantize.MAXCOVE
 - *Any*: A new image
 
 
+
+---
+
 ### `reduce()`
 
 Returns a copy of the image reduced `factor` times.
@@ -476,7 +582,9 @@ If the size of the image is not dividable by `factor`, the resulting size will b
 **Signature:**
 
 ```python
-reduce(self: Image, factor: Int, box: Optional[Json]) -> Image
+reduce(self: Image,
+     factor: Int,
+     box: Optional[Json]) -> Image
 ```
 
 **Parameters:**
@@ -485,6 +593,9 @@ reduce(self: Image, factor: Int, box: Optional[Json]) -> Image
 
 - **`box`** (*Optional[Json]*): An optional 4-tuple of ints providing the source image region to be reduced. The values must be within `(0, 0, width, height)` rectangle. If omitted or `None`, the entire source is used.
 
+
+
+---
 
 ### `resize()`
 
@@ -497,8 +608,12 @@ Equivalent to [`PIL.Image.Image.resize()`](https://pillow.readthedocs.io/en/stab
 **Signature:**
 
 ```python
-resize(self: Image, size: Json) -> Image
+resize(self: Image,
+     size: Json) -> Image
 ```
+
+
+---
 
 ### `rotate()`
 
@@ -511,13 +626,17 @@ Equivalent to [`PIL.Image.Image.rotate()`](https://pillow.readthedocs.io/en/stab
 **Signature:**
 
 ```python
-rotate(self: Image, angle: Int) -> Image
+rotate(self: Image,
+     angle: Int) -> Image
 ```
 
 **Parameters:**
 
 - **`angle`** (*Int*): The angle to rotate the image, in degrees. Positive angles are counter-clockwise.
 
+
+
+---
 
 ### `transpose()`
 
@@ -527,7 +646,8 @@ Transpose image (flip or rotate in 90 degree steps)
 **Signature:**
 
 ```python
-transpose(self: Image, method: Int) -> Image
+transpose(self: Image,
+     method: Int) -> Image
 ```
 
 **Parameters:**
@@ -539,6 +659,9 @@ transpose(self: Image, method: Int) -> Image
 
 - *Any*: Returns a flipped or rotated copy of this image.
 
+
+
+---
 
 ### `width()`
 

@@ -1,12 +1,27 @@
 ---
 title: "pixeltable.functions.math"
 sidebarTitle: "math"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for mathematical operations."
 icon: "square-m"
 ---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for mathematical operations.
+
+Example:
+
+``` python
+import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.float_col.floor()).collect()
+```
+
+
 ## Module Contents
 
 ### Functions
+
+
+---
 
 ### `abs()`
 
@@ -22,6 +37,9 @@ Equivalent to Python [`builtins.abs()`](https://docs.python.org/3/library/functi
 abs(self: Float) -> Float
 ```
 
+
+---
+
 ### `bitwise_and()`
 
 Bitwise AND of two integers.
@@ -33,8 +51,12 @@ Equivalent to Python [`self & other`](https://docs.python.org/3/library/stdtypes
 **Signature:**
 
 ```python
-bitwise_and(self: Int, other: Int) -> Int
+bitwise_and(self: Int,
+     other: Int) -> Int
 ```
+
+
+---
 
 ### `bitwise_or()`
 
@@ -47,8 +69,12 @@ Equivalent to Python [`self | other`](https://docs.python.org/3/library/stdtypes
 **Signature:**
 
 ```python
-bitwise_or(self: Int, other: Int) -> Int
+bitwise_or(self: Int,
+     other: Int) -> Int
 ```
+
+
+---
 
 ### `bitwise_xor()`
 
@@ -61,8 +87,12 @@ Equivalent to Python [`self ^ other`](https://docs.python.org/3/library/stdtypes
 **Signature:**
 
 ```python
-bitwise_xor(self: Int, other: Int) -> Int
+bitwise_xor(self: Int,
+     other: Int) -> Int
 ```
+
+
+---
 
 ### `ceil()`
 
@@ -78,6 +108,9 @@ Equivalent to Python [`float(math.ceil(self))`](https://docs.python.org/3/librar
 ceil(self: Float) -> Float
 ```
 
+
+---
+
 ### `floor()`
 
 Return the ceiling of the given number.
@@ -92,6 +125,9 @@ Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/libra
 floor(self: Float) -> Float
 ```
 
+
+---
+
 ### `pow()`
 
 Raise `self` to the power of `other`.
@@ -103,8 +139,12 @@ Equivalent to Python [`self ** other`](https://docs.python.org/3/library/functio
 **Signature:**
 
 ```python
-pow(self: Int, other: Int) -> Float
+pow(self: Int,
+     other: Int) -> Float
 ```
+
+
+---
 
 ### `round()`
 
@@ -117,6 +157,7 @@ Equivalent to Python [`builtins.round(self, digits or 0)`](https://docs.python.o
 **Signature:**
 
 ```python
-round(self: Float, digits: Optional[Int]) -> Float
+round(self: Float,
+     digits: Optional[Int]) -> Float
 ```
 

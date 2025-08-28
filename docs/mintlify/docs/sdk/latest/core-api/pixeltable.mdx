@@ -1,7 +1,6 @@
 ---
 title: "pixeltable"
 sidebarTitle: "pixeltable"
-description: "Module documentation"
 icon: "square-m"
 ---
 
@@ -15,6 +14,9 @@ Documentation for `pixeltable` is not available.
 
 ### Functions
 
+
+---
+
 ### `configure_logging()`
 
 Configure logging.
@@ -23,7 +25,11 @@ Configure logging.
 **Signature:**
 
 ```python
-configure_logging(*, to_stdout: 'Optional[bool]' = None, level: 'Optional[int]' = None, add: 'Optional[str]' = None, remove: 'Optional[str]' = None) -> 'None'
+configure_logging(*,
+     to_stdout: 'Optional[bool]' = None,
+     level: 'Optional[int]' = None,
+     add: 'Optional[str]' = None,
+     remove: 'Optional[str]' = None) -> 'None'
 ```
 
 **Parameters:**
@@ -37,6 +43,9 @@ configure_logging(*, to_stdout: 'Optional[bool]' = None, level: 'Optional[int]' 
 - **`remove`** (*Optional[str]*): comma-separated list of module names
 
 
+
+---
+
 ### `create_dir()`
 
 Create a directory.
@@ -45,7 +54,9 @@ Create a directory.
 **Signature:**
 
 ```python
-create_dir(path: 'str', if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error', parents: 'bool' = False) -> 'Optional[catalog.Dir]'
+create_dir(path: 'str',
+     if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error',
+     parents: 'bool' = False) -> 'Optional[catalog.Dir]'
 ```
 
 **Parameters:**
@@ -67,6 +78,36 @@ create_dir(path: 'str', if_exists: "Literal['error', 'ignore', 'replace', 'repla
 - *Any*: A handle to the newly created directory, or to an already existing directory at the path when `if_exists='ignore'`. Please note the existing directory may not be empty.
 
 
+
+**Example:**
+
+<Tip>
+
+```python
+ pxt.create_dir('my_dir')
+```
+Create a subdirectory:
+```python
+ pxt.create_dir('my_dir.sub_dir')
+```
+Create a subdirectory only if it does not already exist, otherwise do nothing:
+```python
+ pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+```
+Create a directory and replace if it already exists:
+```python
+ pxt.create_dir('my_dir', if_exists='replace_force')
+```
+Create a subdirectory along with its ancestors:
+```python
+ pxt.create_dir('parent1.parent2.sub_dir', parents=True)
+```
+
+</Tip>
+
+
+---
+
 ### `create_snapshot()`
 
 Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
@@ -75,16 +116,24 @@ Create a snapshot of an existing table object (which itself can be a view or a s
 **Signature:**
 
 ```python
-create_snapshot(path_str: 'str', base: 'catalog.Table | DataFrame', *, additional_columns: 'Optional[dict[str, Any]]' = None, iterator: 'Optional[tuple[type[ComponentIterator], dict[str, Any]]]' = None, num_retained_versions: 'int' = 10, comment: 'str' = '', media_validation: "Literal['on_read', 'on_write']" = 'on_write', if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error') -> 'Optional[catalog.Table]'
+create_snapshot(path_str: 'str',
+     base: 'catalog.Table | DataFrame',
+     *,
+     additional_columns: 'Optional[dict[str, Any]]' = None,
+     iterator: 'Optional[tuple[type[ComponentIterator], dict[str, Any]]]' = None,
+     num_retained_versions: 'int' = 10,
+     comment: 'str' = '',
+     media_validation: "Literal['on_read', 'on_write']" = 'on_write',
+     if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error') -> 'Optional[catalog.Table]'
 ```
 
 **Parameters:**
 
 - **`path_str`** (*str*): A name for the snapshot; can be either a simple name such as `my_snapshot`, or a pathname such as `dir1.my_snapshot`.
 
-- **`base`** (*catalog.Table | DataFrame*): \[`Table`\]\[pixeltable.Table\] (i.e., table or view or snapshot) or \[`DataFrame`\]\[pixeltable.DataFrame\] to base the snapshot on.
+- **`base`** (*catalog.Table | DataFrame*): [`Table`](pixeltable.Table) (i.e., table or view or snapshot) or [`DataFrame`](pixeltable.DataFrame) to base the snapshot on.
 
-- **`additional_columns`** (*Optional[dict[str, Any]]*): If specified, will add these columns to the snapshot once it is created. The format of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in \[`create_table`\]\[pixeltable.create_table\].
+- **`additional_columns`** (*Optional[dict[str, Any]]*): If specified, will add these columns to the snapshot once it is created. The format of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in [`create_table`](pixeltable.create_table).
 
 - **`iterator`** (*Optional[tuple[type[ComponentIterator], dict[str, Any]]]*): The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of the base table.
 
@@ -107,8 +156,37 @@ create_snapshot(path_str: 'str', base: 'catalog.Table | DataFrame', *, additiona
 
 **Returns:**
 
-- *Any*: A handle to the \[`Table`\]\[pixeltable.Table\] representing the newly created snapshot. Please note the schema or base of the existing snapshot may not match those provided in the call.
+- *Any*: A handle to the [`Table`](pixeltable.Table) representing the newly created snapshot. Please note the schema or base of the existing snapshot may not match those provided in the call.
 
+
+
+**Example:**
+
+<Tip>
+
+Create a snapshot `my_snapshot` of a table `my_table`:
+```python
+ tbl = pxt.get_table('my_table')
+    snapshot = pxt.create_snapshot('my_snapshot', tbl)
+```
+Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`,
+if `my_snapshot` does not already exist:
+```python
+ view = pxt.get_table('my_view')
+    snapshot = pxt.create_snapshot(
+        'my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore'
+    )
+```
+Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
+```python
+ tbl = pxt.get_table('my_table')
+    snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
+```
+
+</Tip>
+
+
+---
 
 ### `create_table()`
 
@@ -123,7 +201,19 @@ If a `source` is provided, then Pixeltable will attempt to infer a data source f
 **Signature:**
 
 ```python
-create_table(path: 'str', schema: 'Optional[dict[str, Any]]' = None, *, source: 'Optional[TableDataSource]' = None, source_format: "Optional[Literal['csv', 'excel', 'parquet', 'json']]" = None, schema_overrides: 'Optional[dict[str, Any]]' = None, on_error: "Literal['abort', 'ignore']" = 'abort', primary_key: 'str | list[str] | None' = None, num_retained_versions: 'int' = 10, comment: 'str' = '', media_validation: "Literal['on_read', 'on_write']" = 'on_write', if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error', extra_args: 'Optional[dict[str, Any]]' = None) -> 'catalog.Table'
+create_table(path: 'str',
+     schema: 'Optional[dict[str, Any]]' = None,
+     *,
+     source: 'Optional[TableDataSource]' = None,
+     source_format: "Optional[Literal['csv', 'excel', 'parquet', 'json']]" = None,
+     schema_overrides: 'Optional[dict[str, Any]]' = None,
+     on_error: "Literal['abort', 'ignore']" = 'abort',
+     primary_key: 'str | list[str] | None' = None,
+     num_retained_versions: 'int' = 10,
+     comment: 'str' = '',
+     media_validation: "Literal['on_read', 'on_write']" = 'on_write',
+     if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error',
+     extra_args: 'Optional[dict[str, Any]]' = None) -> 'catalog.Table'
 ```
 
 **Parameters:**
@@ -169,6 +259,39 @@ create_table(path: 'str', schema: 'Optional[dict[str, Any]]' = None, *, source: 
 - *Any*: A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`. Please note the schema of the existing table may not match the schema provided in the call.
 
 
+
+**Example:**
+
+<Tip>
+
+Create a table with an int and a string column:
+```python
+ tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String})
+```
+Create a table from a select statement over an existing table `orig_table` (this will create a new table
+containing the exact contents of the query):
+```python
+ tbl1 = pxt.get_table('orig_table')
+    tbl2 = pxt.create_table('new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2))
+```
+Create a table if it does not already exist, otherwise get the existing table:
+```python
+ tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String}, if_exists='ignore')
+```
+Create a table with an int and a float column, and replace any existing table:
+```python
+ tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
+```
+Create a table from a CSV file:
+```python
+ tbl = pxt.create_table('my_table', source='data.csv')
+```
+
+</Tip>
+
+
+---
+
 ### `create_view()`
 
 Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
@@ -177,18 +300,27 @@ Create a view of an existing table object (which itself can be a view or a snaps
 **Signature:**
 
 ```python
-create_view(path: 'str', base: 'catalog.Table | DataFrame', *, additional_columns: 'Optional[dict[str, Any]]' = None, is_snapshot: 'bool' = False, iterator: 'Optional[tuple[type[ComponentIterator], dict[str, Any]]]' = None, num_retained_versions: 'int' = 10, comment: 'str' = '', media_validation: "Literal['on_read', 'on_write']" = 'on_write', if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error') -> 'Optional[catalog.Table]'
+create_view(path: 'str',
+     base: 'catalog.Table | DataFrame',
+     *,
+     additional_columns: 'Optional[dict[str, Any]]' = None,
+     is_snapshot: 'bool' = False,
+     iterator: 'Optional[tuple[type[ComponentIterator], dict[str, Any]]]' = None,
+     num_retained_versions: 'int' = 10,
+     comment: 'str' = '',
+     media_validation: "Literal['on_read', 'on_write']" = 'on_write',
+     if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error') -> 'Optional[catalog.Table]'
 ```
 
 **Parameters:**
 
 - **`path`** (*str*): A name for the view; can be either a simple name such as `my_view`, or a pathname such as `dir1.my_view`.
 
-- **`base`** (*catalog.Table | DataFrame*): \[`Table`\]\[pixeltable.Table\] (i.e., table or view or snapshot) or \[`DataFrame`\]\[pixeltable.DataFrame\] to base the view on.
+- **`base`** (*catalog.Table | DataFrame*): [`Table`](pixeltable.Table) (i.e., table or view or snapshot) or [`DataFrame`](pixeltable.DataFrame) to base the view on.
 
-- **`additional_columns`** (*Optional[dict[str, Any]]*): If specified, will add these columns to the view once it is created. The format of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in \[`create_table`\]\[pixeltable.create_table\].
+- **`additional_columns`** (*Optional[dict[str, Any]]*): If specified, will add these columns to the view once it is created. The format of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in [`create_table`](pixeltable.create_table).
 
-- **`is_snapshot`** (*bool*) = `False`: Whether the view is a snapshot. Setting this to `True` is equivalent to calling \[`create_snapshot`\]\[pixeltable.create_snapshot\].
+- **`is_snapshot`** (*bool*) = `False`: Whether the view is a snapshot. Setting this to `True` is equivalent to calling [`create_snapshot`](pixeltable.create_snapshot).
 
 - **`iterator`** (*Optional[tuple[type[ComponentIterator], dict[str, Any]]]*): The iterator to use for this view. If specified, then this view will be a one-to-many view of the base table.
 
@@ -211,8 +343,36 @@ create_view(path: 'str', base: 'catalog.Table | DataFrame', *, additional_column
 
 **Returns:**
 
-- *Any*: A handle to the \[`Table`\]\[pixeltable.Table\] representing the newly created view. If the path already exists and `if_exists='ignore'`, returns a handle to the existing view. Please note the schema or the base of the existing view may not match those provided in the call.
+- *Any*: A handle to the [`Table`](pixeltable.Table) representing the newly created view. If the path already exists and `if_exists='ignore'`, returns a handle to the existing view. Please note the schema or the base of the existing view may not match those provided in the call.
 
+
+
+**Example:**
+
+<Tip>
+
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
+```python
+ tbl = pxt.get_table('my_table')
+    view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+```
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10,
+and if it not already exist. Otherwise, get the existing view named `my_view`:
+```python
+ tbl = pxt.get_table('my_table')
+    view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+```
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100,
+and replace any existing view named `my_view`:
+```python
+ tbl = pxt.get_table('my_table')
+    view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
+```
+
+</Tip>
+
+
+---
 
 ### `drop_dir()`
 
@@ -222,7 +382,9 @@ Remove a directory.
 **Signature:**
 
 ```python
-drop_dir(path: 'str', force: 'bool' = False, if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
+drop_dir(path: 'str',
+     force: 'bool' = False,
+     if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
 ```
 
 **Parameters:**
@@ -237,6 +399,33 @@ drop_dir(path: 'str', force: 'bool' = False, if_not_exists: "Literal['error', 'i
 - `'ignore'`: do nothing and return
 
 
+
+**Example:**
+
+<Tip>
+
+Remove a directory, if it exists and is empty:
+```python
+ pxt.drop_dir('my_dir')
+```
+Remove a subdirectory:
+```python
+ pxt.drop_dir('my_dir.sub_dir')
+```
+Remove an existing directory if it is empty, but do nothing if it does not exist:
+```python
+ pxt.drop_dir('my_dir.sub_dir', if_not_exists='ignore')
+```
+Remove an existing directory and all its contents:
+```python
+ pxt.drop_dir('my_dir', force=True)
+```
+
+</Tip>
+
+
+---
+
 ### `drop_table()`
 
 Drop a table, view, or snapshot.
@@ -245,7 +434,9 @@ Drop a table, view, or snapshot.
 **Signature:**
 
 ```python
-drop_table(table: 'str | catalog.Table', force: 'bool' = False, if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
+drop_table(table: 'str | catalog.Table',
+     force: 'bool' = False,
+     if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
 ```
 
 **Parameters:**
@@ -260,6 +451,34 @@ drop_table(table: 'str | catalog.Table', force: 'bool' = False, if_not_exists: "
 - `'ignore'`: do nothing and return
 
 
+
+**Example:**
+
+<Tip>
+
+Drop a table by its fully qualified name:
+```python
+ pxt.drop_table('subdir.my_table')
+```
+Drop a table by its handle:
+```python
+ t = pxt.get_table('subdir.my_table')
+    pxt.drop_table(t)
+```
+Drop a table if it exists, otherwise do nothing:
+```python
+ pxt.drop_table('subdir.my_table', if_not_exists='ignore')
+```
+Drop a table and all its dependents:
+```python
+ pxt.drop_table('subdir.my_table', force=True)
+```
+
+</Tip>
+
+
+---
+
 ### `get_dir_contents()`
 
 Get the contents of a Pixeltable directory.
@@ -268,7 +487,8 @@ Get the contents of a Pixeltable directory.
 **Signature:**
 
 ```python
-get_dir_contents(dir_path: 'str' = '', recursive: 'bool' = True) -> "'DirContents'"
+get_dir_contents(dir_path: 'str' = '',
+     recursive: 'bool' = True) -> "'DirContents'"
 ```
 
 **Parameters:**
@@ -280,8 +500,27 @@ get_dir_contents(dir_path: 'str' = '', recursive: 'bool' = True) -> "'DirContent
 
 **Returns:**
 
-- *Any*: A \[`DirContents`\]\[pixeltable.DirContents\] object representing the contents of the specified directory.
+- *Any*: A [`DirContents`](pixeltable.DirContents) object representing the contents of the specified directory.
 
+
+
+**Example:**
+
+<Tip>
+
+Get contents of top-level directory:
+```python
+ pxt.get_dir_contents()
+```
+Get contents of 'dir1':
+```python
+ pxt.get_dir_contents('dir1')
+```
+
+</Tip>
+
+
+---
 
 ### `get_table()`
 
@@ -301,8 +540,35 @@ get_table(path: 'str') -> 'catalog.Table'
 
 **Returns:**
 
-- *Any*: A handle to the \[`Table`\]\[pixeltable.Table\].
+- *Any*: A handle to the [`Table`](pixeltable.Table).
 
+
+
+**Example:**
+
+<Tip>
+
+Get handle for a table in the top-level directory:
+```python
+ tbl = pxt.get_table('my_table')
+```
+For a table in a subdirectory:
+```python
+ tbl = pxt.get_table('subdir.my_table')
+```
+Handles to views and snapshots are retrieved in the same way:
+```python
+ tbl = pxt.get_table('my_snapshot')
+```
+Get a handle to a specific version of a table:
+```python
+ tbl = pxt.get_table('my_table:722')
+```
+
+</Tip>
+
+
+---
 
 ### `init()`
 
@@ -314,6 +580,9 @@ Initializes the Pixeltable environment.
 ```python
 init(config_overrides: 'Optional[dict[str, Any]]' = None) -> 'None'
 ```
+
+
+---
 
 ### `ls()`
 
@@ -331,6 +600,9 @@ To get a programmatic list of the directory's contents, use \[get_dir_contents()
 ls(path: 'str' = '') -> 'pd.DataFrame'
 ```
 
+
+---
+
 ### `move()`
 
 Move a schema object to a new directory and/or rename a schema object.
@@ -339,7 +611,8 @@ Move a schema object to a new directory and/or rename a schema object.
 **Signature:**
 
 ```python
-move(path: 'str', new_path: 'str') -> 'None'
+move(path: 'str',
+     new_path: 'str') -> 'None'
 ```
 
 **Parameters:**
@@ -349,13 +622,36 @@ move(path: 'str', new_path: 'str') -> 'None'
 - **`new_path`** (*str*): absolute new path for the schema object.
 
 
+
+**Example:**
+
+<Tip>
+
+Move a table to a different directory:
+```python
+> pxt.move('dir1.my_table', 'dir2.my_table')
+```
+Rename a table:
+```python
+> pxt.move('dir1.my_table', 'dir1.new_name')
+```
+
+</Tip>
+
+
+---
+
 ### `query()`
 
 **Signature:**
 
 ```python
-query(*args: 'Any', **kwargs: 'Any') -> 'Any'
+query(*args: 'Any',
+     **kwargs: 'Any') -> 'Any'
 ```
+
+
+---
 
 ### `udf()`
 
@@ -365,6 +661,20 @@ A decorator to create a Function from a function definition.
 **Signature:**
 
 ```python
-udf(*args, **kwargs)
+udf(*args,
+     **kwargs)
 ```
+
+
+**Example:**
+
+<Tip>
+
+```python
+ @pxt.udf
+    def my_function(x: int) -> int:
+       return x + 1
+```
+
+</Tip>
 

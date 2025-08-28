@@ -1,12 +1,28 @@
 ---
 title: "pixeltable.functions.vision"
 sidebarTitle: "vision"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for Computer Vision."
 icon: "square-m"
 ---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for Computer Vision.
+
+Example:
+
+``` python
+import pixeltable as pxt
+from pixeltable.functions import vision as pxtv
+
+t = pxt.get_table(...)
+t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect()
+```
+
+
 ## Module Contents
 
 ### Functions
+
+
+---
 
 ### `draw_bounding_boxes()`
 
@@ -23,7 +39,15 @@ If no colors are specified, this function randomly assigns each label a specific
 **Signature:**
 
 ```python
-draw_bounding_boxes(img: Image, boxes: Json, labels: Optional[Json], color: Optional[String], box_colors: Optional[Json], fill: Bool, width: Int, font: Optional[String], font_size: Optional[Int]) -> Image
+draw_bounding_boxes(img: Image,
+     boxes: Json,
+     labels: Optional[Json],
+     color: Optional[String],
+     box_colors: Optional[Json],
+     fill: Bool,
+     width: Int,
+     font: Optional[String],
+     font_size: Optional[Int]) -> Image
 ```
 
 **Parameters:**
@@ -52,6 +76,9 @@ draw_bounding_boxes(img: Image, boxes: Json, labels: Optional[Json], color: Opti
 - *Any*: The image with bounding boxes drawn on it.
 
 
+
+---
+
 ### `eval_detections()`
 
 Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.
@@ -60,7 +87,12 @@ Evaluates the performance of a set of predicted bounding boxes against a set of 
 **Signature:**
 
 ```python
-eval_detections(pred_bboxes: Json, pred_labels: Json, pred_scores: Json, gt_bboxes: Json, gt_labels: Json, min_iou: Float) -> Json
+eval_detections(pred_bboxes: Json,
+     pred_labels: Json,
+     pred_scores: Json,
+     gt_bboxes: Json,
+     gt_labels: Json,
+     min_iou: Float) -> Json
 ```
 
 **Parameters:**

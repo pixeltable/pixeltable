@@ -1,12 +1,18 @@
 ---
 title: "pixeltable.functions.video"
 sidebarTitle: "video"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`."
 icon: "square-m"
 ---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
+
+
 ## Module Contents
 
 ### Functions
+
+
+---
 
 ### `extract_audio()`
 
@@ -16,7 +22,10 @@ Extract an audio stream from a video.
 **Signature:**
 
 ```python
-extract_audio(video_path: Video, stream_idx: Int, format: String, codec: Optional[String]) -> Audio
+extract_audio(video_path: Video,
+     stream_idx: Int,
+     format: String,
+     codec: Optional[String]) -> Audio
 ```
 
 **Parameters:**
@@ -32,6 +41,23 @@ extract_audio(video_path: Video, stream_idx: Int, format: String, codec: Optiona
 
 - *Any*: The extracted audio.
 
+
+
+**Example:**
+
+<Tip>
+
+Add a computed column to a table `tbl` that extracts audio from an existing column `video_col`:
+```python
+ tbl.add_computed_column(
+        extracted_audio=tbl.video_col.extract_audio(format='flac')
+    )
+```
+
+</Tip>
+
+
+---
 
 ### `get_metadata()`
 
@@ -88,4 +114,16 @@ get_metadata(video: Video) -> Json
 \}
 ```
 
+
+
+**Example:**
+
+<Tip>
+
+Extract metadata for files in the `video_col` column of the table `tbl`:
+```python
+ tbl.select(tbl.video_col.get_metadata()).collect()
+```
+
+</Tip>
 

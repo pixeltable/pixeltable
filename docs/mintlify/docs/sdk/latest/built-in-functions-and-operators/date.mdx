@@ -1,9 +1,10 @@
 ---
 title: "pixeltable.functions.date"
 sidebarTitle: "date"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `DateType`."
 icon: "square-m"
 ---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `DateType`.
 
 Usage example:
 
@@ -19,6 +20,9 @@ t.select(t.date_col.year, t.date_col.weekday()).collect()
 
 ### Functions
 
+
+---
+
 ### `add_days()`
 
 Add `n` days to the date.
@@ -30,8 +34,12 @@ Equivalent to [`date + timedelta(days=n)`](https://docs.python.org/3/library/dat
 **Signature:**
 
 ```python
-add_days(self: Date, n: Int) -> Date
+add_days(self: Date,
+     n: Int) -> Date
 ```
+
+
+---
 
 ### `day()`
 
@@ -47,6 +55,9 @@ Equivalent to [`date.day`](https://docs.python.org/3/library/datetime.html#datet
 day(self: Date) -> Int
 ```
 
+
+---
+
 ### `isocalendar()`
 
 Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
@@ -61,6 +72,9 @@ Equivalent to [`date.isocalendar()`](https://docs.python.org/3/library/datetime.
 isocalendar(self: Date) -> Json
 ```
 
+
+---
+
 ### `isoformat()`
 
 Return a string representing the date and time in ISO 8601 format.
@@ -72,7 +86,9 @@ Equivalent to [`date.isoformat()`](https://docs.python.org/3/library/datetime.ht
 **Signature:**
 
 ```python
-isoformat(self: Date, sep: String, timespec: String) -> String
+isoformat(self: Date,
+     sep: String,
+     timespec: String) -> String
 ```
 
 **Parameters:**
@@ -81,6 +97,9 @@ isoformat(self: Date, sep: String, timespec: String) -> String
 
 - **`timespec`** (*String*): The number of additional terms in the output. See the [`date.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.date.isoformat) documentation for more details.
 
+
+
+---
 
 ### `isoweekday()`
 
@@ -96,6 +115,9 @@ Equivalent to [`date.isoweekday()`](https://docs.python.org/3/library/datetime.h
 isoweekday(self: Date) -> Int
 ```
 
+
+---
+
 ### `make_date()`
 
 Create a date.
@@ -107,8 +129,13 @@ Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#dat
 **Signature:**
 
 ```python
-make_date(year: Int, month: Int, day: Int) -> Date
+make_date(year: Int,
+     month: Int,
+     day: Int) -> Date
 ```
+
+
+---
 
 ### `month()`
 
@@ -124,6 +151,9 @@ Equivalent to [`date.month`](https://docs.python.org/3/library/datetime.html#dat
 month(self: Date) -> Int
 ```
 
+
+---
+
 ### `strftime()`
 
 Return a string representing the date and time, controlled by an explicit format string.
@@ -135,13 +165,17 @@ Equivalent to [`date.strftime()`](https://docs.python.org/3/library/datetime.htm
 **Signature:**
 
 ```python
-strftime(self: Date, format: String) -> String
+strftime(self: Date,
+     format: String) -> String
 ```
 
 **Parameters:**
 
 - **`format`** (*String*): The format string to control the output. For a complete list of formatting directives, see [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
 
+
+
+---
 
 ### `toordinal()`
 
@@ -157,6 +191,9 @@ Equivalent to [`date.toordinal()`](https://docs.python.org/3/library/datetime.ht
 toordinal(self: Date) -> Int
 ```
 
+
+---
+
 ### `weekday()`
 
 Between 0 (Monday) and 6 (Sunday) inclusive.
@@ -170,6 +207,9 @@ Equivalent to [`date.weekday()`](https://docs.python.org/3/library/datetime.html
 ```python
 weekday(self: Date) -> Int
 ```
+
+
+---
 
 ### `year()`
 

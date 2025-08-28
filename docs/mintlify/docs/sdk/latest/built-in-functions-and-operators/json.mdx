@@ -1,8 +1,21 @@
 ---
 title: "pixeltable.functions.json"
 sidebarTitle: "json"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `JsonType`."
 icon: "square-m"
 ---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `JsonType`.
+
+Example:
+
+``` python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+t = pxt.get_table(...)
+t.select(pxtf.json.make_list(t.json_col)).collect()
+```
+
+
 ## Module Contents
 

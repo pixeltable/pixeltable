@@ -1,9 +1,10 @@
 ---
 title: "pixeltable.functions.timestamp"
 sidebarTitle: "timestamp"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `TimestampType`."
 icon: "square-m"
 ---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `TimestampType`.
 
 Usage example:
 
@@ -19,6 +20,9 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 ### Functions
 
+
+---
+
 ### `astimezone()`
 
 Convert the datetime to the given time zone.
@@ -27,13 +31,17 @@ Convert the datetime to the given time zone.
 **Signature:**
 
 ```python
-astimezone(self: Timestamp, tz: String) -> Timestamp
+astimezone(self: Timestamp,
+     tz: String) -> Timestamp
 ```
 
 **Parameters:**
 
 - **`tz`** (*String*): The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.
 
+
+
+---
 
 ### `day()`
 
@@ -49,6 +57,9 @@ Equivalent to [`datetime.day`](https://docs.python.org/3/library/datetime.html#d
 day(self: Timestamp) -> Int
 ```
 
+
+---
+
 ### `hour()`
 
 Between 0 and 23 inclusive.
@@ -62,6 +73,9 @@ Equivalent to [`datetime.hour`](https://docs.python.org/3/library/datetime.html#
 ```python
 hour(self: Timestamp) -> Int
 ```
+
+
+---
 
 ### `isocalendar()`
 
@@ -77,6 +91,9 @@ Equivalent to [`datetime.isocalendar()`](https://docs.python.org/3/library/datet
 isocalendar(self: Timestamp) -> Json
 ```
 
+
+---
+
 ### `isoformat()`
 
 Return a string representing the date and time in ISO 8601 format.
@@ -88,7 +105,9 @@ Equivalent to [`datetime.isoformat()`](https://docs.python.org/3/library/datetim
 **Signature:**
 
 ```python
-isoformat(self: Timestamp, sep: String, timespec: String) -> String
+isoformat(self: Timestamp,
+     sep: String,
+     timespec: String) -> String
 ```
 
 **Parameters:**
@@ -97,6 +116,9 @@ isoformat(self: Timestamp, sep: String, timespec: String) -> String
 
 - **`timespec`** (*String*): The number of additional terms in the output. See the [`datetime.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoformat) documentation for more details.
 
+
+
+---
 
 ### `isoweekday()`
 
@@ -112,6 +134,9 @@ Equivalent to [`datetime.isoweekday()`](https://docs.python.org/3/library/dateti
 isoweekday(self: Timestamp) -> Int
 ```
 
+
+---
+
 ### `make_timestamp()`
 
 Create a timestamp.
@@ -123,8 +148,17 @@ Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#dat
 **Signature:**
 
 ```python
-make_timestamp(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int, microsecond: Int) -> Timestamp
+make_timestamp(year: Int,
+     month: Int,
+     day: Int,
+     hour: Int,
+     minute: Int,
+     second: Int,
+     microsecond: Int) -> Timestamp
 ```
+
+
+---
 
 ### `microsecond()`
 
@@ -140,6 +174,9 @@ Equivalent to [`datetime.microsecond`](https://docs.python.org/3/library/datetim
 microsecond(self: Timestamp) -> Int
 ```
 
+
+---
+
 ### `minute()`
 
 Between 0 and 59 inclusive.
@@ -153,6 +190,9 @@ Equivalent to [`datetime.minute`](https://docs.python.org/3/library/datetime.htm
 ```python
 minute(self: Timestamp) -> Int
 ```
+
+
+---
 
 ### `month()`
 
@@ -168,6 +208,9 @@ Equivalent to [`datetime.month`](https://docs.python.org/3/library/datetime.html
 month(self: Timestamp) -> Int
 ```
 
+
+---
+
 ### `posix_timestamp()`
 
 Return POSIX timestamp corresponding to the datetime instance.
@@ -182,6 +225,9 @@ Equivalent to [`datetime.timestamp()`](https://docs.python.org/3/library/datetim
 posix_timestamp(self: Timestamp) -> Float
 ```
 
+
+---
+
 ### `replace()`
 
 Return a datetime with the same attributes, except for those attributes given new values by whichever keyword
@@ -195,8 +241,18 @@ Equivalent to [`datetime.replace()`](https://docs.python.org/3/library/datetime.
 **Signature:**
 
 ```python
-replace(self: Timestamp, year: Optional[Int], month: Optional[Int], day: Optional[Int], hour: Optional[Int], minute: Optional[Int], second: Optional[Int], microsecond: Optional[Int]) -> Timestamp
+replace(self: Timestamp,
+     year: Optional[Int],
+     month: Optional[Int],
+     day: Optional[Int],
+     hour: Optional[Int],
+     minute: Optional[Int],
+     second: Optional[Int],
+     microsecond: Optional[Int]) -> Timestamp
 ```
+
+
+---
 
 ### `second()`
 
@@ -212,6 +268,9 @@ Equivalent to [`datetime.second`](https://docs.python.org/3/library/datetime.htm
 second(self: Timestamp) -> Int
 ```
 
+
+---
+
 ### `strftime()`
 
 Return a string representing the date and time, controlled by an explicit format string.
@@ -223,13 +282,17 @@ Equivalent to [`datetime.strftime()`](https://docs.python.org/3/library/datetime
 **Signature:**
 
 ```python
-strftime(self: Timestamp, format: String) -> String
+strftime(self: Timestamp,
+     format: String) -> String
 ```
 
 **Parameters:**
 
 - **`format`** (*String*): The format string to control the output. For a complete list of formatting directives, see [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
 
+
+
+---
 
 ### `toordinal()`
 
@@ -245,6 +308,9 @@ Equivalent to [`datetime.toordinal()`](https://docs.python.org/3/library/datetim
 toordinal(self: Timestamp) -> Int
 ```
 
+
+---
+
 ### `weekday()`
 
 Between 0 (Monday) and 6 (Sunday) inclusive.
@@ -258,6 +324,9 @@ Equivalent to [`datetime.weekday()`](https://docs.python.org/3/library/datetime.
 ```python
 weekday(self: Timestamp) -> Int
 ```
+
+
+---
 
 ### `year()`
 

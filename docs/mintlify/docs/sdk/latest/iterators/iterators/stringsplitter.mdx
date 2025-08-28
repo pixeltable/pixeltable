@@ -1,12 +1,18 @@
 ---
 title: "pixeltable.iterators.StringSplitter"
 sidebarTitle: "StringSplitter"
-description: "Base class for Pixeltable iterators."
 icon: "square-c"
 ---
+
+Base class for Pixeltable iterators.
+
+
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/string.py#L8" target="_blank">View source on GitHub</a>
 
 ## Methods
+
+
+---
 
 ### `close()`
 
@@ -19,13 +25,20 @@ Close the iterator and release all resources
 close() -> None
 ```
 
+
+---
+
 ### `create()`
 
 **Signature:**
 
 ```python
-create(**kwargs: 'Any') -> 'tuple[type[ComponentIterator], dict[str, Any]]'
+create(**kwargs: 'Any') -> 'tuple[type[ComponentIterator],
+     dict[str, Any]]'
 ```
+
+
+---
 
 ### `input_schema()`
 
@@ -38,8 +51,13 @@ The keys need to match the names of the init() parameters. This is equivalent to
 **Signature:**
 
 ```python
-input_schema(*args: Any, **kwargs: Any) -> dict[str, pixeltable.type_system.ColumnType]
+input_schema(*args: Any,
+     **kwargs: Any) -> dict[str,
+     pixeltable.type_system.ColumnType]
 ```
+
+
+---
 
 ### `output_schema()`
 
@@ -49,13 +67,18 @@ Specify the dictionary returned by next() and a list of unstored column names
 **Signature:**
 
 ```python
-output_schema(*args: Any, **kwargs: Any) -> tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]
+output_schema(*args: Any,
+     **kwargs: Any) -> tuple[dict[str, pixeltable.type_system.ColumnType],
+     list[str]]
 ```
 
 **Returns:**
 
 - *Any*: a dictionary which is turned into a list of columns in the output table a list of unstored column names
 
+
+
+---
 
 ### `set_pos()`
 

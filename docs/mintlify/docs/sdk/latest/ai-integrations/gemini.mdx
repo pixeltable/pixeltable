@@ -1,16 +1,18 @@
 ---
 title: "pixeltable.functions.gemini"
 sidebarTitle: "gemini"
-description: "Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)"
 icon: "square-m"
 ---
 
-that wrap various endpoints from the Google Gemini API. In order to use them, you must first `pip install google-genai` and configure your Gemini credentials, as described in the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) that wrap various endpoints from the Google Gemini API. In order to use them, you must first `pip install google-genai` and configure your Gemini credentials, as described in the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
 
 
 ## Module Contents
 
 ### Functions
+
+
+---
 
 ### `generate_content()`
 
@@ -29,7 +31,10 @@ Request throttling: Applies the rate limit set in the config (section `gemini.ra
 **Signature:**
 
 ```python
-generate_content(contents: String, model: String, config: Optional[Json], tools: Optional[Json]) -> Json
+generate_content(contents: String,
+     model: String,
+     config: Optional[Json],
+     tools: Optional[Json]) -> Json
 ```
 
 **Parameters:**
@@ -48,6 +53,22 @@ generate_content(contents: String, model: String, config: Optional[Json], tools:
 - *Any*: A dictionary containing the response and other metadata.
 
 
+
+**Example:**
+
+<Tip>
+
+Add a computed column that applies the model `gemini-2.0-flash`
+to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+ tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.0-flash'))
+```
+
+</Tip>
+
+
+---
+
 ### `generate_images()`
 
 Generates images based on a text description and configuration. For additional details, see:
@@ -65,7 +86,9 @@ Request throttling: Applies the rate limit set in the config (section `imagen.ra
 **Signature:**
 
 ```python
-generate_images(prompt: String, model: String, config: Optional[Json]) -> Image
+generate_images(prompt: String,
+     model: String,
+     config: Optional[Json]) -> Image
 ```
 
 **Parameters:**
@@ -81,6 +104,22 @@ generate_images(prompt: String, model: String, config: Optional[Json]) -> Image
 
 - *Any*: The generated image.
 
+
+
+**Example:**
+
+<Tip>
+
+Add a computed column that applies the model `imagen-3.0-generate-002`
+to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+ tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-3.0-generate-002'))
+```
+
+</Tip>
+
+
+---
 
 ### `generate_videos()`
 
@@ -99,7 +138,10 @@ Request throttling: Applies the rate limit set in the config (section `veo.rate_
 **Signature:**
 
 ```python
-generate_videos(prompt: Optional[String], image: Optional[Image], model: String, config: Optional[Json]) -> Video
+generate_videos(prompt: Optional[String],
+     image: Optional[Image],
+     model: String,
+     config: Optional[Json]) -> Video
 ```
 
 **Parameters:**
@@ -118,6 +160,22 @@ generate_videos(prompt: Optional[String], image: Optional[Image], model: String,
 - *Any*: The generated video.
 
 
+
+**Example:**
+
+<Tip>
+
+Add a computed column that applies the model `veo-2.0-generate-001`
+to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+ tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-2.0-generate-001'))
+```
+
+</Tip>
+
+
+---
+
 ### `invoke_tools()`
 
 Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
@@ -126,6 +184,7 @@ Converts an OpenAI response dict to Pixeltable tool invocation format and calls 
 **Signature:**
 
 ```python
-invoke_tools(tools: pixeltable.func.tools.Tools, response: pixeltable.exprs.expr.Expr) -> pixeltable.exprs.inline_expr.InlineDict
+invoke_tools(tools: pixeltable.func.tools.Tools,
+     response: pixeltable.exprs.expr.Expr) -> pixeltable.exprs.inline_expr.InlineDict
 ```
 
