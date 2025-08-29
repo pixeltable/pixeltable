@@ -44,11 +44,10 @@ class ClientContainer:
         cpu_count = Env.get().cpu_count
         self.client_max_connections = max(5, 4 * cpu_count)
 
-    def get_client(self, for_write: bool, storage_target: str, soa: Optional[StorageObjectAddress]) -> Any:
+    def get_client(self, storage_target: str, soa: Optional[StorageObjectAddress]) -> Any:
         """Get the current client for the given target, creating one if needed"""
         with self.client_lock:
             if storage_target not in self.clients:
-                # Ignore for_write parameter
                 self.clients[storage_target] = self.create_client(storage_target, soa)
                 assert storage_target in self.clients
             return self.clients[storage_target]

@@ -41,9 +41,9 @@ class GCSStore(MediaStoreBase):
         self.__prefix_name = soa.prefix
 
     @classmethod
-    def client(cls, for_write: bool = False) -> Any:
+    def client(cls) -> Any:
         """Return the GCS client."""
-        return ClientContainer.get().get_client(for_write=for_write, storage_target='gs', soa=None)
+        return ClientContainer.get().get_client(storage_target='gs', soa=None)
 
     @property
     def bucket_name(self) -> str:
@@ -100,7 +100,7 @@ class GCSStore(MediaStoreBase):
         blob_name = parsed.path.lstrip('/')
 
         try:
-            client = self.client(for_write=True)
+            client = self.client()
             bucket = client.bucket(self.bucket_name)
             blob = bucket.blob(blob_name)
             blob.upload_from_filename(str(src_path))
@@ -232,7 +232,7 @@ class GCSStore(MediaStoreBase):
         from google.api_core.exceptions import GoogleAPIError
 
         p = self.soa.prefix_free_uri if return_uri else ''
-        gcs_client = self.client(for_write=False)
+        gcs_client = self.client()
         r: list[str] = []
 
         try:

@@ -47,11 +47,9 @@ class S3Store(MediaStoreBase):
         )
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
-    def client(self, for_write: bool = False) -> Any:
+    def client(self) -> Any:
         """Return the S3 client."""
-        return ClientContainer.get().get_client(
-            for_write=for_write, storage_target=self.soa.storage_target, soa=self.soa
-        )
+        return ClientContainer.get().get_client(storage_target=self.soa.storage_target, soa=self.soa)
 
     def get_resource(self) -> Any:
         return ClientContainer.get().get_resource(storage_target=self.soa.storage_target, soa=self.soa)
@@ -104,9 +102,7 @@ class S3Store(MediaStoreBase):
         from botocore.exceptions import ClientError
 
         try:
-            self.client(for_write=False).download_file(
-                Bucket=self.bucket_name, Key=self.prefix + src_path, Filename=str(dest_path)
-            )
+            self.client().download_file(Bucket=self.bucket_name, Key=self.prefix + src_path, Filename=str(dest_path))
         except ClientError as e:
             self.handle_s3_error(e, self.bucket_name, f'download file {src_path}')
             raise
@@ -122,7 +118,7 @@ class S3Store(MediaStoreBase):
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
-            self.client(for_write=True).upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key)
+            self.client().upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key)
             _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
             return new_file_uri
         except ClientError as e:
@@ -241,7 +237,7 @@ class S3Store(MediaStoreBase):
 
         p = self.soa.prefix_free_uri if return_uri else ''
 
-        s3_client = self.client(for_write=False)
+        s3_client = self.client()
         r: list[str] = []
         try:
             # Use paginator to handle more than 1000 objects

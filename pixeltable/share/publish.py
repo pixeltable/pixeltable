@@ -91,7 +91,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
     Env.get().console_logger.info(f'Uploading snapshot to: {bucket}:{remote_path}')
 
-    s3_client = ClientContainer.get().get_client(for_write=True, storage_target='s3', soa=None)
+    s3_client = ClientContainer.get().get_client(storage_target='s3', soa=None)
 
     upload_args = {'ChecksumAlgorithm': 'SHA256'}
 
@@ -147,7 +147,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
 
     Env.get().console_logger.info(f'Downloading snapshot from: {bucket}:{remote_path}')
 
-    s3_client = ClientContainer.get().get_client(for_write=False, storage_target='s3', soa=None)
+    s3_client = ClientContainer.get().get_client(storage_target='s3', soa=None)
 
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']
