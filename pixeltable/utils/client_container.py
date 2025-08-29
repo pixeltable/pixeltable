@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 from typing import Any, Optional
 
@@ -64,82 +63,23 @@ class ClientContainer:
     def create_client(self, storage_target: str, soa: Optional[StorageObjectAddress]) -> Any:
         """Create a new client for the given storage target and storage object address."""
         from .gcs_store import GCSStore
+        from .s3_store import S3Store
 
         if storage_target == 'r2':
             assert soa is not None
-            return self.create_r2_client(soa)
+            return S3Store.create_r2_client(soa)
         if storage_target == 's3':
-            return self.create_s3_client()
+            return S3Store.create_s3_client()
         if storage_target == 'gs':
             return GCSStore.create_client()
         raise ValueError(f'Unsupported storage target: {storage_target}')
 
-    def create_s3_client(self) -> Any:
-        """Get a raw client without any locking"""
-        client_args: dict[str, Any] = {}
-        client_config = {
-            'max_pool_connections': self.client_max_connections,
-            'connect_timeout': 15,
-            'read_timeout': 30,
-            'retries': {'max_attempts': 3, 'mode': 'adaptive'},
-        }
-        return self.get_boto_client(client_args, client_config)
-
-    def get_r2_client_args(self, soa: StorageObjectAddress) -> dict[str, Any]:
-        client_args = {}
-        if soa.storage_target == 'r2':
-            a_key = os.getenv('R2_ACCESS_KEY', '')
-            s_key = os.getenv('R2_SECRET_KEY', '')
-            if a_key and s_key:
-                client_args = {
-                    'aws_access_key_id': a_key,
-                    'aws_secret_access_key': s_key,
-                    'region_name': 'auto',
-                    'endpoint_url': soa.container_free_uri,
-                }
-        return client_args
-
-    def create_r2_client(self, soa: StorageObjectAddress) -> Any:
-        client_args = self.get_r2_client_args(soa)
-        client_config = {
-            'max_pool_connections': self.client_max_connections,
-            'connect_timeout': 15,
-            'read_timeout': 30,
-            'retries': {'max_attempts': 3, 'mode': 'adaptive'},
-        }
-        return self.get_boto_client(client_args, client_config)
-
-    @classmethod
-    def get_boto_client(cls, client_args: dict[str, Any], config_args: dict[str, Any]) -> Any:
-        import boto3
-        import botocore
-
-        try:
-            if len(client_args) == 0:
-                # No client args supplibed, attempt to get default (s3) credentials
-                boto3.Session().get_credentials().get_frozen_credentials()
-                config = botocore.config.Config(**config_args)
-                return boto3.client('s3', config=config)  # credentials are available
-            else:
-                # If client args are provided, use them directly
-                config = botocore.config.Config(**config_args)
-                return boto3.client('s3', **client_args, config=config)
-        except AttributeError:
-            # No credentials available, use unsigned mode
-            config_args = config_args.copy()
-            config_args['signature_version'] = botocore.UNSIGNED
-            config = botocore.config.Config(**config_args)
-            return boto3.client('s3', config=config)
-
     def create_resource(self, storage_target: str, soa: StorageObjectAddress) -> Any:
+        from .s3_store import S3Store
+
         if storage_target == 'r2':
-            client_args = self.get_r2_client_args(soa)
-            return self.create_boto_resource(client_args)
+            client_args = S3Store.get_r2_client_args(soa)
+            return S3Store.create_boto_resource(client_args)
         if storage_target == 's3':
-            return self.create_boto_resource({})
+            return S3Store.create_boto_resource({})
         raise ValueError(f'Unsupported storage target: {storage_target}')
-
-    def create_boto_resource(self, client_args: dict[str, Any]) -> Any:
-        import boto3
-
-        return boto3.resource('s3', **client_args)
