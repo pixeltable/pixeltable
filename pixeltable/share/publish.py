@@ -83,15 +83,13 @@ def push_replica(
 
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
-    from pixeltable.utils.client_container import ClientContainer
-
     bucket = parsed_location.netloc
     remote_dir = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_location.path)))
     remote_path = str(remote_dir / bundle.name)[1:]  # Remove initial /
 
     Env.get().console_logger.info(f'Uploading snapshot to: {bucket}:{remote_path}')
 
-    s3_client = ClientContainer.get().get_client(storage_target='s3', soa=None)
+    s3_client = Env.get().get_client('s3')
 
     upload_args = {'ChecksumAlgorithm': 'SHA256'}
 
@@ -139,15 +137,13 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
 
 
 def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_filename: str) -> Path:
-    from pixeltable.utils.client_container import ClientContainer
-
     bucket = parsed_location.netloc
     remote_dir = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_location.path)))
     remote_path = str(remote_dir / bundle_filename)[1:]  # Remove initial /
 
     Env.get().console_logger.info(f'Downloading snapshot from: {bucket}:{remote_path}')
 
-    s3_client = ClientContainer.get().get_client(storage_target='s3', soa=None)
+    s3_client = Env.get().get_client('s3')
 
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']

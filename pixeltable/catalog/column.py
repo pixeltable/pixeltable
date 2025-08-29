@@ -34,7 +34,7 @@ class Column:
     col_type: ts.ColumnType
     stored: bool
     is_pk: bool
-    destination: Optional[str]
+    destination: Optional[str]  # An object store reference for computed files
     _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
@@ -73,6 +73,7 @@ class Column:
             computed_with: an Expr that computes the column value
             is_pk: if True, this column is part of the primary key
             stored: determines whether a computed column is present in the stored table or recomputed on demand
+            destination: An object store reference for persisting computed files
             col_id: column ID (only used internally)
 
         Computed columns: those have a non-None ``computed_with`` argument

@@ -1,18 +1,13 @@
-from __future__ import annotations
-
 import logging
-import os
 import re
 import urllib.parse
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-from pixeltable import exceptions as excs
-from pixeltable.env import Env
-from pixeltable.utils.client_container import ClientContainer
-from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
-from pixeltable.utils.media_store_base import MediaStoreBase
+from pixeltable import env, exceptions as excs
+from pixeltable.config import Config
+from pixeltable.utils.media_destination import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
     from botocore.exceptions import ClientError
@@ -22,7 +17,29 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class S3Store(MediaStoreBase):
+@env.register_client('r2')
+def _() -> Any:
+    profile_name = Config.get().get_string_value('r2_profile') or 'r2_profile'
+    return S3Store.get_boto_client(profile_name=profile_name)
+
+
+@env.register_client('r2_resource')
+def _() -> Any:
+    profile_name = Config.get().get_string_value('r2_profile') or 'r2_profile'
+    return S3Store.create_boto_resource(profile_name=profile_name)
+
+
+@env.register_client('s3')
+def _() -> Any:
+    return S3Store.get_boto_client()
+
+
+@env.register_client('s3_resource')
+def _() -> Any:
+    return S3Store.create_boto_resource()
+
+
+class S3Store(ObjectStoreBase):
     """Class to handle S3 storage operations."""
 
     # URI of the S3 bucket in the format s3://bucket_name/prefix/
@@ -42,17 +59,25 @@ class S3Store(MediaStoreBase):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
-        assert self.soa.storage_target in {'r2', 's3'}, (
+        assert self.soa.storage_target in {StorageTarget.R2, StorageTarget.S3}, (
             f'Expected storage_target "s3" or "r2", got {self.soa.storage_target}'
         )
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def client(self) -> Any:
         """Return the S3 client."""
-        return ClientContainer.get().get_client(storage_target=self.soa.storage_target, soa=self.soa)
+        if self.soa.storage_target == StorageTarget.R2:
+            return env.Env.get().get_client('r2')
+        if self.soa.storage_target == StorageTarget.S3:
+            return env.Env.get().get_client('s3')
+        raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     def get_resource(self) -> Any:
-        return ClientContainer.get().get_resource(storage_target=self.soa.storage_target, soa=self.soa)
+        if self.soa.storage_target == StorageTarget.R2:
+            return env.Env.get().get_client('r2_resource')
+        if self.soa.storage_target == StorageTarget.S3:
+            return env.Env.get().get_client('s3_resource')
+        raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     @property
     def bucket_name(self) -> str:
@@ -64,40 +89,39 @@ class S3Store(MediaStoreBase):
         """Return the prefix from the base URI."""
         return self.__prefix_name
 
-    def validate_uri(self) -> Optional[str]:
+    def validate(self, error_col_name: str) -> Optional[str]:
         """
         Checks if the URI exists.
 
         Returns:
             bool: True if the S3 URI exists and is accessible, False otherwise.
         """
+        env.Env.get().require_package('boto3')
         from botocore.exceptions import ClientError
 
         try:
             self.client().head_bucket(Bucket=self.bucket_name)
             return self.__base_uri
         except ClientError as e:
-            self.handle_s3_error(e, self.bucket_name, 'validate bucket')
+            self.handle_s3_error(e, self.bucket_name, f'validate bucket {error_col_name}')
         return None
 
-    def _prepare_media_uri_raw(
-        self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
-    ) -> str:
+    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
-        prefix, filename = MediaPath.media_prefix_file_raw(tbl_id, col_id, tbl_version, ext)
+        prefix, filename = ObjectPath.prefix_raw(tbl_id, col_id, tbl_version, ext)
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_media_uri(self, col: Column, ext: Optional[str] = None) -> str:
+    def _prepare_uri(self, col: 'Column', ext: Optional[str] = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
         assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_media_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
+        return self._prepare_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
 
-    def download_media_object(self, src_path: str, dest_path: Path) -> None:
+    def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
         from botocore.exceptions import ClientError
 
@@ -107,14 +131,14 @@ class S3Store(MediaStoreBase):
             self.handle_s3_error(e, self.bucket_name, f'download file {src_path}')
             raise
 
-    def copy_local_media_file(self, col: Column, src_path: Path) -> str:
+    def copy_local_file(self, col: 'Column', src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
         from botocore.exceptions import ClientError
 
-        new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
+        new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
-        if self.soa.storage_target == 'r2':
+        if self.soa.storage_target == StorageTarget.R2:
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
@@ -137,9 +161,9 @@ class S3Store(MediaStoreBase):
         """
         from botocore.exceptions import ClientError
 
-        # Use MediaPath to construct the prefix for this table
+        # Use ObjectPath to construct the prefix for this table
 
-        table_prefix = MediaPath.media_table_prefix(tbl_id)
+        table_prefix = ObjectPath.table_prefix(tbl_id)
         prefix = f'{self.prefix}{table_prefix}/'
 
         try:
@@ -151,7 +175,7 @@ class S3Store(MediaStoreBase):
                 # Return all objects with the table prefix
                 object_iterator = bucket.objects.filter(Prefix=prefix)
             else:
-                # Filter by both table_id and table_version using the MediaPath pattern
+                # Filter by both table_id and table_version using the ObjectPath pattern
                 # Pattern: tbl_id_col_id_version_uuid
                 version_pattern = re.compile(
                     rf'{re.escape(table_prefix)}_\d+_{re.escape(str(tbl_version))}_[0-9a-fA-F]+.*'
@@ -255,7 +279,7 @@ class S3Store(MediaStoreBase):
 
     @classmethod
     def handle_s3_error(
-        cls, e: ClientError, bucket_name: str, operation: str = '', *, ignore_404: bool = False
+        cls, e: 'ClientError', bucket_name: str, operation: str = '', *, ignore_404: bool = False
     ) -> None:
         error_code = e.response.get('Error', {}).get('Code')
         error_message = e.response.get('Error', {}).get('Message', str(e))
@@ -271,72 +295,43 @@ class S3Store(MediaStoreBase):
             raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_code} - {error_message}')
 
     @classmethod
-    def client_max_connections(cls) -> int:
-        cpu_count = Env.get().cpu_count
-        return max(5, 4 * cpu_count)
+    def get_boto_session(cls, profile_name: Optional[str] = None) -> Any:
+        """Create a boto session using the defined profile"""
+        import boto3
+
+        if profile_name:
+            try:
+                session = boto3.Session(profile_name=profile_name)
+                return session
+            except Exception as e:
+                _logger.info(f'Error occurred while creating boto session: {e}, fallback to default profile')
+        return boto3.Session()
 
     @classmethod
-    def create_s3_client(cls) -> Any:
-        """Get a raw client without any locking"""
-        client_args: dict[str, Any] = {}
-        client_config = {
-            'max_pool_connections': cls.client_max_connections(),
-            'connect_timeout': 15,
-            'read_timeout': 30,
-            'retries': {'max_attempts': 3, 'mode': 'adaptive'},
-        }
-        return cls.get_boto_client(client_args, client_config)
-
-    @classmethod
-    def get_r2_client_args(cls, soa: StorageObjectAddress) -> dict[str, Any]:
-        client_args = {}
-        if soa.storage_target == 'r2':
-            a_key = os.getenv('R2_ACCESS_KEY', '')
-            s_key = os.getenv('R2_SECRET_KEY', '')
-            if a_key and s_key:
-                client_args = {
-                    'aws_access_key_id': a_key,
-                    'aws_secret_access_key': s_key,
-                    'region_name': 'auto',
-                    'endpoint_url': soa.container_free_uri,
-                }
-        return client_args
-
-    @classmethod
-    def create_r2_client(cls, soa: StorageObjectAddress) -> Any:
-        client_args = cls.get_r2_client_args(soa)
-        client_config = {
-            'max_pool_connections': cls.client_max_connections(),
-            'connect_timeout': 15,
-            'read_timeout': 30,
-            'retries': {'max_attempts': 3, 'mode': 'adaptive'},
-        }
-        return cls.get_boto_client(client_args, client_config)
-
-    @classmethod
-    def get_boto_client(cls, client_args: dict[str, Any], config_args: dict[str, Any]) -> Any:
+    def get_boto_client(cls, profile_name: Optional[str] = None) -> Any:
         import boto3
         import botocore
 
+        config_args: dict[str, Any] = {
+            'max_pool_connections': 30,
+            'connect_timeout': 15,
+            'read_timeout': 30,
+            'retries': {'max_attempts': 3, 'mode': 'adaptive'},
+        }
+
+        session = cls.get_boto_session(profile_name)
+
         try:
-            if len(client_args) == 0:
-                # No client args supplibed, attempt to get default (s3) credentials
-                boto3.Session().get_credentials().get_frozen_credentials()
-                config = botocore.config.Config(**config_args)
-                return boto3.client('s3', config=config)  # credentials are available
-            else:
-                # If client args are provided, use them directly
-                config = botocore.config.Config(**config_args)
-                return boto3.client('s3', **client_args, config=config)
-        except AttributeError:
+            config = botocore.config.Config(**config_args)
+            return session.client('s3', config=config)  # credentials are available
+        except Exception as e:
+            _logger.info(f'Error occurred while creating S3 client: {e}, fallback to unsigned mode')
             # No credentials available, use unsigned mode
             config_args = config_args.copy()
             config_args['signature_version'] = botocore.UNSIGNED
-            config = botocore.config.Config(**config_args)
             return boto3.client('s3', config=config)
 
     @classmethod
-    def create_boto_resource(cls, client_args: dict[str, Any]) -> Any:
-        import boto3
-
-        return boto3.resource('s3', **client_args)
+    def create_boto_resource(cls, profile_name: Optional[str] = None) -> Any:
+        # Create a session using the defined profile
+        return cls.get_boto_session(profile_name).resource('s3')

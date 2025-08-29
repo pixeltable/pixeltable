@@ -10,12 +10,9 @@ from typing import AsyncIterator, Iterator, NamedTuple, Optional
 from uuid import UUID
 
 from pixeltable import exprs
-from pixeltable.env import Env
-from pixeltable.utils.client_container import ClientContainer
-from pixeltable.utils.media_destination import MediaDestination
-from pixeltable.utils.media_path import MediaPath
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.media_destination import ObjectOps, ObjectPath, StorageTarget
 
+# from pixeltable.utils.media_store import LocalStore, TempStore
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -23,7 +20,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class ObjectStoreSaveNode(ExecNode):
-    """Brings files with external URLs into the cache
+    """Save files into designated object store(s).
 
     Each row may have multiple files that need to be saved to a destination.
     Each file may be referenced by more than one column in the row.
@@ -37,13 +34,13 @@ class ObjectStoreSaveNode(ExecNode):
     Paths with multiple destinations are removed from the TempStore only after all destination copies are complete.
 
     TODO:
-    - Adapt the number of download threads at runtime to maximize throughput
     - Process a row at a time and limit the number of in-flight rows to control memory usage
     """
 
     QUEUE_DEPTH_HIGH_WATER = 50  # target number of in-flight requests
     QUEUE_DEPTH_LOW_WATER = 20  # target number of in-flight requests
     BATCH_SIZE = 16
+    MAX_WORKERS = 15
 
     class WorkDesignator(NamedTuple):
         """Specify the source and destination for a WorkItem"""
@@ -77,7 +74,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     input_finished: bool
     row_idx: Iterator[Optional[int]]
-    num_threads: int
 
     @dataclasses.dataclass
     class RowState:
@@ -101,10 +97,7 @@ class ObjectStoreSaveNode(ExecNode):
         self.in_flight_work = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
-        self.num_threads = max(4, Env.get().cpu_count)
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
-        # Ensure that the ClientContainer is initialized before using threading
-        ClientContainer.get()
 
     @property
     def queued_work(self) -> int:
@@ -122,8 +115,8 @@ class ObjectStoreSaveNode(ExecNode):
             return None
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        input_iter = self.input.__aiter__()
-        with futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+        input_iter = aiter(self.input)
+        with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
             while True:
                 # Create work to fill the queue to the high water mark ... ?without overrunning the in-flight row limit.
                 while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
@@ -170,6 +163,8 @@ class ObjectStoreSaveNode(ExecNode):
             self.ready_rows[idx] = row
 
     def __process_completions(self, done: set[futures.Future], ignore_errors: bool) -> None:
+        from pixeltable.utils.media_store import TempStore
+
         for f in done:
             work_designator = self.in_flight_requests.pop(f)
             new_file_url, exc = f.result()
@@ -195,6 +190,8 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
+        from pixeltable.utils.media_store import LocalStore, TempStore
+
         # Create a list of work to do for media storage in this row
         row_idx = next(self.row_idx)
         row_to_do: list[ObjectStoreSaveNode.WorkItem] = []
@@ -216,22 +213,22 @@ class ObjectStoreSaveNode(ExecNode):
             assert col.col_type.is_media_type()
 
             destination = info.col.destination
-            soa = None if destination is None else MediaPath.parse_media_storage_addr1(destination)
+            soa = None if destination is None else ObjectPath.parse_object_storage_addr(destination, False)
             if (
                 soa is not None
-                and soa.storage_target == 'os'
-                and MediaStore.get(destination).resolve_url(url) is not None
+                and soa.storage_target == StorageTarget.OS
+                and LocalStore.from_soa(soa).resolve_url(url) is not None
             ):
                 # A local non-default destination was specified, and the url already points there
                 continue
 
-            src_path = MediaStore.file_url_to_path(url)
+            src_path = LocalStore.file_url_to_path(url)
             if src_path is None:
                 # The url does not point to a local file, do not attempt to copy/move it
                 continue
 
             if destination is None and not TempStore.contains_path(src_path):
-                # Do not copy local file URLs to the MediaStore
+                # Do not copy local file URLs to the LocalStore
                 continue
 
             work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination)
@@ -296,7 +293,7 @@ class ObjectStoreSaveNode(ExecNode):
         col = work_item.info.col
         assert col.destination == work_item.destination
         try:
-            new_file_url = MediaDestination.put_file(col, src_path, work_item.destination_count == 1)
+            new_file_url = ObjectOps.put_file(col, src_path, work_item.destination_count == 1)
             return new_file_url, None
         except Exception as e:
             _logger.debug(f'Failed to move/copy {src_path}: {e}', exc_info=e)

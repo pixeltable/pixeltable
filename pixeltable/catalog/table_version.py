@@ -20,7 +20,7 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_destination import ObjectOps
 
 from .tbl_ops import TableOp
 
@@ -365,11 +365,11 @@ class TableVersion:
         return tbl_version
 
     def delete_media(self, tbl_version: Optional[int] = None) -> None:
-        # Assemble a set of column destinations and delete media from all of them
-        # None is a valid column destination which refers to the default media location
+        # Assemble a set of column destinations and delete objects from all of them
+        # None is a valid column destination which refers to the default object location
         destinations = {col.destination for col in self.cols if col.is_stored}
         for dest in destinations:
-            MediaDestination.delete(dest, self.id, tbl_version=tbl_version)
+            ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
     def drop(self) -> None:
         # if self.is_view and self.is_mutable:

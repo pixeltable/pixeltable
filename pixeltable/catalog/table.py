@@ -19,7 +19,7 @@ import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
-from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_destination import ObjectOps
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -610,6 +610,7 @@ class Table(SchemaObject):
         Args:
             kwargs: Exactly one keyword argument of the form `col_name=expression`.
             stored: Whether the column is materialized and stored or computed on demand.
+            destination: An object store reference for persisting computed files.
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
@@ -762,7 +763,7 @@ class Table(SchemaObject):
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
                 if 'destination' in spec:
-                    destination = MediaDestination.validate_destination(name, spec['destination'])
+                    destination = ObjectOps.validate_destination(spec['destination'], name)
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 

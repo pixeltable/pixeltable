@@ -13,12 +13,10 @@ from typing import AsyncIterator, Iterator, Optional
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
-from pixeltable.env import Env
-from pixeltable.utils.client_container import ClientContainer
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_destination import MediaDestination
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.media_destination import ObjectOps
 
+# from pixeltable.utils.media_store import TempStore
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -29,13 +27,14 @@ class CachePrefetchNode(ExecNode):
     """Brings files with external URLs into the cache
 
     TODO:
-    - Adapt the number of download threads at runtime to maximize throughput
     - Process a row at a time and limit the number of in-flight rows to control memory usage
+    - Create asyncio.Tasks to consume our input in order to increase concurrency.
     """
 
     QUEUE_DEPTH_HIGH_WATER = 50  # target number of in-flight requests
     QUEUE_DEPTH_LOW_WATER = 20  # target number of in-flight requests
     BATCH_SIZE = 16
+    MAX_WORKERS = 15
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
@@ -52,7 +51,6 @@ class CachePrefetchNode(ExecNode):
     in_flight_urls: dict[str, list[tuple[exprs.DataRow, exprs.ColumnSlotIdx]]]  # URL -> [(row, info)]
     input_finished: bool
     row_idx: Iterator[Optional[int]]
-    num_threads: int
 
     @dataclasses.dataclass
     class RowState:
@@ -75,10 +73,7 @@ class CachePrefetchNode(ExecNode):
         self.in_flight_urls = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
-        self.num_threads = max(4, Env.get().cpu_count)
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
-        # Ensure that the ClientContainer is initialized before using threading
-        ClientContainer.get()
 
     @property
     def queued_work(self) -> int:
@@ -96,8 +91,8 @@ class CachePrefetchNode(ExecNode):
             return None
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        input_iter = self.input.__aiter__()
-        with futures.ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+        input_iter = aiter(self.input)
+        with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
             while True:
                 # Create work to fill the queue to the high water mark ... ?without overrunning the in-flight row limit.
                 while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
@@ -221,6 +216,8 @@ class CachePrefetchNode(ExecNode):
 
     def __fetch_url(self, url: str) -> tuple[Optional[Path], Optional[Exception]]:
         """Fetches a remote URL into the TempStore and returns its path"""
+        from pixeltable.utils.media_store import TempStore
+
         _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
         parsed = urllib.parse.urlparse(url)
         # Use len(parsed.scheme) > 1 here to ensure we're not being passed
@@ -234,7 +231,7 @@ class CachePrefetchNode(ExecNode):
         tmp_path = TempStore.create_path(extension=extension)
         try:
             _logger.debug(f'Downloading {url} to {tmp_path}')
-            MediaDestination.download_media_object(url, tmp_path)
+            ObjectOps.copy_object_to_local_file(url, tmp_path)
             _logger.debug(f'Downloaded {url} to {tmp_path}')
             return tmp_path, None
         except Exception as e:

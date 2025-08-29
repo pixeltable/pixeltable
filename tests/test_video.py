@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-from pixeltable.utils.media_destination import MediaDestination
+from pixeltable.utils.media_destination import ObjectOps
 
 from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, validate_update_status
 
@@ -54,16 +54,16 @@ class TestVideo:
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths)
-        assert MediaDestination.count(None, view._id) == 0
+        assert ObjectOps.count(None, view._id) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths)
-        assert MediaDestination.count(None, view._id) == view.count()
+        assert ObjectOps.count(None, view._id) == view.count()
 
         # revert() also removes computed images
         tbl.insert({'video': p} for p in video_filepaths)
         tbl.revert()
-        assert MediaDestination.count(None, view._id) == view.count()
+        assert ObjectOps.count(None, view._id) == view.count()
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')

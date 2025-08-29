@@ -259,7 +259,7 @@ class DataRow:
 
     def prepare_col_val_for_save(self, index: int, col: Optional[catalog.Column] = None) -> bool:
         """
-        Prepare the column at the index for saving media val. Discard unneeded values.
+        Prepare to save a column's value into the appropriate store. Discard unneeded values.
 
         Return:
             True if the media object in the column needs to be saved.

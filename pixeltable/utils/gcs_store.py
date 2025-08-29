@@ -7,10 +7,8 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-from pixeltable import exceptions as excs
-from pixeltable.utils.client_container import ClientContainer
-from pixeltable.utils.media_path import MediaPath, StorageObjectAddress
-from pixeltable.utils.media_store_base import MediaStoreBase
+from pixeltable import env, exceptions as excs
+from pixeltable.utils.media_destination import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -18,7 +16,12 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class GCSStore(MediaStoreBase):
+@env.register_client('gs')
+def _() -> Any:
+    return GCSStore.create_client()
+
+
+class GCSStore(ObjectStoreBase):
     """Class to handle Google Cloud Storage operations."""
 
     # URI of the GCS bucket in the format gs://bucket_name/prefix/
@@ -34,16 +37,15 @@ class GCSStore(MediaStoreBase):
     soa: StorageObjectAddress
 
     def __init__(self, soa: StorageObjectAddress):
-        assert soa.storage_target == 'gs', f'Expected storage_target "gs", got {soa.storage_target}'
+        assert soa.storage_target == StorageTarget.GS, f'Expected storage_target "gs", got {soa.storage_target}'
         self.soa = soa
         self.__base_uri = soa.prefix_free_uri + soa.prefix
         self.__bucket_name = soa.container
         self.__prefix_name = soa.prefix
 
-    @classmethod
-    def client(cls) -> Any:
+    def client(self) -> Any:
         """Return the GCS client."""
-        return ClientContainer.get().get_client(storage_target='gs', soa=None)
+        return env.Env.get().get_client('gs')
 
     @property
     def bucket_name(self) -> str:
@@ -55,13 +57,14 @@ class GCSStore(MediaStoreBase):
         """Return the prefix from the base URI."""
         return self.__prefix_name
 
-    def validate_uri(self) -> Optional[str]:
+    def validate(self, error_col_name: str) -> Optional[str]:
         """
         Checks if the URI exists.
 
         Returns:
             str: The base URI if the GCS bucket exists and is accessible, None otherwise.
         """
+        env.Env.get().require_package('google.cloud.storage')
         from google.api_core.exceptions import GoogleAPIError
         from google.cloud.exceptions import Forbidden, NotFound
 
@@ -71,31 +74,29 @@ class GCSStore(MediaStoreBase):
             bucket.reload()  # This will raise an exception if the bucket doesn't exist
             return self.__base_uri
         except (NotFound, Forbidden, GoogleAPIError) as e:
-            self.handle_gcs_error(e, self.bucket_name, 'validate bucket')
+            self.handle_gcs_error(e, self.bucket_name, f'validate bucket {error_col_name}')
         return None
 
-    def _prepare_media_uri_raw(
-        self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
-    ) -> str:
+    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
-        prefix, filename = MediaPath.media_prefix_file_raw(tbl_id, col_id, tbl_version, ext)
+        prefix, filename = ObjectPath.prefix_raw(tbl_id, col_id, tbl_version, ext)
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_media_uri(self, col: Column, ext: Optional[str] = None) -> str:
+    def _prepare_uri(self, col: Column, ext: Optional[str] = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
         assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_media_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
+        return self._prepare_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
 
-    def copy_local_media_file(self, col: Column, src_path: Path) -> str:
+    def copy_local_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
         from google.api_core.exceptions import GoogleAPIError
 
-        new_file_uri = self._prepare_media_uri(col, ext=src_path.suffix)
+        new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         blob_name = parsed.path.lstrip('/')
 
@@ -110,7 +111,7 @@ class GCSStore(MediaStoreBase):
             self.handle_gcs_error(e, self.bucket_name, f'upload file {src_path}')
             raise
 
-    def download_media_object(self, src_path: str, dest_path: Path) -> None:
+    def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe"""
         from google.api_core.exceptions import GoogleAPIError
 
@@ -133,14 +134,14 @@ class GCSStore(MediaStoreBase):
         Returns:
             Tuple of (iterator over GCS objects matching the criteria, bucket object)
         """
-        table_prefix = MediaPath.media_table_prefix(tbl_id)
+        table_prefix = ObjectPath.table_prefix(tbl_id)
         prefix = f'{self.prefix}{table_prefix}/'
 
         if tbl_version is None:
             # Return all blobs with the table prefix
             blob_iterator = bucket.list_blobs(prefix=prefix)
         else:
-            # Filter by both table_id and table_version using the MediaPath pattern
+            # Filter by both table_id and table_version using the ObjectPath pattern
             # Pattern: tbl_id_col_id_version_uuid
             version_pattern = re.compile(rf'{re.escape(table_prefix)}_\d+_{re.escape(str(tbl_version))}_[0-9a-fA-F]+.*')
             # Return filtered collection - this still uses lazy loading

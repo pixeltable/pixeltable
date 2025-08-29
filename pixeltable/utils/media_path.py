@@ -1,30 +1,42 @@
 from __future__ import annotations
 
+import enum
 import re
 import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Optional
+from typing import NamedTuple, Optional
 from uuid import UUID
 
-if TYPE_CHECKING:
-    from pixeltable.catalog import Column
+
+class StorageTarget(enum.Enum):
+    """Enumeration of storage kinds."""
+
+    OS = 'os'  # Local file system
+    S3 = 's3'  # Amazon S3
+    R2 = 'r2'  # Cloudflare R2
+    GS = 'gs'  # Google Cloud Storage
+    AZ = 'az'  # Azure Blob Storage
+    HTTP = 'http'  # HTTP/HTTPS
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class StorageObjectAddress(NamedTuple):
-    """Contains components of a media address.
+    """Contains components of an object address.
     Unused components are empty strings.
     """
 
-    storage_target: str
-    scheme: str
-    account: str
-    account_extension: str
-    container: str
-    key: str
-    prefix: str = ''
-    object_name: str = ''
+    storage_target: StorageTarget  # The kind of storage referenced. This is NOT the same as the scheme.
+    scheme: str  # The scheme parsed from the source
+    account: str = ''  # Account number parsed from the source when applicable
+    account_extension: str = ''  # Account extension parsed from the source when applicable
+    container: str = ''  # Container / bucket name parsed from the source
+    key: str = ''  # Key parsed from the source (prefix + object_name)
+    prefix: str = ''  # Prefix (within the bucket) parsed from the source
+    object_name: str = ''  # Object name parsed from the source (if requested and applicable)
 
     @property
     def has_object(self) -> bool:
@@ -40,7 +52,14 @@ class StorageObjectAddress(NamedTuple):
 
     @property
     def has_valid_storage_target(self) -> bool:
-        return self.storage_target in ['os', 's3', 'r2', 'gs', 'az', 'http']
+        return self.storage_target in [
+            StorageTarget.OS,
+            StorageTarget.S3,
+            StorageTarget.R2,
+            StorageTarget.GS,
+            StorageTarget.AZ,
+            StorageTarget.HTTP,
+        ]
 
     @property
     def prefix_free_uri(self) -> str:
@@ -65,7 +84,7 @@ class StorageObjectAddress(NamedTuple):
 
     @property
     def to_path(self) -> Path:
-        assert self.storage_target == 'os'
+        assert self.storage_target == StorageTarget.OS
         assert self.prefix
         path_str = urllib.parse.unquote(urllib.request.url2pathname(self.prefix))
         return Path(path_str)
@@ -85,41 +104,28 @@ class StorageObjectAddress(NamedTuple):
         )
 
 
-class MediaPath:
+class ObjectPath:
     PATTERN = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
 
     @classmethod
-    def media_table_prefix(cls, tbl_id: UUID) -> str:
-        """Construct a unique unix-style prefix for a media table without leading/trailing slashes."""
+    def table_prefix(cls, tbl_id: UUID) -> str:
+        """Construct a unique unix-style prefix for objects in a table (without leading/trailing slashes)."""
         assert isinstance(tbl_id, uuid.UUID)
         return f'{tbl_id.hex}'
 
     @classmethod
-    def media_prefix_file_raw(
-        cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
-    ) -> tuple[str, str]:
-        """Construct a unique unix-style prefix and filename for a persisted media file.
+    def prefix_raw(cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> tuple[str, str]:
+        """Construct a unique unix-style prefix and filename for a persisted file.
         The results are derived from table, col, and version specs.
         Returns:
-            prefix: a unix-style prefix for the media file without leading/trailing slashes
-            filename: a unique filename for the media file without leading slashes
+            prefix: a unix-style prefix for the file without leading/trailing slashes
+            filename: a unique filename for the file without leading slashes
         """
-        table_prefix = cls.media_table_prefix(tbl_id)
-        media_id_hex = uuid.uuid4().hex
-        prefix = f'{table_prefix}/{media_id_hex[:2]}/{media_id_hex[:4]}'
-        filename = f'{table_prefix}_{col_id}_{tbl_version}_{media_id_hex}{ext or ""}'
+        table_prefix = cls.table_prefix(tbl_id)
+        id_hex = uuid.uuid4().hex
+        prefix = f'{table_prefix}/{id_hex[:2]}/{id_hex[:4]}'
+        filename = f'{table_prefix}_{col_id}_{tbl_version}_{id_hex}{ext or ""}'
         return prefix, filename
-
-    @classmethod
-    def media_prefix_file(cls, col: Column, ext: Optional[str] = None) -> tuple[str, str]:
-        """Construct a unique unix-style prefix and filename for a persisted media file.
-        The results are derived from a Column specs.
-        Returns:
-            prefix: a unix-style prefix for the media file without leading/trailing slashes
-            filename: a unique filename for the media file without leading slashes
-        """
-        assert col.tbl is not None, 'Column must be associated with a table'
-        return cls.media_prefix_file_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
 
     @classmethod
     def separate_prefix_object(cls, path_and_object: str, may_contain_object_name: bool) -> tuple[str, str]:
@@ -140,7 +146,7 @@ class MediaPath:
         return prefix, object_name
 
     @classmethod
-    def parse_media_storage_addr1(cls, src_addr: str) -> StorageObjectAddress:
+    def parse_object_storage_addr1(cls, src_addr: str) -> StorageObjectAddress:
         """
         Parses a cloud storage URI into its scheme, bucket, and key.
 
@@ -171,12 +177,12 @@ class MediaPath:
 
         # len(parsed.scheme) == 1 handles Windows drive letters like C:\
         if scheme == 'file' or len(scheme) == 1:
-            storage_target = 'os'
+            storage_target = StorageTarget.OS
             scheme = 'file'
             key = parsed.path
 
         elif scheme in ('s3', 'gs'):
-            storage_target = scheme
+            storage_target = StorageTarget.S3 if scheme == 's3' else StorageTarget.GS
             container = parsed.netloc
             key = parsed.path.lstrip('/')
 
@@ -184,7 +190,7 @@ class MediaPath:
             # Azure-specific URI schemes
             # wasb[s]://container@account.blob.core.windows.net/<optional prefix>/<optional object>
             # abfs[s]://container@account.dfs.core.windows.net/<optional prefix>/<optional object>
-            storage_target = 'az'
+            storage_target = StorageTarget.AZ
             container_and_account = parsed.netloc
             if '@' in container_and_account:
                 container, account_host = container_and_account.split('@', 1)
@@ -201,12 +207,12 @@ class MediaPath:
             # and possibly others
             key = parsed.path
             if 'cloudflare' in parsed.netloc:
-                storage_target = 'r2'
+                storage_target = StorageTarget.R2
             elif 'windows' in parsed.netloc:
-                storage_target = 'az'
+                storage_target = StorageTarget.AZ
             else:
-                storage_target = 'http'
-            if storage_target in ['s3', 'az', 'r2']:
+                storage_target = StorageTarget.HTTP
+            if storage_target in [StorageTarget.S3, StorageTarget.AZ, StorageTarget.R2]:
                 account_name = parsed.netloc.split('.', 1)[0]
                 account_extension = parsed.netloc.split('.', 1)[1]
                 path_parts = key.lstrip('/').split('/', 1)
@@ -223,7 +229,7 @@ class MediaPath:
         return r
 
     @classmethod
-    def parse_media_storage_addr(cls, src_addr: str, may_contain_object_name: bool) -> StorageObjectAddress:
+    def parse_object_storage_addr(cls, src_addr: str, may_contain_object_name: bool) -> StorageObjectAddress:
         """
         Parses a cloud storage URI into its scheme, bucket, prefix, and object name.
 
@@ -242,7 +248,7 @@ class MediaPath:
             https://account.r2.cloudflarestorage.com/container/<optional prefix>/<optional object>
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
         """
-        soa = cls.parse_media_storage_addr1(src_addr)
+        soa = cls.parse_object_storage_addr1(src_addr)
         prefix, object_name = cls.separate_prefix_object(soa.key, may_contain_object_name)
         assert not object_name.endswith('/')
         r = soa._replace(prefix=prefix, object_name=object_name)
