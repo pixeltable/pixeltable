@@ -57,9 +57,6 @@ class ObjectStoreSaveNode(ExecNode):
         info: exprs.ColumnSlotIdx  # column info for the file being processed
         destination_count: int = 1  # number of unique destinations for this file
 
-        def pp(self) -> str:
-            return f'WorkItem(src_path={self.src_path}, slot_idx={self.info.slot_idx}, info={self.info})'
-
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
 
@@ -207,7 +204,7 @@ class ObjectStoreSaveNode(ExecNode):
         for info in self.file_col_info:
             col, index = info
             # we may need to store this imagehave yet to store this image
-            if row.check_must_save(index, col):
+            if row.prepare_col_val_for_save(index, col):
                 row.file_urls[index] = row.save_media_to_temp(index, col)
 
             url = row.file_urls[index]

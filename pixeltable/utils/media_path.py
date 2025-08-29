@@ -71,11 +71,13 @@ class StorageObjectAddress(NamedTuple):
         return Path(path_str)
 
     def __str__(self) -> str:
+        """A debug aid to override default str representation. Not to be used for any purpose."""
         return (
             f'{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
         )
 
     def __repr__(self) -> str:
+        """A debug aid to override default repr representation. Not to be used for any purpose."""
         return (
             f'SObjectAddress(client: {self.storage_target!r}, s: {self.scheme!r}, a: {self.account!r}, '
             f'ae: {self.account_extension!r}, c: {self.container!r}, '

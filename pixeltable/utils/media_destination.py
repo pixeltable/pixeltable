@@ -50,10 +50,10 @@ class MediaDestination:
             return HTTPStore(soa)
         if col_name is not None:
             raise excs.Error(
-                f'Column {col_name}: "destination" must be a valid URI to a supported destination, got {dest!r}'
+                f'Column {col_name}: `destination` must be a valid URI to a supported destination, got {dest!r}'
             )
         else:
-            raise excs.Error(f'"destination" must be a valid URI to a supported destination, got {dest!r}')
+            raise excs.Error(f'`destination` must be a valid URI to a supported destination, got {dest!r}')
 
     @classmethod
     def validate_destination(cls, col_name: Optional[str], dest: str | Path | None) -> str:
@@ -67,7 +67,7 @@ class MediaDestination:
         if dest is None or isinstance(dest, Path):
             return MediaStore.validate_destination(col_name, dest)
         if not isinstance(dest, str):
-            raise excs.Error(f'Column {col_name}: "destination" must be a string or path, got {dest!r}')
+            raise excs.Error(f'Column {col_name}: `destination` must be a string or path, got {dest!r}')
         soa = MediaPath.parse_media_storage_addr(dest, may_contain_object_name=False)
         if soa.storage_target == 'os':
             return MediaStore.validate_destination(col_name, soa)
@@ -76,7 +76,7 @@ class MediaDestination:
         if dest2 is not None:
             return dest2
         raise excs.Error(
-            f'Column {col_name}: "destination" must be a valid URI to a supported destination, got {dest!r}'
+            f'Column {col_name}: `destination` must be a valid URI to a supported destination, got {dest!r}'
         )
 
     @classmethod
@@ -112,11 +112,14 @@ class MediaDestination:
         return new_file_url
 
     @classmethod
-    def delete(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> None:
-        """Delete media files in the destination for a given table ID"""
+    def delete(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
+        """Delete media objects in the destination for a given table ID, table version.
+        Returns:
+            Number of objects deleted or None
+        """
         soa = None if dest is None else MediaPath.parse_media_storage_addr(dest, may_contain_object_name=False)
         store = cls.get_store(dest, soa)
-        store.delete(tbl_id, tbl_version)
+        return store.delete(tbl_id, tbl_version)
 
     @classmethod
     def count(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:

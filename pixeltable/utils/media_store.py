@@ -51,16 +51,16 @@ class MediaStore(MediaStoreBase):
             storage_address = dest
             if storage_address.scheme != 'file' or storage_address.storage_target != 'os':
                 raise excs.Error(
-                    f'Column {col_name}: "destination" must be a valid URI to a supported destination, got {dest!r}'
+                    f'Column {col_name}: `destination` must be a valid URI to a supported destination, got {dest!r}'
                 )
             path_str = urllib.parse.unquote(urllib.request.url2pathname(storage_address.prefix))
             dest_path = Path(path_str)
 
         # Check if path exists and validate it's a directory
         if not dest_path.exists():
-            raise excs.Error(f'Column {col_name}: "destination" does not exist: {dest}')
+            raise excs.Error(f'Column {col_name}: `destination` does not exist: {dest}')
         if not dest_path.is_dir():
-            raise excs.Error(f'Column {col_name}: "destination" must be a directory, not a file: {dest}')
+            raise excs.Error(f'Column {col_name}: `destination` must be a directory, not a file: {dest}')
 
         # Check if path is absolute
         if dest_path.is_absolute():
@@ -92,7 +92,7 @@ class MediaStore(MediaStoreBase):
 
     @classmethod
     def get(cls, base_uri: Optional[str] = None) -> MediaStore:
-        """Get a MediaStoreFile instance for the specified base URI, or the environment's media_dir if None."""
+        """Return an instance for the specified base URI. The environment's media_dir is used if None."""
         if base_uri is None:
             return MediaStore(env.Env.get().media_dir)
         base_path = cls.file_url_to_path(base_uri)
@@ -102,7 +102,7 @@ class MediaStore(MediaStoreBase):
 
     @classmethod
     def from_soa(cls, soa: Optional[StorageObjectAddress] = None) -> MediaStore:
-        """Get a MediaStoreFile instance for the specified base URI, or the environment's media_dir if None."""
+        """Return an instance for the specified base URI. The environment's media_dir is used if None."""
         if soa is None:
             return MediaStore(env.Env.get().media_dir)
         return MediaStore(soa.to_path)
@@ -209,7 +209,11 @@ class MediaStore(MediaStoreBase):
 
     def delete(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
-        only those files belonging to the specified tbl_version."""
+        only those files belonging to the specified tbl_version.
+
+        Return:
+            Number of files deleted or None
+        """
         assert tbl_id is not None
         table_prefix = MediaPath.media_table_prefix(tbl_id)
         if tbl_version is None:
@@ -269,7 +273,7 @@ class MediaStore(MediaStoreBase):
         r = []
         for root, _, files in os.walk(self.__base_dir):
             for file in files:
-                r.append(os.path.join(root, file) if not return_uri else Path(root, file).as_uri())
+                r.append(Path(root, file).as_uri() if return_uri else os.path.join(root, file))
         return r
 
 

@@ -19,6 +19,7 @@ import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.utils.media_destination import MediaDestination
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -723,7 +724,7 @@ class Table(SchemaObject):
 
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
-            raise excs.Error(f'Column {name}: "destination" must be a string or path, got {d}')
+            raise excs.Error(f'Column {name}: `destination` must be a string or path, got {d}')
 
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
@@ -761,8 +762,6 @@ class Table(SchemaObject):
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
                 if 'destination' in spec:
-                    from pixeltable.utils.media_destination import MediaDestination
-
                     destination = MediaDestination.validate_destination(name, spec['destination'])
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')

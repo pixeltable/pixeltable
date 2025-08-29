@@ -774,12 +774,12 @@ class Planner:
 
     @classmethod
     def _insert_save_node(
-        cls, tbl_id: UUID, media_cols: list[exprs.ColumnSlotIdx], input_node: exec.ExecNode
+        cls, tbl_id: UUID, stored_media_cols: list[exprs.ColumnSlotIdx], input_node: exec.ExecNode
     ) -> exec.ExecNode:
-        """Return an ObjectStoreSaveNode if media columns are present, otherwise return input"""
-        if len(media_cols) == 0:
+        """Return an ObjectStoreSaveNode if stored media columns are present, otherwise return input"""
+        if len(stored_media_cols) == 0:
             return input_node
-        save_node = exec.ObjectStoreSaveNode(tbl_id, media_cols, input_node)
+        save_node = exec.ObjectStoreSaveNode(tbl_id, stored_media_cols, input_node)
         save_node.set_ctx(input_node.ctx)
         return save_node
 

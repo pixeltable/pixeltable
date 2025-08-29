@@ -21,7 +21,10 @@ class MediaStoreBase:
         raise NotImplementedError
 
     def delete(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
-        """Delete media objects for a given table ID."""
+        """Delete media objects in the destination for a given table ID, table version.
+        Returns:
+            Number of objects deleted or None
+        """
         raise NotImplementedError
 
     def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:

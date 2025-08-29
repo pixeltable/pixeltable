@@ -257,8 +257,13 @@ class DataRow:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def check_must_save(self, index: int, col: Optional[catalog.Column] = None) -> bool:
-        """Return true if the media object in the column needs to be saved, discard unneeded values"""
+    def prepare_col_val_for_save(self, index: int, col: Optional[catalog.Column] = None) -> bool:
+        """
+        Prepare the column at the index for saving media val. Discard unneeded values.
+
+        Return:
+            True if the media object in the column needs to be saved.
+        """
         if self.vals[index] is None:
             return False
 
