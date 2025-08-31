@@ -5,7 +5,6 @@ import os
 import random
 import shutil
 import subprocess
-import sysconfig
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -27,12 +26,6 @@ from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 
 TESTS_DIR = Path(os.path.dirname(__file__))
-
-
-def runs_linux_with_gpu() -> bool:
-    import torch
-
-    return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
