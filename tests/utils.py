@@ -30,9 +30,12 @@ TESTS_DIR = Path(os.path.dirname(__file__))
 
 
 def runs_linux_with_gpu() -> bool:
-    import torch
+    try:
+        import torch
 
-    return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
+        return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
+    except ImportError:
+        return False
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
