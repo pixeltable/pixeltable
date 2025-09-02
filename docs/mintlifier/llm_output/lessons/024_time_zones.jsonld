@@ -1,0 +1,331 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "time-zones",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/time-zones.ipynb",
+  "title": "Time Zones in Pixeltable",
+  "objective": "Master timezone-aware timestamp handling across distributed datasets and deployments",
+  "difficulty": "intermediate",
+  "categories": ["timestamps", "configuration", "deployment", "timezone", "production"],
+  "prerequisites": ["pixeltable-basics"],
+  "imports_required": ["import os", "import pixeltable as pxt", "from datetime import datetime, timezone", "from zoneinfo import ZoneInfo"],
+  "performance_notes": {
+    "typical_runtime": "1-2 minutes",
+    "resource_requirements": "Minimal - configuration operations only",
+    "bottlenecks": ["environment variable setting", "configuration file access"]
+  },
+  "key_learnings": [
+    "All timestamps stored in UTC for global consistency",
+    "Default timezone configuration for deployment standardization", 
+    "Naive datetime objects inherit deployment default timezone",
+    "Timezone conversion available via astimezone() method",
+    "Production deployments should explicitly configure timezones",
+    "Timezone affects date extraction and temporal operations",
+    "IANA timezone identifiers provide standardized timezone handling"
+  ],
+  "relationships": {
+    "builds_on": ["basic_table_operations", "data_insertion"],
+    "enables": ["global_deployment", "multi_region_analytics"],
+    "see_also": ["working-with-external-files#deployment", "configuration"],
+    "contrasts_with": ["local_only_timestamps"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Installation and Setup",
+      "intent": "Install Pixeltable and prepare environment",
+      "code": "%pip install -qU pixeltable",
+      "imports_used": [],
+      "explanation": "Standard installation for timezone functionality",
+      "actual_output": "[Installation output]",
+      "output_summary": "Pixeltable installed successfully",
+      "output_type": "text",
+      "learns": [],
+      "reinforces": ["installation"],
+      "gotchas": [],
+      "performance": {"execution_time": "10-30s", "scaling": "O(1)", "optimization": "demo"},
+      "alternatives": {"description": "Use existing installation", "when_to_use": "Already installed"},
+      "state_after": {"tables": [], "views": [], "variables": [], "models_loaded": []},
+      "pattern_refs": ["environment_setup"]
+    },
+    {
+      "number": 2,
+      "section_title": "Configure Default Time Zone",
+      "intent": "Set deployment-wide timezone using environment variable",
+      "code": "import os\nos.environ['PIXELTABLE_TIME_ZONE'] = 'America/Los_Angeles'",
+      "imports_used": ["import os"],
+      "explanation": "Environment variable sets default timezone for all operations. Production deployments should configure this explicitly rather than relying on system timezone",
+      "actual_output": "",
+      "output_summary": "Environment variable set for Pacific timezone",
+      "output_type": "none",
+      "learns": ["timezone_configuration", "environment_variables"],
+      "reinforces": ["deployment_configuration"],
+      "gotchas": ["Must be set before importing pixeltable", "Only affects new connections", "System timezone used as fallback"],
+      "performance": {"execution_time": "<1ms", "scaling": "O(1)", "optimization": "production"},
+      "alternatives": {
+        "description": "Configure via config.toml file in $PIXELTABLE_HOME/config.toml",
+        "when_to_use": "Persistent configuration across sessions"
+      },
+      "state_after": {"tables": [], "views": [], "variables": ["PIXELTABLE_TIME_ZONE"], "models_loaded": []},
+      "pattern_refs": ["timezone_configuration", "environment_setup"]
+    },
+    {
+      "number": 3,
+      "section_title": "Create Table for Timestamp Testing",
+      "intent": "Set up table structure to demonstrate timezone behavior",
+      "code": "import pixeltable as pxt\n\npxt.drop_dir('tz_demo', force=True)\npxt.create_dir('tz_demo')\nt = pxt.create_table('tz_demo.example', {'dt': pxt.Timestamp, 'note': pxt.String})",
+      "imports_used": ["import pixeltable as pxt"],
+      "explanation": "Creates test environment with Timestamp column to demonstrate timezone handling across different input formats",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory `tz_demo`.\nCreated table `example`.",
+      "output_summary": "Database connected, test directory and table created with timestamp column",
+      "output_type": "text",
+      "learns": ["timestamp_column_type"],
+      "reinforces": ["table_creation", "database_operations"],
+      "gotchas": [],
+      "performance": {"execution_time": "100-500ms", "scaling": "O(1)", "optimization": "demo"},
+      "alternatives": {"description": "Use existing table", "when_to_use": "Testing on production data"},
+      "state_after": {"tables": ["tz_demo.example"], "views": [], "variables": ["PIXELTABLE_TIME_ZONE"], "models_loaded": []},
+      "pattern_refs": ["test_table_creation", "timestamp_schema"]
+    },
+    {
+      "number": 4,
+      "section_title": "Insert Timestamps with Different Timezone Specifications",
+      "intent": "Demonstrate how different datetime formats are handled during insertion",
+      "code": "from datetime import datetime, timezone\nfrom zoneinfo import ZoneInfo\n\nnaive_dt    = datetime(2024, 8, 9, 23, 0, 0)\nexplicit_dt = datetime(2024, 8, 9, 23, 0, 0, tzinfo=ZoneInfo('America/Los_Angeles'))\nother_dt    = datetime(2024, 8, 9, 23, 0, 0, tzinfo=ZoneInfo('America/New_York'))\n\nt.insert([\n    {'dt': naive_dt,    'note': 'No time zone specified (uses default)'},\n    {'dt': explicit_dt, 'note': 'Time zone America/Los_Angeles was specified explicitly'},\n    {'dt': other_dt,    'note': 'Time zone America/New_York was specified explicitly'}\n])",
+      "imports_used": ["from datetime import datetime, timezone", "from zoneinfo import ZoneInfo"],
+      "explanation": "Tests three scenarios: naive datetime (inherits default), explicit same timezone, and explicit different timezone. All stored as UTC internally",
+      "actual_output": "Inserting rows into `example`: 3 rows [00:00, 842.91 rows/s]\nInserted 3 rows with 0 errors.\n\nUpdateStatus(num_rows=3, num_computed_values=3, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Three timestamp rows inserted with different timezone specifications",
+      "output_type": "text",
+      "learns": ["naive_vs_aware_datetimes", "timezone_conversion_on_insert"],
+      "reinforces": ["data_insertion"],
+      "gotchas": ["Naive datetimes assume default timezone", "Different input timezones converted to UTC for storage"],
+      "performance": {"execution_time": "10-50ms", "scaling": "O(n)", "optimization": "demo"},
+      "alternatives": {"description": "Use consistent timezone across all inputs", "when_to_use": "Single-timezone datasets"},
+      "state_after": {"tables": ["tz_demo.example"], "views": [], "variables": ["naive_dt", "explicit_dt", "other_dt"], "models_loaded": []},
+      "pattern_refs": ["multi_timezone_insertion", "datetime_handling"]
+    },
+    {
+      "number": 5,
+      "section_title": "Query Timestamps - Default Timezone Retrieval",
+      "intent": "Show how timestamps are retrieved in the default timezone",
+      "code": "t.collect()",
+      "imports_used": [],
+      "explanation": "All timestamps retrieved in default timezone (America/Los_Angeles) regardless of how they were inserted. Note timezone conversion in output",
+      "actual_output": "                         dt                                               note\n0 2024-08-09 23:00:00-07:00              No time zone specified (uses default)\n1 2024-08-09 23:00:00-07:00  Time zone America/Los_Angeles was specified ex...\n2 2024-08-09 20:00:00-07:00  Time zone America/New_York was specified expli...",
+      "output_summary": "Timestamps normalized to Pacific time (-07:00), New York timestamp shows 3-hour offset",
+      "output_type": "table",
+      "learns": ["retrieval_timezone_normalization"],
+      "reinforces": ["query_operations", "timezone_conversion"],
+      "gotchas": ["All retrieval in default timezone", "Original timezone info lost in display"],
+      "performance": {"execution_time": "5-20ms", "scaling": "O(n)", "optimization": "demo"},
+      "alternatives": {"description": "Use astimezone() for different timezone", "when_to_use": "Cross-timezone analysis"},
+      "state_after": {"tables": ["tz_demo.example"], "views": [], "variables": ["naive_dt", "explicit_dt", "other_dt"], "models_loaded": []},
+      "pattern_refs": ["timezone_normalized_retrieval"]
+    },
+    {
+      "number": 6,
+      "section_title": "Convert to Different Timezone",
+      "intent": "Demonstrate explicit timezone conversion during query",
+      "code": "t.select(t.dt, dt_new_york=t.dt.astimezone('America/New_York'), note=t.note).collect()",
+      "imports_used": [],
+      "explanation": "The astimezone() method converts timestamps to specified timezone for display and analysis without affecting stored values",
+      "actual_output": "                         dt               dt_new_york  \\\n0 2024-08-09 23:00:00-07:00 2024-08-10 02:00:00-04:00   \n1 2024-08-09 23:00:00-07:00 2024-08-10 02:00:00-04:00   \n2 2024-08-09 20:00:00-07:00 2024-08-09 23:00:00-04:00   \n\n                                                note  \n0              No time zone specified (uses default)  \n1  Time zone America/Los_Angeles was specified ex...  \n2  Time zone America/New_York was specified expli...",
+      "output_summary": "Shows both Pacific and Eastern times, demonstrating timezone conversion capabilities",
+      "output_type": "table",
+      "learns": ["astimezone_method", "runtime_timezone_conversion"],
+      "reinforces": ["computed_expressions", "query_operations"],
+      "gotchas": ["Conversion is display-only", "Original data remains in UTC"],
+      "performance": {"execution_time": "5-20ms", "scaling": "O(n)", "optimization": "demo"},
+      "alternatives": {"description": "Store multiple timezone columns", "when_to_use": "Frequent multi-timezone queries"},
+      "state_after": {"tables": ["tz_demo.example"], "views": [], "variables": ["naive_dt", "explicit_dt", "other_dt"], "models_loaded": []},
+      "pattern_refs": ["timezone_conversion", "multi_timezone_display"]
+    },
+    {
+      "number": 7,
+      "section_title": "Timezone-Aware Date Extraction",
+      "intent": "Show how timezone affects date extraction and temporal operations",
+      "code": "t.select(\n    t.dt,\n    day_default=t.dt.day,\n    day_eastern=t.dt.astimezone('America/New_York').day\n).collect()",
+      "imports_used": [],
+      "explanation": "Demonstrates how timezone affects date-based operations - same UTC timestamp can have different dates in different timezones",
+      "actual_output": "                         dt  day_default  day_eastern\n0 2024-08-09 23:00:00-07:00            9           10\n1 2024-08-09 23:00:00-07:00            9           10\n2 2024-08-09 20:00:00-07:00            9            9",
+      "output_summary": "First two timestamps show different dates (9 vs 10) depending on timezone due to midnight crossing",
+      "output_type": "table",
+      "learns": ["timezone_date_extraction", "temporal_boundary_effects"],
+      "reinforces": ["datetime_properties", "timezone_conversion"],
+      "gotchas": ["Same timestamp can have different dates", "Timezone crucial for date-based grouping", "Midnight boundaries vary by timezone"],
+      "performance": {"execution_time": "5-20ms", "scaling": "O(n)", "optimization": "demo"},
+      "alternatives": {"description": "Standardize on UTC for date operations", "when_to_use": "Global analytics without local time relevance"},
+      "state_after": {"tables": ["tz_demo.example"], "views": [], "variables": ["naive_dt", "explicit_dt", "other_dt"], "models_loaded": []},
+      "pattern_refs": ["timezone_aware_date_ops", "temporal_analysis"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "timezone_configuration",
+      "description": "Configure deployment-wide default timezone for consistent timestamp handling",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "time-zones",
+      "code_template": "os.environ['PIXELTABLE_TIME_ZONE'] = 'America/Los_Angeles'",
+      "parameters": {
+        "timezone": "IANA timezone identifier (e.g., 'America/Los_Angeles', 'Europe/London')"
+      },
+      "variations": [
+        {
+          "name": "config_file",
+          "difference": "Use config.toml instead of environment variable",
+          "code": "[pixeltable]\ntime-zone = 'America/Los_Angeles'"
+        }
+      ],
+      "prerequisites": ["valid_IANA_timezone"],
+      "enables": ["consistent_multi_region_deployment"],
+      "performance_impact": "Minimal overhead on initialization",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "multi_timezone_insertion",
+      "description": "Insert datetime objects with mixed timezone specifications",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "time-zones",
+      "code_template": "table.insert([{'dt': naive_dt}, {'dt': aware_dt}])",
+      "parameters": {
+        "naive_dt": "datetime without tzinfo (uses default timezone)",
+        "aware_dt": "datetime with explicit tzinfo"
+      },
+      "variations": [],
+      "prerequisites": ["timezone_configuration", "timestamp_column"],
+      "enables": ["global_data_ingestion"],
+      "performance_impact": "Timezone conversion during insertion",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "timezone_conversion",
+      "description": "Convert timestamps to different timezones during query",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "time-zones",
+      "code_template": "table.select(col.astimezone('America/New_York'))",
+      "parameters": {
+        "timezone": "Target IANA timezone for conversion"
+      },
+      "variations": [
+        {
+          "name": "multiple_timezones",
+          "difference": "Show multiple timezone columns",
+          "code": "table.select(col, col.astimezone('UTC'), col.astimezone('Asia/Tokyo'))"
+        }
+      ],
+      "prerequisites": ["timestamp_column"],
+      "enables": ["multi_region_analysis", "timezone_aware_reporting"],
+      "performance_impact": "Runtime conversion overhead",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "timezone_aware_date_ops",
+      "description": "Extract date components that respect timezone boundaries",
+      "confidence": "high", 
+      "frequency": 1,
+      "first_seen": "time-zones",
+      "code_template": "table.select(timestamp.astimezone(tz).day)",
+      "parameters": {
+        "tz": "Timezone for date boundary calculation"
+      },
+      "variations": [
+        {
+          "name": "all_date_components",
+          "difference": "Extract year, month, day, hour in timezone",
+          "code": "table.select(ts.astimezone(tz).year, ts.astimezone(tz).month)"
+        }
+      ],
+      "prerequisites": ["timezone_conversion"],
+      "enables": ["local_time_analytics", "timezone_specific_aggregation"],
+      "performance_impact": "Conversion overhead for each component",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Invalid timezone identifier",
+      "frequency": "common",
+      "cause": "Using non-IANA timezone names",
+      "symptoms": ["ValueError on timezone setting", "Fallback to system timezone"],
+      "solution": {
+        "quick_fix": "Use IANA standard names like 'America/Los_Angeles'",
+        "proper_fix": "Reference official IANA timezone database"
+      },
+      "prevention": "Validate timezone names against IANA database",
+      "example": "os.environ['PIXELTABLE_TIME_ZONE'] = 'PST'  # Wrong",
+      "first_seen": "time-zones#2"
+    },
+    {
+      "error_type": "Unexpected date boundaries",
+      "frequency": "occasional", 
+      "cause": "Not accounting for timezone in date operations",
+      "symptoms": ["Wrong date grouping", "Off-by-one day errors"],
+      "solution": {
+        "quick_fix": "Use astimezone() before date extraction",
+        "proper_fix": "Design timezone-aware temporal queries"
+      },
+      "prevention": "Always consider timezone for date-based operations",
+      "example": "dt.day vs dt.astimezone('local').day",
+      "first_seen": "time-zones#7"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "How are naive datetime objects interpreted in Pixeltable?",
+      "answer": "They are interpreted as belonging to the configured default timezone",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "What timezone are timestamps stored in within the database?",
+      "answer": "UTC - all timestamps are stored in UTC for consistency",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "Why might the same UTC timestamp show different dates in different timezones?",
+      "answer": "Because timezone conversion can cross midnight boundaries, changing the date",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "What's the recommended approach for production timezone configuration?",
+      "answer": "Explicitly configure PIXELTABLE_TIME_ZONE rather than relying on system timezone",
+      "difficulty": "intermediate"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Set explicit timezone in production deployments",
+      "impact": "Prevents inconsistencies across different deployment environments",
+      "implementation": "Use PIXELTABLE_TIME_ZONE environment variable or config.toml",
+      "trade_offs": "Requires coordination across team and environments",
+      "example": "os.environ['PIXELTABLE_TIME_ZONE'] = 'UTC'"
+    },
+    {
+      "tip": "Use UTC for global applications",
+      "impact": "Simplifies multi-region deployments and reduces timezone confusion",
+      "implementation": "Set default timezone to UTC and convert locally as needed",
+      "trade_offs": "Requires timezone conversion for user-facing displays",
+      "example": "Convert to user timezone only in presentation layer"
+    },
+    {
+      "tip": "Validate timezone inputs early",
+      "impact": "Prevents runtime errors from invalid timezone specifications",
+      "implementation": "Check timezone names against IANA database before use",
+      "trade_offs": "Additional validation overhead",
+      "example": "from zoneinfo import available_timezones()"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 0,
+    "established_patterns": 4,
+    "total_patterns": 4
+  },
+  "cookies": "🍪 Time zones are like cookies - everyone thinks they understand them until they try to manage them globally!"
+}

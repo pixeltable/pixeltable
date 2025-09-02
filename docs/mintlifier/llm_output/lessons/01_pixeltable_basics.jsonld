@@ -1,0 +1,136 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "pixeltable-basics",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/pixeltable-basics.ipynb",
+  "title": "Pixeltable Basics",
+  "objective": "Learn to create tables, add computed columns, integrate AI models, and build data pipelines",
+  "difficulty": "beginner",
+  "categories": ["fundamentals", "computed-columns", "ai-integration", "object-detection", "openai"],
+  "prerequisites": [],
+  "key_learnings": [
+    "Tables are persistent database structures, not in-memory dataframes",
+    "Computed columns automatically update when new data arrives",
+    "AI models can be chained together in pipelines",
+    "Both local (HuggingFace) and API-based (OpenAI) models work seamlessly",
+    "UDFs extend Pixeltable with custom logic"
+  ],
+  "steps": [
+    {
+      "number": 1,
+      "intent": "Create a directory and table with schema",
+      "code": "pxt.create_dir('demo')\nt = pxt.create_table('demo.first', {'input_image': pxt.Image})",
+      "explanation": "Tables need a directory prefix and schema definition. Column types are specified upfront.",
+      "output_summary": "Empty table created with one Image column",
+      "learns": ["table creation", "schema definition", "column types"],
+      "gotchas": ["Must use 'directory.table' naming", "pxt.Image not str for images"]
+    },
+    {
+      "number": 2,
+      "intent": "Insert data via URL",
+      "code": "t.insert(input_image='https://example.com/image.jpg')",
+      "explanation": "Pixeltable handles URLs, S3 paths, or local files transparently",
+      "output_summary": "Row inserted with UpdateStatus showing success",
+      "learns": ["data insertion", "URL handling", "status reporting"],
+      "gotchas": ["Images are fetched and stored, not just referenced"]
+    },
+    {
+      "number": 3,
+      "intent": "Add object detection with HuggingFace",
+      "code": "t.add_computed_column(detections=huggingface.detr_for_object_detection(\n    t.input_image, model_id='facebook/detr-resnet-50'))",
+      "explanation": "Computed columns run functions on existing columns. Models are downloaded and cached automatically.",
+      "output_summary": "JSON with boxes, scores, labels, label_text",
+      "learns": ["computed columns", "local model execution", "automatic caching"],
+      "gotchas": ["First run downloads model (~200MB)", "Returns complex JSON structure"]
+    },
+    {
+      "number": 4,
+      "intent": "Extract specific fields from JSON",
+      "code": "t.add_computed_column(detections_text=t.detections.label_text)",
+      "explanation": "Can chain computed columns to extract nested data",
+      "output_summary": "List of detected object labels",
+      "learns": ["JSON field extraction", "column chaining"],
+      "gotchas": ["Field access with dot notation"]
+    },
+    {
+      "number": 5,
+      "intent": "Batch insert with incremental computation",
+      "code": "t.insert({'input_image': img} for img in image_urls)",
+      "explanation": "Computed columns automatically run on new data. Progress bars show computation status.",
+      "output_summary": "Multiple rows with all computed columns populated",
+      "learns": ["batch insertion", "incremental updates", "automatic orchestration"],
+      "gotchas": ["Computations run in dependency order automatically"]
+    },
+    {
+      "number": 6,
+      "intent": "Demonstrate persistence",
+      "code": "%reset -f\nimport pixeltable as pxt\nt = pxt.get_table('demo.first')",
+      "explanation": "Pixeltable is a database - data persists across sessions",
+      "output_summary": "Table retrieved with all data intact",
+      "learns": ["persistence", "session independence", "get_table"],
+      "gotchas": ["Unlike pandas, data survives kernel restarts"]
+    },
+    {
+      "number": 7,
+      "intent": "Add OpenAI vision analysis",
+      "code": "t.add_computed_column(vision=openai.vision(\n    prompt=\"Describe what's in this image.\",\n    image=t.input_image,\n    model='gpt-4o-mini'))",
+      "explanation": "API-based models work identically to local ones. Requires OPENAI_API_KEY.",
+      "output_summary": "Detailed text descriptions of images",
+      "learns": ["API integration", "prompt engineering", "model selection"],
+      "gotchas": ["Needs API key", "Costs money per call", "Network latency"]
+    },
+    {
+      "number": 8,
+      "intent": "Chain image operations with AI",
+      "code": "t.add_computed_column(rot_image=t.input_image.rotate(180))\nt.add_computed_column(rot_vision=openai.vision(\n    image=t.rot_image, model='gpt-4o-mini'))",
+      "explanation": "Image operations can be chained with AI models. Pixeltable handles caching.",
+      "output_summary": "Analysis of rotated images",
+      "learns": ["image transformations", "operation chaining", "caching"],
+      "gotchas": ["Intermediate results are cached automatically"]
+    },
+    {
+      "number": 9,
+      "intent": "Create custom UDF for top detection",
+      "code": "@pxt.udf\ndef top_detection(detect: dict) -> str:\n    scores = detect['scores']\n    i = scores.index(max(scores))\n    return detect['label_text'][i]",
+      "explanation": "UDFs extend Pixeltable with custom Python logic",
+      "output_summary": "Single highest-confidence label per image",
+      "learns": ["UDF creation", "custom logic", "type hints"],
+      "gotchas": ["Must use @pxt.udf decorator", "Type hints recommended"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "basic_pipeline",
+      "description": "Table → Insert → Computed Column → Query",
+      "code": "t = pxt.create_table(...)\nt.insert(...)\nt.add_computed_column(...)\nt.select(...).show()",
+      "reusable": true
+    },
+    {
+      "name": "ai_cascade",
+      "description": "Chain multiple AI models",
+      "code": "t.add_computed_column(step1=model1(t.input))\nt.add_computed_column(step2=model2(t.step1))",
+      "reusable": true
+    },
+    {
+      "name": "json_extraction",
+      "description": "Extract fields from complex outputs",
+      "code": "t.add_computed_column(extracted=t.complex_json.field_name)",
+      "reusable": true
+    }
+  ],
+  "test_questions": [
+    "How do I create a table with images?",
+    "How do I run object detection on images?",
+    "How do I use OpenAI with Pixeltable?",
+    "How do I extract data from JSON columns?",
+    "How do I create custom functions?",
+    "Why use Pixeltable over pandas?"
+  ],
+  "power_tips": [
+    "Computed columns are lazy - they only run when data arrives",
+    "Models are cached after first download",
+    "Use t.select() to control which columns display",
+    "Batch insert is more efficient than individual inserts",
+    "UDFs can call any Python library"
+  ]
+}

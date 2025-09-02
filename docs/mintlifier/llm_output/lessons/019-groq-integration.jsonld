@@ -1,0 +1,357 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "019-groq-integration",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-groq.ipynb",
+  "title": "Working with Groq in Pixeltable",
+  "objective": "Learn to integrate Groq's ultra-fast inference platform for high-speed LLM processing with Llama models",
+  "difficulty": "beginner",
+  "categories": ["groq", "llm-integration", "high-speed-inference", "llama-models", "performance-optimization"],
+  "prerequisites": ["011-openai-integration", "018-fireworks-integration"],
+  "imports_required": [
+    "pixeltable",
+    "pixeltable.functions.groq",
+    "groq",
+    "os", 
+    "getpass"
+  ],
+  "performance_notes": {
+    "typical_runtime": "30 seconds for setup, ultra-fast inference",
+    "resource_requirements": "Groq API key, internet connection",
+    "bottlenecks": ["API key setup", "network latency (minimal due to Groq speed)"]
+  },
+  "key_learnings": [
+    "Groq specializes in ultra-fast inference with optimized hardware acceleration",
+    "Uses dedicated groq SDK for optimal performance integration", 
+    "Llama3-8b-8192 model offers 8192 context length with high speed",
+    "Similar parameter control to other providers via model_kwargs",
+    "Response structure follows OpenAI compatibility pattern",
+    "Inference speed is significantly faster than traditional cloud providers",
+    "Ideal for real-time applications requiring low-latency responses"
+  ],
+  "relationships": {
+    "builds_on": ["basic_pixeltable_concepts", "model_kwargs_pattern"],
+    "enables": ["real_time_llm_applications", "high_throughput_processing", "low_latency_workflows"],
+    "see_also": ["018-fireworks-integration#parameter_control", "020-llama-cpp-integration#local_vs_cloud"],
+    "contrasts_with": ["openai_general_purpose", "anthropic_quality_focus", "bedrock_enterprise_features"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Environment Setup and Dependencies", 
+      "intent": "Install Groq SDK and configure API access for high-speed inference",
+      "code": "%pip install -qU pixeltable groq\n\nimport os\nimport getpass\nif 'GROQ_API_KEY' not in os.environ:\n    os.environ['GROQ_API_KEY'] = getpass.getpass('Enter your Groq API key:')",
+      "imports_used": ["os", "getpass"],
+      "explanation": "Groq requires dedicated SDK for accessing their hardware-accelerated inference platform",
+      "actual_output": "[Installation progress and API key prompt]",
+      "output_summary": "Groq SDK installed and API key configured for fast inference",
+      "output_type": "text",
+      "learns": ["groq_sdk_installation", "hardware_accelerated_inference"],
+      "reinforces": ["package_installation", "api_key_management"],
+      "gotchas": ["Package name is 'groq' without hyphen", "API key variable is GROQ_API_KEY"],
+      "performance": {
+        "execution_time": "20-30s for installation",
+        "scaling": "O(1) - one-time setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Local Groq hardware setup for enterprise use",
+        "when_to_use": "On-premises deployment with dedicated Groq hardware"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": ["GROQ_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["api_key_setup", "dedicated_sdk_installation"]
+    },
+    {
+      "number": 2,
+      "section_title": "Create Demo Directory",
+      "intent": "Initialize Pixeltable workspace for Groq speed testing",
+      "code": "import pixeltable as pxt\n\n# Remove the 'groq_demo' directory and its contents, if it exists\npxt.drop_dir('groq_demo', force=True)\npxt.create_dir('groq_demo')",
+      "imports_used": ["pixeltable"],
+      "explanation": "Standard Pixeltable pattern for creating isolated workspaces",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory 'groq_demo'.\n\n<pixeltable.catalog.dir.Dir at 0x30bb80b20>",
+      "output_summary": "Demo directory created with database connection confirmation",
+      "output_type": "text", 
+      "learns": [],
+      "reinforces": ["directory_management", "workspace_isolation"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use existing directory or different naming convention",
+        "when_to_use": "When integrating into existing projects"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["workspace_initialization", "directory_cleanup"]
+    },
+    {
+      "number": 3,
+      "section_title": "High-Speed Groq Chat Setup",
+      "intent": "Create chat table optimized for Groq's ultra-fast Llama3 inference",
+      "code": "from pixeltable.functions import groq\n\n# Create a table in Pixeltable and add a computed column that calls OpenAI\n\nt = pxt.create_table('groq_demo.chat', {'input': pxt.String})\n\nmessages = [{'role': 'user', 'content': t.input}]\nt.add_computed_column(output=groq.chat_completions(\n    messages=messages,\n    model='llama3-8b-8192',\n    model_kwargs={\n        # Optional dict with parameters for the Groq API\n        'max_tokens': 300,\n        'top_p': 0.9,\n        'temperature': 0.7\n    }\n))",
+      "imports_used": ["pixeltable.functions.groq"],
+      "explanation": "Llama3-8b-8192 provides 8K context window with Groq's hardware acceleration for maximum speed",
+      "actual_output": "Created table `chat`.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Chat table created with ultra-fast Groq Llama3 model",
+      "output_type": "text",
+      "learns": ["groq_chat_completions", "llama3_8b_8192_model", "groq_speed_optimization"],
+      "reinforces": ["computed_column_creation", "model_kwargs_pattern"],
+      "gotchas": ["Model name includes context length (8192)", "Speed advantage comes from hardware acceleration"],
+      "performance": {
+        "execution_time": "1s for setup",
+        "scaling": "O(1) for setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use different Llama models or context lengths based on needs",
+        "when_to_use": "Different speed/context trade-offs required"
+      },
+      "state_after": {
+        "tables": ["groq_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["llama3-8b-8192"]
+      },
+      "pattern_refs": ["groq_model_setup", "high_speed_configuration"]
+    },
+    {
+      "number": 4,
+      "section_title": "Response Parsing", 
+      "intent": "Extract text from Groq's OpenAI-compatible fast response structure",
+      "code": "# Parse the response into a new column\nt.add_computed_column(response=t.output.choices[0].message.content)",
+      "imports_used": ["pixeltable.functions.groq"],
+      "explanation": "Groq maintains OpenAI response compatibility while delivering much faster inference",
+      "actual_output": "Added 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Response parsing column added for fast text extraction",
+      "output_type": "text",
+      "learns": [],
+      "reinforces": ["response_field_extraction", "openai_compatibility"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Extract timing metrics to measure Groq's speed advantage",
+        "when_to_use": "Performance benchmarking and monitoring"
+      },
+      "state_after": {
+        "tables": ["groq_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["llama3-8b-8192"]
+      },
+      "pattern_refs": ["openai_response_extraction"]
+    },
+    {
+      "number": 5,
+      "section_title": "Ultra-Fast Inference Test",
+      "intent": "Demonstrate Groq's speed advantage with geographic knowledge query",
+      "code": "# Start a conversation\nt.insert(input=\"How many islands are in the Aleutian island chain?\")\nt.select(t.input, t.response).head()",
+      "imports_used": ["pixeltable.functions.groq"],
+      "explanation": "Geographic query tests both accuracy and demonstrates Groq's inference speed",
+      "actual_output": "Inserting rows into `chat`: 1 rows [00:00, 76.95 rows/s]\nInserted 1 row with 0 errors.\n\n                                               input  \\\n0  How many islands are in the Aleutian island ch...   \n\n                                            response  \n0  The Aleutian Island chain is a part of Alaska,...  ",
+      "output_summary": "Ultra-fast response generated about Aleutian Islands using Groq acceleration",
+      "output_type": "table",
+      "learns": [],
+      "reinforces": ["table_insertion", "query_execution", "fast_inference_validation"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "1-2s for API call (much faster than typical cloud providers)",
+        "scaling": "O(n) for n queries with superior speed",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Batch multiple queries to test throughput capabilities",
+        "when_to_use": "High-volume applications needing maximum throughput"
+      },
+      "state_after": {
+        "tables": ["groq_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["llama3-8b-8192"]
+      },
+      "pattern_refs": ["basic_chat_interaction", "speed_validation_test"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "groq_model_setup", 
+      "description": "Configuration for Groq's hardware-accelerated inference platform",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "019-groq-integration", 
+      "code_template": "from pixeltable.functions import groq\n\nt.add_computed_column(output=groq.chat_completions(\n    messages=messages,\n    model='llama3-8b-8192',\n    model_kwargs={\n        'max_tokens': 300,\n        'top_p': 0.9,\n        'temperature': 0.7\n    }\n))",
+      "parameters": {
+        "model": "Groq-optimized model name (e.g., llama3-8b-8192)",
+        "model_kwargs": "Standard parameters for generation control"
+      },
+      "variations": [
+        {
+          "name": "maximum_speed",
+          "difference": "Optimize for absolute fastest inference",
+          "code": "model_kwargs={'max_tokens': 100, 'temperature': 0.1}"
+        }
+      ],
+      "prerequisites": ["groq_api_access", "sdk_installation"],
+      "enables": ["ultra_fast_inference", "real_time_applications"],
+      "performance_impact": "Significantly faster inference than traditional providers",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "high_speed_configuration",
+      "description": "Optimal settings for maximum inference speed with quality balance",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "019-groq-integration",
+      "code_template": "model_kwargs={\n    'max_tokens': 300,      # Reasonable response length\n    'top_p': 0.9,          # Good quality sampling\n    'temperature': 0.7     # Balanced creativity\n}",
+      "parameters": {
+        "max_tokens": "Response length optimized for speed (100-500)",
+        "top_p": "Quality sampling without excessive computation",
+        "temperature": "Balanced randomness for speed/quality trade-off"
+      },
+      "variations": [
+        {
+          "name": "real_time_config",
+          "difference": "Ultra-low latency for real-time applications",
+          "code": "{'max_tokens': 50, 'temperature': 0.1}"
+        }
+      ],
+      "prerequisites": ["understanding_speed_quality_tradeoffs"],
+      "enables": ["real_time_chat", "high_throughput_processing"],
+      "performance_impact": "Optimized for minimum latency",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Invalid Groq API key",
+      "frequency": "common",
+      "cause": "Missing, incorrect, or expired Groq API key",
+      "symptoms": ["401 Unauthorized", "Authentication failed"],
+      "solution": {
+        "quick_fix": "Verify API key is correct and set in GROQ_API_KEY environment variable",
+        "proper_fix": "Generate new API key from Groq console if needed"
+      },
+      "prevention": "Test API key with simple request before integration",
+      "example": "Missing or invalid key in environment variable", 
+      "first_seen": "019-groq-integration#step1"
+    },
+    {
+      "error_type": "Model not available",
+      "frequency": "occasional",
+      "cause": "Using incorrect model name or model temporarily unavailable",
+      "symptoms": ["Model not found", "Service unavailable"],
+      "solution": {
+        "quick_fix": "Check Groq documentation for available model names",
+        "proper_fix": "Use standard model names like 'llama3-8b-8192'"
+      },
+      "prevention": "Reference official Groq model documentation",
+      "example": "Using generic 'llama3' instead of 'llama3-8b-8192'",
+      "first_seen": "019-groq-integration#step3"
+    },
+    {
+      "error_type": "Rate limiting on free tier",
+      "frequency": "common",
+      "cause": "Exceeding free tier rate limits due to high-speed inference enabling more requests",
+      "symptoms": ["Rate limit exceeded", "Too many requests"],
+      "solution": {
+        "quick_fix": "Add delays between requests or upgrade plan",
+        "proper_fix": "Implement proper rate limiting and request queuing"
+      },
+      "prevention": "Monitor request rates and implement backoff strategies",
+      "example": "Rapid successive requests hitting rate limits",
+      "first_seen": "019-groq-integration#step5"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What is Groq's primary advantage over other LLM providers?",
+      "type": "conceptual",
+      "answer": "Ultra-fast inference speed through hardware acceleration and optimized infrastructure",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "What does the '8192' in 'llama3-8b-8192' refer to?",
+      "type": "implementation",
+      "answer": "The context window size - 8192 tokens maximum input length",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "What SDK package does Groq require for integration?",
+      "type": "implementation",
+      "answer": "'groq' - a dedicated SDK for accessing Groq's inference platform",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "How might Groq's speed advantage change your application architecture?",
+      "type": "conceptual",
+      "answer": "Enables real-time applications, synchronous processing, and higher user interaction rates",
+      "difficulty": "advanced"
+    },
+    {
+      "question": "What trade-offs should you consider when choosing Groq?", 
+      "type": "conceptual",
+      "answer": "Speed vs. model variety, potential rate limits, dependency on Groq's infrastructure",
+      "difficulty": "intermediate"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Leverage Groq's speed for real-time applications",
+      "impact": "Enable synchronous LLM processing without user experience degradation",
+      "implementation": "Use Groq for chat interfaces, real-time assistance, live content generation",
+      "trade_offs": "Limited model selection vs. superior speed",
+      "example": "Real-time customer service chatbots with instant responses"
+    },
+    {
+      "tip": "Implement request batching to maximize throughput",
+      "impact": "Fully utilize Groq's high-speed processing capabilities",
+      "implementation": "Batch multiple queries together when possible",
+      "trade_offs": "Slightly higher latency per request vs. much higher overall throughput",
+      "example": "Process multiple user queries simultaneously in busy applications"
+    },
+    {
+      "tip": "Monitor and handle rate limits proactively",
+      "impact": "Prevent service disruption while maximizing Groq's speed advantage",
+      "implementation": "Implement exponential backoff and request queuing",
+      "trade_offs": "Additional complexity vs. reliable service",
+      "example": "Queue requests during peak usage, process at maximum allowed rate"
+    },
+    {
+      "tip": "Use shorter max_tokens for even faster responses",
+      "impact": "Reduce latency for specific use cases requiring quick answers",
+      "implementation": "Set max_tokens=50-100 for quick Q&A, higher for detailed responses",
+      "trade_offs": "Response completeness vs. ultra-low latency",
+      "example": "Quick facts: max_tokens=50, explanations: max_tokens=300"
+    },
+    {
+      "tip": "Compare Groq vs other providers for your specific use case",
+      "impact": "Optimize for speed when possible, fall back to other providers when needed",
+      "implementation": "Use Groq for real-time features, other providers for complex reasoning",
+      "trade_offs": "Multi-provider complexity vs. optimized performance",
+      "example": "Groq for chat, OpenAI for complex analysis, Anthropic for safety-critical tasks"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 1,
+    "established_patterns": 1,
+    "total_patterns": 2
+  },
+  "cookies": "🍪 Why did the developer choose Groq for their real-time chat app? Because waiting 3 seconds for a response is like waiting 3 hours in internet time - and Groq makes every millisecond count! ⚡"
+}

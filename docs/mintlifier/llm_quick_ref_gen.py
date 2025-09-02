@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Generate complete LLM documentation suite.
+Generate LLM-ready documentation for Pixeltable.
 
-This script coordinates generation of:
-1. llm_map.jsonld - API reference from OPML
-2. llm_patterns.json - Extracted notebook patterns  
-3. llm_quick_guide.md - Entry point documentation
+Creates 3 files in llm_output/:
+1. llm_map.jsonld - Complete public API reference
+2. llm_dev_patterns.jsonld - Developer patterns from notebooks
+3. llm_quick_reference.md - Guide explaining how to use the files
 """
 
 import json
@@ -15,173 +15,191 @@ from llm_dev_pattern_gen import NotebookPatternExtractor
 from llm_map_gen import LLMMapGenerator
 
 
-def generate_quick_guide(api_path: str, patterns_path: str, output_path: str):
-    """Generate the LLM quick guide that ties everything together."""
+def generate_quick_reference(output_dir: Path):
+    """Generate the quick reference guide that explains how to use the LLM docs."""
     
-    # Load the data
-    with open(api_path, 'r') as f:
-        api_data = json.load(f)
-    
-    with open(patterns_path, 'r') as f:
-        patterns_data = json.load(f)
-    
-    # Count resources
-    num_functions = len([p for p in api_data.get('hasPart', []) 
-                         if p.get('@type') == 'Function'])
-    num_classes = len([p for p in api_data.get('hasPart', []) 
-                       if p.get('@type') == 'Class'])
-    num_patterns = len(patterns_data.get('notebooks', []))
-    
-    guide_content = f"""# Pixeltable LLM Developer Guide
-
-> AI-ready documentation for building multimodal data workflows with Pixeltable
+    guide_content = f"""# Pixeltable LLM Quick Reference
 
 Generated: {datetime.now().isoformat()}
 
-## Quick Start
+## What is Pixeltable?
 
-Pixeltable unifies data operations, ML models, and orchestration into a declarative framework optimized for AI workloads.
+Pixeltable is a declarative framework for multimodal data operations that unifies:
+- **Tables & Schemas**: Structured storage for images, video, audio, documents, and data
+- **Computed Columns**: Automatic transformation pipelines with caching
+- **AI Integrations**: Direct access to OpenAI, Anthropic, HuggingFace, and 20+ model providers
+- **Incremental Updates**: Changes propagate automatically through your pipeline
 
-### Install
-```python
-pip install pixeltable
+## Available Documentation Files
+
+This directory contains 3 files with complete Pixeltable documentation:
+
+### 1. `llm_map.jsonld` - Public API Reference
+Complete reference of all public functions, classes, and methods with signatures.
+
+**How to use with jq:**
+```bash
+# List all modules
+jq '.hasPart[] | select(."@type" == "SoftwareSourceCode") | .name' llm_map.jsonld
+
+# Find functions in pixeltable module
+jq '.hasPart[] | select(.name == "pixeltable") | .hasPart[] | select(."@type" == "Function") | {{name, signature}}' llm_map.jsonld
+
+# Search for specific function
+jq '.. | select(."@id"? == "pxt:pixeltable.create_table")' llm_map.jsonld
+
+# Get formatted signature for a function
+jq '.. | select(.name? == "create_table") | .signature.formatted' llm_map.jsonld
 ```
 
-### Basic Example
+**How to use with grep -A (simpler for quick lookups):**
+```bash
+# Find a function and see its signature (use -A 20 for most functions)
+grep -A 20 '"name": "create_table"' llm_map.jsonld
+
+# Find a class and see its methods (use -A 50 for classes)
+grep -A 50 '"name": "Table"' llm_map.jsonld
+
+# Find formatted signature (use -A 15 to see full signature)
+grep -A 15 '"formatted":' llm_map.jsonld | grep -A 15 'create_table'
+
+# Find all functions in a module (use -A 5 per function)
+grep -B 2 -A 5 '"@type": "Function"' llm_map.jsonld
+
+# Pro tip: Use -A 20 as a good default for functions, -A 50 for classes
+```
+
+### 2. `llm_dev_patterns.jsonld` - Developer Patterns
+27 working examples from notebooks showing real Pixeltable usage patterns.
+
+**How to use with jq:**
+```bash
+# List all example notebooks
+jq '.dataset[].name' llm_dev_patterns.jsonld
+
+# Find examples using specific concepts
+jq '.dataset[] | select(.keywords | contains(["embedding"])) | .name' llm_dev_patterns.jsonld
+
+# Get GitHub URL for full notebook
+jq '.dataset[] | select(.name == "Pixeltable Basics") | .url' llm_dev_patterns.jsonld
+
+# Extract code samples from patterns
+jq '.dataset[0].hasPart[0].step[].codeSample.text' llm_dev_patterns.jsonld
+```
+
+**How to use with grep -A:**
+```bash
+# Find examples about a topic (use -A 10 to see description and keywords)
+grep -A 10 '"embedding"' llm_dev_patterns.jsonld
+
+# Find a specific notebook (use -A 30 to see its patterns)
+grep -A 30 '"name": "RAG Operations in Pixeltable"' llm_dev_patterns.jsonld
+
+# Find code examples (use -A 5 to see the code)
+grep -A 5 '"text": "import pixeltable"' llm_dev_patterns.jsonld
+
+# Find GitHub URLs for notebooks
+grep '"url":' llm_dev_patterns.jsonld
+
+# Pro tip: Use -A 10 for descriptions, -A 30 for full patterns
+```
+
+### 3. `llm_quick_reference.md` - This File
+Quick reference and guide to using the documentation.
+
+## Common Tasks
+
+### Creating Tables and Adding Data
 ```python
 import pixeltable as pxt
 
-# Create a table
-table = pxt.create_table('media_analysis', {{
+# Create a table with schema
+table = pxt.create_table('my_data', {{
     'image': pxt.Image,
-    'description': pxt.String
+    'text': pxt.String
 }})
 
-# Add AI-powered computed column
-table.add_computed_column(
-    analysis=openai.vision(table.image, "Describe this image")
-)
-
-# Query results
-table.select(table.image, table.analysis).show()
+# Insert data
+table.insert({{'image': 'path/to/image.jpg', 'text': 'description'}})
 ```
 
-## Available Resources
-
-### 📚 Complete API Reference
-- **File**: `llm_map.jsonld`
-- **Contents**: {num_functions} functions, {num_classes} classes
-- **Format**: JSON-LD for semantic understanding
-- **Usage**: Load this for comprehensive API details
-
-### 🎯 Pattern Library  
-- **File**: `llm_patterns.json`
-- **Contents**: {num_patterns} notebook examples
-- **Format**: Structured patterns with context
-- **Usage**: Find working examples for common tasks
-
-### 🚀 Key Concepts
-
-1. **Tables & Schemas** - Structured multimodal data storage
-2. **Computed Columns** - Automatic transformation pipelines  
-3. **UDFs** - Custom Python functions as data operations
-4. **Iterators** - Frame extraction, chunking, splitting
-5. **Embeddings** - Built-in vector search and similarity
-6. **Tool Calling** - Agentic workflows with LLM orchestration
-
-## Common Patterns
-
-### Multimodal Pipeline
+### Adding AI-Powered Transformations
 ```python
-# Process video → frames → analysis
-video_table = pxt.create_table('videos', {{'video': pxt.Video}})
-frames = pxt.create_view('frames', video_table, 
-    iterator=FrameIterator(video=video_table.video, fps=1))
-frames.add_computed_column(
-    objects=yolox.detect(frames.frame)
+from pixeltable.functions import openai
+
+# Add computed column with AI model
+table.add_computed_column(
+    analysis=openai.vision(
+        prompt="Describe this image",
+        image=table.image
+    )
 )
 ```
 
-### RAG System
-```python  
-# Documents → chunks → embeddings → search
-docs = pxt.create_table('documents', {{'doc': pxt.Document}})
+### Working with Video
+```python
+from pixeltable.iterators import FrameIterator
+
+# Create video table
+videos = pxt.create_table('videos', {{'video': pxt.Video}})
+
+# Extract frames as a view
+frames = pxt.create_view('frames', videos,
+    iterator=FrameIterator(video=videos.video, fps=1))
+```
+
+### RAG and Embeddings
+```python
+from pixeltable.iterators import DocumentSplitter
+
+# Create document table
+docs = pxt.create_table('docs', {{'document': pxt.Document}})
+
+# Chunk documents
 chunks = pxt.create_view('chunks', docs,
-    iterator=DocumentSplitter(doc=docs.doc, chunk_size=500))
+    iterator=DocumentSplitter(doc=docs.document, chunk_size=500))
+
+# Add embedding index
 chunks.add_embedding_index('text', embedding=openai.embeddings)
+
+# Similarity search
 similar = chunks.order_by(chunks.text.similarity("query")).limit(5)
 ```
 
-### Tool-Calling Agent
-```python
-@pxt.udf
-def search_knowledge(query: str) -> str:
-    return db.search(query)
+## Key Concepts
 
-tools = pxt.tools(search_knowledge)
-agent = pxt.create_table('agent', {{'prompt': pxt.String}})
-agent.add_computed_column(
-    response=openai.chat(agent.prompt, tools=tools)
-)
-agent.add_computed_column(
-    result=invoke_tools(tools, agent.response)
-)
-```
+- **Computed Columns**: Columns that automatically compute values using functions
+- **Iterators**: Split data into chunks (frames from video, text chunks, tiles from images)
+- **UDFs**: Custom Python functions decorated with `@pxt.udf`
+- **Incremental Updates**: New data automatically flows through computed columns
+- **Multimodal**: Native support for images, video, audio, documents, and structured data
 
-## Integration with LLMs
+## Finding More Information
 
-### For Code Generation
-When generating Pixeltable code:
-1. Reference patterns from `llm_patterns.json`
-2. Use only public API from `llm_map.jsonld`
-3. Follow the declarative pattern: table → computed columns → query
+1. **For API details**: Search `llm_map.jsonld` for function signatures and parameters
+2. **For examples**: Browse `llm_dev_patterns.jsonld` for working code patterns
+3. **For concepts**: Look for keywords in patterns: `computed column`, `embedding`, `iterator`, etc.
 
-### For Tool Use
-Pixeltable functions can be exposed as tools:
-- Use `@pxt.udf` decorated functions
-- Register with `pxt.tools()`
-- Invoke with `invoke_tools()`
+## Integration Providers
 
-### For RAG Systems
-Pixeltable provides built-in RAG primitives:
-- Document chunking via iterators
-- Embedding indexes for similarity search
-- Metadata filtering with SQL-like queries
+Pixeltable includes integrations with:
+- **LLMs**: OpenAI, Anthropic, Gemini, Mistral, Together, Fireworks, Bedrock, Ollama
+- **Vision**: YOLOX, DETR, ResNet
+- **Audio**: Whisper, WhisperX
+- **Local Models**: HuggingFace, llama.cpp
 
-## File Manifest
+## Repository
 
-```
-llm_docs/
-├── llm_quick_guide.md      # This file
-├── llm_map.jsonld          # Complete API reference
-├── llm_patterns.json       # Notebook patterns
-└── llm_patterns_summary.md # Pattern overview
-```
-
-## Version Information
-
-- Pixeltable Version: {api_data.get('version', 'unknown')}
-- Documentation Generated: {datetime.now().isoformat()}
-- API Elements: {num_functions + num_classes} total
-
-## Learn More
-
-- Repository: https://github.com/pixeltable/pixeltable
+- GitHub: https://github.com/pixeltable/pixeltable
 - Documentation: https://docs.pixeltable.com
-- Examples: See llm_patterns.json for {num_patterns} working examples
-
----
-
-*This documentation is optimized for consumption by large language models and AI coding assistants.*
+- Examples: See llm_dev_patterns.jsonld for 27 working notebooks
 """
     
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+    output_path = output_dir / "llm_quick_reference.md"
     with open(output_path, 'w') as f:
         f.write(guide_content)
     
-    print(f"Generated LLM quick guide at {output_path}")
+    print(f"Generated LLM quick reference at {output_path}")
 
 
 def main():
@@ -189,17 +207,18 @@ def main():
     
     print("=== Pixeltable LLM Documentation Generator ===\n")
     
-    # Paths
-    mintlifier_dir = Path(__file__).parent
-    output_dir = mintlifier_dir / 'llm_output'
+    # Ensure output directory exists
+    output_dir = Path(__file__).parent / 'llm_output'
     output_dir.mkdir(exist_ok=True)
     
     # Step 1: Generate LLM map from OPML
-    print("1. Generating LLM map from OPML...")
+    print("1. Generating llm_map.jsonld from OPML...")
+    from opml_reader import OPMLReader
+    
+    mintlifier_dir = Path(__file__).parent
     llm_map_gen = LLMMapGenerator(mintlifier_dir, version='main')
     
     # Load and process OPML to build the map
-    from opml_reader import OPMLReader
     opml_reader = OPMLReader(mintlifier_dir / 'mintlifier.opml')
     tab_structure = opml_reader.load()
     all_pages = opml_reader.get_all_pages()
@@ -215,31 +234,27 @@ def main():
         elif page.item_type == 'type':
             llm_map_gen.add_type(page.module_path)
     
-    # Save the generated map
-    llm_map_gen.save()
-    llm_map_path = mintlifier_dir / 'llm_map.jsonld'
+    # Save the map to llm_output with correct name
+    llm_map_gen.save(output_dir / 'llm_map.jsonld', flatten=False)
     
     # Step 2: Extract patterns from notebooks
-    print("2. Extracting patterns from notebooks...")
+    print("2. Generating llm_dev_patterns.jsonld from notebooks...")
     extractor = NotebookPatternExtractor(
         opml_path=str(mintlifier_dir / 'mintlifier.opml'),
         notebooks_dir=str(mintlifier_dir.parent / 'notebooks')
     )
-    patterns_path = output_dir / 'llm_patterns.json'
-    extractor.save_patterns(str(patterns_path))
+    extractor.save_patterns(str(output_dir / 'llm_dev_patterns.jsonld'))
     
-    # Step 3: Generate quick guide
-    print("3. Generating LLM quick guide...")
-    generate_quick_guide(
-        api_path=str(llm_map_path),
-        patterns_path=str(patterns_path),
-        output_path=str(output_dir / 'llm_quick_guide.md')
-    )
+    # Step 3: Generate quick reference
+    print("3. Generating llm_quick_reference.md...")
+    generate_quick_reference(output_dir)
     
     print(f"\n✅ Complete! LLM docs generated in {output_dir}")
     print("\nFiles created:")
-    for file in output_dir.glob('*'):
-        print(f"  - {file.name}")
+    print("  - llm_map.jsonld          # Public API reference")
+    print("  - llm_dev_patterns.jsonld # Developer patterns from notebooks")
+    print("  - llm_quick_reference.md  # Guide to using the files")
+    print("\nLLMs can now use these files to understand Pixeltable completely.")
 
 
 if __name__ == "__main__":

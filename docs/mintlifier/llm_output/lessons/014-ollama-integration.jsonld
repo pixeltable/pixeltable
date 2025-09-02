@@ -1,0 +1,496 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "ollama-integration",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-ollama.ipynb",
+  "title": "Working with Ollama for Local LLM Serving",
+  "objective": "Master local LLM deployment and integration using Ollama for cost-effective, private, and controllable AI workflows",
+  "difficulty": "intermediate",
+  "categories": ["local-models", "ollama", "llm-serving", "cost-optimization", "privacy"],
+  "prerequisites": ["pixeltable-basics", "local-server-setup", "basic-networking"],
+  "imports_required": [
+    "pixeltable as pxt",
+    "pixeltable.functions.ollama.chat",
+    "ollama",
+    "subprocess (for installation)"
+  ],
+  "performance_notes": {
+    "typical_runtime": "2-5 minutes after model download",
+    "resource_requirements": "4-16GB RAM depending on model, ~2-20GB disk per model",
+    "bottlenecks": ["initial model downloads", "local compute power", "RAM limitations"]
+  },
+  "key_learnings": [
+    "Ollama provides easy local LLM serving with simple installation",
+    "Models are downloaded once and cached locally for reuse",
+    "No API costs or rate limits with local serving",
+    "Complete data privacy since everything runs locally",
+    "Performance depends entirely on local hardware",
+    "Multiple deployment options: local, Colab, remote server",
+    "Model selection affects resource requirements significantly"
+  ],
+  "relationships": {
+    "builds_on": ["table-creation", "computed-columns", "local-server-concepts"],
+    "enables": ["cost-free-llm-workflows", "private-ai-processing", "offline-ai-capabilities"],
+    "see_also": ["huggingface-integration", "local-model-serving"],
+    "contrasts_with": ["openai-integration", "anthropic-integration", "cloud-api-services"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Ollama Installation Options",
+      "intent": "Demonstrate multiple installation paths for different environments",
+      "code": "# To install Ollama on colab, uncomment and run the following\n# three lines (this will also work on a local Linux machine\n# if you don't already have Ollama installed).\n\n# !curl -fsSL https://ollama.com/install.sh | sh\n# import subprocess\n# ollama_process = subprocess.Popen(['ollama', 'serve'], stderr=subprocess.PIPE)",
+      "imports_used": ["subprocess"],
+      "explanation": "Shows installation process for Colab/Linux environments",
+      "actual_output": "[Installation commands - commented out]",
+      "output_summary": "Installation instructions provided for different environments",
+      "output_type": "text",
+      "learns": ["ollama-installation", "environment-specific-setup", "local-server-deployment"],
+      "reinforces": ["local-deployment-patterns"],
+      "gotchas": ["Installation method varies by operating system", "May need admin privileges"],
+      "performance": {
+        "execution_time": "1-5 minutes depending on environment",
+        "scaling": "O(1) per installation",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Direct download from ollama.com for Windows/Mac",
+        "when_to_use": "When using desktop environments"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["local-server-setup", "multi-environment-deployment"]
+    },
+    {
+      "number": 2,
+      "section_title": "Remote Server Configuration",
+      "intent": "Configure connection to remote Ollama instance",
+      "code": "# To run the notebook against an instance of Ollama running on a\n# remote server, uncomment the following line and specify the URL.\n\n# os.environs['OLLAMA_HOST'] = 'https://127.0.0.1:11434'",
+      "imports_used": ["os"],
+      "explanation": "Shows how to connect to remote Ollama servers via environment variable",
+      "actual_output": "[Remote configuration - commented out]",
+      "output_summary": "Remote server connection pattern demonstrated",
+      "output_type": "text",
+      "learns": ["remote-server-connection", "environment-configuration"],
+      "reinforces": ["network-configuration", "distributed-deployment"],
+      "gotchas": ["Must ensure network connectivity and firewall settings"],
+      "performance": {
+        "execution_time": "<1s for configuration",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can use different ports or authentication methods",
+        "when_to_use": "When custom server configurations are needed"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["remote-server-pattern", "environment-config"]
+    },
+    {
+      "number": 3,
+      "section_title": "Model Download and Verification",
+      "intent": "Download and test Ollama model functionality",
+      "code": "%pip install -qU ollama",
+      "imports_used": [],
+      "explanation": "Install Ollama Python client for API interaction",
+      "actual_output": "[Installation output]",
+      "output_summary": "Ollama client installed",
+      "output_type": "text",
+      "learns": ["ollama-client-installation"],
+      "reinforces": ["dependency-management"],
+      "gotchas": ["Client version compatibility with server"],
+      "performance": {
+        "execution_time": "30-60s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Can use REST API directly without Python client",
+        "when_to_use": "When minimal dependencies are preferred"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["client-installation"]
+    },
+    {
+      "number": 4,
+      "section_title": "Model Testing",
+      "intent": "Verify Ollama installation with model download and query",
+      "code": "import ollama\n\nollama.pull('qwen2.5:0.5b')\nollama.generate('qwen2.5:0.5b', 'What is the capital of Missouri?')['response']",
+      "imports_used": ["ollama"],
+      "explanation": "Downloads small model and tests with simple query to verify installation",
+      "actual_output": "\"The capital city of Missouri is Jefferson City. It's located in the central part of the state and serves as the administrative center for the Midwestern U.S. territory of Missouri. The state is known for its rich history, particularly regarding the Missouri River, which runs through its central parts and provides access to major cities along the border with Illinois.\"",
+      "output_summary": "Model downloaded and responded correctly to geography query",
+      "output_type": "text",
+      "learns": ["model-download", "ollama-api-usage", "model-testing"],
+      "reinforces": ["local-model-execution"],
+      "gotchas": ["First model download can be several GB", "Model names include version tags"],
+      "performance": {
+        "execution_time": "2-10 minutes for download, 5-15s for generation",
+        "scaling": "O(model_size) for download, O(response_length) for generation",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Can use different model sizes (1.5b, 3b, 7b) based on resources",
+        "when_to_use": "Based on available RAM and performance requirements"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": ["qwen2.5:0.5b"]
+      },
+      "pattern_refs": ["model-download-pattern", "verification-testing"]
+    },
+    {
+      "number": 5,
+      "section_title": "Pixeltable Integration Setup",
+      "intent": "Create Pixeltable table with Ollama chat integration",
+      "code": "import pixeltable as pxt\nfrom pixeltable.functions.ollama import chat\n\npxt.drop_dir('ollama_demo', force=True)\npxt.create_dir('ollama_demo')\nt = pxt.create_table('ollama_demo.chat', {'input': pxt.String})\n\nmessages = [{'role': 'user', 'content': t.input}]\n\nt.add_computed_column(output=chat(\n    messages=messages,\n    model='qwen2.5:0.5b',\n    # These parameters are optional and can be used to tune model behavior:\n    options={'max_tokens': 300, 'top_p': 0.9, 'temperature': 0.5},\n))",
+      "imports_used": ["pixeltable as pxt", "pixeltable.functions.ollama.chat"],
+      "explanation": "Sets up Pixeltable integration with Ollama using familiar chat completion pattern",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory `ollama_demo`.\nCreated table `chat`.\nAdded 0 column values with 0 errors.",
+      "output_summary": "Ollama chat table created successfully",
+      "output_type": "text",
+      "learns": ["ollama-pixeltable-integration", "local-chat-setup", "parameter-configuration"],
+      "reinforces": ["computed-columns", "chat-pattern"],
+      "gotchas": ["Model must be already downloaded to work", "Parameter names may differ from OpenAI"],
+      "performance": {
+        "execution_time": "<1s for setup",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can use different Ollama models or parameter sets",
+        "when_to_use": "Based on specific model capabilities needed"
+      },
+      "state_after": {
+        "tables": ["ollama_demo.chat"],
+        "views": [],
+        "variables": [],
+        "models_loaded": ["qwen2.5:0.5b"]
+      },
+      "pattern_refs": ["local-chat-integration", "ollama-parameter-tuning"]
+    },
+    {
+      "number": 6,
+      "section_title": "Response Parsing",
+      "intent": "Extract content from Ollama's response structure",
+      "code": "# Extract the response content into a separate column\n\nt.add_computed_column(response=t.output.message.content)",
+      "imports_used": ["pixeltable as pxt"],
+      "explanation": "Parses Ollama response to extract the message content",
+      "actual_output": "Added 0 column values with 0 errors.",
+      "output_summary": "Response parsing column added",
+      "output_type": "text",
+      "learns": ["ollama-response-structure"],
+      "reinforces": ["response-parsing", "json-navigation"],
+      "gotchas": ["Response structure similar to but not identical to OpenAI"],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can access other response fields like model info",
+        "when_to_use": "When additional response metadata is needed"
+      },
+      "state_after": {
+        "tables": ["ollama_demo.chat"],
+        "views": [],
+        "variables": [],
+        "models_loaded": ["qwen2.5:0.5b"]
+      },
+      "pattern_refs": ["response-parsing", "ollama-response-navigation"]
+    },
+    {
+      "number": 7,
+      "section_title": "Local Chat Execution",
+      "intent": "Test local LLM with technical query and examine response",
+      "code": "# Start a conversation\nt.insert(input='What are the most popular services for LLM inference?')\nt.select(t.input, t.response).show()",
+      "imports_used": ["pixeltable as pxt"],
+      "explanation": "Tests local LLM with technical query about LLM inference services",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:02<00:00,  1.18 cells/s]\nInserting rows into `chat`: 1 rows [00:00, 75.39 rows/s]\nComputing cells: 100%|████████████████████████████████████████████| 3/3 [00:02<00:00,  1.17 cells/s]\nInserted 1 row with 0 errors.\n\n                                               input  \\\n0  What are the most popular services for LLM inf...   \n\n                                            response  \n0  LLM (Large Language Model) inference is a comp...",
+      "output_summary": "Local model provides comprehensive technical response",
+      "output_type": "table",
+      "learns": ["local-llm-execution", "technical-knowledge-access"],
+      "reinforces": ["insert-patterns", "computed-column-execution"],
+      "gotchas": ["Response time depends on local hardware", "Quality varies by model size"],
+      "performance": {
+        "execution_time": "5-30s depending on hardware",
+        "scaling": "O(response_length * model_complexity)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can use larger models for better quality",
+        "when_to_use": "When response quality is more important than speed"
+      },
+      "state_after": {
+        "tables": ["ollama_demo.chat"],
+        "views": [],
+        "variables": [],
+        "models_loaded": ["qwen2.5:0.5b"]
+      },
+      "pattern_refs": ["local-inference-execution"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "local_server_setup",
+      "description": "Pattern for setting up local AI model serving infrastructure",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "ollama-integration",
+      "code_template": "# Install server\n!curl -fsSL https://ollama.com/install.sh | sh\n# Start server\nimport subprocess\nserver_process = subprocess.Popen(['ollama', 'serve'])",
+      "parameters": {
+        "installation_method": "OS-specific installation approach",
+        "server_config": "Server configuration options",
+        "port": "Server port configuration"
+      },
+      "variations": [
+        {
+          "name": "containerized_deployment",
+          "difference": "Use Docker for isolated deployment",
+          "code": "docker run -d -v ollama:/root/.ollama -p 11434:11434 ollama/ollama"
+        }
+      ],
+      "prerequisites": ["system-admin-access"],
+      "enables": ["local-ai-serving", "cost-free-inference", "private-ai-workflows"],
+      "performance_impact": "High resource usage but no external dependencies",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "model_download_pattern",
+      "description": "Standardized approach for downloading and caching local models",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "ollama-integration",
+      "code_template": "# Download model\nollama.pull('model_name:version')\n# Verify model\nresponse = ollama.generate('model_name:version', 'test prompt')",
+      "parameters": {
+        "model_name": "Base model name (e.g., llama2, qwen2.5)",
+        "version": "Model version/size tag",
+        "test_prompt": "Simple prompt to verify functionality"
+      },
+      "variations": [
+        {
+          "name": "batch_model_setup",
+          "difference": "Download multiple models in sequence",
+          "code": "models = ['qwen2.5:0.5b', 'llama2:7b']\nfor model in models: ollama.pull(model)"
+        }
+      ],
+      "prerequisites": ["ollama-server-running"],
+      "enables": ["local-model-availability", "offline-inference"],
+      "performance_impact": "High initial download time, fast subsequent access",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "local_chat_integration",
+      "description": "Integration pattern for local LLM chat using Ollama with Pixeltable",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "ollama-integration",
+      "code_template": "from pixeltable.functions.ollama import chat\nt.add_computed_column(output=chat(\n    messages=messages,\n    model='model_name:version',\n    options={'temperature': 0.5, 'max_tokens': 300}\n))",
+      "parameters": {
+        "messages": "Conversation history in OpenAI format",
+        "model": "Local model identifier",
+        "options": "Model generation parameters"
+      },
+      "variations": [
+        {
+          "name": "system_prompt_local",
+          "difference": "Include system message in local chat",
+          "code": "messages = [{'role': 'system', 'content': 'You are helpful'}, {'role': 'user', 'content': t.input}]"
+        }
+      ],
+      "prerequisites": ["ollama-model-downloaded", "pixeltable-integration"],
+      "enables": ["cost-free-chat", "private-conversations", "customizable-behavior"],
+      "performance_impact": "Variable - depends on local hardware",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "ollama_parameter_tuning",
+      "description": "Optimization of Ollama model parameters for different use cases",
+      "confidence": "medium",
+      "frequency": 1,
+      "first_seen": "ollama-integration",
+      "code_template": "options={\n    'temperature': 0.5,      # Creativity control\n    'top_p': 0.9,           # Nucleus sampling\n    'max_tokens': 300,      # Response length\n    'repeat_penalty': 1.1   # Repetition control\n}",
+      "parameters": {
+        "temperature": "Response creativity (0.0-2.0)",
+        "top_p": "Nucleus sampling threshold",
+        "max_tokens": "Maximum response length",
+        "repeat_penalty": "Penalty for repetitive text"
+      },
+      "variations": [
+        {
+          "name": "deterministic_mode",
+          "difference": "Settings for consistent, deterministic responses",
+          "code": "{'temperature': 0.0, 'top_p': 1.0, 'seed': 42}"
+        }
+      ],
+      "prerequisites": ["ollama-integration"],
+      "enables": ["response-consistency", "behavior-optimization", "use-case-tuning"],
+      "performance_impact": "Low - affects quality more than speed",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "multi_environment_deployment",
+      "description": "Pattern for deploying Ollama across different environments (local, cloud, remote)",
+      "confidence": "medium",
+      "frequency": 1,
+      "first_seen": "ollama-integration",
+      "code_template": "# Environment detection and configuration\nif 'google.colab' in sys.modules:\n    # Colab setup\n    !curl -fsSL https://ollama.com/install.sh | sh\nelif os.path.exists('/usr/local/bin/ollama'):\n    # Local installation\n    pass\nelse:\n    # Remote server\n    os.environ['OLLAMA_HOST'] = remote_url",
+      "parameters": {
+        "environment_detection": "Method to detect runtime environment",
+        "installation_method": "Environment-specific installation",
+        "configuration": "Environment-specific settings"
+      },
+      "variations": [
+        {
+          "name": "containerized_multi_env",
+          "difference": "Use containers for consistent deployment",
+          "code": "docker-compose configurations for different environments"
+        }
+      ],
+      "prerequisites": ["environment-detection"],
+      "enables": ["flexible-deployment", "development-production-parity"],
+      "performance_impact": "Varies by environment",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Ollama Server Not Running",
+      "frequency": "common",
+      "cause": "Ollama server process not started or crashed",
+      "symptoms": ["Connection refused", "Server not responding"],
+      "solution": {
+        "quick_fix": "Start Ollama server with 'ollama serve'",
+        "proper_fix": "Set up Ollama as system service with auto-restart"
+      },
+      "prevention": "Monitor server process and implement health checks",
+      "example": "Attempting API calls without starting server",
+      "first_seen": "ollama-integration#4"
+    },
+    {
+      "error_type": "Model Not Found",
+      "frequency": "common",
+      "cause": "Trying to use model that hasn't been downloaded",
+      "symptoms": ["Model not found error", "404 errors"],
+      "solution": {
+        "quick_fix": "Download model with ollama.pull(model_name)",
+        "proper_fix": "Implement model availability checks and auto-download"
+      },
+      "prevention": "Verify model availability before use",
+      "example": "Using 'llama2:7b' without downloading it first",
+      "first_seen": "ollama-integration#5"
+    },
+    {
+      "error_type": "Insufficient Memory",
+      "frequency": "occasional",
+      "cause": "Model requires more RAM than available",
+      "symptoms": ["Out of memory error", "System freezing"],
+      "solution": {
+        "quick_fix": "Use smaller model variant",
+        "proper_fix": "Upgrade hardware or implement model quantization"
+      },
+      "prevention": "Check system RAM against model requirements",
+      "example": "Loading 13B model on 8GB RAM system",
+      "first_seen": "ollama-integration#4"
+    },
+    {
+      "error_type": "Network Configuration Issues",
+      "frequency": "occasional",
+      "cause": "Firewall or network blocking Ollama port",
+      "symptoms": ["Connection timeout", "Port unreachable"],
+      "solution": {
+        "quick_fix": "Check firewall settings and port accessibility",
+        "proper_fix": "Configure network security properly"
+      },
+      "prevention": "Test network connectivity during setup",
+      "example": "Corporate firewall blocking port 11434",
+      "first_seen": "ollama-integration#2"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What are the main advantages of using Ollama vs cloud-based LLM APIs?",
+      "answer": "No costs, complete privacy, offline operation, no rate limits, full control over models and data",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "How do you configure Ollama to work with remote servers?",
+      "answer": "Set OLLAMA_HOST environment variable to the remote server URL",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "What factors should you consider when choosing an Ollama model size?",
+      "answer": "Available RAM, desired response quality, inference speed requirements, and use case complexity",
+      "difficulty": "advanced"
+    },
+    {
+      "question": "How does Ollama's parameter system differ from OpenAI's?",
+      "answer": "Similar concepts but different parameter names and ranges; Ollama uses 'options' dict with specific parameter names",
+      "difficulty": "intermediate"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Set up Ollama as a system service for production reliability",
+      "impact": "Automatic restart and better process management",
+      "implementation": "Create systemd service file or use Docker with restart policies",
+      "trade_offs": "More complex setup but better reliability",
+      "example": "systemctl enable ollama.service for auto-start on boot"
+    },
+    {
+      "tip": "Choose model size based on hardware constraints",
+      "impact": "Better performance and resource utilization",
+      "implementation": "Benchmark different model sizes on your hardware",
+      "trade_offs": "Smaller models may have reduced capabilities",
+      "example": "Use 0.5b models on 4GB RAM, 7b models on 16GB+ RAM"
+    },
+    {
+      "tip": "Implement health checks and monitoring",
+      "impact": "Early detection of issues and better uptime",
+      "implementation": "Monitor Ollama process, memory usage, and response times",
+      "trade_offs": "Additional monitoring infrastructure needed",
+      "example": "Periodic health check requests to ensure model responsiveness"
+    },
+    {
+      "tip": "Pre-download models in production environments",
+      "impact": "Faster startup and offline capability",
+      "implementation": "Include model downloads in deployment scripts",
+      "trade_offs": "Larger deployment size and longer initial setup",
+      "example": "Add 'ollama pull model_name' to Docker build or init scripts"
+    },
+    {
+      "tip": "Optimize parameters for your specific use case",
+      "impact": "Better response quality and consistency",
+      "implementation": "Test different temperature, top_p, and penalty settings",
+      "trade_offs": "Requires experimentation and tuning time",
+      "example": "Lower temperature (0.1-0.3) for factual tasks, higher (0.7-1.0) for creative tasks"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 2,
+    "established_patterns": 3,
+    "total_patterns": 5
+  },
+  "cookies": "🍪 Ollama is like having your own AI butler who works for free, never calls in sick, and keeps all your secrets - just make sure you feed it enough RAM or it gets cranky!"
+}

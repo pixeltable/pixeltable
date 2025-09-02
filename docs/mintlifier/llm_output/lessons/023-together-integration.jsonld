@@ -1,0 +1,564 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "023-together-integration",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-together.ipynb",
+  "title": "Working with Together AI in Pixeltable",
+  "objective": "Learn to integrate Together AI's comprehensive platform for chat, embeddings, and image generation in a unified workflow",
+  "difficulty": "intermediate",
+  "categories": ["together-ai", "multi-modal", "embeddings", "image-generation", "llm-integration"],
+  "prerequisites": ["011-openai-integration", "022-replicate-integration", "embedding_basics"],
+  "imports_required": [
+    "pixeltable",
+    "pixeltable.functions.together",
+    "together",
+    "os",
+    "getpass"
+  ],
+  "performance_notes": {
+    "typical_runtime": "45 seconds for setup, 2-8 seconds per query depending on operation type",
+    "resource_requirements": "Together AI API key, internet connection",
+    "bottlenecks": ["Image generation processing time", "Embedding model loading", "Network latency"]
+  },
+  "key_learnings": [
+    "Together AI provides unified platform for chat, embeddings, and image generation",
+    "Supports multiple model types in single provider integration",
+    "Llama 3.1 models offer strong performance with turbo optimization",
+    "BAAI embeddings models provide high-quality vector representations",
+    "FLUX.1-schnell enables fast image generation with step control",
+    "OpenAI-compatible response formats for seamless integration",
+    "Single API key provides access to all Together AI capabilities",
+    "Model parameters controlled via model_kwargs for consistent interface"
+  ],
+  "relationships": {
+    "builds_on": ["basic_pixeltable_concepts", "model_kwargs_pattern", "multi_modal_workflows"],
+    "enables": ["unified_ai_workflows", "multi_modal_applications", "comprehensive_ai_pipelines"],
+    "see_also": ["022-replicate-integration#image_generation", "embedding_operations", "multi_modal_tutorials"],
+    "contrasts_with": ["single_purpose_providers", "separate_service_integration"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Environment Setup and Dependencies",
+      "intent": "Install Together AI SDK and configure API access for unified AI services",
+      "code": "%pip install -qU pixeltable together\n\nimport os\nimport getpass\n\nif 'TOGETHER_API_KEY' not in os.environ:\n    os.environ['TOGETHER_API_KEY'] = getpass.getpass('Together API Key: ')",
+      "imports_used": ["os", "getpass"],
+      "explanation": "Together AI uses single API key for accessing all services: chat, embeddings, and image generation",
+      "actual_output": "[Installation progress and API key prompt]",
+      "output_summary": "Together AI SDK installed and unified API key configured",
+      "output_type": "text",
+      "learns": ["together_ai_sdk", "unified_api_access", "multi_service_authentication"],
+      "reinforces": ["package_installation", "api_key_management"],
+      "gotchas": ["Package name is 'together' matching the service", "API key variable is TOGETHER_API_KEY"],
+      "performance": {
+        "execution_time": "20-30s for installation",
+        "scaling": "O(1) - one-time setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use environment variables or configuration files for API key management",
+        "when_to_use": "Production environments with secure credential management"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": ["TOGETHER_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["api_key_setup", "unified_service_authentication"]
+    },
+    {
+      "number": 2,
+      "section_title": "Create Demo Directory",
+      "intent": "Initialize Pixeltable workspace for multi-modal Together AI experiments",
+      "code": "import pixeltable as pxt\n\n# Remove the 'together_demo' directory and its contents, if it exists\npxt.drop_dir('together_demo', force=True)\npxt.create_dir('together_demo')",
+      "imports_used": ["pixeltable"],
+      "explanation": "Standard Pixeltable pattern for creating isolated workspaces",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory 'together_demo'.\n\n<pixeltable.catalog.dir.Dir at 0x14b3d16c0>",
+      "output_summary": "Demo directory created for multi-modal AI experiments",
+      "output_type": "text",
+      "learns": [],
+      "reinforces": ["directory_management", "workspace_isolation"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use existing directory or different naming convention",
+        "when_to_use": "When integrating into existing projects"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["workspace_initialization", "directory_cleanup"]
+    },
+    {
+      "number": 3,
+      "section_title": "Chat Completions with Llama 3.1 Turbo",
+      "intent": "Configure Together AI chat using optimized Llama 3.1 model with advanced parameters",
+      "code": "from pixeltable.functions import together\n\nchat_t = pxt.create_table('together_demo.chat', {'input': pxt.String})\n\nmessages = [{'role': 'user', 'content': chat_t.input}]\n\nchat_t.add_computed_column(output=together.chat_completions(\n    messages=messages,\n    model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',\n    model_kwargs={\n        # Optional dict with parameters for the Together API\n        'max_tokens': 300,\n        'stop': ['\\n'],\n        'temperature': 0.7,\n        'top_p': 0.9,\n    }\n))\nchat_t.add_computed_column(response=chat_t.output.choices[0].message.content)",
+      "imports_used": ["pixeltable.functions.together"],
+      "explanation": "Meta-Llama-3.1-8B-Instruct-Turbo provides optimized performance with Together AI's infrastructure",
+      "actual_output": "Created table `chat`.\nAdded 0 column values with 0 errors.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Chat table created with optimized Llama 3.1 Turbo model",
+      "output_type": "text",
+      "learns": ["together_chat_completions", "llama_31_turbo_model", "stop_token_control", "together_parameter_optimization"],
+      "reinforces": ["computed_column_creation", "model_kwargs_pattern", "message_formatting"],
+      "gotchas": ["Model path includes full meta-llama prefix", "stop parameter controls where generation ends", "Turbo variant optimized for speed"],
+      "performance": {
+        "execution_time": "1s for setup",
+        "scaling": "O(1) for setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use different Llama variants or other Together AI models",
+        "when_to_use": "Different performance/quality requirements"
+      },
+      "state_after": {
+        "tables": ["together_demo.chat"],
+        "views": [],
+        "variables": ["chat_t"],
+        "models_loaded": ["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"]
+      },
+      "pattern_refs": ["together_chat_setup", "llama_turbo_optimization"]
+    },
+    {
+      "number": 4,
+      "section_title": "Chat Testing with Diverse Queries",
+      "intent": "Test chat capabilities with factual and practical questions",
+      "code": "# Start a conversation\nchat_t.insert([\n    {'input': 'How many species of felids have been classified?'},\n    {'input': 'Can you make me a coffee?'}\n])\nchat_t.select(chat_t.input, chat_t.response).head()",
+      "imports_used": ["pixeltable.functions.together"],
+      "explanation": "Diverse questions test both factual knowledge and practical limitations understanding",
+      "actual_output": "Inserting rows into `chat`: 2 rows [00:00, 221.12 rows/s]\nInserted 2 rows with 0 errors.\n\n                                              input  \\\n0                         Can you make me a coffee?   \n1  How many species of felids have been classified?   \n\n                                            response  \n0  I'm not capable of physically making you a cof...  \n1  There are approximately 40 species of felids t...  ",
+      "output_summary": "Chat model handled both factual question and practical limitation appropriately",
+      "output_type": "table",
+      "learns": [],
+      "reinforces": ["table_insertion", "query_execution", "model_response_validation"],
+      "gotchas": ["Fast processing rate (221.12 rows/s)", "Model understands its limitations"],
+      "performance": {
+        "execution_time": "Fast processing for 2 queries",
+        "scaling": "O(n) for n queries",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Test with more complex reasoning tasks or domain-specific questions",
+        "when_to_use": "Validating model capabilities for specific use cases"
+      },
+      "state_after": {
+        "tables": ["together_demo.chat"],
+        "views": [],
+        "variables": ["chat_t"],
+        "models_loaded": ["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"]
+      },
+      "pattern_refs": ["chat_testing", "diverse_query_validation"]
+    },
+    {
+      "number": 5,
+      "section_title": "Embeddings Setup with BAAI Model",
+      "intent": "Configure embeddings generation using BAAI's BGE model for vector representations",
+      "code": "emb_t = pxt.create_table('together_demo.embeddings', {'input': pxt.String})\nemb_t.add_computed_column(embedding=together.embeddings(\n    input=emb_t.input,\n    model='BAAI/bge-base-en-v1.5'\n))",
+      "imports_used": ["pixeltable.functions.together"],
+      "explanation": "BAAI/bge-base-en-v1.5 provides high-quality embeddings for English text processing",
+      "actual_output": "Created table `embeddings`.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Embeddings table created with BAAI BGE model",
+      "output_type": "text",
+      "learns": ["together_embeddings", "baai_bge_model", "vector_representation_generation"],
+      "reinforces": ["table_creation", "embedding_workflows"],
+      "gotchas": ["Model name includes full BAAI prefix", "BGE models optimized for retrieval tasks"],
+      "performance": {
+        "execution_time": "1s for setup",
+        "scaling": "O(1) for setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use different embedding models or multilingual variants",
+        "when_to_use": "Different language requirements or embedding dimensions needed"
+      },
+      "state_after": {
+        "tables": ["together_demo.chat", "together_demo.embeddings"],
+        "views": [],
+        "variables": ["chat_t", "emb_t"],
+        "models_loaded": ["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "BAAI/bge-base-en-v1.5"]
+      },
+      "pattern_refs": ["together_embeddings_setup", "baai_model_configuration"]
+    },
+    {
+      "number": 6,
+      "section_title": "Embeddings Testing",
+      "intent": "Generate and validate embedding vectors for text input",
+      "code": "emb_t.insert(input='Together AI provides a variety of embeddings models.')\nemb_t.head()",
+      "imports_used": ["pixeltable.functions.together"],
+      "explanation": "Test embeddings generation with descriptive text about Together AI capabilities",
+      "actual_output": "Inserting rows into `embeddings`: 1 rows [00:00, 135.03 rows/s]\nInserted 1 row with 0 errors.\n\nUpdateStatus(num_rows=1, num_computed_values=2, num_excs=0, updated_cols=[], cols_with_excs=[])\n\n                                               input  \\\n0  Together AI provides a variety of embeddings m...   \n\n                                           embedding  \n0  [0.016232446, -0.2097417, 0.20096539, 0.153079...  ",
+      "output_summary": "Successfully generated embedding vector with numerical representations",
+      "output_type": "table",
+      "learns": ["embedding_vector_format", "numerical_representation_output"],
+      "reinforces": ["embedding_generation", "vector_processing"],
+      "gotchas": ["Output is numerical array", "Fast processing (135.03 rows/s)"],
+      "performance": {
+        "execution_time": "Fast embedding generation",
+        "scaling": "O(n) for n texts",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Batch multiple texts for efficient embedding generation",
+        "when_to_use": "Processing large text collections or documents"
+      },
+      "state_after": {
+        "tables": ["together_demo.embeddings"],
+        "views": [],
+        "variables": ["emb_t"],
+        "models_loaded": ["BAAI/bge-base-en-v1.5"]
+      },
+      "pattern_refs": ["embedding_testing", "vector_generation_validation"]
+    },
+    {
+      "number": 7,
+      "section_title": "Image Generation Setup with FLUX",
+      "intent": "Configure fast image generation using FLUX.1-schnell model",
+      "code": "image_t = pxt.create_table('together_demo.images', {'input': pxt.String})\nimage_t.add_computed_column(img=together.image_generations(\n    image_t.input,\n    model='black-forest-labs/FLUX.1-schnell',\n    model_kwargs={'steps': 5}\n))",
+      "imports_used": ["pixeltable.functions.together"],
+      "explanation": "FLUX.1-schnell optimized for speed with minimal steps parameter for fast generation",
+      "actual_output": "Created table `images`.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Image generation table created with FLUX schnell model",
+      "output_type": "text",
+      "learns": ["together_image_generations", "flux_schnell_model", "steps_parameter_control"],
+      "reinforces": ["image_generation_setup", "model_parameter_optimization"],
+      "gotchas": ["Steps parameter controls quality/speed trade-off", "Model returns PIL Image objects directly"],
+      "performance": {
+        "execution_time": "1s for setup",
+        "scaling": "O(1) for setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use different FLUX variants or adjust steps for quality",
+        "when_to_use": "Different quality/speed requirements for image generation"
+      },
+      "state_after": {
+        "tables": ["together_demo.chat", "together_demo.embeddings", "together_demo.images"],
+        "views": [],
+        "variables": ["chat_t", "emb_t", "image_t"],
+        "models_loaded": ["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "BAAI/bge-base-en-v1.5", "black-forest-labs/FLUX.1-schnell"]
+      },
+      "pattern_refs": ["image_generation_setup", "flux_optimization"]
+    },
+    {
+      "number": 8,
+      "section_title": "Image Generation Testing",
+      "intent": "Generate creative image with detailed prompt to test FLUX capabilities",
+      "code": "image_t.insert([\n    {'input': 'A friendly dinosaur playing tennis in a cornfield'}\n])",
+      "imports_used": ["pixeltable.functions.together"],
+      "explanation": "Creative prompt tests FLUX model's ability to combine multiple concepts",
+      "actual_output": "Inserting rows into `images`: 1 rows [00:00, 204.46 rows/s]\nInserted 1 row with 0 errors.\n\nUpdateStatus(num_rows=1, num_computed_values=2, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Image generated successfully with creative multi-concept prompt",
+      "output_type": "text",
+      "learns": [],
+      "reinforces": ["image_generation_testing", "creative_prompt_processing"],
+      "gotchas": ["Very fast processing (204.46 rows/s)", "Direct PIL Image output"],
+      "performance": {
+        "execution_time": "Fast image generation",
+        "scaling": "O(n) for n images",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Test with different artistic styles or complexity levels",
+        "when_to_use": "Evaluating model capabilities for specific image requirements"
+      },
+      "state_after": {
+        "tables": ["together_demo.images"],
+        "views": [],
+        "variables": ["image_t"],
+        "models_loaded": ["black-forest-labs/FLUX.1-schnell"]
+      },
+      "pattern_refs": ["image_generation_testing", "multi_concept_prompting"]
+    },
+    {
+      "number": 9,
+      "section_title": "Multi-Modal Results Validation",
+      "intent": "Examine generated image and validate Together AI's integrated capabilities",
+      "code": "image_t.head()",
+      "imports_used": ["pixeltable.functions.together"],
+      "explanation": "Validate that image generation produced actual PIL Image object ready for processing",
+      "actual_output": "                                               input  \\\n0  A friendly dinosaur playing tennis in a cornfield   \n\n                                                 img  \n0  <PIL.JpegImagePlugin.JpegImageFile image mode=...  ",
+      "output_summary": "Image successfully generated as PIL JPEG object, demonstrating integrated multi-modal capabilities",
+      "output_type": "table",
+      "learns": ["multi_modal_integration_success", "pil_image_object_output"],
+      "reinforces": ["multi_modal_workflows", "result_validation"],
+      "gotchas": ["Direct PIL Image output (no URL conversion needed)", "JPEG format output"],
+      "performance": {
+        "execution_time": "<1s for result display",
+        "scaling": "O(n) for n rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Apply image processing operations or save to storage",
+        "when_to_use": "Further image manipulation or archival needed"
+      },
+      "state_after": {
+        "tables": ["together_demo.images"],
+        "views": [],
+        "variables": ["image_t"],
+        "models_loaded": ["black-forest-labs/FLUX.1-schnell"]
+      },
+      "pattern_refs": ["multi_modal_validation", "image_object_verification"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "unified_service_authentication",
+      "description": "Single API key authentication for multiple AI services (chat, embeddings, images)",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "023-together-integration",
+      "code_template": "import os\nimport getpass\n\nif 'TOGETHER_API_KEY' not in os.environ:\n    os.environ['TOGETHER_API_KEY'] = getpass.getpass('Together API Key: ')\n\n# Use same key for all services:\n# - together.chat_completions()\n# - together.embeddings()\n# - together.image_generations()",
+      "parameters": {
+        "TOGETHER_API_KEY": "Single API key for all Together AI services"
+      },
+      "variations": [
+        {
+          "name": "multi_service_config",
+          "difference": "Configure multiple services with single authentication",
+          "code": "# All services use same API key automatically"
+        }
+      ],
+      "prerequisites": ["together_ai_account"],
+      "enables": ["multi_modal_workflows", "unified_ai_pipelines"],
+      "performance_impact": "Simplified authentication management",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "together_chat_setup",
+      "description": "Chat completion setup with Together AI's optimized models",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "023-together-integration",
+      "code_template": "from pixeltable.functions import together\n\nt.add_computed_column(output=together.chat_completions(\n    messages=messages,\n    model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',\n    model_kwargs={\n        'max_tokens': 300,\n        'stop': ['\\n'],\n        'temperature': 0.7,\n        'top_p': 0.9\n    }\n))",
+      "parameters": {
+        "model": "Together AI model path (meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)",
+        "model_kwargs": "Generation parameters dictionary",
+        "stop": "Stop tokens to control generation endpoints"
+      },
+      "variations": [
+        {
+          "name": "different_models",
+          "difference": "Use other Together AI models",
+          "code": "model='togethercomputer/RedPajama-INCITE-Chat-3B-v1'"
+        }
+      ],
+      "prerequisites": ["together_api_access"],
+      "enables": ["optimized_chat_completion", "llama_model_access"],
+      "performance_impact": "Turbo optimization for faster inference",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "together_embeddings_setup",
+      "description": "Embeddings generation using Together AI's embedding models",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "023-together-integration",
+      "code_template": "from pixeltable.functions import together\n\nt.add_computed_column(embedding=together.embeddings(\n    input=t.text_column,\n    model='BAAI/bge-base-en-v1.5'\n))",
+      "parameters": {
+        "input": "Text input for embedding generation",
+        "model": "Embedding model name (BAAI/bge-base-en-v1.5)"
+      },
+      "variations": [
+        {
+          "name": "multilingual_embeddings",
+          "difference": "Use multilingual embedding models",
+          "code": "model='BAAI/bge-m3'"
+        }
+      ],
+      "prerequisites": ["together_api_access"],
+      "enables": ["vector_search", "semantic_similarity", "rag_workflows"],
+      "performance_impact": "High-quality embeddings with good performance",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "together_image_generation",
+      "description": "Image generation with Together AI's FLUX models",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "023-together-integration",
+      "code_template": "from pixeltable.functions import together\n\nt.add_computed_column(img=together.image_generations(\n    t.prompt_column,\n    model='black-forest-labs/FLUX.1-schnell',\n    model_kwargs={'steps': 5}\n))",
+      "parameters": {
+        "prompt": "Text description for image generation",
+        "model": "FLUX model variant (FLUX.1-schnell for speed)",
+        "steps": "Generation steps (5 for fast, higher for quality)"
+      },
+      "variations": [
+        {
+          "name": "high_quality",
+          "difference": "Use more steps for better quality",
+          "code": "model_kwargs={'steps': 20}"
+        }
+      ],
+      "prerequisites": ["together_api_access"],
+      "enables": ["automated_image_creation", "creative_workflows"],
+      "performance_impact": "Steps parameter affects speed/quality trade-off",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "multi_modal_workflow",
+      "description": "Complete workflow combining chat, embeddings, and image generation",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "023-together-integration",
+      "code_template": "# Chat for text processing\nchat_result = together.chat_completions(messages, model='llama-model')\n\n# Embeddings for similarity\nembedding = together.embeddings(input=text, model='embedding-model')\n\n# Images for visualization\nimage = together.image_generations(prompt, model='flux-model')\n\n# All using same API key and provider",
+      "parameters": {
+        "chat_model": "Text generation model",
+        "embedding_model": "Vector embedding model",
+        "image_model": "Image generation model"
+      },
+      "variations": [
+        {
+          "name": "conditional_workflow",
+          "difference": "Use different models based on conditions",
+          "code": "# Switch models based on input type or requirements"
+        }
+      ],
+      "prerequisites": ["multi_modal_understanding", "together_api_access"],
+      "enables": ["comprehensive_ai_applications", "unified_ai_workflows"],
+      "performance_impact": "Optimized for single-provider efficiency",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Invalid Together AI API key",
+      "frequency": "common",
+      "cause": "Missing, incorrect, or expired Together AI API key",
+      "symptoms": ["401 Unauthorized", "Authentication failed"],
+      "solution": {
+        "quick_fix": "Verify API key is correct and set in TOGETHER_API_KEY environment variable",
+        "proper_fix": "Generate new API key from Together AI settings if needed"
+      },
+      "prevention": "Test API key with simple request before integration",
+      "example": "Missing or invalid key in environment variable",
+      "first_seen": "023-together-integration#step1"
+    },
+    {
+      "error_type": "Model not available",
+      "frequency": "occasional",
+      "cause": "Using incorrect model name or model temporarily unavailable",
+      "symptoms": ["Model not found", "Invalid model specified"],
+      "solution": {
+        "quick_fix": "Check Together AI documentation for available model names",
+        "proper_fix": "Use verified model names from Together AI model list"
+      },
+      "prevention": "Reference official Together AI model documentation",
+      "example": "Using 'llama-3-8b' instead of 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo'",
+      "first_seen": "023-together-integration#step3"
+    },
+    {
+      "error_type": "Invalid parameters for specific model",
+      "frequency": "occasional",
+      "cause": "Using parameters not supported by specific Together AI model",
+      "symptoms": ["Parameter validation error", "Invalid parameter"],
+      "solution": {
+        "quick_fix": "Remove unsupported parameters from model_kwargs",
+        "proper_fix": "Check model-specific parameter requirements"
+      },
+      "prevention": "Verify parameter compatibility for each model type",
+      "example": "Using image-specific parameters with chat model",
+      "first_seen": "023-together-integration#step7"
+    },
+    {
+      "error_type": "Rate limiting or quota exceeded",
+      "frequency": "common",
+      "cause": "Exceeding API rate limits or usage quotas",
+      "symptoms": ["Rate limit exceeded", "Quota exceeded"],
+      "solution": {
+        "quick_fix": "Add delays between requests or upgrade plan",
+        "proper_fix": "Implement proper rate limiting and request queuing"
+      },
+      "prevention": "Monitor usage and implement exponential backoff",
+      "example": "Rapid image generation requests hitting rate limits",
+      "first_seen": "023-together-integration#step8"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What makes Together AI unique compared to other LLM providers?",
+      "type": "conceptual",
+      "answer": "Unified platform providing chat, embeddings, and image generation with single API key and consistent interface",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "What is the advantage of using Llama-3.1-8B-Instruct-Turbo on Together AI?",
+      "type": "conceptual",
+      "answer": "Turbo optimization provides faster inference while maintaining model quality",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "How do you generate embeddings using Together AI?",
+      "type": "implementation",
+      "answer": "together.embeddings(input=text, model='BAAI/bge-base-en-v1.5')",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "What parameter controls the speed/quality trade-off for FLUX image generation?",
+      "type": "implementation",
+      "answer": "The 'steps' parameter - lower values (like 5) for speed, higher for quality",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "How does Together AI's response format compare to OpenAI?",
+      "type": "conceptual",
+      "answer": "Compatible - uses choices[0].message.content for chat and direct PIL Images for generation",
+      "difficulty": "beginner"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Leverage Together AI's unified platform for multi-modal applications",
+      "impact": "Simplified API management and consistent performance across different AI tasks",
+      "implementation": "Use single API key and provider for chat, embeddings, and image generation",
+      "trade_offs": "Vendor lock-in vs. simplified integration and management",
+      "example": "Build complete AI assistant with text, search, and visual capabilities"
+    },
+    {
+      "tip": "Optimize FLUX model parameters for your specific use case",
+      "impact": "Balance between generation speed and image quality",
+      "implementation": "Use steps=5 for fast previews, steps=20+ for final images",
+      "trade_offs": "Generation time vs. image quality",
+      "example": "Fast thumbnails with 5 steps, detailed artwork with 25 steps"
+    },
+    {
+      "tip": "Use BAAI embeddings for high-quality semantic search",
+      "impact": "Better search relevance and similarity matching",
+      "implementation": "Pre-compute embeddings for document collections, use for real-time search",
+      "trade_offs": "Storage overhead vs. search quality",
+      "example": "Build semantic search over product catalogs or knowledge bases"
+    },
+    {
+      "tip": "Implement intelligent caching across different model types",
+      "impact": "Reduce API costs and improve response times for repeated operations",
+      "implementation": "Cache embeddings by text hash, images by prompt hash, chat by context",
+      "trade_offs": "Storage costs vs. API costs and latency",
+      "example": "Cache embeddings for 24h, images for 1h, chat responses for 30min"
+    },
+    {
+      "tip": "Monitor usage across all Together AI services for cost optimization",
+      "impact": "Better cost control and usage optimization across multi-modal workflows",
+      "implementation": "Track tokens for chat/embeddings, steps for images, optimize based on usage",
+      "trade_offs": "Monitoring complexity vs. cost optimization",
+      "example": "Use cheaper models for development, premium models for production"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 2,
+    "established_patterns": 3,
+    "total_patterns": 5
+  },
+  "cookies": "🍪 Why did the developer choose Together AI for their multi-modal app? Because it's like a Swiss Army knife for AI - one tool handles text, creates embeddings, AND generates images! No more juggling different APIs like a caffeinated circus performer - everything works together (pun intended!) with one key! 🔑"
+}

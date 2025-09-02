@@ -1,0 +1,294 @@
+{
+  "@context": "https://pixeltable.com/patterns",
+  "@type": "PatternCatalog",
+  "@id": "pixeltable-patterns-master",
+  "generated": "2024-08-29",
+  "total_notebooks_processed": 5,
+  "total_patterns_discovered": 23,
+  "categories": {
+    "core": ["setup_insert_transform_query", "lazy_evaluation", "incremental_updates"],
+    "data": ["computed_columns", "views", "iterators"],
+    "ml": ["embeddings", "models", "batching"],
+    "optimization": ["caching", "gpu", "production"],
+    "application": ["gradio_integration", "rag_pipeline", "multimodal"]
+  },
+  "patterns": [
+    {
+      "id": "setup_insert_transform_query",
+      "name": "Core Pixeltable Workflow",
+      "frequency": 5,
+      "confidence": "saturated",
+      "description": "The fundamental pattern for all Pixeltable operations",
+      "template": "pxt.create_table() → insert() → add_computed_column() → select().show()",
+      "first_seen": "01_pixeltable_basics",
+      "appears_in": ["all_notebooks"],
+      "production_ready": true
+    },
+    {
+      "id": "computed_column_pattern",
+      "name": "Computed Columns for Transformations",
+      "frequency": 5,
+      "confidence": "saturated",
+      "description": "Add automatic transformations that update incrementally",
+      "template": "table.add_computed_column(name=function(table.column))",
+      "variations": ["with_models", "with_udfs", "chained"],
+      "first_seen": "01_pixeltable_basics",
+      "production_ready": true
+    },
+    {
+      "id": "video_frame_pipeline",
+      "name": "Video Processing Pipeline",
+      "frequency": 1,
+      "confidence": "established",
+      "description": "Extract frames, process, reassemble",
+      "template": "FrameIterator → process_frames → make_video",
+      "first_seen": "02_object_detection_videos",
+      "gpu_recommended": true,
+      "production_ready": true
+    },
+    {
+      "id": "multimodal_search",
+      "name": "Cross-Modal Similarity Search",
+      "frequency": 2,
+      "confidence": "established",
+      "description": "Search images with text or vice versa using CLIP",
+      "template": "add_embedding_index(clip) → similarity('text_query')",
+      "first_seen": "03_embedding_indexes",
+      "enables": ["image_text_search", "rag_multimodal"],
+      "production_ready": true
+    },
+    {
+      "id": "multi_strategy_chunking",
+      "name": "Document Chunking Strategies",
+      "frequency": 1,
+      "confidence": "established",
+      "description": "Multiple views with different chunking on same documents",
+      "template": "DocumentSplitter with different separators/limits",
+      "first_seen": "04_rag_operations",
+      "enables": ["rag_optimization", "ab_testing"],
+      "production_ready": true
+    },
+    {
+      "id": "batched_udf_pattern",
+      "name": "Batched UDF for GPU",
+      "frequency": 1,
+      "confidence": "high",
+      "description": "Optimize UDFs for batch processing on GPU",
+      "template": "@pxt.udf(batch_size=N) with Batch[T] types",
+      "first_seen": "05_udfs_pixeltable",
+      "performance_impact": "10-100x speedup",
+      "production_ready": true
+    },
+    {
+      "id": "incremental_update_pattern",
+      "name": "Incremental Data Updates",
+      "frequency": 5,
+      "confidence": "saturated",
+      "description": "All computed columns and views update automatically",
+      "template": "insert() triggers cascade updates",
+      "first_seen": "01_pixeltable_basics",
+      "key_benefit": "No manual recomputation",
+      "production_ready": true
+    },
+    {
+      "id": "embedding_index_pattern",
+      "name": "Vector Index Creation",
+      "frequency": 2,
+      "confidence": "established",
+      "description": "Create searchable embedding indexes",
+      "template": "add_embedding_index(column, embedding=model)",
+      "variations": ["multiple_indexes", "different_metrics"],
+      "first_seen": "03_embedding_indexes",
+      "production_ready": true
+    },
+    {
+      "id": "model_comparison_pattern",
+      "name": "A/B Testing Models",
+      "frequency": 3,
+      "confidence": "established",
+      "description": "Run multiple models on same data",
+      "template": "add_computed_column for each model → compare",
+      "first_seen": "02_object_detection_videos",
+      "use_cases": ["model_selection", "quality_evaluation"],
+      "production_ready": true
+    },
+    {
+      "id": "lazy_evaluation_pattern",
+      "name": "On-Demand Computation",
+      "frequency": 4,
+      "confidence": "saturated",
+      "description": "Compute only what's accessed",
+      "template": "select().head(n) only processes n rows",
+      "first_seen": "01_pixeltable_basics",
+      "key_benefit": "Resource efficiency",
+      "production_ready": true
+    },
+    {
+      "id": "custom_aggregate_pattern",
+      "name": "User-Defined Aggregates",
+      "frequency": 1,
+      "confidence": "high",
+      "description": "Custom aggregation logic with UDAs",
+      "template": "@pxt.uda class extending Aggregator",
+      "first_seen": "05_udfs_pixeltable",
+      "use_cases": ["complex_metrics", "custom_statistics"],
+      "production_ready": true
+    },
+    {
+      "id": "gradio_integration_pattern",
+      "name": "Gradio UI Integration",
+      "frequency": 1,
+      "confidence": "emerging",
+      "description": "Interactive UI with Pixeltable backend",
+      "template": "Gradio UI → Pixeltable operations → display results",
+      "first_seen": "gradio_application",
+      "enables": ["interactive_demos", "prompt_engineering"],
+      "production_ready": false
+    },
+    {
+      "id": "metadata_preservation_pattern",
+      "name": "Document Metadata Tracking",
+      "frequency": 1,
+      "confidence": "established",
+      "description": "Preserve document structure through chunking",
+      "template": "DocumentSplitter with metadata parameter",
+      "first_seen": "04_rag_operations",
+      "important_for": ["rag", "document_processing"],
+      "production_ready": true
+    },
+    {
+      "id": "type_specific_columns",
+      "name": "Media-Specific Column Types",
+      "frequency": 4,
+      "confidence": "saturated",
+      "description": "Use appropriate types for different media",
+      "template": "pxt.Image, pxt.Video, pxt.Document, pxt.Audio",
+      "first_seen": "01_pixeltable_basics",
+      "key_learning": "Types enable media-specific operations",
+      "production_ready": true
+    },
+    {
+      "id": "ground_truth_evaluation",
+      "name": "Model Evaluation Pipeline",
+      "frequency": 1,
+      "confidence": "established",
+      "description": "Evaluate predictions against ground truth",
+      "template": "eval_detections() → mean_ap()",
+      "first_seen": "02_object_detection_videos",
+      "use_cases": ["model_validation", "quality_metrics"],
+      "production_ready": true
+    },
+    {
+      "id": "chained_transformations",
+      "name": "Pipeline of Transformations",
+      "frequency": 3,
+      "confidence": "established",
+      "description": "Chain multiple computed columns",
+      "template": "column1 → column2(column1) → column3(column2)",
+      "first_seen": "01_pixeltable_basics",
+      "enables": ["complex_pipelines", "multi_step_processing"],
+      "production_ready": true
+    },
+    {
+      "id": "local_vs_module_udf",
+      "name": "UDF Deployment Strategies",
+      "frequency": 1,
+      "confidence": "high",
+      "description": "Choose between serialized and referenced UDFs",
+      "template": "Local: code stored, Module: reference stored",
+      "first_seen": "05_udfs_pixeltable",
+      "decision_factor": "versioning_needs",
+      "production_ready": true
+    },
+    {
+      "id": "multiview_pattern",
+      "name": "Multiple Views on Same Data",
+      "frequency": 2,
+      "confidence": "established",
+      "description": "Different transformations of same source",
+      "template": "create_view with different iterators/filters",
+      "first_seen": "04_rag_operations",
+      "enables": ["ab_testing", "experimentation"],
+      "production_ready": true
+    },
+    {
+      "id": "caching_pattern",
+      "name": "Automatic Result Caching",
+      "frequency": 4,
+      "confidence": "saturated",
+      "description": "Results cached automatically",
+      "template": "Computed columns store results",
+      "first_seen": "01_pixeltable_basics",
+      "key_benefit": "No recomputation",
+      "production_ready": true
+    },
+    {
+      "id": "url_data_loading",
+      "name": "Remote Data Loading",
+      "frequency": 4,
+      "confidence": "saturated",
+      "description": "Load data from URLs transparently",
+      "template": "insert({'column': 'https://...')",
+      "first_seen": "01_pixeltable_basics",
+      "supports": ["images", "videos", "documents"],
+      "production_ready": true
+    },
+    {
+      "id": "iterator_pattern",
+      "name": "One-to-Many Transformations",
+      "frequency": 2,
+      "confidence": "established",
+      "description": "Split single row into multiple",
+      "template": "FrameIterator, DocumentSplitter",
+      "first_seen": "02_object_detection_videos",
+      "use_cases": ["video_frames", "document_chunks"],
+      "production_ready": true
+    },
+    {
+      "id": "json_extraction_pattern",
+      "name": "Nested Data Extraction",
+      "frequency": 2,
+      "confidence": "established",
+      "description": "Extract fields from JSON columns",
+      "template": "table.json_column.field_name",
+      "first_seen": "01_pixeltable_basics",
+      "works_with": ["model_outputs", "api_responses"],
+      "production_ready": true
+    },
+    {
+      "id": "parallel_processing_pattern",
+      "name": "Parallel Model Execution",
+      "frequency": 2,
+      "confidence": "established",
+      "description": "Run multiple operations concurrently",
+      "template": "Multiple add_computed_column() calls",
+      "first_seen": "02_object_detection_videos",
+      "key_benefit": "Faster processing",
+      "production_ready": true
+    }
+  ],
+  "pattern_relationships": {
+    "foundational": ["setup_insert_transform_query", "computed_column_pattern", "lazy_evaluation_pattern"],
+    "builds_on_foundational": ["video_frame_pipeline", "multi_strategy_chunking", "chained_transformations"],
+    "optimization_patterns": ["batched_udf_pattern", "caching_pattern", "parallel_processing_pattern"],
+    "application_patterns": ["gradio_integration_pattern", "ground_truth_evaluation", "model_comparison_pattern"],
+    "data_patterns": ["url_data_loading", "type_specific_columns", "metadata_preservation_pattern"]
+  },
+  "production_recommendations": {
+    "always_use": ["batched_udf_pattern for GPU", "caching_pattern", "incremental_updates"],
+    "consider": ["multiple_views for experimentation", "embedding_indexes for search"],
+    "avoid": ["non-batched UDFs for GPU operations", "local UDFs for production"]
+  },
+  "learning_progression": {
+    "beginner": ["setup_insert_transform_query", "computed_column_pattern", "url_data_loading"],
+    "intermediate": ["video_frame_pipeline", "embedding_index_pattern", "iterator_pattern"],
+    "advanced": ["batched_udf_pattern", "custom_aggregate_pattern", "multiview_pattern"]
+  },
+  "performance_tips": {
+    "gpu_operations": "Always use batched UDFs with batch_size 16-64",
+    "embeddings": "Cache models, use appropriate dimensions",
+    "video_processing": "Use GPU instance, appropriate fps",
+    "document_chunking": "Balance chunk size with model context window"
+  },
+  "cookies": "🍪 Patterns are recipes - once you know them, you can bake anything!"
+}

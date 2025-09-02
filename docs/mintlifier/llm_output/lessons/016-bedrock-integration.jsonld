@@ -1,0 +1,618 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "016-bedrock-integration",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb",
+  "title": "Working with AWS Bedrock in Pixeltable",
+  "objective": "Learn to integrate AWS Bedrock models for both basic chat completions and advanced tool-based agent workflows with news search and weather tools",
+  "difficulty": "intermediate",
+  "categories": ["aws-bedrock", "llm-integration", "tool-agents", "api-integration", "multi-modal-ai"],
+  "prerequisites": ["011-openai-integration", "012-anthropic-integration"],
+  "imports_required": [
+    "pixeltable",
+    "pixeltable.functions.bedrock",
+    "boto3", 
+    "duckduckgo_search",
+    "os",
+    "getpass"
+  ],
+  "performance_notes": {
+    "typical_runtime": "2-3 minutes with AWS credentials",
+    "resource_requirements": "AWS Bedrock account, active model access, internet for news search",
+    "bottlenecks": ["AWS authentication", "Bedrock model access", "network latency for tool calls"]
+  },
+  "key_learnings": [
+    "AWS Bedrock requires specific authentication setup with access keys",
+    "Bedrock uses a different API structure than OpenAI with converse() function",
+    "Tool integration follows a two-step pattern: initial_response -> tool_output -> final_response",
+    "Amazon Nova Pro model provides competitive performance for chat and reasoning",
+    "Bedrock converse API supports both simple messages and complex tool configurations",
+    "Tool workflows enable multi-step reasoning with external data sources",
+    "UDF-based tools can integrate any Python functionality into Bedrock workflows"
+  ],
+  "relationships": {
+    "builds_on": ["basic_pixeltable_concepts", "computed_columns", "udf_creation"],
+    "enables": ["aws_ml_workflows", "enterprise_ai_applications", "tool_based_agents"],
+    "see_also": ["011-openai-integration#tool_usage", "012-anthropic-integration#basic_chat"],
+    "contrasts_with": ["openai_function_calling", "anthropic_tool_use"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Environment Setup and Dependencies",
+      "intent": "Install required packages and configure AWS authentication",
+      "code": "%pip install -qU pixeltable boto3 duckduckgo-search\n\nimport os\nimport getpass\n\nif 'AWS_ACCESS_KEY' not in os.environ:\n    os.environ['AWS_ACCESS_KEY'] = getpass.getpass('Enter your AWS Access Key:')\n\nif 'AWS_SECRET_ACCESS_KEY' not in os.environ:\n    os.environ['AWS_SECRET_ACCESS_KEY'] = getpass.getpass('Enter your AWS Secret Access Key:')",
+      "imports_used": ["os", "getpass"],
+      "explanation": "Bedrock requires AWS credentials for authentication, unlike API key based services",
+      "actual_output": "[Installation progress and credential prompts]",
+      "output_summary": "Dependencies installed and AWS credentials configured",
+      "output_type": "text",
+      "learns": ["bedrock_authentication", "aws_credential_management"],
+      "reinforces": ["package_installation", "environment_setup"],
+      "gotchas": ["Must activate Bedrock models in AWS console before use", "AWS CLI configuration may be needed for some setups"],
+      "performance": {
+        "execution_time": "30s",
+        "scaling": "O(1) - one-time setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "AWS IAM roles, AWS CLI profiles, or boto3 session configuration",
+        "when_to_use": "Production environments prefer IAM roles over access keys"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": ["AWS_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["aws_authentication_setup", "dependency_installation"]
+    },
+    {
+      "number": 2,
+      "section_title": "Create Demo Directory",
+      "intent": "Initialize Pixeltable workspace for Bedrock experiments",
+      "code": "import pixeltable as pxt\n\n# Remove the `bedrock_demo` directory and its contents, if it exists\npxt.drop_dir('bedrock_demo', force=True)\npxt.create_dir('bedrock_demo')",
+      "imports_used": ["pixeltable"],
+      "explanation": "Standard Pixeltable pattern for creating isolated workspaces",
+      "actual_output": "Created directory 'bedrock_demo'.\n\n<pixeltable.catalog.dir.Dir at 0x1d4253ae930>",
+      "output_summary": "Demo directory created successfully",
+      "output_type": "text",
+      "learns": [],
+      "reinforces": ["directory_management", "workspace_isolation"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use existing directory or different naming convention",
+        "when_to_use": "When integrating into existing projects"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["workspace_initialization", "directory_cleanup"]
+    },
+    {
+      "number": 3,
+      "section_title": "Basic Bedrock Chat Setup",
+      "intent": "Create a simple chat table using Bedrock's Amazon Nova Pro model",
+      "code": "from pixeltable.functions import bedrock\n\n# Create a table in Pixeltable and pick a model hosted on Bedrock with some parameters\n\nt = pxt.create_table('bedrock_demo.chat', {'input': pxt.String})\n\nmsgs = [{'role': 'user', 'content': t.input}]\nt.add_computed_column(output=bedrock.converse(\n        model_id=\"amazon.nova-pro-v1:0\",\n        messages=[\n            {\n                'role': 'user',\n                'content': [\n                    {\n                        'text': t.input,\n                    }\n                ]\n            }\n        ],\n    ))",
+      "imports_used": ["pixeltable.functions.bedrock"],
+      "explanation": "Bedrock uses converse() API with structured message format, different from OpenAI's simpler completion pattern",
+      "actual_output": "Created table `chat`.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Chat table created with Bedrock converse column",
+      "output_type": "text",
+      "learns": ["bedrock_converse_api", "amazon_nova_model", "bedrock_message_structure"],
+      "reinforces": ["computed_column_creation", "table_setup"],
+      "gotchas": ["Bedrock message format is more verbose than OpenAI", "Model ID must match exactly with activated models"],
+      "performance": {
+        "execution_time": "1s",
+        "scaling": "O(1) for setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use different Bedrock models like Claude, Llama, or Titan",
+        "when_to_use": "Based on model capabilities and cost requirements"
+      },
+      "state_after": {
+        "tables": ["bedrock_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["amazon.nova-pro-v1:0"]
+      },
+      "pattern_refs": ["bedrock_basic_setup", "structured_message_format"]
+    },
+    {
+      "number": 4,
+      "section_title": "Response Parsing",
+      "intent": "Extract readable text from Bedrock's nested response structure",
+      "code": "# Parse the response into a new column\nt.add_computed_column(response=t.output.output.message.content[0].text)",
+      "imports_used": ["pixeltable.functions.bedrock"],
+      "explanation": "Bedrock responses are deeply nested; need to navigate through output.output.message.content[0].text",
+      "actual_output": "Added 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Response parsing column added successfully",
+      "output_type": "text",
+      "learns": ["bedrock_response_structure", "nested_field_extraction"],
+      "reinforces": ["column_chaining", "data_transformation"],
+      "gotchas": ["Response structure is much deeper than OpenAI or Anthropic", "Index [0] assumes single response - could fail with multiple responses"],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Custom UDF for more robust response parsing with error handling",
+        "when_to_use": "Production systems needing robust error handling"
+      },
+      "state_after": {
+        "tables": ["bedrock_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["amazon.nova-pro-v1:0"]
+      },
+      "pattern_refs": ["response_field_extraction", "nested_data_access"]
+    },
+    {
+      "number": 5,
+      "section_title": "First Chat Interaction",
+      "intent": "Test the basic chat functionality with a historical question",
+      "code": "# Start a conversation\nt.insert(input=\"What was the outcome of the 1904 US Presidential election?\")\nt.select(t.input, t.response).show()",
+      "imports_used": ["pixeltable.functions.bedrock"],
+      "explanation": "Simple test query to verify Bedrock integration works end-to-end",
+      "actual_output": "Inserting rows into `chat`: 1 rows [00:00, 147.54 rows/s]\nInserted 1 row with 0 errors.\n\n                                               input  \\\n0  What was the outcome of the 1904 US Presidenti...   \n\n                                            response  \n0  The 1904 United States Presidential election w...  ",
+      "output_summary": "Successfully generated response about 1904 election using Bedrock",
+      "output_type": "table",
+      "learns": [],
+      "reinforces": ["table_insertion", "query_execution", "response_display"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "2-3s for API call",
+        "scaling": "O(n) for n queries",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Batch insert multiple questions for efficiency",
+        "when_to_use": "Processing multiple queries at once"
+      },
+      "state_after": {
+        "tables": ["bedrock_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["amazon.nova-pro-v1:0"]
+      },
+      "pattern_refs": ["basic_chat_interaction", "single_query_test"]
+    },
+    {
+      "number": 6,
+      "section_title": "Advanced Agent Setup",
+      "intent": "Initialize workspace for tool-based agent with news search and weather capabilities",
+      "code": "import pixeltable as pxt\nimport pixeltable.functions as pxtf\nfrom pixeltable.functions.bedrock import converse, invoke_tools\nfrom duckduckgo_search import DDGS\n\n# Initialize app structure\npxt.drop_dir(\"agents\", force=True)\npxt.create_dir(\"agents\")",
+      "imports_used": ["pixeltable", "pixeltable.functions", "pixeltable.functions.bedrock.converse", "pixeltable.functions.bedrock.invoke_tools", "duckduckgo_search.DDGS"],
+      "explanation": "Setting up advanced tool-based agent requires additional imports and separate workspace",
+      "actual_output": "Created directory 'agents'.\n\n<pixeltable.catalog.dir.Dir at 0x1d4252acdd0>",
+      "output_summary": "Agent workspace initialized with required imports",
+      "output_type": "text",
+      "learns": ["bedrock_tool_imports", "agent_workspace_setup"],
+      "reinforces": ["directory_management", "import_organization"],
+      "gotchas": ["invoke_tools is separate import from converse", "DuckDuckGo requires separate package installation"],
+      "performance": {
+        "execution_time": "1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use different search providers or weather APIs",
+        "when_to_use": "When specific data sources or better rate limits needed"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["agent_environment_setup", "tool_import_pattern"]
+    },
+    {
+      "number": 7,
+      "section_title": "Tool Definition with UDFs",
+      "intent": "Create reusable tools for news search and weather that can be called by Bedrock",
+      "code": "# Define tools\n@pxt.udf\ndef search_news(keywords: str, max_results: int) -> str:\n    \"\"\"Search news using DuckDuckGo and return results.\"\"\"\n    try:\n        with DDGS() as ddgs:\n            results = ddgs.news(\n                keywords=keywords,\n                region=\"wt-wt\",\n                safesearch=\"off\",\n                timelimit=\"m\",\n                max_results=max_results,\n            )\n            formatted_results = []\n            for i, r in enumerate(results, 1):\n                formatted_results.append(\n                    f\"{i}. Title: {r['title']}\\n\"\n                    f\"   Source: {r['source']}\\n\"\n                    f\"   Published: {r['date']}\\n\"\n                    f\"   Snippet: {r['body']}\\n\"\n                )\n            return \"\\n\".join(formatted_results)\n    except Exception as e:\n        return f\"Search failed: {str(e)}\"\n\n@pxt.udf\ndef get_weather(location: str) -> str:\n    \"\"\"Mock weather function - replace with actual API call.\"\"\"\n    return f\"Current weather in {location}: 72°F, Partly Cloudy\"\n\n# Register all tools\ntools = pxt.tools(search_news, get_weather)",
+      "imports_used": ["pixeltable", "duckduckgo_search.DDGS"],
+      "explanation": "UDFs become callable tools when registered with pxt.tools(), enabling LLM to use them",
+      "actual_output": "[No direct output - function definitions]",
+      "output_summary": "News search and weather tools defined and registered",
+      "output_type": "none",
+      "learns": ["udf_tool_creation", "tool_registration_pattern", "duckduckgo_integration"],
+      "reinforces": ["udf_definition", "error_handling", "external_api_integration"],
+      "gotchas": ["Tools must have proper docstrings for LLM understanding", "Exception handling crucial for API reliability", "Mock functions useful for testing"],
+      "performance": {
+        "execution_time": "<1s for definition",
+        "scaling": "O(1) for registration, O(n) for search results",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use different search APIs, weather services, or custom data sources",
+        "when_to_use": "Production systems need reliable, authenticated APIs"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": ["search_news", "get_weather", "tools"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["udf_tool_pattern", "external_api_integration", "tool_error_handling"]
+    },
+    {
+      "number": 8,
+      "section_title": "Agent Table with Tool Configuration",
+      "intent": "Create agent table that can select and execute tools based on user queries",
+      "code": "# Create base table\ntool_agent = pxt.create_table(\n    \"agents.tools\", \n    {\"prompt\": pxt.String}, \n    if_exists=\"ignore\"\n)\n\n# Add tool selection and execution workflow\ntool_agent.add_computed_column(\n    initial_response=converse(\n        model_id=\"amazon.nova-pro-v1:0\",\n        messages=[\n            {\n                'role': 'user',\n                'content': [\n                    {\n                        'text': tool_agent.prompt,\n                    }\n                ]\n            }\n        ],\n        tool_config=tools,\n    )\n)\n\n# Add tool execution\ntool_agent.add_computed_column(\n    tool_output=invoke_tools(tools, tool_agent.initial_response)\n)",
+      "imports_used": ["pixeltable.functions.bedrock.converse", "pixeltable.functions.bedrock.invoke_tools"],
+      "explanation": "Two-step process: converse with tool_config to get tool selection, then invoke_tools to execute",
+      "actual_output": "Created table `tools`.\nAdded 0 column values with 0 errors.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Agent table created with tool selection and execution columns",
+      "output_type": "text",
+      "learns": ["bedrock_tool_workflow", "two_stage_tool_execution", "tool_config_parameter"],
+      "reinforces": ["computed_column_chaining", "table_creation"],
+      "gotchas": ["Must separate tool selection from execution", "tool_config must match registered tools", "invoke_tools needs both tools and response"],
+      "performance": {
+        "execution_time": "1s for setup",
+        "scaling": "O(1) for setup, O(n) for tool execution",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Single-step tool execution or custom tool routing logic",
+        "when_to_use": "Simpler use cases or when more control over tool execution needed"
+      },
+      "state_after": {
+        "tables": ["agents.tools"],
+        "views": [],
+        "variables": ["tool_agent"],
+        "models_loaded": ["amazon.nova-pro-v1:0"]
+      },
+      "pattern_refs": ["two_stage_tool_execution", "agent_table_setup"]
+    },
+    {
+      "number": 9,
+      "section_title": "Final Response Generation",
+      "intent": "Process tool outputs and generate final user-friendly responses",
+      "code": "# Add response formatting\ntool_agent.add_computed_column(\n    tool_response_prompt=pxtf.string.format(\n        \"Orginal Prompt\\n{0}: Tool Output\\n{1}\", \n        tool_agent.prompt, \n        tool_agent.tool_output\n    ),\n    if_exists=\"ignore\",\n)\n\n# Add final response generation\ntool_agent.add_computed_column(\n    final_response=converse(\n        model_id=\"amazon.nova-pro-v1:0\",\n        messages=[\n            {\n                'role': 'user',\n                'content': [\n                    {\n                        'text': tool_agent.tool_response_prompt,\n                    }\n                ]\n            }\n        ]\n    )\n)\n\ntool_agent.add_computed_column(\n    answer=tool_agent.final_response.output.message.content[0].text\n)",
+      "imports_used": ["pixeltable.functions.string", "pixeltable.functions.bedrock.converse"],
+      "explanation": "Three-step process: format prompt with tool output, generate response, extract text",
+      "actual_output": "Added 0 column values with 0 errors.\nAdded 0 column values with 0 errors.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Final response generation pipeline established",
+      "output_type": "text",
+      "learns": ["prompt_templating_for_tools", "three_stage_agent_pipeline"],
+      "reinforces": ["string_formatting", "response_extraction", "column_chaining"],
+      "gotchas": ["Template must include both original prompt and tool output", "Final extraction uses same nested structure as basic chat"],
+      "performance": {
+        "execution_time": "1s for setup",
+        "scaling": "O(1) for column setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Custom response formatting or different prompt templates",
+        "when_to_use": "Different response formats or specialized prompt engineering"
+      },
+      "state_after": {
+        "tables": ["agents.tools"],
+        "views": [],
+        "variables": ["tool_agent"],
+        "models_loaded": ["amazon.nova-pro-v1:0"]
+      },
+      "pattern_refs": ["agent_response_pipeline", "prompt_template_pattern"]
+    },
+    {
+      "number": 10,
+      "section_title": "Agent Testing and Demonstration",
+      "intent": "Execute tool-based queries to demonstrate news search and weather functionality",
+      "code": "# Example queries using different tools\nqueries = [\n    \"What's the latest news about SpaceX?\",\n    \"What's the weather in San Francisco?\",\n]\n\n# Use the agent\nfor query in queries:\n    tool_agent.insert(prompt=query)\n    result = tool_agent.select(\n        tool_agent.prompt,\n        tool_agent.tool_output,\n        tool_agent.answer\n    ).tail(1)\n    print(f\"\\nQuery: {query}\")\n    print(f\"Answer: {result['answer'][0]}\")\n\n# Display the full table\ntool_agent.select(tool_agent.prompt, tool_agent.answer).show()",
+      "imports_used": [],
+      "explanation": "Demonstrates agent capability with both news search and weather tools",
+      "actual_output": "Inserting rows into `tools`: 1 rows [00:00, 168.89 rows/s]\nInserted 1 row with 0 errors.\n\nQuery: What's the latest news about SpaceX?\nAnswer: Here's the latest news about SpaceX:\n\n1. **Starbase City Proposal**:\n   - **Title**: The home of Elon Musk's SpaceX could become an official Texas city called Starbase\n   [... detailed news results ...]\n\nInserting rows into `tools`: 1 rows [00:00, 363.87 rows/s]\nInserted 1 row with 0 errors.\n\nQuery: What's the weather in San Francisco?\nAnswer: Based on the tool output provided, here's the current weather in San Francisco:\n\n- **Temperature:** 72°F\n- **Condition:** Partly Cloudy\n\n                                 prompt  \\\n0  What's the latest news about SpaceX?   \n1  What's the weather in San Francisco?   \n\n                                              answer  \n0  Here's the latest news about SpaceX:\\n\\n1. **S...  \n1  Based on the tool output provided, here's the ...  ",
+      "output_summary": "Agent successfully used both tools and generated appropriate responses",
+      "output_type": "table",
+      "learns": [],
+      "reinforces": ["agent_execution", "tool_routing", "multi_tool_workflow"],
+      "gotchas": ["Tool selection is automatic based on query content", "Results quality depends on tool reliability"],
+      "performance": {
+        "execution_time": "5-10s per query",
+        "scaling": "O(n) for n queries",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Batch processing or streaming responses for better UX",
+        "when_to_use": "Production systems with multiple simultaneous users"
+      },
+      "state_after": {
+        "tables": ["agents.tools"],
+        "views": [],
+        "variables": ["tool_agent", "queries"],
+        "models_loaded": ["amazon.nova-pro-v1:0"]
+      },
+      "pattern_refs": ["agent_demonstration", "multi_tool_execution"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "bedrock_authentication_setup",
+      "description": "AWS credential configuration for Bedrock access using access keys",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "016-bedrock-integration",
+      "code_template": "import os\nimport getpass\n\nif 'AWS_ACCESS_KEY' not in os.environ:\n    os.environ['AWS_ACCESS_KEY'] = getpass.getpass('Enter your AWS Access Key:')\n\nif 'AWS_SECRET_ACCESS_KEY' not in os.environ:\n    os.environ['AWS_SECRET_ACCESS_KEY'] = getpass.getpass('Enter your AWS Secret Access Key:')",
+      "parameters": {
+        "AWS_ACCESS_KEY": "AWS access key for authentication",
+        "AWS_SECRET_ACCESS_KEY": "AWS secret key for authentication"
+      },
+      "variations": [
+        {
+          "name": "iam_role_auth",
+          "difference": "Use IAM roles instead of access keys",
+          "code": "# Use default AWS credential chain (IAM roles, profiles, etc.)"
+        }
+      ],
+      "prerequisites": ["AWS account", "Bedrock model access"],
+      "enables": ["bedrock_api_calls"],
+      "performance_impact": "One-time setup cost",
+      "reusable": true,
+      "production_ready": false
+    },
+    {
+      "name": "bedrock_converse_api",
+      "description": "Structured message format for Bedrock converse API calls",
+      "confidence": "high", 
+      "frequency": 1,
+      "first_seen": "016-bedrock-integration",
+      "code_template": "bedrock.converse(\n    model_id=\"amazon.nova-pro-v1:0\",\n    messages=[\n        {\n            'role': 'user',\n            'content': [\n                {\n                    'text': input_text,\n                }\n            ]\n        }\n    ],\n)",
+      "parameters": {
+        "model_id": "Bedrock model identifier (e.g., amazon.nova-pro-v1:0)",
+        "messages": "List of message objects with role and content",
+        "tool_config": "Optional tool configuration for function calling"
+      },
+      "variations": [
+        {
+          "name": "with_tools",
+          "difference": "Add tool_config parameter for function calling",
+          "code": "bedrock.converse(..., tool_config=tools)"
+        }
+      ],
+      "prerequisites": ["bedrock_authentication", "model_access"],
+      "enables": ["bedrock_chat", "bedrock_tool_calling"],
+      "performance_impact": "Higher latency than OpenAI due to structure",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "bedrock_response_extraction", 
+      "description": "Extract text from deeply nested Bedrock response structure",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "016-bedrock-integration",
+      "code_template": "response_text = bedrock_response.output.message.content[0].text",
+      "parameters": {
+        "bedrock_response": "Response object from bedrock.converse()"
+      },
+      "variations": [
+        {
+          "name": "with_error_handling",
+          "difference": "Add error handling for missing fields",
+          "code": "try:\n    text = response.output.message.content[0].text\nexcept (AttributeError, IndexError):\n    text = 'Error extracting response'"
+        }
+      ],
+      "prerequisites": ["bedrock_converse_call"],
+      "enables": ["readable_responses"],
+      "performance_impact": "Minimal overhead",
+      "reusable": true,
+      "production_ready": false
+    },
+    {
+      "name": "two_stage_tool_execution",
+      "description": "Separate tool selection from execution using converse and invoke_tools",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "016-bedrock-integration", 
+      "code_template": "# Stage 1: Tool selection\ninitial_response = converse(\n    model_id=\"model\",\n    messages=[...],\n    tool_config=tools\n)\n\n# Stage 2: Tool execution  \ntool_output = invoke_tools(tools, initial_response)",
+      "parameters": {
+        "tools": "Registered tool configuration from pxt.tools()",
+        "initial_response": "Response from converse with tool selection"
+      },
+      "variations": [
+        {
+          "name": "with_conditional_execution",
+          "difference": "Only execute tools if selected by model",
+          "code": "if initial_response.stop_reason == 'tool_use':\n    tool_output = invoke_tools(tools, initial_response)"
+        }
+      ],
+      "prerequisites": ["udf_tools", "tool_registration"],
+      "enables": ["agent_workflows", "function_calling"],
+      "performance_impact": "Two API calls per interaction",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "udf_tool_pattern",
+      "description": "Define UDFs as callable tools for LLM integration",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "016-bedrock-integration",
+      "code_template": "@pxt.udf\ndef tool_function(param: type) -> str:\n    \"\"\"Description for LLM understanding.\"\"\"\n    try:\n        # Tool implementation\n        return result\n    except Exception as e:\n        return f\"Error: {str(e)}\"\n\ntools = pxt.tools(tool_function)",
+      "parameters": {
+        "param": "Tool parameters with type hints",
+        "return_type": "Always return string for LLM consumption",
+        "docstring": "Description for LLM tool selection"
+      },
+      "variations": [
+        {
+          "name": "multiple_tools",
+          "difference": "Register multiple tools together",
+          "code": "tools = pxt.tools(tool1, tool2, tool3)"
+        }
+      ],
+      "prerequisites": ["udf_knowledge"],
+      "enables": ["agent_capabilities", "external_integrations"],
+      "performance_impact": "Depends on external API calls",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "agent_response_pipeline",
+      "description": "Three-stage pipeline for tool-based agent responses",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "016-bedrock-integration",
+      "code_template": "# Stage 1: Tool selection and execution\ninitial_response = converse(model, messages, tool_config=tools)\ntool_output = invoke_tools(tools, initial_response)\n\n# Stage 2: Format context\nresponse_prompt = format_template(original_prompt, tool_output)\n\n# Stage 3: Generate final response\nfinal_response = converse(model, response_prompt)\nanswer = extract_text(final_response)",
+      "parameters": {
+        "original_prompt": "User's original query",
+        "tool_output": "Results from tool execution",
+        "format_template": "Template combining prompt and tool results"
+      },
+      "variations": [
+        {
+          "name": "streaming_pipeline",
+          "difference": "Stream responses for better UX",
+          "code": "# Add streaming=True to converse calls"
+        }
+      ],
+      "prerequisites": ["two_stage_tool_execution", "prompt_templating"],
+      "enables": ["conversational_agents", "tool_integration"],
+      "performance_impact": "3 API calls total per interaction",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Model not found or access denied",
+      "frequency": "common",
+      "cause": "Model not activated in AWS Bedrock console or insufficient permissions",
+      "symptoms": ["403 Forbidden", "Model not found errors"],
+      "solution": {
+        "quick_fix": "Check AWS console for model activation status",
+        "proper_fix": "Request model access through AWS Bedrock console and wait for approval"
+      },
+      "prevention": "Verify model access before development",
+      "example": "bedrock.converse(model_id=\"unavailable-model\")",
+      "first_seen": "016-bedrock-integration#step3"
+    },
+    {
+      "error_type": "AWS credentials not configured",
+      "frequency": "common",
+      "cause": "Missing or invalid AWS access keys",
+      "symptoms": ["AWS credential errors", "Authentication failed"],
+      "solution": {
+        "quick_fix": "Set AWS_ACCESS_KEY and AWS_SECRET_ACCESS_KEY environment variables",
+        "proper_fix": "Configure AWS CLI or use IAM roles for authentication"
+      },
+      "prevention": "Test AWS credentials before running Bedrock code",
+      "example": "Missing environment variables in getpass setup",
+      "first_seen": "016-bedrock-integration#step1"
+    },
+    {
+      "error_type": "Response structure navigation error",
+      "frequency": "occasional",
+      "cause": "Bedrock response structure is deeply nested and varies by model",
+      "symptoms": ["AttributeError", "KeyError", "IndexError"],
+      "solution": {
+        "quick_fix": "Check response structure with print() before extraction",
+        "proper_fix": "Add error handling around response.output.message.content[0].text"
+      },
+      "prevention": "Always use error handling for response extraction",
+      "example": "response.output.message.content[0].text when content is empty",
+      "first_seen": "016-bedrock-integration#step4"
+    },
+    {
+      "error_type": "Tool registration mismatch",
+      "frequency": "occasional", 
+      "cause": "Tools registered with pxt.tools() don't match tool_config in converse",
+      "symptoms": ["Tool not found", "Invalid tool configuration"],
+      "solution": {
+        "quick_fix": "Ensure same tool object used in both registration and converse call",
+        "proper_fix": "Create tools once and reuse across all converse calls"
+      },
+      "prevention": "Use consistent tool variable throughout workflow",
+      "example": "Different tool objects in registration vs. usage",
+      "first_seen": "016-bedrock-integration#step8"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What makes AWS Bedrock authentication different from OpenAI or Anthropic?",
+      "type": "conceptual",
+      "answer": "Bedrock requires AWS access keys or IAM roles instead of simple API keys, and models must be pre-activated in AWS console",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "How many API calls are required for a complete tool-based agent interaction in Bedrock?",
+      "type": "technical",
+      "answer": "Three calls: initial converse with tool_config, invoke_tools execution, and final converse for response generation",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "What is the correct path to extract text from a Bedrock converse response?",
+      "type": "implementation",
+      "answer": "response.output.message.content[0].text",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "Why is two-stage tool execution necessary in Bedrock vs single-stage in other providers?",
+      "type": "conceptual", 
+      "answer": "Bedrock separates tool selection (converse with tool_config) from execution (invoke_tools) for better control and error handling",
+      "difficulty": "advanced"
+    },
+    {
+      "question": "How do you register multiple UDFs as tools for Bedrock integration?",
+      "type": "implementation",
+      "answer": "tools = pxt.tools(function1, function2, function3)",
+      "difficulty": "intermediate"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Use IAM roles instead of access keys for authentication",
+      "impact": "Better security and automatic credential rotation",
+      "implementation": "Configure EC2 instance profiles or EKS service accounts with Bedrock permissions",
+      "trade_offs": "More complex setup but much better security posture",
+      "example": "Remove getpass() and rely on boto3 default credential chain"
+    },
+    {
+      "tip": "Implement retry logic with exponential backoff for Bedrock calls",
+      "impact": "Handle rate limiting and transient failures gracefully",
+      "implementation": "Use tenacity library or custom retry decorator on UDFs",
+      "trade_offs": "Longer response times during failures but better reliability",
+      "example": "@retry(wait=wait_exponential(multiplier=1, min=4, max=10))"
+    },
+    {
+      "tip": "Cache expensive tool results to reduce external API calls",
+      "impact": "Significant performance improvement for repeated queries",
+      "implementation": "Add caching layer in UDFs or use Pixeltable computed column caching",
+      "trade_offs": "Stale data risk vs. performance gains",
+      "example": "Cache news search results for 1 hour, weather for 30 minutes"
+    },
+    {
+      "tip": "Monitor Bedrock usage and costs with AWS CloudWatch",
+      "impact": "Cost control and performance optimization",
+      "implementation": "Set up billing alerts and usage dashboards",
+      "trade_offs": "Additional monitoring setup vs. cost visibility",
+      "example": "Alert when daily Bedrock spend exceeds $100"
+    },
+    {
+      "tip": "Use different models for different use cases to optimize cost/performance",
+      "impact": "Balance capabilities with cost efficiency",
+      "implementation": "Use cheaper models for simple tasks, premium models for complex reasoning",
+      "trade_offs": "Complexity in model selection logic vs. cost savings",
+      "example": "Use Titan Text for classification, Nova Pro for complex analysis"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 3,
+    "established_patterns": 3,
+    "total_patterns": 6
+  },
+  "cookies": "🍪 Why did the AWS engineer break up with Bedrock? Because every conversation required three different credentials and the response was always deeply nested in their relationship! 🔐"
+}

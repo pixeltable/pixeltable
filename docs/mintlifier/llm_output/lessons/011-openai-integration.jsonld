@@ -1,0 +1,507 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "openai-integration",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb",
+  "title": "Working with OpenAI in Pixeltable",
+  "objective": "Master OpenAI integration patterns for chat, embeddings, image generation, and audio transcription in production workflows",
+  "difficulty": "intermediate",
+  "categories": ["api-integrations", "llm-chat", "embeddings", "image-generation", "audio-transcription"],
+  "prerequisites": ["pixeltable-basics", "api-key-management"],
+  "imports_required": [
+    "pixeltable as pxt",
+    "pixeltable.functions.openai",
+    "os",
+    "getpass"
+  ],
+  "performance_notes": {
+    "typical_runtime": "2-5 minutes depending on model sizes and network",
+    "resource_requirements": "Network connection, OpenAI API credits",
+    "bottlenecks": ["API rate limits", "model processing time", "network latency"]
+  },
+  "key_learnings": [
+    "OpenAI integration supports multiple modalities: text, image, and audio",
+    "API key management follows secure environment variable patterns",
+    "Computed columns automatically handle API calls and response parsing",
+    "OpenAI costs scale with token usage and model complexity",
+    "Response parsing requires understanding nested JSON structure",
+    "Different models have different parameter requirements and capabilities",
+    "Error handling is built into Pixeltable's computed column system"
+  ],
+  "relationships": {
+    "builds_on": ["table-creation", "computed-columns"],
+    "enables": ["multimodal-ai-workflows", "rag-implementations"],
+    "see_also": ["anthropic-integration", "gemini-integration"],
+    "contrasts_with": ["local-model-serving", "huggingface-integration"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Installation and Setup",
+      "intent": "Install required packages and secure API key storage",
+      "code": "%pip install -qU pixeltable openai",
+      "imports_used": [],
+      "explanation": "Install both Pixeltable and OpenAI client libraries",
+      "actual_output": "[Installation output]",
+      "output_summary": "Libraries installed successfully",
+      "output_type": "text",
+      "learns": ["pip-installation", "dependency-management"],
+      "reinforces": [],
+      "gotchas": ["Version compatibility between pixeltable and openai packages"],
+      "performance": {
+        "execution_time": "30-60s",
+        "scaling": "O(1) per installation",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Can install via conda or poetry",
+        "when_to_use": "When using different package managers"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["secure-api-setup"]
+    },
+    {
+      "number": 2,
+      "section_title": "API Key Configuration",
+      "intent": "Securely configure OpenAI API credentials",
+      "code": "import os\nimport getpass\nif 'OPENAI_API_KEY' not in os.environ:\n    os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')",
+      "imports_used": ["os", "getpass"],
+      "explanation": "Uses secure pattern to set API key without exposing in code",
+      "actual_output": "API key set in environment",
+      "output_summary": "Environment variable configured securely",
+      "output_type": "none",
+      "learns": ["secure-credential-handling", "environment-variables"],
+      "reinforces": ["security-best-practices"],
+      "gotchas": ["API key must have sufficient permissions and credits"],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can use .env files or cloud secret management",
+        "when_to_use": "In production environments with proper secret management"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["secure-api-setup", "environment-config"]
+    },
+    {
+      "number": 3,
+      "section_title": "Directory Setup",
+      "intent": "Create organized workspace for demo tables",
+      "code": "import pixeltable as pxt\n\n# Remove the 'openai_demo' directory and its contents, if it exists\npxt.drop_dir('openai_demo', force=True)\npxt.create_dir('openai_demo')",
+      "imports_used": ["pixeltable as pxt"],
+      "explanation": "Clean workspace setup ensures reproducible demos",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory 'openai_demo'.",
+      "output_summary": "Demo directory created successfully",
+      "output_type": "text",
+      "learns": ["directory-management", "workspace-organization"],
+      "reinforces": ["table-organization"],
+      "gotchas": ["force=True permanently deletes existing data"],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Can create unique directory names with timestamps",
+        "when_to_use": "When preserving existing data is important"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["workspace-setup", "clean-demo-environment"]
+    },
+    {
+      "number": 4,
+      "section_title": "Chat Completions Setup",
+      "intent": "Create table and computed column for OpenAI chat completions",
+      "code": "from pixeltable.functions import openai\n\n# Create a table in Pixeltable and add a computed column that calls OpenAI\n\nt = pxt.create_table('openai_demo.chat', {'input': pxt.String})\n\nmessages = [{'role': 'user', 'content': t.input}]\nt.add_computed_column(output=openai.chat_completions(\n    messages=messages,\n    model='gpt-4o-mini',\n    model_kwargs={\n        # Optional dict with parameters for the OpenAI API\n        'max_tokens': 300,\n        'top_p': 0.9,\n        'temperature': 0.7\n    }\n))",
+      "imports_used": ["pixeltable as pxt", "pixeltable.functions.openai"],
+      "explanation": "Creates table with computed column that automatically calls OpenAI API when rows are inserted",
+      "actual_output": "Created table `chat`.\nAdded 0 column values with 0 errors.",
+      "output_summary": "Chat table created with OpenAI integration",
+      "output_type": "text",
+      "learns": ["openai-chat-integration", "model-parameter-configuration", "message-formatting"],
+      "reinforces": ["computed-columns", "table-creation"],
+      "gotchas": ["Message format must match OpenAI expectations", "Token limits affect response length"],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1) table creation",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can use different models like gpt-4, gpt-3.5-turbo",
+        "when_to_use": "Based on cost vs performance requirements"
+      },
+      "state_after": {
+        "tables": ["openai_demo.chat"],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["api-integration", "computed-column-pattern", "model-parameter-tuning"]
+    },
+    {
+      "number": 5,
+      "section_title": "Response Parsing",
+      "intent": "Extract meaningful content from OpenAI API response structure",
+      "code": "# Parse the response into a new column\nt.add_computed_column(response=t.output.choices[0].message.content)",
+      "imports_used": ["pixeltable as pxt", "pixeltable.functions.openai"],
+      "explanation": "Navigates OpenAI's nested response structure to extract the actual response text",
+      "actual_output": "Added 0 column values with 0 errors.",
+      "output_summary": "Response parsing column added",
+      "output_type": "text",
+      "learns": ["response-structure-navigation", "json-path-extraction"],
+      "reinforces": ["computed-columns", "data-transformation"],
+      "gotchas": ["Response structure can vary if multiple choices are returned"],
+      "performance": {
+        "execution_time": "<1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can access other response fields like usage statistics",
+        "when_to_use": "When cost monitoring or detailed analysis is needed"
+      },
+      "state_after": {
+        "tables": ["openai_demo.chat"],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["response-parsing", "json-navigation"]
+    },
+    {
+      "number": 6,
+      "section_title": "Chat Execution",
+      "intent": "Test chat completion with real query and examine results",
+      "code": "# Start a conversation\nt.insert(input=\"How many islands are in the Aleutian island chain?\")\nt.select(t.input, t.response).head()",
+      "imports_used": ["pixeltable as pxt", "pixeltable.functions.openai"],
+      "explanation": "Inserts data which triggers automatic API call and response parsing",
+      "actual_output": "Inserting rows into `chat`: 1 rows [00:00, 106.84 rows/s]\nInserted 1 row with 0 errors.\n\n                                               input  \\\n0  How many islands are in the Aleutian island ch...   \n\n                                            response  \n0  The Aleutian Islands are a chain of over 300 i...",
+      "output_summary": "Chat completion executed successfully with factual response",
+      "output_type": "table",
+      "learns": ["automatic-computation", "api-call-triggering"],
+      "reinforces": ["insert-patterns", "computed-columns"],
+      "gotchas": ["API costs incurred on each insert", "Rate limits may apply"],
+      "performance": {
+        "execution_time": "2-5s for API call",
+        "scaling": "O(n) with input size and token count",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can batch insert multiple queries",
+        "when_to_use": "When processing multiple prompts efficiently"
+      },
+      "state_after": {
+        "tables": ["openai_demo.chat"],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["api-integration", "computed-column-execution"]
+    },
+    {
+      "number": 7,
+      "section_title": "Embeddings Integration",
+      "intent": "Set up OpenAI embeddings for semantic search and similarity",
+      "code": "emb_t = pxt.create_table('openai_demo.embeddings', {'input': pxt.String})\nemb_t.add_computed_column(embedding=openai.embeddings(\n    input=emb_t.input,\n    model='text-embedding-3-small'\n))",
+      "imports_used": ["pixeltable as pxt", "pixeltable.functions.openai"],
+      "explanation": "Creates dedicated table for embedding generation using OpenAI's embedding models",
+      "actual_output": "Created table `embeddings`.\nAdded 0 column values with 0 errors.",
+      "output_summary": "Embeddings table configured with OpenAI integration",
+      "output_type": "text",
+      "learns": ["embeddings-integration", "semantic-search-setup"],
+      "reinforces": ["table-creation", "computed-columns"],
+      "gotchas": ["Different embedding models have different dimensions", "Embedding costs scale with text length"],
+      "performance": {
+        "execution_time": "<1s for setup",
+        "scaling": "O(1) table creation",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can use text-embedding-3-large for higher quality",
+        "when_to_use": "When better semantic understanding is worth the cost"
+      },
+      "state_after": {
+        "tables": ["openai_demo.chat", "openai_demo.embeddings"],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["embeddings-pattern", "semantic-search-setup"]
+    },
+    {
+      "number": 8,
+      "section_title": "Image Generation Setup",
+      "intent": "Configure OpenAI DALL-E for image generation workflows",
+      "code": "image_t = pxt.create_table('openai_demo.images', {'input': pxt.String})\nimage_t.add_computed_column(img=openai.image_generations(\n    image_t.input,\n    model='dall-e-2',\n))",
+      "imports_used": ["pixeltable as pxt", "pixeltable.functions.openai"],
+      "explanation": "Sets up image generation pipeline using DALL-E models",
+      "actual_output": "Created table `images`.\nAdded 0 column values with 0 errors.",
+      "output_summary": "Image generation table created successfully",
+      "output_type": "text",
+      "learns": ["image-generation", "multimodal-integration"],
+      "reinforces": ["table-creation", "computed-columns"],
+      "gotchas": ["Image generation is expensive", "Generated images have usage policies"],
+      "performance": {
+        "execution_time": "10-30s per image generation",
+        "scaling": "O(1) per image, high latency",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Can use dall-e-3 for higher quality images",
+        "when_to_use": "When image quality is more important than cost"
+      },
+      "state_after": {
+        "tables": ["openai_demo.chat", "openai_demo.embeddings", "openai_demo.images"],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["image-generation", "multimodal-workflow"]
+    },
+    {
+      "number": 9,
+      "section_title": "Audio Transcription Setup",
+      "intent": "Configure Whisper integration for audio-to-text transcription",
+      "code": "audio_t = pxt.create_table('openai_demo.audio', {'input': pxt.Audio})\naudio_t.add_computed_column(result=openai.transcriptions(\n    audio_t.input,\n    model='whisper-1',\n    model_kwargs={\n        'language': 'en',\n        'prompt': 'Transcribe the contents of this recording.'\n    },\n))",
+      "imports_used": ["pixeltable as pxt", "pixeltable.functions.openai"],
+      "explanation": "Creates audio transcription pipeline with Whisper model and language hints",
+      "actual_output": "Created table `audio`.\nAdded 0 column values with 0 errors.",
+      "output_summary": "Audio transcription table configured",
+      "output_type": "text",
+      "learns": ["audio-transcription", "whisper-integration", "language-specification"],
+      "reinforces": ["table-creation", "computed-columns"],
+      "gotchas": ["Audio files must be in supported formats", "Language hints improve accuracy"],
+      "performance": {
+        "execution_time": "5-15s depending on audio length",
+        "scaling": "O(n) with audio duration",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Can use local Whisper models for privacy",
+        "when_to_use": "When data privacy or cost is a concern"
+      },
+      "state_after": {
+        "tables": ["openai_demo.chat", "openai_demo.embeddings", "openai_demo.images", "openai_demo.audio"],
+        "views": [],
+        "variables": ["OPENAI_API_KEY"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["audio-transcription", "multimodal-workflow"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "secure_api_setup",
+      "description": "Secure API key management using environment variables and getpass",
+      "confidence": "high",
+      "frequency": 5,
+      "first_seen": "openai-integration",
+      "code_template": "import os\nimport getpass\nif 'API_KEY_NAME' not in os.environ:\n    os.environ['API_KEY_NAME'] = getpass.getpass('Enter your API key:')",
+      "parameters": {
+        "API_KEY_NAME": "Environment variable name for the API key",
+        "service_name": "Name of the service for user prompt"
+      },
+      "variations": [
+        {
+          "name": "direct_env_check",
+          "difference": "Assumes key is already in environment",
+          "code": "assert 'API_KEY_NAME' in os.environ, 'API key required'"
+        }
+      ],
+      "prerequisites": ["python-environment"],
+      "enables": ["api-integrations", "secure-workflows"],
+      "performance_impact": "Negligible",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "api_integration",
+      "description": "Pattern for integrating external APIs via computed columns",
+      "confidence": "high",
+      "frequency": 5,
+      "first_seen": "openai-integration",
+      "code_template": "t.add_computed_column(result=api_function(\n    input_column=t.input_col,\n    model='model_name',\n    model_kwargs={'param': 'value'}\n))",
+      "parameters": {
+        "api_function": "Pixeltable function wrapping the API",
+        "model": "Model identifier for the API service",
+        "model_kwargs": "Optional parameters for fine-tuning"
+      },
+      "variations": [
+        {
+          "name": "batch_processing",
+          "difference": "Process multiple inputs in single API call",
+          "code": "t.add_computed_column(results=api_function(t.input_array))"
+        }
+      ],
+      "prerequisites": ["computed-columns", "api-credentials"],
+      "enables": ["ai-workflows", "automated-processing"],
+      "performance_impact": "High - involves network calls",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "response_parsing",
+      "description": "Extract meaningful data from nested API responses",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "openai-integration",
+      "code_template": "t.add_computed_column(parsed=t.api_response.path.to.content)",
+      "parameters": {
+        "api_response": "Column containing API response",
+        "path": "JSON path to desired content"
+      },
+      "variations": [
+        {
+          "name": "multiple_extractions",
+          "difference": "Extract multiple fields from single response",
+          "code": "t.add_computed_column(content=t.response.choices[0].message.content)\nt.add_computed_column(usage=t.response.usage.total_tokens)"
+        }
+      ],
+      "prerequisites": ["api-integration"],
+      "enables": ["data-extraction", "response-analysis"],
+      "performance_impact": "Low - simple field access",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "multimodal_workflow",
+      "description": "Integration pattern supporting multiple data types (text, image, audio)",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "openai-integration",
+      "code_template": "# Different tables for different modalities\ntext_t = pxt.create_table('demo.text', {'input': pxt.String})\nimage_t = pxt.create_table('demo.images', {'prompt': pxt.String})\naudio_t = pxt.create_table('demo.audio', {'file': pxt.Audio})",
+      "parameters": {
+        "modalities": "List of supported data types",
+        "table_prefix": "Common naming pattern for related tables"
+      },
+      "variations": [
+        {
+          "name": "unified_table",
+          "difference": "Single table with multiple input columns",
+          "code": "t = pxt.create_table('demo.multi', {\n    'text': pxt.String,\n    'image': pxt.Image,\n    'audio': pxt.Audio\n})"
+        }
+      ],
+      "prerequisites": ["table-creation", "data-type-understanding"],
+      "enables": ["complex-ai-workflows", "cross-modal-analysis"],
+      "performance_impact": "Varies by modality",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Authentication Error",
+      "frequency": "common",
+      "cause": "Missing or invalid OpenAI API key",
+      "symptoms": ["401 Unauthorized", "API key not found"],
+      "solution": {
+        "quick_fix": "Set OPENAI_API_KEY environment variable",
+        "proper_fix": "Implement proper secret management system"
+      },
+      "prevention": "Always check environment variables before API calls",
+      "example": "os.environ['OPENAI_API_KEY'] = 'invalid-key'",
+      "first_seen": "openai-integration#2"
+    },
+    {
+      "error_type": "Rate Limit Exceeded",
+      "frequency": "occasional",
+      "cause": "Too many API calls in short time period",
+      "symptoms": ["429 Too Many Requests", "Rate limit exceeded"],
+      "solution": {
+        "quick_fix": "Add delays between requests",
+        "proper_fix": "Implement exponential backoff and request queuing"
+      },
+      "prevention": "Monitor API usage and implement rate limiting",
+      "example": "Rapid batch inserts without rate limiting",
+      "first_seen": "openai-integration#6"
+    },
+    {
+      "error_type": "Token Limit Exceeded",
+      "frequency": "occasional",
+      "cause": "Input or output exceeds model's token limit",
+      "symptoms": ["Token limit error", "Context length exceeded"],
+      "solution": {
+        "quick_fix": "Reduce max_tokens parameter or input length",
+        "proper_fix": "Implement input chunking and summarization"
+      },
+      "prevention": "Monitor token usage and implement input validation",
+      "example": "Very long input text without token counting",
+      "first_seen": "openai-integration#4"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What are the key parameters for tuning OpenAI chat completion behavior?",
+      "answer": "temperature (creativity), top_p (nucleus sampling), max_tokens (response length)",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "How does Pixeltable handle OpenAI API responses automatically?",
+      "answer": "Through computed columns that trigger API calls and parse responses when data is inserted",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "What are the cost considerations when using OpenAI embeddings vs chat completions?",
+      "answer": "Embeddings cost per token processed, chat completions cost per input+output tokens, embeddings are generally cheaper per token",
+      "difficulty": "advanced"
+    },
+    {
+      "question": "Why separate tables for different OpenAI modalities (chat, embeddings, images)?",
+      "answer": "Different input/output types, different performance characteristics, easier organization and optimization",
+      "difficulty": "intermediate"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Monitor token usage and costs",
+      "impact": "Prevents unexpected API bills",
+      "implementation": "Add usage tracking columns: t.add_computed_column(tokens_used=t.output.usage.total_tokens)",
+      "trade_offs": "Additional storage space for monitoring data",
+      "example": "t.add_computed_column(cost_estimate=t.tokens_used * 0.002 / 1000)  # Rough cost calculation"
+    },
+    {
+      "tip": "Implement proper error handling and retries",
+      "impact": "Improved reliability and user experience",
+      "implementation": "Use Pixeltable's built-in error handling or wrap in try-catch for custom logic",
+      "trade_offs": "More complex code, potential for duplicate API calls",
+      "example": "Set reasonable timeout values and implement exponential backoff"
+    },
+    {
+      "tip": "Cache embeddings for reusable content",
+      "impact": "Significant cost and latency reduction",
+      "implementation": "Use Pixeltable's caching features or implement hash-based deduplication",
+      "trade_offs": "Storage space vs API cost savings",
+      "example": "Add content hash column to avoid recomputing identical embeddings"
+    },
+    {
+      "tip": "Choose appropriate models for your use case",
+      "impact": "Balance between cost, performance, and quality",
+      "implementation": "Use gpt-4o-mini for simple tasks, gpt-4 for complex reasoning",
+      "trade_offs": "Cost vs capability trade-offs",
+      "example": "Use text-embedding-3-small for general similarity, 3-large for precision"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 0,
+    "established_patterns": 4,
+    "total_patterns": 4
+  },
+  "cookies": "🍪 OpenAI's models are like a Swiss Army knife - they can handle text, images, and audio, but your wallet might feel the pinch if you're not careful with those token counts!"
+}

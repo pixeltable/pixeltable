@@ -1,0 +1,512 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "020-llama-cpp-integration",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-llama-cpp.ipynb",
+  "title": "Working with llama.cpp in Pixeltable",
+  "objective": "Learn to run local LLMs efficiently using llama.cpp with automatic model downloading, quantization options, and multi-model comparison",
+  "difficulty": "intermediate",
+  "categories": ["llama-cpp", "local-llm", "model-comparison", "quantization", "huggingface-models"],
+  "prerequisites": ["011-openai-integration", "basic_pixeltable_concepts"],
+  "imports_required": [
+    "pixeltable",
+    "pixeltable.functions.llama_cpp",
+    "llama-cpp-python",
+    "huggingface-hub"
+  ],
+  "performance_notes": {
+    "typical_runtime": "3-8 seconds per query depending on model size and quantization",
+    "resource_requirements": "GPU recommended for faster inference, 2-8GB RAM for model loading",
+    "bottlenecks": ["Initial model download", "Model loading into memory", "CPU/GPU inference speed"]
+  },
+  "key_learnings": [
+    "llama.cpp enables efficient local LLM inference without API costs or network dependencies",
+    "Models are automatically downloaded from Hugging Face and cached locally",
+    "Quantization levels (Q5_K_M, Q8_0, etc.) balance quality vs. performance", 
+    "Multiple models can be compared side-by-side in the same table",
+    "System prompts dramatically affect output style and quality",
+    "Local inference allows complete control over data privacy and model selection",
+    "GGUF format is optimized for efficient local inference"
+  ],
+  "relationships": {
+    "builds_on": ["basic_pixeltable_concepts", "computed_columns", "message_formatting"],
+    "enables": ["offline_llm_workflows", "privacy_preserving_ai", "cost_free_inference", "model_experimentation"],
+    "see_also": ["019-groq-integration#speed_comparison", "011-openai-integration#api_costs"],
+    "contrasts_with": ["cloud_api_dependencies", "usage_based_pricing", "network_requirements"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Environment Setup with Local LLM Dependencies",
+      "intent": "Install llama.cpp Python bindings and Hugging Face hub for model downloading",
+      "code": "%pip install -qU pixeltable llama-cpp-python huggingface-hub",
+      "imports_used": [],
+      "explanation": "llama-cpp-python provides Python bindings for efficient local inference, huggingface-hub handles model downloads",
+      "actual_output": "[Installation progress for llama-cpp-python and huggingface-hub packages]",
+      "output_summary": "Local LLM dependencies installed for offline inference",
+      "output_type": "text",
+      "learns": ["llama_cpp_python_installation", "local_llm_dependencies", "huggingface_model_hub"],
+      "reinforces": ["package_installation"],
+      "gotchas": ["llama-cpp-python can be slow to install due to compilation", "GPU versions require specific CUDA versions"],
+      "performance": {
+        "execution_time": "2-5 minutes for compilation",
+        "scaling": "O(1) - one-time setup",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Pre-compiled wheels or conda packages for faster installation",
+        "when_to_use": "Production environments or when compilation fails"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["local_llm_setup", "dependency_installation"]
+    },
+    {
+      "number": 2,
+      "section_title": "Table Creation for Local LLM Testing",
+      "intent": "Create workspace and table structure for local model experimentation",
+      "code": "import pixeltable as pxt\nfrom pixeltable.functions import llama_cpp\n\npxt.drop_dir('llama_demo', force=True)\npxt.create_dir('llama_demo')\n\nt = pxt.create_table('llama_demo.chat', {'input': pxt.String})",
+      "imports_used": ["pixeltable", "pixeltable.functions.llama_cpp"],
+      "explanation": "Standard Pixeltable setup pattern with llama_cpp import for local inference functions",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory `llama_demo`.\nCreated table `chat`.",
+      "output_summary": "Local LLM workspace and chat table created successfully",
+      "output_type": "text",
+      "learns": ["llama_cpp_import_pattern"],
+      "reinforces": ["workspace_initialization", "table_creation"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use existing workspace for integration testing",
+        "when_to_use": "When comparing local vs cloud models"
+      },
+      "state_after": {
+        "tables": ["llama_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["workspace_initialization", "local_llm_table_setup"]
+    },
+    {
+      "number": 3,
+      "section_title": "Local Model Setup with Automatic Download",
+      "intent": "Configure Qwen2.5-0.5B model with Q5_K_M quantization for efficient local inference",
+      "code": "# Add a computed column that uses llama.cpp for chat completion\n# against the input.\n\nmessages = [\n    {'role': 'system', 'content': 'You are a helpful assistant.'},\n    {'role': 'user', 'content': t.input}\n]\n\nt.add_computed_column(result=llama_cpp.create_chat_completion(\n    messages,\n    repo_id='Qwen/Qwen2.5-0.5B-Instruct-GGUF',\n    repo_filename='*q5_k_m.gguf'\n))\n\n# Extract the output content from the JSON structure returned\n# by llama_cpp.\n\nt.add_computed_column(output=t.result.choices[0].message.content)",
+      "imports_used": ["pixeltable.functions.llama_cpp"],
+      "explanation": "llama_cpp automatically downloads GGUF models from Hugging Face using repo_id and filename patterns",
+      "actual_output": "Added 0 column values with 0 errors.\nAdded 0 column values with 0 errors.\n\nUpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Local Qwen model configured with automatic download and response extraction",
+      "output_type": "text",
+      "learns": ["llama_cpp_create_chat_completion", "huggingface_repo_integration", "gguf_model_format", "quantization_selection"],
+      "reinforces": ["computed_column_creation", "message_list_pattern", "response_extraction"],
+      "gotchas": ["Model downloads on first use - can be slow", "Filename patterns with wildcards match quantization levels", "System messages affect local model behavior significantly"],
+      "performance": {
+        "execution_time": "1s for setup, 30-60s for first model download",
+        "scaling": "O(1) for setup, O(model_size) for download",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Pre-download models or use local model files",
+        "when_to_use": "Production environments with predictable model needs"
+      },
+      "state_after": {
+        "tables": ["llama_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["Qwen/Qwen2.5-0.5B-Instruct-GGUF"]
+      },
+      "pattern_refs": ["local_model_setup", "automatic_model_download", "quantization_pattern"]
+    },
+    {
+      "number": 4,
+      "section_title": "Testing Local Model Inference",
+      "intent": "Validate local model performance with diverse question types",
+      "code": "# Test with a simple question\nt.insert([\n    {'input': 'What is the capital of France?'},\n    {'input': 'What are some edible species of fish?'},\n    {'input': 'Who are the most prominent classical composers?'}\n])",
+      "imports_used": ["pixeltable.functions.llama_cpp"],
+      "explanation": "Multiple diverse questions test different aspects of model knowledge and inference speed",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 9/9 [00:03<00:00,  2.25 cells/s]\nInserting rows into `chat`: 3 rows [00:00, 1112.74 rows/s]\nComputing cells: 100%|████████████████████████████████████████████| 9/9 [00:03<00:00,  2.25 cells/s]\nInserted 3 rows with 0 errors.\n\nUpdateStatus(num_rows=3, num_computed_values=9, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Local model successfully processed 3 diverse queries with ~2.25 cells/second",
+      "output_type": "text",
+      "learns": ["local_inference_speed", "batch_processing_with_local_models"],
+      "reinforces": ["table_insertion", "batch_operations"],
+      "gotchas": ["First inference may be slower due to model loading", "Progress bars show cell computation rate"],
+      "performance": {
+        "execution_time": "3s for 3 queries (2.25 cells/s)",
+        "scaling": "O(n) for n queries, with model loading overhead",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Single query testing or streaming for real-time applications",
+        "when_to_use": "Interactive applications or performance benchmarking"
+      },
+      "state_after": {
+        "tables": ["llama_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["Qwen/Qwen2.5-0.5B-Instruct-GGUF"]
+      },
+      "pattern_refs": ["local_model_testing", "batch_inference"]
+    },
+    {
+      "number": 5,
+      "section_title": "View Local Model Results",
+      "intent": "Examine quality and format of local model responses",
+      "code": "t.select(t.input, t.output).collect()",
+      "imports_used": ["pixeltable.functions.llama_cpp"],
+      "explanation": "Collect() materializes results to examine local model response quality",
+      "actual_output": "                                             input  \\\n0                   What is the capital of France?   \n1            What are some edible species of fish?   \n2  Who are the most prominent classical composers?   \n\n                                              output  \n0                    Paris is the capital of France.  \n1  Here are some edible species of fish that you ...  \n2  The most prominent classical composers in the ...  ",
+      "output_summary": "Local model produced accurate, helpful responses across different knowledge domains",
+      "output_type": "table",
+      "learns": ["local_model_quality_assessment"],
+      "reinforces": ["query_execution", "result_inspection"],
+      "gotchas": [],
+      "performance": {
+        "execution_time": "<1s for result display",
+        "scaling": "O(n) for n rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use show() for formatted display or head() for limited results",
+        "when_to_use": "Different display preferences or large result sets"
+      },
+      "state_after": {
+        "tables": ["llama_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["Qwen/Qwen2.5-0.5B-Instruct-GGUF"]
+      },
+      "pattern_refs": ["result_inspection", "quality_validation"]
+    },
+    {
+      "number": 6,
+      "section_title": "Multi-Model Comparison",
+      "intent": "Add larger Llama-3.2-1B model for side-by-side comparison",
+      "code": "t.add_computed_column(result_l3=llama_cpp.create_chat_completion(\n    messages,\n    repo_id='bartowski/Llama-3.2-1B-Instruct-GGUF',\n    repo_filename='*Q5_K_M.gguf'\n))\n\nt.add_computed_column(output_l3=t.result_l3.choices[0].message.content)\n\nt.select(t.input, t.output, t.output_l3).collect()",
+      "imports_used": ["pixeltable.functions.llama_cpp"],
+      "explanation": "Adding second model automatically processes existing rows, enabling direct comparison",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:08<00:00,  2.74s/ cells]\nAdded 3 column values with 0 errors.\nComputing cells: 100%|███████████████████████████████████████████| 3/3 [00:00<00:00, 349.89 cells/s]\nAdded 3 column values with 0 errors.\n\n                                             input  \\\n0                   What is the capital of France?   \n1            What are some edible species of fish?   \n2  Who are the most prominent classical composers?   \n\n                                              output  \\\n0                    Paris is the capital of France.   \n1  Here are some edible species of fish that you ...   \n2  The most prominent classical composers in the ...   \n\n                                           output_l3  \n0                    The capital of France is Paris.  \n1  Here are some popular edible species of fish:\\...  \n2  Here's a list of some of the most prominent cl...  ",
+      "output_summary": "Successfully added larger Llama model for comparison, showing different response styles",
+      "output_type": "table",
+      "learns": ["multi_model_comparison", "model_size_quality_tradeoffs", "automatic_row_processing"],
+      "reinforces": ["computed_column_addition", "model_comparison_patterns"],
+      "gotchas": ["Larger models take longer to download and infer", "Automatic processing of existing rows"],
+      "performance": {
+        "execution_time": "8s for model loading + 3 inferences",
+        "scaling": "O(model_size + n_rows)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use conditional columns to compare models selectively",
+        "when_to_use": "When model comparison is expensive or resource-limited"
+      },
+      "state_after": {
+        "tables": ["llama_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["Qwen/Qwen2.5-0.5B-Instruct-GGUF", "bartowski/Llama-3.2-1B-Instruct-GGUF"]
+      },
+      "pattern_refs": ["multi_model_comparison", "side_by_side_evaluation"]
+    },
+    {
+      "number": 7,
+      "section_title": "System Prompt Experimentation",
+      "intent": "Demonstrate how system prompts dramatically affect local model behavior",
+      "code": "messages_teacher = [\n    {'role': 'system',\n     'content': 'You are a patient school teacher. '\n                'Explain concepts simply and clearly.'},\n    {'role': 'user', 'content': t.input}\n]\n\nt.add_computed_column(result_teacher=llama_cpp.create_chat_completion(\n    messages_teacher,\n    repo_id='bartowski/Llama-3.2-1B-Instruct-GGUF',\n    repo_filename='*Q5_K_M.gguf'\n))\n\nt.add_computed_column(output_teacher=t.result_teacher.choices[0].message.content)\n\nt.select(t.input, t.output_teacher).collect()",
+      "imports_used": ["pixeltable.functions.llama_cpp"],
+      "explanation": "Different system prompts with same model demonstrate prompt engineering effectiveness for local models",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:06<00:00,  2.30s/ cells]\nAdded 3 column values with 0 errors.\nComputing cells: 100%|███████████████████████████████████████████| 3/3 [00:00<00:00, 605.33 cells/s]\nAdded 3 column values with 0 errors.\n\n                                             input  \\\n0                   What is the capital of France?   \n1            What are some edible species of fish?   \n2  Who are the most prominent classical composers?   \n\n                                      output_teacher  \n0  Bonjour! Don't worry if you didn't know that a...  \n1  Hello there, young learner.  I'm excited to sh...  \n2  As a teacher, I'd be delighted to introduce yo...  ",
+      "output_summary": "Teacher persona dramatically changed response style - more engaging, educational, and detailed",
+      "output_type": "table",
+      "learns": ["system_prompt_effectiveness", "persona_based_responses", "local_model_adaptability"],
+      "reinforces": ["message_formatting", "prompt_engineering"],
+      "gotchas": ["System prompts may have stronger effects on local models", "Model reuse reduces loading time"],
+      "performance": {
+        "execution_time": "6s for 3 inferences (model already loaded)",
+        "scaling": "O(n) for n queries once model loaded",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Test multiple system prompts or use prompt templates",
+        "when_to_use": "Systematic prompt engineering or A/B testing"
+      },
+      "state_after": {
+        "tables": ["llama_demo.chat"],
+        "views": [],
+        "variables": ["t"],
+        "models_loaded": ["Qwen/Qwen2.5-0.5B-Instruct-GGUF", "bartowski/Llama-3.2-1B-Instruct-GGUF"]
+      },
+      "pattern_refs": ["system_prompt_experimentation", "persona_tuning"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "local_llm_setup",
+      "description": "Complete setup for local LLM inference using llama.cpp and Hugging Face models",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "020-llama-cpp-integration",
+      "code_template": "from pixeltable.functions import llama_cpp\n\nt.add_computed_column(result=llama_cpp.create_chat_completion(\n    messages,\n    repo_id='model_owner/model_name',\n    repo_filename='*quantization.gguf'\n))\n\nt.add_computed_column(output=t.result.choices[0].message.content)",
+      "parameters": {
+        "repo_id": "Hugging Face repository ID for GGUF model",
+        "repo_filename": "Filename pattern matching quantization level",
+        "messages": "Standard chat message format with system and user roles"
+      },
+      "variations": [
+        {
+          "name": "high_quality",
+          "difference": "Use higher quantization for better quality",
+          "code": "repo_filename='*Q8_0.gguf'  # 8-bit quantization"
+        },
+        {
+          "name": "fast_inference",
+          "difference": "Use lower quantization for speed",
+          "code": "repo_filename='*Q4_K_M.gguf'  # 4-bit quantization"
+        }
+      ],
+      "prerequisites": ["llama_cpp_python_installed", "huggingface_hub_installed"],
+      "enables": ["offline_llm_inference", "privacy_preserving_ai", "cost_free_operation"],
+      "performance_impact": "Higher memory usage, no API costs, variable inference speed",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "automatic_model_download",
+      "description": "Automatic model downloading and caching from Hugging Face Hub",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "020-llama-cpp-integration",
+      "code_template": "llama_cpp.create_chat_completion(\n    messages,\n    repo_id='organization/model-name-GGUF',\n    repo_filename='*quantization_level.gguf'\n)",
+      "parameters": {
+        "repo_id": "Full Hugging Face repository path",
+        "repo_filename": "Pattern matching specific quantization files"
+      },
+      "variations": [
+        {
+          "name": "specific_file",
+          "difference": "Download exact file instead of pattern matching",
+          "code": "repo_filename='model-q5_k_m.gguf'"
+        }
+      ],
+      "prerequisites": ["internet_connection", "sufficient_disk_space"],
+      "enables": ["seamless_model_access", "automatic_caching"],
+      "performance_impact": "Initial download time, subsequent caching benefit",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "quantization_pattern",
+      "description": "Selection of quantization levels for performance/quality balance",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "020-llama-cpp-integration",
+      "code_template": "# Quantization options:\n# Q8_0: Highest quality, largest size\n# Q5_K_M: Balanced quality/size (recommended)\n# Q4_K_M: Faster inference, lower quality\n# Q2_K: Smallest size, lowest quality\n\nrepo_filename='*Q5_K_M.gguf'  # Recommended balance",
+      "parameters": {
+        "quantization_level": "Q2_K, Q4_K_M, Q5_K_M, Q8_0 options",
+        "quality_tradeoff": "Higher numbers = better quality, larger files"
+      },
+      "variations": [
+        {
+          "name": "maximum_quality",
+          "difference": "Use highest quantization for best results",
+          "code": "repo_filename='*Q8_0.gguf'"
+        },
+        {
+          "name": "minimum_memory",
+          "difference": "Use lowest quantization for resource-constrained environments",
+          "code": "repo_filename='*Q2_K.gguf'"
+        }
+      ],
+      "prerequisites": ["understanding_quantization_tradeoffs"],
+      "enables": ["performance_optimization", "resource_management"],
+      "performance_impact": "Directly affects memory usage, inference speed, and quality",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "multi_model_comparison",
+      "description": "Side-by-side comparison of different local models in same table",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "020-llama-cpp-integration",
+      "code_template": "# Add multiple models to same table\nt.add_computed_column(model1_result=llama_cpp.create_chat_completion(\n    messages, repo_id='model1', repo_filename='*Q5_K_M.gguf'))\n    \nt.add_computed_column(model2_result=llama_cpp.create_chat_completion(\n    messages, repo_id='model2', repo_filename='*Q5_K_M.gguf'))\n\n# Extract outputs for comparison\nt.add_computed_column(model1_output=t.model1_result.choices[0].message.content)\nt.add_computed_column(model2_output=t.model2_result.choices[0].message.content)",
+      "parameters": {
+        "model1": "First model for comparison",
+        "model2": "Second model for comparison",
+        "messages": "Same message format for fair comparison"
+      },
+      "variations": [
+        {
+          "name": "quantization_comparison",
+          "difference": "Compare same model with different quantizations",
+          "code": "# Same model, different quantization levels"
+        }
+      ],
+      "prerequisites": ["multiple_model_availability", "sufficient_memory"],
+      "enables": ["model_evaluation", "quality_assessment", "performance_benchmarking"],
+      "performance_impact": "Memory usage scales with number of models",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "system_prompt_experimentation",
+      "description": "Testing different system prompts with local models for persona/style tuning",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "020-llama-cpp-integration",
+      "code_template": "messages_persona = [\n    {'role': 'system', 'content': 'You are a [PERSONA]. [BEHAVIOR_DESCRIPTION]'},\n    {'role': 'user', 'content': t.input}\n]\n\nt.add_computed_column(persona_result=llama_cpp.create_chat_completion(\n    messages_persona, repo_id=model_id, repo_filename=quantization))\n    \nt.add_computed_column(persona_output=t.persona_result.choices[0].message.content)",
+      "parameters": {
+        "PERSONA": "Role description (teacher, expert, assistant)",
+        "BEHAVIOR_DESCRIPTION": "Detailed behavior and style instructions"
+      },
+      "variations": [
+        {
+          "name": "multiple_personas",
+          "difference": "Test multiple personas simultaneously",
+          "code": "# Add columns for teacher, expert, casual personas"
+        }
+      ],
+      "prerequisites": ["understanding_system_prompts"],
+      "enables": ["persona_optimization", "style_tuning", "behavior_modification"],
+      "performance_impact": "Same inference cost, dramatic output variation",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Model download failure",
+      "frequency": "common",
+      "cause": "Network issues, insufficient disk space, or invalid model repository",
+      "symptoms": ["Download timeout", "Permission denied", "Model not found"],
+      "solution": {
+        "quick_fix": "Check internet connection and disk space, verify repository name",
+        "proper_fix": "Pre-download models or implement retry logic with exponential backoff"
+      },
+      "prevention": "Validate repository exists and has GGUF files before use",
+      "example": "Using non-existent repository or incorrect filename pattern",
+      "first_seen": "020-llama-cpp-integration#step3"
+    },
+    {
+      "error_type": "Out of memory during model loading",
+      "frequency": "common",
+      "cause": "Model too large for available RAM or GPU memory",
+      "symptoms": ["OOM error", "Process killed", "Memory allocation failed"],
+      "solution": {
+        "quick_fix": "Use smaller model or lower quantization level",
+        "proper_fix": "Upgrade hardware or implement model offloading strategies"
+      },
+      "prevention": "Check model size against available memory before loading",
+      "example": "Loading 7B model with Q8_0 quantization on 8GB system",
+      "first_seen": "020-llama-cpp-integration#step3"
+    },
+    {
+      "error_type": "Slow inference on CPU-only systems",
+      "frequency": "common",
+      "cause": "Large models without GPU acceleration",
+      "symptoms": ["Very slow response times", "High CPU usage", "System unresponsiveness"],
+      "solution": {
+        "quick_fix": "Use smaller models (0.5B-1B parameters) or enable GPU acceleration",
+        "proper_fix": "Use GPU-enabled hardware or switch to cloud-based solutions for large models"
+      },
+      "prevention": "Test inference speed with small queries before production use",
+      "example": "Running 7B model on CPU taking >30 seconds per query",
+      "first_seen": "020-llama-cpp-integration#step4"
+    },
+    {
+      "error_type": "Invalid quantization filename pattern",
+      "frequency": "occasional",
+      "cause": "Incorrect wildcard pattern or quantization level not available",
+      "symptoms": ["No matching files found", "Pattern match error"],
+      "solution": {
+        "quick_fix": "Check repository files and use exact filename",
+        "proper_fix": "List repository contents and use available quantization levels"
+      },
+      "prevention": "Verify available quantization files in repository before use",
+      "example": "Using '*Q7_0.gguf' when only Q5_K_M and Q8_0 are available",
+      "first_seen": "020-llama-cpp-integration#step3"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What are the main advantages of using llama.cpp over cloud-based LLM APIs?",
+      "type": "conceptual",
+      "answer": "Privacy (no data leaves your system), no ongoing costs, offline operation, full control over models and parameters",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "What does the 'Q5_K_M' in a GGUF filename represent?",
+      "type": "implementation", 
+      "answer": "Quantization level - 5-bit quantization using K-quants mixed precision, balancing quality and efficiency",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "How do you automatically download and use a Hugging Face model with llama.cpp?",
+      "type": "implementation",
+      "answer": "Use repo_id='owner/model-name' and repo_filename='*quantization.gguf' - model downloads automatically on first use",
+      "difficulty": "beginner"
+    },
+    {
+      "question": "Why might you want to compare multiple local models in the same table?",
+      "type": "conceptual",
+      "answer": "To evaluate quality differences, performance trade-offs, and find the best model for specific tasks without separate testing",
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "What hardware considerations are important for local LLM deployment?",
+      "type": "conceptual",
+      "answer": "RAM for model loading, GPU for fast inference, disk space for model storage, CPU cores for CPU inference",
+      "difficulty": "advanced"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Pre-download and validate models before production deployment",
+      "impact": "Eliminates download delays and failures in production",
+      "implementation": "Download models to local cache, test inference before deployment",
+      "trade_offs": "Increased deployment size vs. predictable startup time",
+      "example": "Docker images with pre-cached models, startup validation scripts"
+    },
+    {
+      "tip": "Choose quantization levels based on hardware and quality requirements",
+      "impact": "Optimize memory usage and inference speed for your specific constraints",
+      "implementation": "Benchmark Q4_K_M, Q5_K_M, Q8_0 on your hardware with your tasks",
+      "trade_offs": "Quality vs. performance - higher quantization = better quality but more resources",
+      "example": "Q5_K_M for general use, Q8_0 for critical tasks, Q4_K_M for resource-constrained environments"
+    },
+    {
+      "tip": "Implement model warmup and connection pooling",
+      "impact": "Reduce first-inference latency and improve user experience",
+      "implementation": "Load models at startup, maintain model instances, implement request queuing",
+      "trade_offs": "Higher memory usage vs. consistent response times",
+      "example": "Load models in background thread, process warmup queries on startup"
+    },
+    {
+      "tip": "Monitor memory usage and implement graceful degradation",
+      "impact": "Prevent OOM crashes and maintain service availability",
+      "implementation": "Monitor RAM/GPU usage, fallback to smaller models or cloud APIs when needed",
+      "trade_offs": "Service complexity vs. reliability",
+      "example": "Switch to Q4_K_M if memory pressure, fallback to cloud API if local fails"
+    },
+    {
+      "tip": "Use systematic prompt engineering with local models",
+      "impact": "Achieve better results with smaller, cost-effective models",
+      "implementation": "Test system prompts, few-shot examples, chain-of-thought prompting",
+      "trade_offs": "Development time vs. model performance optimization",
+      "example": "Teacher persona for educational content, expert persona for technical tasks"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 3,
+    "established_patterns": 2,
+    "total_patterns": 5
+  },
+  "cookies": "🍪 Why did the developer choose llama.cpp for their AI project? Because they wanted their models to be like a good homebrew - private, cost-effective, and always available without depending on anyone else's servers! Plus, GGUF files are like recipe cards - compact, portable, and ready to cook up some AI magic! 🏠"
+}

@@ -1,0 +1,277 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "embedding-indexes",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/embedding-indexes.ipynb",
+  "title": "Working with Embedding/Vector Indexes",
+  "objective": "Learn to create and query embedding indexes for similarity search on images and text",
+  "difficulty": "intermediate",
+  "categories": ["embeddings", "vector-search", "similarity", "clip", "bert", "rag-foundation"],
+  "prerequisites": ["pixeltable-basics", "tables-and-data-operations"],
+  "imports_required": ["pixeltable", "transformers", "sentence_transformers", "tensorflow", "tensorflow-hub", "tensorflow-text", "PIL"],
+  "performance_notes": {
+    "typical_runtime": "5-10 minutes with GPU, 15-20 minutes with CPU",
+    "resource_requirements": "GPU recommended, ~1GB model downloads per embedding model, vector index storage"
+  },
+  "key_learnings": [
+    "Indexing in Pixeltable is declarative - define once, maintain automatically",
+    "Indexes update automatically on insert/update/delete operations",
+    "similarity() pseudo-function enables vector search with order_by and limit",
+    "Multiple indexes can exist on same column with different embeddings",
+    "CLIP models are multimodal - can search images with text queries",
+    "Custom embedding UDFs can integrate any model"
+  ],
+  "steps": [
+    {
+      "number": 1,
+      "intent": "Create table with image column for indexing",
+      "code": "import pixeltable as pxt\n\n# Delete the `indices_demo` directory and its contents, if it exists\npxt.drop_dir('indices_demo', force=True)\n\n# Create the directory and table to use for the demo\npxt.create_dir('indices_demo')\nschema = {\n    'id': pxt.Int,\n    'img': pxt.Image,\n}\nimgs = pxt.create_table('indices_demo.img_tbl', schema)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Clean setup with explicit schema. drop_dir with force=True ensures clean state for demo.",
+      "actual_output": "Created directory `indices_demo`.\nCreated table `img_tbl`.",
+      "output_type": "text",
+      "learns": ["directory cleanup", "schema definition with types"],
+      "gotchas": ["force=True will delete all data", "pxt.Image type required for image columns"],
+      "performance": "Instant",
+      "alternatives": "Could use if_exists='replace' instead of drop_dir"
+    },
+    {
+      "number": 2,
+      "intent": "Insert initial image data",
+      "code": "img_urls = [\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000030.jpg',\n    # ... 9 more URLs\n]\nimgs.insert({'id': i, 'img': url} for i, url in enumerate(img_urls))",
+      "imports_used": ["pixeltable"],
+      "explanation": "Images loaded from URLs are cached transparently. Generator expression for efficient insertion.",
+      "actual_output": "Computing cells:  80%|████████| 16/20 [00:01<00:00, 14.67 cells/s]\nInserted 10 rows with 0 errors.",
+      "output_type": "text",
+      "learns": ["URL image loading", "generator-based insertion", "automatic caching"],
+      "gotchas": ["Images downloaded and cached locally", "Network latency affects initial load"],
+      "performance": "~1 second for 10 images",
+      "alternatives": "Could insert local files or S3 URLs"
+    },
+    {
+      "number": 3,
+      "section_title": "Creating an index",
+      "intent": "Add CLIP embedding index to image column",
+      "code": "from pixeltable.functions.huggingface import clip\nimport PIL.Image\n\n# create embedding index on the 'img' column\nimgs.add_embedding_index(\n    'img',\n    embedding=clip.using(model_id='openai/clip-vit-base-patch32')\n)",
+      "imports_used": ["pixeltable", "pixeltable.functions.huggingface", "PIL"],
+      "explanation": "CLIP is multimodal - handles both images and text. The .using() syntax creates a partial function with fixed model_id.",
+      "actual_output": "Computing cells: 100%|████████| 10/10 [00:04<00:00,  2.50 cells/s]",
+      "output_type": "text",
+      "learns": ["embedding index creation", "partial function with .using()", "CLIP multimodality"],
+      "gotchas": ["First run downloads model (~150MB)", "Index built immediately for existing rows", "Must use .using() to fix model parameters"],
+      "performance": "~4 seconds for 10 images",
+      "alternatives": "Could use OpenAI embeddings or custom UDF"
+    },
+    {
+      "number": 4,
+      "section_title": "Using the index in queries",
+      "intent": "Perform similarity search with image query",
+      "code": "# retrieve the 'img' column of some row as a PIL.Image.Image\nsample_img = imgs.select(imgs.img).collect()[6]['img']\n\n# Similarity search\nsim = imgs.img.similarity(sample_img)\nres = (\n    imgs.order_by(sim, asc=False)  # Order by descending similarity\n    .limit(2)  # Limit number of results to 2\n    .select(imgs.id, imgs.img, sim)\n    .collect()  # Retrieve results now\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "similarity() is a pseudo-function called on indexed column. Cosine distance default means higher = more similar.",
+      "actual_output": "   id                                                img  similarity\n0   6  <PIL.JpegImagePlugin.JpegImageFile image mode=...    1.000000\n1   3  <PIL.JpegImagePlugin.JpegImageFile image mode=...    0.607202",
+      "output_type": "table",
+      "learns": ["similarity() pseudo-function", "order_by with asc=False for cosine", "chained query operations"],
+      "gotchas": ["Query image itself has similarity 1.0", "Must use order_by + limit for efficiency", "asc=False for cosine, asc=True for L2"],
+      "performance": "~50ms for vector search",
+      "alternatives": "Can filter with where() clause"
+    },
+    {
+      "number": 5,
+      "intent": "Combine similarity search with filtering",
+      "code": "res = (\n    imgs.order_by(sim, asc=False)\n    .where(imgs.id != 6)  # Additional clause\n    .limit(2)\n    .select(imgs.id, imgs.img, sim)\n    .collect()\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Standard SQL predicates combine with vector search. Useful for filtering out the query item itself.",
+      "actual_output": "   id                                                img  similarity\n0   3  <PIL.JpegImagePlugin.JpegImageFile image mode=...    0.607202\n1   7  <PIL.JpegImagePlugin.JpegImageFile image mode=...    0.550944",
+      "output_type": "table",
+      "learns": ["combining vector search with SQL", "where clause with similarity"],
+      "gotchas": ["Filtering happens after similarity computation"],
+      "performance": "~50ms",
+      "alternatives": "Could add multiple where conditions"
+    },
+    {
+      "number": 6,
+      "section_title": "Index updates",
+      "intent": "Demonstrate automatic index updates on insert",
+      "code": "more_img_urls = [\n    # ... 10 more image URLs\n]\nimgs.insert({'id': 10 + i, 'img': url} for i, url in enumerate(more_img_urls))",
+      "imports_used": ["pixeltable"],
+      "explanation": "New rows automatically added to index. No manual reindexing needed.",
+      "actual_output": "Computing cells:  33%|██████| 10/30 [00:01<00:02,  8.90 cells/s]\nInserted 10 rows with 0 errors.",
+      "output_type": "text",
+      "learns": ["automatic index maintenance", "incremental updates"],
+      "gotchas": ["Embedding computation happens during insert", "Can slow down bulk inserts"],
+      "performance": "~1.5 seconds for 10 new images",
+      "alternatives": null
+    },
+    {
+      "number": 7,
+      "intent": "Verify index updated with new results",
+      "code": "sim = imgs.img.similarity(sample_img)\nres = (\n    imgs.order_by(sim, asc=False)\n    .limit(2)\n    .select(imgs.id, imgs.img, sim)\n    .collect()\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Same query now returns different results due to new indexed data.",
+      "actual_output": "   id                                                img  similarity\n0   6  <PIL.JpegImagePlugin.JpegImageFile image mode=...    1.000000\n1  19  <PIL.JpegImagePlugin.JpegImageFile image mode=...    0.616822",
+      "output_type": "table",
+      "learns": ["index freshness", "automatic result updates"],
+      "gotchas": ["Results change as data changes"],
+      "performance": "~50ms",
+      "alternatives": null
+    },
+    {
+      "number": 8,
+      "section_title": "Similarity search on different types",
+      "intent": "Search images using text query (multimodal)",
+      "code": "sim = imgs.img.similarity('train')  # String lookup\nres = (\n    imgs.order_by(sim, asc=False)\n    .limit(2)\n    .select(imgs.id, imgs.img, sim)\n    .collect()\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "CLIP's multimodal capability allows text queries against image index. Text embedded with same model.",
+      "actual_output": "   id                                                img  similarity\n0  13  <PIL.JpegImagePlugin.JpegImageFile image mode=...    0.273971\n1   9  <PIL.JpegImagePlugin.JpegImageFile image mode=...    0.239850",
+      "output_type": "table",
+      "learns": ["multimodal search", "text-to-image similarity", "CLIP versatility"],
+      "gotchas": ["Lower similarities for cross-modal search", "Text must be meaningful for images"],
+      "performance": "~50ms",
+      "alternatives": "Could use image-to-text if text column indexed"
+    },
+    {
+      "number": 9,
+      "section_title": "Creating multiple indexes on a single column",
+      "intent": "Create text table with multiple embedding models",
+      "code": "from pixeltable.functions.huggingface import sentence_transformer\n\ntxts = pxt.create_table('indices_demo.text_tbl', {'text': pxt.String})\nsentences = [  # Picasso biography excerpts\n    \"Pablo Ruiz Picasso (25 October 1881 – 8 April 1973) was a Spanish painter...\",\n    # ... more sentences\n]\ntxts.insert({'text': s} for s in sentences)\n\ntxts.add_embedding_index(\n    'text',\n    idx_name='minilm_idx',\n    embedding=sentence_transformer.using(model_id='sentence-transformers/all-MiniLM-L12-v2')\n)\ntxts.add_embedding_index(\n    'text',\n    idx_name='e5_idx',\n    embedding=sentence_transformer.using(model_id='intfloat/e5-large-v2')\n)",
+      "imports_used": ["pixeltable", "pixeltable.functions.huggingface"],
+      "explanation": "Multiple indexes on same column allow comparing embedding models. idx_name required for disambiguation.",
+      "actual_output": "Created table `text_tbl`.\nComputing cells: 100%|████████| 10/10 [00:01<00:00,  6.86 cells/s]\nComputing cells: 100%|████████| 10/10 [00:01<00:00,  6.35 cells/s]",
+      "output_type": "text",
+      "learns": ["multiple indexes per column", "named indexes", "model comparison setup"],
+      "gotchas": ["Each index stores separate embeddings", "Storage multiplied by index count", "Must specify idx_name in queries"],
+      "performance": "~3 seconds for both indexes",
+      "alternatives": "Could add indexes incrementally"
+    },
+    {
+      "number": 10,
+      "intent": "Query specific named index",
+      "code": "sim = txts.text.similarity('cubism', idx='minilm_idx')\nres = txts.order_by(sim, asc=False).limit(2).select(txts.text, sim).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "idx parameter selects which index to use. Different models give different similarity scores.",
+      "actual_output": "                                                text  similarity\n0  One of the most influential artists of the 20t...    0.443067\n1  While the names of many of his later periods a...    0.425664",
+      "output_type": "table",
+      "learns": ["named index selection", "idx parameter usage"],
+      "gotchas": ["Must remember index names", "Different models rank differently"],
+      "performance": "~30ms",
+      "alternatives": "Could query all indexes and compare"
+    },
+    {
+      "number": 11,
+      "section_title": "Using a UDF for a custom embedding",
+      "intent": "Create custom BERT embedding UDF",
+      "code": "import tensorflow as tf\nimport tensorflow_hub as hub\nimport tensorflow_text  # Necessary to ensure BERT dependencies are loaded\nimport pixeltable as pxt\n\n@pxt.udf\ndef bert(input: str) -> pxt.Array[(512,), pxt.Float]:\n    \"\"\"Computes text embeddings using the small_bert model.\"\"\"\n    preprocessor = hub.load('https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3')\n    bert_model = hub.load('https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-4_H-512_A-8/2')\n    tensor = tf.constant([input])  # Convert the string to a tensor\n    result = bert_model(preprocessor(tensor))['pooled_output']\n    return result.numpy()[0, :]",
+      "imports_used": ["tensorflow", "tensorflow_hub", "tensorflow_text", "pixeltable"],
+      "explanation": "Custom UDF allows any embedding model. Must return fixed-size array. Type hints critical for index creation.",
+      "actual_output": null,
+      "output_type": null,
+      "learns": ["custom embedding UDF", "type hints for arrays", "TensorFlow integration"],
+      "gotchas": ["Model loaded on every call (slow!)", "No batching (inefficient)", "Type signature must be exact"],
+      "performance": "Very slow without caching",
+      "alternatives": "Could cache model, add batching"
+    },
+    {
+      "number": 12,
+      "intent": "Create index with custom BERT UDF",
+      "code": "txts.add_embedding_index(\n    'text',\n    idx_name='bert_idx',\n    embedding=bert\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Custom UDFs work identically to built-in functions for indexing.",
+      "actual_output": "Computing cells: 100%|████████| 10/10 [00:17<00:00,  1.72s/ cells]",
+      "output_type": "text",
+      "learns": ["custom UDF indexing", "seamless integration"],
+      "gotchas": ["Much slower due to model reloading", "Production needs caching"],
+      "performance": "~17 seconds for 10 rows (poor!)",
+      "alternatives": "Use built-in sentence_transformer for production"
+    },
+    {
+      "number": 13,
+      "section_title": "Deleting an index",
+      "intent": "Remove an index by name",
+      "code": "txts.drop_embedding_index(idx_name='e5_idx')",
+      "imports_used": ["pixeltable"],
+      "explanation": "Indexes can be dropped by name or column. Frees storage and stops updates.",
+      "actual_output": null,
+      "output_type": null,
+      "learns": ["index deletion", "resource cleanup"],
+      "gotchas": ["Cannot recover dropped index", "Must rebuild from scratch if needed again"],
+      "performance": "Instant",
+      "alternatives": "Could drop by column_name if only one index"
+    }
+  ],
+  "patterns": [
+    {
+      "name": "multimodal_search",
+      "description": "Use CLIP to search images with text or vice versa",
+      "code_template": "# Index images with CLIP\nimgs.add_embedding_index('img', embedding=clip.using(model_id='...'))\n# Search with text\nsim = imgs.img.similarity('search text')\n# Or search with image\nsim = imgs.img.similarity(sample_image)",
+      "variations": ["Different CLIP models", "Image-to-image", "Text-to-image"],
+      "reusable": true
+    },
+    {
+      "name": "index_comparison",
+      "description": "Compare multiple embedding models on same data",
+      "code_template": "table.add_embedding_index('col', idx_name='model1', embedding=embed1)\ntable.add_embedding_index('col', idx_name='model2', embedding=embed2)\n# Query each\nresults1 = table.order_by(table.col.similarity(query, idx='model1'), asc=False)\nresults2 = table.order_by(table.col.similarity(query, idx='model2'), asc=False)",
+      "variations": ["A/B testing embeddings", "Performance comparison"],
+      "reusable": true
+    },
+    {
+      "name": "filtered_similarity",
+      "description": "Combine vector search with SQL predicates",
+      "code_template": "sim = table.indexed_col.similarity(query)\ntable.where(table.category == 'X')\n     .order_by(sim, asc=False)\n     .limit(10)",
+      "variations": ["Multiple filters", "Date ranges", "Exclude self"],
+      "reusable": true
+    },
+    {
+      "name": "custom_embedding_udf",
+      "description": "Integrate any embedding model via UDF",
+      "code_template": "@pxt.udf\ndef custom_embed(input: str) -> pxt.Array[(DIM,), pxt.Float]:\n    model = load_model()\n    embedding = model.encode(input)\n    return embedding\n\ntable.add_embedding_index('col', embedding=custom_embed)",
+      "variations": ["Different frameworks", "Cached models", "Batched processing"],
+      "reusable": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "ValueError: embedding dimension mismatch",
+      "cause": "UDF returns wrong array size",
+      "solution": "Ensure return type matches actual embedding dimension",
+      "example": "pxt.Array[(512,), pxt.Float] must match model output"
+    },
+    {
+      "error_type": "KeyError: Index 'idx_name' not found",
+      "cause": "Using wrong index name in query",
+      "solution": "Check index names with table.list_indexes()",
+      "example": "similarity(query, idx='correct_name')"
+    },
+    {
+      "error_type": "Slow index updates",
+      "cause": "Model loading on every UDF call",
+      "solution": "Cache model outside UDF or use batching",
+      "example": "Store model in global variable"
+    },
+    {
+      "error_type": "OutOfMemoryError during indexing",
+      "cause": "Large embedding models on limited hardware",
+      "solution": "Use smaller models or GPU instance",
+      "example": "Switch from large to base model variants"
+    }
+  ],
+  "test_questions": [
+    "How do I create an embedding index?",
+    "How do I search images with text?",
+    "How do I use multiple embedding models?",
+    "How do I combine similarity search with filters?",
+    "How do I create a custom embedding function?",
+    "What's the difference between cosine and L2 distance?",
+    "How are indexes maintained during updates?"
+  ],
+  "power_tips": [
+    "CLIP models enable text-to-image and image-to-text search",
+    "Named indexes allow A/B testing different embeddings",
+    "similarity() + order_by() + limit() is the core pattern",
+    "Indexes update automatically - no manual maintenance",
+    "Custom UDFs should cache models for production use",
+    "Cosine distance: higher = more similar, L2: lower = more similar",
+    ".using() creates partial functions by fixing parameters"
+  ],
+  "cookies": "🍪 BERT makes everything better, even cookies"
+}

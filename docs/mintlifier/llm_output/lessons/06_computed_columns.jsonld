@@ -1,0 +1,828 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "computed-columns",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/computed-columns.ipynb",
+  "title": "Computed Columns",
+  "objective": "Learn to create and use computed columns for automatic data transformation, including image processing and model inference",
+  "difficulty": "beginner",
+  "categories": ["computed-columns", "image-processing", "model-inference", "data-transformation", "incremental-updates"],
+  "prerequisites": ["tables-and-data-operations"],
+  "imports_required": [
+    "import pixeltable as pxt",
+    "from pixeltable.functions.huggingface import detr_for_object_detection",
+    "from pixeltable.functions.vision import draw_bounding_boxes"
+  ],
+  "performance_notes": {
+    "typical_runtime": "3-5 minutes with GPU, 8-12 minutes with CPU",
+    "resource_requirements": "2GB RAM minimum, GPU recommended for model inference, internet connection for model downloads",
+    "bottlenecks": ["model downloads on first run", "DETR object detection inference", "image processing operations"]
+  },
+  "key_learnings": [
+    "Computed columns automatically update when new data is added",
+    "All updates in Pixeltable are applied incrementally, not by recomputing entire pipelines",
+    "Computed columns are persistent and stored in the database",
+    "Image operations can be chained in computed columns",
+    "Model inference outputs are automatically cached",
+    "UDFs can be used both as method calls and function calls"
+  ],
+  "relationships": {
+    "builds_on": ["table-creation", "data-insertion", "column-references"],
+    "enables": ["automated-pipelines", "model-inference", "image-processing"],
+    "see_also": ["queries-and-expressions#udf-calls"],
+    "contrasts_with": ["manual-pipeline-recomputation"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Basic Computed Column Example",
+      "intent": "Create a simple computed column for year-over-year population change",
+      "code": "import pixeltable as pxt\n\npxt.drop_dir('fundamentals', force=True)\npxt.create_dir('fundamentals')\npop_t = pxt.io.import_csv(\n    'fundamentals.population',\n    'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/world-population-data.csv'\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Import CSV data to demonstrate computed columns with real world population data",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory `fundamentals`.\nCreated table `population`.\nInserting rows into `population`: 234 rows [00:00, 15845.96 rows/s]\nInserted 234 rows with 0 errors.",
+      "output_summary": "Database connected, directory and table created, 234 rows inserted successfully",
+      "output_type": "text",
+      "learns": ["csv-import", "directory-creation"],
+      "reinforces": ["table-creation", "data-insertion"],
+      "gotchas": ["CSV URLs must be accessible", "Directory must be created before table"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of CSV rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could create table manually and insert data via dictionaries",
+        "when_to_use": "When you have structured data already in Python"
+      },
+      "state_after": {
+        "tables": ["population"],
+        "views": [],
+        "variables": ["pop_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["csv_import", "directory_setup"]
+    },
+    {
+      "number": 2,
+      "section_title": "Creating the Computed Column",
+      "intent": "Add a computed column to calculate year-over-year population change",
+      "code": "pop_t.add_computed_column(yoy_change=(pop_t.pop_2023 - pop_t.pop_2022))",
+      "imports_used": ["pixeltable"],
+      "explanation": "Computed columns automatically calculate values based on other columns and store results persistently",
+      "actual_output": "Added 234 column values with 0 errors.\n\nUpdateStatus(num_rows=234, num_computed_values=234, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Computed column created and calculated for all 234 existing rows",
+      "output_type": "text",
+      "learns": ["computed-column-creation", "arithmetic-expressions"],
+      "reinforces": ["column-references"],
+      "gotchas": ["Column values computed immediately for all existing rows", "Column definitions are persistent"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could use select() for one-time calculations without persistence",
+        "when_to_use": "When you need the calculation repeatedly or for incremental updates"
+      },
+      "state_after": {
+        "tables": ["population"],
+        "views": [],
+        "variables": ["pop_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["computed_column_arithmetic"]
+    },
+    {
+      "number": 3,
+      "section_title": "Chaining Computed Columns",
+      "intent": "Create a computed column that depends on another computed column",
+      "code": "pop_t.add_computed_column(\n    yoy_percent_change=(100 * pop_t.yoy_change / pop_t.pop_2022)\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Computed columns can reference other computed columns, creating dependency chains that update automatically",
+      "actual_output": "Added 234 column values with 0 errors.\n\nUpdateStatus(num_rows=234, num_computed_values=234, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Second computed column created, referencing the first computed column",
+      "output_type": "text",
+      "learns": ["column-chaining", "dependency-graphs"],
+      "reinforces": ["computed-column-creation", "arithmetic-expressions"],
+      "gotchas": ["Dependencies must be acyclic", "Updates propagate through entire chain"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could calculate percentage in single expression",
+        "when_to_use": "When intermediate results are useful independently"
+      },
+      "state_after": {
+        "tables": ["population"],
+        "views": [],
+        "variables": ["pop_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["computed_column_chaining"]
+    },
+    {
+      "number": 4,
+      "section_title": "Incremental Updates",
+      "intent": "Demonstrate automatic updates when new data is inserted",
+      "code": "pop_t.insert(\n    country='California',\n    pop_2023=39110000,\n    pop_2022=39030000,\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "When new data is inserted, computed columns automatically calculate values for new rows",
+      "actual_output": "Computing cells:   0%|                                                    | 0/5 [00:00<?, ? cells/s]\nInserting rows into `population`: 1 rows [00:00, 198.14 rows/s]\nComputing cells: 100%|███████████████████████████████████████████| 5/5 [00:00<00:00, 645.24 cells/s]\nInserted 1 row with 0 errors.\n\nUpdateStatus(num_rows=1, num_computed_values=5, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "One row inserted, 5 computed values calculated (including dependencies)",
+      "output_type": "text",
+      "learns": ["incremental-updates", "automatic-computation"],
+      "reinforces": ["data-insertion", "computed-column-creation"],
+      "gotchas": ["Progress bars shown for computation", "All dependent columns updated automatically"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(d) where d is depth of dependency chain",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Manual recalculation of entire pipeline",
+        "when_to_use": "Traditional batch processing systems"
+      },
+      "state_after": {
+        "tables": ["population"],
+        "views": [],
+        "variables": ["pop_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["incremental_updates"]
+    },
+    {
+      "number": 5,
+      "section_title": "Image Processing Setup",
+      "intent": "Create a table for image processing operations",
+      "code": "t = pxt.create_table('fundamentals.image_ops', {'source': pxt.Image})",
+      "imports_used": ["pixeltable"],
+      "explanation": "Image columns store image data and support various processing operations",
+      "actual_output": "Created table `image_ops`.",
+      "output_summary": "New table created with single Image column",
+      "output_type": "text",
+      "learns": ["image-columns", "media-types"],
+      "reinforces": ["table-creation"],
+      "gotchas": ["Image type different from basic data types", "Images are stored as references to files"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Store image paths as strings and load manually",
+        "when_to_use": "When you don't need Pixeltable's image processing features"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["image_table_setup"]
+    },
+    {
+      "number": 6,
+      "section_title": "Loading Images from URLs",
+      "intent": "Insert images into the table using URLs",
+      "code": "url_prefix = 'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/images'\nimages = ['000000000139.jpg', '000000000632.jpg', '000000000872.jpg']\nt.insert({'source': f'{url_prefix}/{image}'} for image in images)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Images can be loaded from URLs and are automatically cached locally",
+      "actual_output": "Inserting rows into `image_ops`: 3 rows [00:00, 1092.08 rows/s]\nInserted 3 rows with 0 errors.\n\nUpdateStatus(num_rows=3, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "3 images inserted from URLs successfully",
+      "output_type": "text",
+      "learns": ["image-insertion", "url-loading", "generator-expressions"],
+      "reinforces": ["data-insertion"],
+      "gotchas": ["URLs must be publicly accessible", "Images downloaded and cached automatically"],
+      "performance": {
+        "execution_time": "1-3s depending on network",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Insert local file paths instead of URLs",
+        "when_to_use": "When images are already stored locally"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t", "url_prefix", "images"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["image_url_insertion"]
+    },
+    {
+      "number": 7,
+      "section_title": "Image Metadata Extraction",
+      "intent": "Add computed column to extract image metadata",
+      "code": "t.add_computed_column(metadata=t.source.get_metadata())",
+      "imports_used": ["pixeltable"],
+      "explanation": "Built-in UDFs like get_metadata() can be used in computed columns to extract image properties",
+      "actual_output": "Computing cells: 100%|███████████████████████████████████████████| 3/3 [00:00<00:00, 113.06 cells/s]\nAdded 3 column values with 0 errors.",
+      "output_summary": "Metadata extracted for all 3 images",
+      "output_type": "text",
+      "learns": ["image-udfs", "metadata-extraction"],
+      "reinforces": ["computed-column-creation", "method-call-syntax"],
+      "gotchas": ["UDFs can be called as methods on column references", "Progress bars for UDF computation"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use PIL directly in custom UDF",
+        "when_to_use": "When built-in metadata extraction isn't sufficient"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t", "url_prefix", "images"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["image_metadata_udf"]
+    },
+    {
+      "number": 8,
+      "section_title": "Image Transformation",
+      "intent": "Apply image rotation as a computed column",
+      "code": "t.add_computed_column(rotated=t.source.rotate(10))",
+      "imports_used": ["pixeltable"],
+      "explanation": "Image operations like rotate() create new images that are automatically cached",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 89.02 cells/s]\nAdded 3 column values with 0 errors.",
+      "output_summary": "Rotated images created and cached for all 3 source images",
+      "output_type": "text",
+      "learns": ["image-transformation", "image-caching"],
+      "reinforces": ["computed-column-creation", "image-udfs"],
+      "gotchas": ["Transformed images are new Image objects", "All transformations are cached permanently"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Apply transformations on-demand without caching",
+        "when_to_use": "When storage space is limited and transformations are rarely reused"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t", "url_prefix", "images"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["image_transformation"]
+    },
+    {
+      "number": 9,
+      "section_title": "Chained Image Operations",
+      "intent": "Chain multiple image operations in a single computed column",
+      "code": "t.add_computed_column(rotated_transparent=t.source.convert('RGBA').rotate(10))",
+      "imports_used": ["pixeltable"],
+      "explanation": "Multiple image operations can be chained together in one expression",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 24.34 cells/s]\nAdded 3 column values with 0 errors.",
+      "output_summary": "Images converted to RGBA and rotated, creating transparent backgrounds",
+      "output_type": "text",
+      "learns": ["operation-chaining", "image-mode-conversion"],
+      "reinforces": ["image-transformation", "computed-column-creation"],
+      "gotchas": ["Operations applied left-to-right", "Mode conversion affects file format"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Create separate computed columns for each operation",
+        "when_to_use": "When intermediate results are needed independently"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t", "url_prefix", "images"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["chained_image_operations"]
+    },
+    {
+      "number": 10,
+      "section_title": "Model Inference Setup",
+      "intent": "Add object detection model to the pipeline",
+      "code": "from pixeltable.functions.huggingface import detr_for_object_detection\n\nt.add_computed_column(detections=detr_for_object_detection(\n    t.source,\n    model_id='facebook/detr-resnet-50',\n    threshold=0.8\n))",
+      "imports_used": ["pixeltable", "pixeltable.functions.huggingface"],
+      "explanation": "Pre-trained models can be integrated as UDFs in computed columns for automatic inference",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:03<00:00,  1.05s/ cells])\nAdded 3 column values with 0 errors.",
+      "output_summary": "Object detection model applied to all images, taking ~1 second per image",
+      "output_type": "text",
+      "learns": ["model-inference", "huggingface-integration"],
+      "reinforces": ["computed-column-creation", "udf-calls"],
+      "gotchas": ["First run downloads model weights", "Model inference is compute-intensive", "Results are JSON structures"],
+      "performance": {
+        "execution_time": "3-5s for first run, < 1s for subsequent runs",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Run inference manually with custom code",
+        "when_to_use": "When you need fine control over the inference process"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t", "url_prefix", "images"],
+        "models_loaded": ["facebook/detr-resnet-50"]
+      },
+      "pattern_refs": ["model_inference_udf"]
+    },
+    {
+      "number": 11,
+      "section_title": "Visualization of Results",
+      "intent": "Create images with bounding boxes drawn on them",
+      "code": "from pixeltable.functions.vision import draw_bounding_boxes\n\nt.add_computed_column(image_with_bb=draw_bounding_boxes(\n    t.source, t.detections.boxes, t.detections.label_text, fill=True\n))",
+      "imports_used": ["pixeltable", "pixeltable.functions.huggingface", "pixeltable.functions.vision"],
+      "explanation": "Complex expressions can reference multiple columns and nested JSON properties",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 55.74 cells/s]\nAdded 3 column values with 0 errors.",
+      "output_summary": "Bounding boxes drawn on all images using detection results",
+      "output_type": "text",
+      "learns": ["json-property-access", "multi-column-expressions", "visualization-udfs"],
+      "reinforces": ["computed-column-creation", "column-references"],
+      "gotchas": ["Dot notation accesses JSON properties", "Multiple columns can be referenced in one expression"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Export detection data and visualize separately",
+        "when_to_use": "When you need custom visualization not provided by built-in UDFs"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t", "url_prefix", "images"],
+        "models_loaded": ["facebook/detr-resnet-50"]
+      },
+      "pattern_refs": ["json_property_access", "visualization_udf"]
+    },
+    {
+      "number": 12,
+      "section_title": "Adding More Data",
+      "intent": "Demonstrate that all computed columns update automatically with new data",
+      "code": "more_images = ['000000000108.jpg', '000000000885.jpg']\nt.insert({'source': f'{url_prefix}/{image}'} for image in more_images)",
+      "imports_used": ["pixeltable", "pixeltable.functions.huggingface", "pixeltable.functions.vision"],
+      "explanation": "New data automatically flows through entire computed column pipeline",
+      "actual_output": "Computing cells:  20%|████████▌                                  | 2/10 [00:01<00:05,  1.45 cells/s]\nInserting rows into `image_ops`: 2 rows [00:00, 1118.03 rows/s]\nComputing cells: 100%|██████████████████████████████████████████| 10/10 [00:01<00:00,  6.96 cells/s]\nInserted 2 rows with 0 errors.\n\nUpdateStatus(num_rows=2, num_computed_values=10, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "2 new images inserted, 10 computed values calculated (5 columns × 2 rows)",
+      "output_type": "text",
+      "learns": ["pipeline-automation", "compute-propagation"],
+      "reinforces": ["incremental-updates", "data-insertion"],
+      "gotchas": ["All computed columns update automatically", "Model inference runs on new data"],
+      "performance": {
+        "execution_time": "1-2s including model inference",
+        "scaling": "O(n*c) where n is new rows and c is computed columns",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Manually trigger recomputation of entire pipeline",
+        "when_to_use": "Traditional batch processing workflows"
+      },
+      "state_after": {
+        "tables": ["population", "image_ops"],
+        "views": [],
+        "variables": ["pop_t", "t", "url_prefix", "images", "more_images"],
+        "models_loaded": ["facebook/detr-resnet-50"]
+      },
+      "pattern_refs": ["incremental_updates", "pipeline_automation"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "csv_import",
+      "description": "Import CSV data from URLs into Pixeltable tables with automatic schema inference",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table = pxt.io.import_csv('dir.table_name', 'https://example.com/data.csv')",
+      "parameters": {
+        "table_name": "Full path including directory",
+        "url": "HTTP/HTTPS URL to CSV file",
+        "primary_key": "Optional column name for primary key",
+        "parse_dates": "Optional list of column indices to parse as dates"
+      },
+      "variations": [
+        {
+          "name": "local_file",
+          "difference": "Use local file path instead of URL", 
+          "code": "table = pxt.io.import_csv('dir.table_name', '/path/to/file.csv')"
+        }
+      ],
+      "prerequisites": ["directory-creation"],
+      "enables": ["data-analysis", "computed-columns"],
+      "performance_impact": "Network latency for URL downloads, O(n) for row insertion",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "computed_column_arithmetic", 
+      "description": "Create computed columns using arithmetic expressions on existing columns",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "computed-columns",
+      "code_template": "table.add_computed_column(result_name=(table.col1 + table.col2))",
+      "parameters": {
+        "result_name": "Name for the new computed column",
+        "expression": "Arithmetic expression using column references"
+      },
+      "variations": [
+        {
+          "name": "complex_expression",
+          "difference": "Multiple operations and parentheses",
+          "code": "table.add_computed_column(pct=(100 * table.change / table.base))"
+        }
+      ],
+      "prerequisites": ["table-creation", "data-insertion"],
+      "enables": ["automatic-calculations", "column-chaining"],
+      "performance_impact": "O(n) computation on column creation, O(1) for incremental updates",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "computed_column_chaining",
+      "description": "Create computed columns that reference other computed columns",
+      "confidence": "high", 
+      "frequency": 2,
+      "first_seen": "computed-columns",
+      "code_template": "table.add_computed_column(derived=table.computed_col * factor)",
+      "parameters": {
+        "derived_name": "Name for the new computed column",
+        "computed_col": "Reference to existing computed column", 
+        "operation": "Calculation to perform on computed column"
+      },
+      "variations": [
+        {
+          "name": "multi_column_chain",
+          "difference": "Reference multiple computed columns",
+          "code": "table.add_computed_column(result=(table.comp1 + table.comp2) / 2)"
+        }
+      ],
+      "prerequisites": ["computed-column-creation"],
+      "enables": ["complex-pipelines", "dependency-graphs"],
+      "performance_impact": "Updates propagate through dependency chain",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "incremental_updates",
+      "description": "Automatic computation of dependent columns when new data is added",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "computed-columns", 
+      "code_template": "table.insert(new_data)  # Computed columns update automatically",
+      "parameters": {
+        "new_data": "Dictionary or list of dictionaries with new row data"
+      },
+      "variations": [
+        {
+          "name": "batch_insert",
+          "difference": "Insert multiple rows at once",
+          "code": "table.insert([row1, row2, row3])  # All computed columns update"
+        }
+      ],
+      "prerequisites": ["computed-column-creation"],
+      "enables": ["real-time-pipelines", "streaming-data"],
+      "performance_impact": "O(d*n) where d is dependency depth and n is new rows",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "image_table_setup",
+      "description": "Create tables with Image columns for media processing",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "computed-columns",
+      "code_template": "table = pxt.create_table('dir.name', {'col': pxt.Image})",
+      "parameters": {
+        "table_name": "Full path including directory",
+        "column_name": "Name for the image column",
+        "image_type": "pxt.Image or specialized image type"
+      },
+      "variations": [
+        {
+          "name": "multiple_image_columns",
+          "difference": "Multiple image columns in one table",
+          "code": "table = pxt.create_table('dir.name', {'img1': pxt.Image, 'img2': pxt.Image})"
+        }
+      ],
+      "prerequisites": ["directory-creation"],
+      "enables": ["image-processing", "media-workflows"],
+      "performance_impact": "Images stored as file references, minimal overhead",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "image_url_insertion",
+      "description": "Insert images into tables using URLs with automatic downloading and caching",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "computed-columns",
+      "code_template": "table.insert({'img_col': 'https://example.com/image.jpg'})",
+      "parameters": {
+        "image_column": "Name of the Image column",
+        "url": "HTTP/HTTPS URL to image file"
+      },
+      "variations": [
+        {
+          "name": "local_path",
+          "difference": "Use local file path instead of URL",
+          "code": "table.insert({'img_col': '/path/to/image.jpg'})"
+        },
+        {
+          "name": "batch_urls",
+          "difference": "Insert multiple images from URLs",
+          "code": "table.insert({'img_col': url} for url in url_list)"
+        }
+      ],
+      "prerequisites": ["image-table-setup"],
+      "enables": ["web-scraping", "dataset-creation"],
+      "performance_impact": "Network latency for downloads, automatic caching",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "image_metadata_udf",
+      "description": "Extract metadata from images using built-in UDFs",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "computed-columns",
+      "code_template": "table.add_computed_column(metadata=table.image_col.get_metadata())",
+      "parameters": {
+        "result_name": "Name for metadata column",
+        "image_column": "Reference to image column"
+      },
+      "variations": [
+        {
+          "name": "specific_metadata",
+          "difference": "Extract specific metadata properties",
+          "code": "table.add_computed_column(width=table.metadata['width'])"
+        }
+      ],
+      "prerequisites": ["image-table-setup", "image-insertion"],
+      "enables": ["image-analysis", "quality-control"],
+      "performance_impact": "Fast metadata extraction, O(n) where n is number of images",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "image_transformation",
+      "description": "Apply image transformations as computed columns with automatic caching",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "computed-columns",
+      "code_template": "table.add_computed_column(transformed=table.image_col.operation(params))",
+      "parameters": {
+        "result_name": "Name for transformed image column",
+        "image_column": "Reference to source image column",
+        "operation": "Transformation method (rotate, resize, etc.)",
+        "params": "Parameters for the transformation"
+      },
+      "variations": [
+        {
+          "name": "resize",
+          "difference": "Resize images to specific dimensions",
+          "code": "table.add_computed_column(thumb=table.img.resize((128, 128)))"
+        },
+        {
+          "name": "convert_mode",
+          "difference": "Convert image color mode",
+          "code": "table.add_computed_column(gray=table.img.convert('L'))"
+        }
+      ],
+      "prerequisites": ["image-table-setup", "image-insertion"],
+      "enables": ["image-preprocessing", "thumbnail-generation"],
+      "performance_impact": "CPU-intensive, results cached permanently",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "chained_image_operations",
+      "description": "Chain multiple image operations in a single computed column expression",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "computed-columns",
+      "code_template": "table.add_computed_column(result=table.img.op1().op2().op3())",
+      "parameters": {
+        "result_name": "Name for final result column",
+        "image_column": "Reference to source image column",
+        "operations": "Sequence of chained operations"
+      },
+      "variations": [
+        {
+          "name": "conditional_chain",
+          "difference": "Use conditional logic in chains",
+          "code": "table.add_computed_column(proc=table.img.resize(size) if condition else table.img)"
+        }
+      ],
+      "prerequisites": ["image-transformation"],
+      "enables": ["complex-preprocessing", "pipeline-optimization"],
+      "performance_impact": "Operations applied sequentially, intermediate results not stored",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "model_inference_udf",
+      "description": "Integrate pre-trained models as UDFs for automatic inference on data",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "computed-columns", 
+      "code_template": "table.add_computed_column(result=model_udf(table.input_col, model_id='model/name'))",
+      "parameters": {
+        "result_name": "Name for inference result column",
+        "input_column": "Column containing input data (images, text, etc.)",
+        "model_id": "HuggingFace model identifier",
+        "threshold": "Optional confidence threshold"
+      },
+      "variations": [
+        {
+          "name": "text_models",
+          "difference": "Use text-based models instead of vision models",
+          "code": "table.add_computed_column(sentiment=sentiment_analysis(table.text_col))"
+        }
+      ],
+      "prerequisites": ["data-insertion", "huggingface-models"],
+      "enables": ["automated-ml", "batch-inference"],
+      "performance_impact": "GPU recommended, model downloads on first use, results cached",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "json_property_access",
+      "description": "Access properties within JSON-typed computed column results",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "computed-columns",
+      "code_template": "table.json_col.property_name",
+      "parameters": {
+        "json_column": "Column containing JSON data",
+        "property_name": "Name of property to access"
+      },
+      "variations": [
+        {
+          "name": "array_access",
+          "difference": "Access array elements within JSON",
+          "code": "table.json_col.array_prop[0]"
+        },
+        {
+          "name": "nested_access",
+          "difference": "Access nested properties",
+          "code": "table.json_col.level1.level2.property"
+        }
+      ],
+      "prerequisites": ["json-data", "model-inference"],
+      "enables": ["result-extraction", "data-transformation"],
+      "performance_impact": "Fast property access, no additional computation",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "visualization_udf", 
+      "description": "Create visualizations by combining data from multiple columns",
+      "confidence": "medium",
+      "frequency": 1,
+      "first_seen": "computed-columns",
+      "code_template": "table.add_computed_column(viz=draw_func(table.img, table.data.prop1, table.data.prop2))",
+      "parameters": {
+        "result_name": "Name for visualization column",
+        "base_image": "Source image to draw on",
+        "data_columns": "Additional columns providing visualization data"
+      },
+      "variations": [
+        {
+          "name": "custom_colors",
+          "difference": "Customize visualization colors",
+          "code": "draw_bounding_boxes(img, boxes, labels, fill=True, colors=custom_colors)"
+        }
+      ],
+      "prerequisites": ["image-processing", "json-property-access"],
+      "enables": ["result-visualization", "debugging-aids"],
+      "performance_impact": "Moderate CPU usage for drawing operations",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "pipeline_automation",
+      "description": "Complete data processing pipelines that update automatically with new data",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "computed-columns",
+      "code_template": "# Pipeline updates automatically when new data inserted\ntable.insert(new_data)",
+      "parameters": {
+        "pipeline_depth": "Number of dependent computed columns",
+        "data_types": "Mix of structured and unstructured data"
+      },
+      "variations": [
+        {
+          "name": "conditional_pipeline",
+          "difference": "Pipeline branches based on data properties",
+          "code": "# Different processing based on file type or other conditions"
+        }
+      ],
+      "prerequisites": ["computed-columns", "incremental-updates"],
+      "enables": ["production-workflows", "real-time-processing"],
+      "performance_impact": "Scales with pipeline complexity and data volume",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Model download timeout",
+      "frequency": "occasional",
+      "cause": "Network issues or large model files",
+      "symptoms": ["Long hanging during first model use", "Connection timeout errors"],
+      "solution": {
+        "quick_fix": "Retry the operation after checking network connection",
+        "proper_fix": "Pre-download models or use smaller models for testing"
+      },
+      "prevention": "Test with smaller models first, ensure stable internet connection",
+      "example": "detr_for_object_detection hanging on first run",
+      "first_seen": "computed-columns#step-10"
+    },
+    {
+      "error_type": "Circular dependency in computed columns",
+      "frequency": "rare",
+      "cause": "Computed column references itself directly or indirectly",
+      "symptoms": ["Error when creating computed column", "Dependency cycle detected"],
+      "solution": {
+        "quick_fix": "Remove the circular reference",
+        "proper_fix": "Redesign the column dependency graph to be acyclic"
+      },
+      "prevention": "Plan computed column dependencies before implementation",
+      "example": "col1 references col2, col2 references col1",
+      "first_seen": "computed-columns#step-3"
+    },
+    {
+      "error_type": "Image URL not accessible",
+      "frequency": "common",
+      "cause": "URL is broken, requires authentication, or network issues",
+      "symptoms": ["Error during image insertion", "HTTP 404 or 403 errors"],
+      "solution": {
+        "quick_fix": "Verify URL is accessible in browser",
+        "proper_fix": "Use authenticated requests or local files"
+      },
+      "prevention": "Test URLs before batch insertion",
+      "example": "Private S3 bucket URLs without credentials",
+      "first_seen": "computed-columns#step-6"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What happens to computed columns when new data is inserted into a table?",
+      "answer": "Computed columns automatically calculate values for the new rows, and any dependent computed columns are also updated incrementally."
+    },
+    {
+      "question": "How are computed columns different from using select() for calculations?",
+      "answer": "Computed columns are permanent parts of the table schema, persist results in the database, and automatically update with new data, while select() calculations are temporary and computed on-demand."
+    },
+    {
+      "question": "Can you chain computed columns that depend on other computed columns?",
+      "answer": "Yes, computed columns can reference other computed columns, creating dependency chains that update automatically when upstream columns change."
+    },
+    {
+      "question": "What happens to the performance when you have deep chains of computed columns?",
+      "answer": "Performance scales with the depth of the dependency chain (O(d) where d is depth), but updates are still incremental and only affect new or changed rows."
+    },
+    {
+      "question": "How does Pixeltable handle image transformations in computed columns?",
+      "answer": "Image transformations are applied automatically and results are cached permanently. Multiple operations can be chained in a single expression."
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Pre-cache model weights before production deployment",
+      "impact": "Eliminates model download delays during pipeline execution",
+      "implementation": "Run a dummy inference during setup to trigger model download",
+      "trade_offs": "Requires additional storage space for cached models",
+      "example": "# Trigger model download\ndummy_result = model_udf(sample_data)"
+    },
+    {
+      "tip": "Use specialized image types for better performance",
+      "impact": "Enforces consistent image formats and enables optimizations",
+      "implementation": "Specify image constraints in schema: pxt.Image[(224,224), 'RGB']",
+      "trade_offs": "Less flexibility for varying input formats",
+      "example": "{'image': pxt.Image[(224,224), 'RGB']}"
+    },
+    {
+      "tip": "Monitor computed column execution times",
+      "impact": "Identify bottlenecks in automated pipelines",
+      "implementation": "Use progress bars and timing information from UpdateStatus",
+      "trade_offs": "Additional monitoring overhead",
+      "example": "Watch for slow cells in progress bars during column creation"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 3,
+    "emerging_patterns": 4,
+    "established_patterns": 6,
+    "total_patterns": 13
+  },
+  "cookies": "🍪 Why did the computed column break up with the regular column? Because it was tired of doing all the work while the regular column just sat there being static!"
+}

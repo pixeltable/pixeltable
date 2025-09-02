@@ -1,0 +1,1098 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial", 
+  "@id": "rag-demo",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb",
+  "title": "Document Indexing and RAG",
+  "objective": "Build a complete RAG application that indexes PDF documents, creates vector embeddings, and uses ChatGPT to answer questions about document contents",
+  "difficulty": "advanced",
+  "categories": ["rag", "document-processing", "vector-search", "llm-integration", "incremental-indexing"],
+  "prerequisites": ["pixeltable-basics", "audio-transcriptions"],
+  "imports_required": [
+    "pixeltable",
+    "numpy", 
+    "os",
+    "getpass",
+    "sentence-transformers",
+    "tiktoken",
+    "openai",
+    "openpyxl",
+    "pixeltable.iterators.DocumentSplitter",
+    "pixeltable.functions.huggingface.sentence_transformer",
+    "pixeltable.functions.openai"
+  ],
+  "performance_notes": {
+    "typical_runtime": "5-10 minutes with GPU, 10-20 minutes CPU-only",
+    "resource_requirements": "8GB RAM minimum, GPU recommended, 1GB disk for documents and models",
+    "bottlenecks": ["PDF parsing", "document chunking", "embedding computation", "LLM API calls"]
+  },
+  "key_learnings": [
+    "Complete RAG pipeline implementation using tables and views",
+    "Document chunking strategies with token limits for optimal retrieval",
+    "Vector embedding indexes for semantic document search", 
+    "Query augmentation patterns using @query decorators",
+    "LLM prompt construction for context-aware responses",
+    "Incremental document indexing with automatic pipeline updates",
+    "Production RAG patterns with persistent data storage"
+  ],
+  "relationships": {
+    "builds_on": ["table-basics", "computed-columns", "embedding-indexes"],
+    "enables": ["question-answering", "document-search", "knowledge-bases"],
+    "see_also": ["audio-transcriptions#embedding_index", "pixeltable-basics#views"],
+    "contrasts_with": ["traditional-rag#ephemeral_processing"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Setup Environment and Credentials",
+      "intent": "Configure OpenAI API credentials and install required packages", 
+      "code": "import os\nimport getpass\nif 'OPENAI_API_KEY' not in os.environ:\n    os.environ['OPENAI_API_KEY'] = getpass.getpass('OpenAI API Key:')\n\n%pip install -q pixeltable sentence-transformers tiktoken openai openpyxl",
+      "imports_used": ["os", "getpass"],
+      "explanation": "Securely collect OpenAI API key and install dependencies needed for RAG pipeline",
+      "actual_output": "Note: you may need to restart the kernel to use updated packages.",
+      "output_summary": "Environment configured with API credentials and required packages installed",
+      "output_type": "text",
+      "learns": ["rag_setup", "dependency_management", "secure_credentials"],
+      "reinforces": [],
+      "gotchas": ["API key required for OpenAI calls", "Kernel restart may be needed"],
+      "performance": {
+        "execution_time": "30-60s for package installation",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Set environment variables externally or use configuration files",
+        "when_to_use": "For production deployments"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["rag_environment_setup"]
+    },
+    {
+      "number": 2,
+      "section_title": "Initialize Pixeltable Workspace",
+      "intent": "Create clean workspace for RAG demo with organized directory structure",
+      "code": "import numpy as np\nimport pixeltable as pxt\n\n# Ensure a clean slate for the demo\npxt.drop_dir('rag_demo', force=True)\npxt.create_dir('rag_demo')",
+      "imports_used": ["numpy", "pixeltable"],
+      "explanation": "Initialize clean Pixeltable workspace to avoid conflicts with existing data",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/home/marcel/.pixeltable/pgdata\nCreated directory 'rag_demo'.\n\n<pixeltable.catalog.dir.Dir at 0x7eb34c1eceb0>",
+      "output_summary": "RAG workspace created with database connection established",
+      "output_type": "text", 
+      "learns": ["workspace_initialization"],
+      "reinforces": ["clean_workspace_setup"],
+      "gotchas": ["force=True overwrites existing directories"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use existing directory without force flag",
+        "when_to_use": "When preserving existing data"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["clean_workspace_setup"]
+    },
+    {
+      "number": 3,
+      "section_title": "Import Questions Dataset",
+      "intent": "Load evaluation questions from Excel file to test RAG system performance",
+      "code": "base = 'https://github.com/pixeltable/pixeltable/raw/main/docs/resources/rag-demo/'\nqa_url = base + 'Q-A-Rag.xlsx'\nqueries_t = pxt.io.import_excel('rag_demo.queries', qa_url)",
+      "imports_used": ["numpy", "pixeltable"],
+      "explanation": "Import structured question-answer pairs from Excel to create evaluation dataset",
+      "actual_output": "Created table 'queries'.\nInserting rows into `queries`: 8 rows [00:00, 1853.94 rows/s]\nInserted 8 rows with 0 errors.",
+      "output_summary": "8 questions with ground truth answers imported into queries table",
+      "output_type": "text",
+      "learns": ["excel_import", "evaluation_dataset", "rag_evaluation"],
+      "reinforces": ["table_creation"],
+      "gotchas": ["Excel file must be accessible via URL", "Column names derived from Excel headers"],
+      "performance": {
+        "execution_time": "1-2s",
+        "scaling": "O(file_size)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Import from CSV, JSON, or manual table creation",
+        "when_to_use": "Based on data source format"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries"],
+        "views": [],
+        "variables": ["queries_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["evaluation_data_import"]
+    },
+    {
+      "number": 4,
+      "section_title": "Preview Questions Dataset", 
+      "intent": "Examine the structure and content of evaluation questions",
+      "code": "queries_t.head()",
+      "imports_used": ["numpy", "pixeltable"],
+      "explanation": "Display first few questions to understand the evaluation dataset structure",
+      "actual_output": "   S__No_                                           Question  \\\n0       1          What is roughly the current mortage rate?   \n1       2  What is the current dividend yield for Alphabe...   \n2       3     What is the market capitalization of Alphabet?   \n3       4  What are the latest financial metrics for Acce...   \n4       5  What is the overall latest rating for Amazon.c...   \n5       6  What is the operating cash flow of Amazon in Q...   \n6       7    What is the expected EPS for Nvidia in Q1 2026?   \n7       8           What are the main reasons to buy Nvidia?   \n\n                                      correct_answer  \n0                                               0.07  \n1                                             0.0046  \n2                                    $2182.8 Billion  \n3  missed consensus forecasts and strong total bo...  \n4                                               SELL  \n5                                     18,989 Million  \n6                                           0.73 EPS  \n7  Datacenter, GPUs Demands, Self-driving, and ca...",
+      "output_summary": "8 financial questions with specific ground truth answers for evaluation",
+      "output_type": "table",
+      "learns": ["evaluation_dataset_structure"],
+      "reinforces": ["table_operations"],
+      "gotchas": ["Ground truth answers vary in format (numbers, text, dollar amounts)"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use show() or select specific columns",
+        "when_to_use": "For different display preferences"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries"],
+        "views": [],
+        "variables": ["queries_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["data_exploration"]
+    },
+    {
+      "number": 5,
+      "section_title": "Create Documents Table",
+      "intent": "Set up table to store PDF documents for indexing and retrieval",
+      "code": "documents_t = pxt.create_table(\n    'rag_demo.documents',\n    {'document': pxt.Document}\n)\n\ndocuments_t",
+      "imports_used": ["numpy", "pixeltable"],
+      "explanation": "Create table with Document column type to store PDF files for the knowledge base",
+      "actual_output": "Created table 'documents'.\n\n\ntable 'rag_demo.documents'\n\n Column Name      Type Computed With\n    document  Document",
+      "output_summary": "Documents table created with single Document column for PDF storage",
+      "output_type": "table",
+      "learns": ["document_column_type", "knowledge_base_setup"],
+      "reinforces": ["table_creation"],
+      "gotchas": ["Document type handles various file formats (PDF, DOCX, TXT, etc.)"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could add metadata columns for document properties",
+        "when_to_use": "When additional document metadata is needed"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": [],
+        "variables": ["queries_t", "documents_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["document_table_pattern"]
+    },
+    {
+      "number": 6,
+      "section_title": "Load Initial Documents",
+      "intent": "Insert first batch of PDF documents to start building the knowledge base",
+      "code": "document_urls = [\n    base + 'Argus-Market-Digest-June-2024.pdf',\n    base + 'Argus-Market-Watch-June-2024.pdf',\n    base + 'Company-Research-Alphabet.pdf',\n    base + 'Jefferson-Amazon.pdf',\n    base + 'Mclean-Equity-Alphabet.pdf',\n    base + 'Zacks-Nvidia-Report.pdf',\n]\n\ndocuments_t.insert({'document': url} for url in document_urls[:3])\ndocuments_t.show()",
+      "imports_used": ["numpy", "pixeltable"],
+      "explanation": "Load first 3 PDF documents from URLs to demonstrate incremental indexing pattern",
+      "actual_output": "Inserting rows into `documents`: 3 rows [00:00, 1925.76 rows/s]\nInserted 3 rows with 0 errors.\n\n\n                                            document\n0  /home/marcel/.pixeltable/file_cache/c7638b6b71...\n1  /home/marcel/.pixeltable/file_cache/c7638b6b71...\n2  /home/marcel/.pixeltable/file_cache/c7638b6b71...",
+      "output_summary": "3 PDF documents downloaded and cached locally in Pixeltable file system",
+      "output_type": "table",
+      "learns": ["document_loading", "incremental_indexing_setup"],
+      "reinforces": ["batch_insertion_pattern"],
+      "gotchas": ["Only loading subset initially to demonstrate incremental updates"],
+      "performance": {
+        "execution_time": "2-5s depending on file sizes",
+        "scaling": "O(n * file_size)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Load all documents at once or from local file system",
+        "when_to_use": "Based on demonstration needs or data location"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": [],
+        "variables": ["queries_t", "documents_t", "document_urls"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["batch_url_loading", "incremental_loading_pattern"]
+    },
+    {
+      "number": 7,
+      "section_title": "Create Document Chunks View",
+      "intent": "Split documents into smaller chunks for better retrieval granularity",
+      "code": "from pixeltable.iterators import DocumentSplitter\n\nchunks_t = pxt.create_view(\n    'rag_demo.chunks',\n    documents_t,\n    iterator=DocumentSplitter.create(\n        document=documents_t.document,\n        separators='token_limit',\n        limit=300\n    )\n)",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter"],
+      "explanation": "Create view that automatically chunks documents into 300-token segments for optimal retrieval",
+      "actual_output": "Inserting rows into `chunks`: 41 rows [00:00, 21767.91 rows/s]",
+      "output_summary": "41 document chunks created automatically from 3 PDF documents",
+      "output_type": "text",
+      "learns": ["document_chunking", "token_based_splitting", "retrieval_optimization"],
+      "reinforces": ["view_iterator_pattern"],
+      "gotchas": ["Token limit affects retrieval quality vs context size trade-off"],
+      "performance": {
+        "execution_time": "1-3s depending on document size",
+        "scaling": "O(document_size / chunk_size)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Different separators (sentence, paragraph) or chunk sizes",
+        "when_to_use": "Based on document structure and retrieval requirements"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["document_chunking_pattern", "view_iterator_pattern"]
+    },
+    {
+      "number": 8,
+      "section_title": "Examine Chunks Structure",
+      "intent": "Understand the structure and content of document chunks",
+      "code": "chunks_t",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter"],
+      "explanation": "Display chunk view schema to understand available columns and their relationships",
+      "actual_output": "view 'rag_demo.chunks' (of 'rag_demo.documents')\n\n Column Name              Type Computed With\n         pos     Required[Int]              \n        text  Required[String]              \n    document          Document",
+      "output_summary": "Chunks view has pos (sequence), text (content), and document (parent reference) columns",
+      "output_type": "table",
+      "learns": ["chunk_view_structure", "parent_child_relationships"],
+      "reinforces": ["view_creation"],
+      "gotchas": ["pos column provides ordering within and across documents"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could add computed columns for chunk metadata",
+        "when_to_use": "When additional chunk analysis is needed"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["data_exploration"]
+    },
+    {
+      "number": 9,
+      "section_title": "Preview Chunk Content",
+      "intent": "Examine actual chunk content to verify document splitting quality",
+      "code": "chunks_t.where(chunks_t.pos < 2).show()",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter"],
+      "explanation": "Display first 2 chunks from each document to assess chunking quality",
+      "actual_output": "   pos                                               text  \\\n0    0  MARKET DIGEST\\n- 1 -\\n FRIDAY, JUNE 21, 2024\\n...   \n1    1   500 lower by 0.79% and 0.25%,\\nrespectively. ...   \n2    0  Friday, June 21, 2024\\nIntermediate Term:\\nMar...   \n3    1  \\n37058.23\\n5473.17\\n4831.39\\n17721.59\\n15160....   \n4    0  Company Research Highlights\\n®\\nReport created...   \n5    1  +11.78%\\nEnterprise Value\\n$2103.1 B\\n6/20/202...   \n\n                                            document  \n0  /home/marcel/.pixeltable/file_cache/c7638b6b71...  \n1  /home/marcel/.pixeltable/file_cache/c7638b6b71...  \n2  /home/marcel/.pixeltable/file_cache/c7638b6b71...  \n3  /home/marcel/.pixeltable/file_cache/c7638b6b71...  \n4  /home/marcel/.pixeltable/file_cache/c7638b6b71...  \n5  /home/marcel/.pixeltable/file_cache/c7638b6b71...",
+      "output_summary": "Document chunks show varied content including headers, financial data, and structured text",
+      "output_type": "table",
+      "learns": ["chunk_content_quality", "document_structure_preservation"],
+      "reinforces": ["document_chunking"],
+      "gotchas": ["Chunks may break across sentences depending on token limits"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Show chunks from specific documents or with longer content",
+        "when_to_use": "For detailed content analysis"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["data_exploration", "content_validation"]
+    },
+    {
+      "number": 10,
+      "section_title": "Create Vector Embedding Index",
+      "intent": "Build semantic search index on document chunks using sentence transformers",
+      "code": "from pixeltable.functions.huggingface import sentence_transformer\n\nchunks_t.add_embedding_index(\n    'text',\n    embedding=sentence_transformer.using(model_id='intfloat/e5-large-v2')\n)",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Create vector index on chunk text using E5-large-v2 model for semantic similarity search",
+      "actual_output": "[Progress bar output not captured in actual run]",
+      "output_summary": "Vector embedding index created for all 41 document chunks",
+      "output_type": "text",
+      "learns": ["vector_index_creation", "semantic_search_preparation"],
+      "reinforces": ["embedding_index_pattern"],
+      "gotchas": ["Model download happens on first use", "Index creation is compute-intensive"],
+      "performance": {
+        "execution_time": "30s-2min depending on hardware",
+        "scaling": "O(n * embedding_dim)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Different embedding models or OpenAI embeddings",
+        "when_to_use": "Based on accuracy vs cost requirements"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["embedding_index_pattern", "vector_search_setup"]
+    },
+    {
+      "number": 11,
+      "section_title": "Test Similarity Search",
+      "intent": "Validate vector index functionality with sample query",
+      "code": "query_text = \"What is the expected EPS for Nvidia in Q1 2026?\"\nsim = chunks_t.text.similarity(query_text)\nnvidia_eps_query = (\n    chunks_t\n    .order_by(sim, asc=False)\n    .select(similarity=sim, text=chunks_t.text)\n    .limit(5)\n)\nnvidia_eps_query.collect()",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Test semantic search by querying for most relevant chunks about Nvidia EPS",
+      "actual_output": "   similarity                                               text\n0    0.800725   on 6/20/2024:\\n$176.30\\nCommunication Service...\n1    0.799386  /B/E/S from Refinitiv\\nEarnings in US Dollars\\...\n2    0.796000  +11.78%\\nEnterprise Value\\n$2103.1 B\\n6/20/202...\n3    0.794835  Friday, June 21, 2024\\nIntermediate Term:\\nMar...\n4    0.794355  2024:\\n$176.30\\nCommunication Services Sector\\...",
+      "output_summary": "Top 5 most relevant chunks retrieved with similarity scores around 0.79-0.80",
+      "output_type": "table",
+      "learns": ["similarity_search_validation", "retrieval_quality_assessment"],
+      "reinforces": ["similarity_query_pattern"],
+      "gotchas": ["High similarity scores don't guarantee answer presence", "Need more documents for complete answers"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(log n) with vector index",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Different similarity metrics or result limits",
+        "when_to_use": "Based on retrieval requirements"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["similarity_query_pattern", "retrieval_validation"]
+    },
+    {
+      "number": 12,
+      "section_title": "Create Query Function",
+      "intent": "Define reusable query function for top-k document retrieval",
+      "code": "# A @query is essentially a reusable, parameterized query that is attached to a table (or view),\n# which is a modular way of getting data from that table.\n\n@pxt.query\ndef top_k(query_text: str):\n    sim = chunks_t.text.similarity(query_text)\n    return (\n        chunks_t.order_by(sim, asc=False)\n            .select(chunks_t.text, sim=sim)\n            .limit(5)\n    )\n\n# Now add a computed column to `queries_t`, calling the query\n# `top_k` that we just defined.\nqueries_t.add_computed_column(\n    question_context=top_k(queries_t.Question)\n)",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Create reusable query function and add computed column to retrieve relevant context for each question",
+      "actual_output": "Added 8 column values with 0 errors.\n\n\n8 rows updated, 8 values computed.",
+      "output_summary": "Query function created and applied to all 8 questions, retrieving top-5 relevant chunks for each",
+      "output_type": "text",
+      "learns": ["query_decorator_pattern", "context_retrieval_automation"],
+      "reinforces": ["computed_column_pattern"],
+      "gotchas": ["@query decorator makes functions reusable across tables"],
+      "performance": {
+        "execution_time": "2-5s for 8 queries",
+        "scaling": "O(n_queries * log n_chunks)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Different k values or query parameters",
+        "when_to_use": "Based on context requirements"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["query_decorator_pattern", "context_retrieval_pattern"]
+    },
+    {
+      "number": 13,
+      "section_title": "Examine Query Results Structure",
+      "intent": "Understand the structure of retrieved context data",
+      "code": "queries_t.select(queries_t.question_context).head(1)",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Display the JSON structure of retrieved contexts to understand data format",
+      "actual_output": "                                    question_context\n0  [{'sim': 0.7950694561004639, 'text': ' that si...",
+      "output_summary": "Context stored as JSON array with similarity scores and text chunks",
+      "output_type": "table",
+      "learns": ["context_data_structure", "json_column_usage"],
+      "reinforces": ["query_decorator_pattern"],
+      "gotchas": ["Context is list of dictionaries with sim and text keys"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could structure context differently or add metadata",
+        "when_to_use": "Based on downstream processing needs"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["data_exploration", "json_data_pattern"]
+    },
+    {
+      "number": 14,
+      "section_title": "Create Prompt Construction Function",
+      "intent": "Define UDF to convert context chunks and questions into LLM prompts",
+      "code": "# Define a UDF to create an LLM prompt given a top-k list of\n# context chunks and a question.\n@pxt.udf\ndef create_prompt(top_k_list: list[dict], question: str) -> str:\n    concat_top_k = '\\n\\n'.join(\n        elt['text'] for elt in reversed(top_k_list)\n    )\n    return f'''\n    PASSAGES:\n\n    {concat_top_k}\n\n    QUESTION:\n\n    {question}'''",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Create UDF that combines retrieved chunks and questions into structured LLM prompts",
+      "actual_output": "[No output - function definition]",
+      "output_summary": "UDF defined to create context-enriched prompts for LLM",
+      "output_type": "none",
+      "learns": ["udf_creation", "prompt_engineering", "context_aggregation"],
+      "reinforces": ["udf_pattern"],
+      "gotchas": ["Chunks are reversed to put most relevant last", "Prompt format matches LLM expectations"],
+      "performance": {
+        "execution_time": "< 1s for definition",
+        "scaling": "O(context_size)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Different prompt templates or context ordering",
+        "when_to_use": "Based on LLM and use case requirements"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["udf_pattern", "prompt_construction_pattern"]
+    },
+    {
+      "number": 15,
+      "section_title": "Add Prompt Generation Column",
+      "intent": "Apply prompt construction to all questions using computed column",
+      "code": "queries_t.add_computed_column(\n    prompt=create_prompt(queries_t.question_context, queries_t.Question)\n)",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Add computed column that automatically generates LLM prompts from context and questions",
+      "actual_output": "Added 8 column values with 0 errors.\n\n\n8 rows updated, 16 values computed.",
+      "output_summary": "Prompts generated for all 8 questions using retrieved context",
+      "output_type": "text",
+      "learns": ["prompt_pipeline_automation"],
+      "reinforces": ["computed_column_pattern", "udf_pattern"],
+      "gotchas": ["Computed columns update automatically when dependencies change"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n_questions)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Could generate prompts on-demand instead of storing",
+        "when_to_use": "For memory optimization or dynamic prompting"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["computed_column_pattern", "prompt_pipeline_pattern"]
+    },
+    {
+      "number": 16,
+      "section_title": "Add OpenAI LLM Integration",
+      "intent": "Connect to OpenAI API for generating answers from context-enriched prompts",
+      "code": "from pixeltable.functions import openai\n\n# Assemble the prompt and instructions into OpenAI's message format\nmessages = [\n    {\n        'role': 'system',\n        'content': 'Please read the following passages and answer the question based on their contents.'\n    },\n    {\n        'role': 'user',\n        'content': queries_t.prompt\n    }\n]\n\n# Add a computed column that calls OpenAI\nqueries_t.add_computed_column(\n    response=openai.chat_completions(model='gpt-4o-mini', messages=messages)\n)",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer", "pixeltable.functions.openai"],
+      "explanation": "Integrate OpenAI ChatGPT to generate answers from context-enriched prompts",
+      "actual_output": "Added 8 column values with 0 errors.\n\n\n8 rows updated, 8 values computed.",
+      "output_summary": "OpenAI responses generated for all 8 questions using GPT-4o-mini model",
+      "output_type": "text",
+      "learns": ["llm_integration", "chat_completion_api", "rag_answer_generation"],
+      "reinforces": ["computed_column_pattern"],
+      "gotchas": ["API calls incur costs", "Messages must follow OpenAI format", "Rate limits may apply"],
+      "performance": {
+        "execution_time": "5-10s for 8 API calls",
+        "scaling": "O(n_questions * api_latency)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Different OpenAI models or local LLMs",
+        "when_to_use": "Based on cost and quality requirements"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["llm_integration_pattern", "api_computed_column_pattern"]
+    },
+    {
+      "number": 17,
+      "section_title": "Extract Answer Content",
+      "intent": "Extract clean answer text from OpenAI API response JSON structure",
+      "code": "queries_t.add_computed_column(\n    answer=queries_t.response.choices[0].message.content\n)",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer", "pixeltable.functions.openai"],
+      "explanation": "Extract answer text from nested JSON response structure using dot notation",
+      "actual_output": "Added 8 column values with 0 errors.\n\n\n8 rows updated, 8 values computed.",
+      "output_summary": "Clean answer text extracted from all 8 OpenAI responses",
+      "output_type": "text",
+      "learns": ["json_path_extraction", "response_processing"],
+      "reinforces": ["computed_column_pattern"],
+      "gotchas": ["Assumes single choice in response", "Dot notation works on JSON columns"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n_questions)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Could extract additional metadata from response",
+        "when_to_use": "When token usage or timing data is needed"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["json_extraction_pattern", "response_processing_pattern"]
+    },
+    {
+      "number": 18,
+      "section_title": "Evaluate Initial Results",
+      "intent": "Compare generated answers with ground truth to assess initial performance",
+      "code": "queries_t.select(queries_t.Question, queries_t.correct_answer, queries_t.answer).show()",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer", "pixeltable.functions.openai"],
+      "explanation": "Display side-by-side comparison of questions, correct answers, and RAG-generated answers",
+      "actual_output": "                                            Question  \\\n0          What is roughly the current mortage rate?   \n1  What is the overall latest rating for Amazon.c...   \n2     What is the market capitalization of Alphabet?   \n3  What is the current dividend yield for Alphabe...   \n4    What is the expected EPS for Nvidia in Q1 2026?   \n5  What is the operating cash flow of Amazon in Q...   \n6  What are the latest financial metrics for Acce...   \n7           What are the main reasons to buy Nvidia?   \n\n                                      correct_answer  \\\n0                                               0.07   \n1                                               SELL   \n2                                    $2182.8 Billion   \n3                                             0.0046   \n4                                           0.73 EPS   \n5                                     18,989 Million   \n6  missed consensus forecasts and strong total bo...   \n7  Datacenter, GPUs Demands, Self-driving, and ca...   \n\n                                              answer  \n0              The current mortgage rate is near 7%.  \n1  The provided passages contain detailed informa...  \n2  The market capitalization of Alphabet Inc. is ...  \n3  The passages do not provide any information re...  \n4  The provided passages do not contain any infor...  \n5  The provided passages do not contain informati...  \n6  The latest financial metrics for Accenture PLC...  \n7  The passages provided do not explicitly discus...",
+      "output_summary": "Mixed results with some correct answers and some indicating missing information",
+      "output_type": "table",
+      "learns": ["rag_evaluation", "knowledge_gap_identification"],
+      "reinforces": ["evaluation_dataset_structure"],
+      "gotchas": ["Some questions can't be answered due to missing documents", "System correctly identifies information gaps"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could compute similarity metrics between generated and correct answers",
+        "when_to_use": "For quantitative evaluation"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["evaluation_pattern", "quality_assessment"]
+    },
+    {
+      "number": 19,
+      "section_title": "Add Remaining Documents",
+      "intent": "Demonstrate incremental indexing by adding remaining documents to knowledge base",
+      "code": "documents_t.insert({'document': p} for p in document_urls[3:])",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer", "pixeltable.functions.openai"],
+      "explanation": "Add remaining 3 documents to demonstrate automatic pipeline updates and incremental indexing",
+      "actual_output": "Inserting rows into `documents`: 3 rows [00:00, 1949.63 rows/s]\nInserting rows into `chunks`: 68 rows [00:00, 601.57 rows/s]\nInserted 71 rows with 0 errors.\n\n\n71 rows inserted, 6 values computed.",
+      "output_summary": "3 new documents added, automatically creating 68 new chunks and updating embeddings",
+      "output_type": "text",
+      "learns": ["incremental_indexing", "automatic_pipeline_updates", "knowledge_base_expansion"],
+      "reinforces": ["incremental_update_pattern"],
+      "gotchas": ["Queries table doesn't auto-update to prevent unnecessary LLM calls"],
+      "performance": {
+        "execution_time": "10-30s depending on document size",
+        "scaling": "O(new_document_size)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Could batch all documents together initially",
+        "when_to_use": "When incremental demonstration isn't needed"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["incremental_update_pattern", "knowledge_base_expansion_pattern"]
+    },
+    {
+      "number": 20,
+      "section_title": "Validate Improved Retrieval",
+      "intent": "Test that new documents improve retrieval quality for previously unanswerable questions",
+      "code": "nvidia_eps_query.collect()",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer", "pixeltable.functions.openai"],
+      "explanation": "Re-run the Nvidia EPS query to see improved retrieval with expanded knowledge base",
+      "actual_output": "   similarity                                               text\n0    0.862984  4\\n7,192 A\\n13,507 A\\n18,120 A\\n22,103 A\\n60,9...\n1    0.854627   and Microsoft's Xbox One will also be going w...\n2    0.847631  ations for Windows to deliver maximum performa...\n3    0.841044  2024, the total long-term debt was $8.46 billi...\n4    0.840021  9.78%.\\nNVIDIA Drive Thor solution was adopted...",
+      "output_summary": "Improved similarity scores (0.84-0.86) with more relevant chunks from new documents",
+      "output_type": "table",
+      "learns": ["retrieval_improvement", "knowledge_base_impact"],
+      "reinforces": ["similarity_query_pattern"],
+      "gotchas": ["Higher similarity scores indicate better context matches"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(log n) with vector index",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Could test other queries that previously failed",
+        "when_to_use": "For comprehensive evaluation"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["retrieval_validation", "quality_improvement_validation"]
+    },
+    {
+      "number": 21,
+      "section_title": "Recompute Answers with Expanded Knowledge",
+      "intent": "Update all answers to reflect the expanded document knowledge base",
+      "code": "queries_t.recompute_columns('response')",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer", "pixeltable.functions.openai"],
+      "explanation": "Force recomputation of LLM responses using improved context from expanded document base",
+      "actual_output": "Inserting rows into `queries`: 8 rows [00:00, 2128.01 rows/s]\n\n\n8 rows updated, 16 values computed.",
+      "output_summary": "All responses recomputed with new context, automatically updating answer column too",
+      "output_type": "text",
+      "learns": ["manual_recomputation", "pipeline_refresh"],
+      "reinforces": ["computed_column_pattern"],
+      "gotchas": ["Recomputing response also updates dependent answer column", "Manual trigger needed to prevent automatic expensive operations"],
+      "performance": {
+        "execution_time": "5-10s for API calls",
+        "scaling": "O(n_questions * api_latency)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Could recompute only specific queries or set up automatic recomputation",
+        "when_to_use": "Based on cost and freshness requirements"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["manual_recomputation_pattern", "pipeline_refresh_pattern"]
+    },
+    {
+      "number": 22,
+      "section_title": "Evaluate Final Results",
+      "intent": "Compare final RAG performance with ground truth after knowledge base expansion",
+      "code": "queries_t.select(\n    queries_t.Question,\n    queries_t.correct_answer,\n    queries_t.answer\n).show()",
+      "imports_used": ["numpy", "pixeltable", "pixeltable.iterators.DocumentSplitter", "pixeltable.functions.huggingface.sentence_transformer", "pixeltable.functions.openai"],
+      "explanation": "Final evaluation showing improved answer quality with expanded knowledge base",
+      "actual_output": "                                            Question  \\\n0          What is roughly the current mortage rate?   \n1     What is the market capitalization of Alphabet?   \n2  What is the current dividend yield for Alphabe...   \n3  What is the overall latest rating for Amazon.c...   \n4  What is the operating cash flow of Amazon in Q...   \n5    What is the expected EPS for Nvidia in Q1 2026?   \n6           What are the main reasons to buy Nvidia?   \n7  What are the latest financial metrics for Acce...   \n\n                                      correct_answer  \\\n0                                               0.07   \n1                                    $2182.8 Billion   \n2                                             0.0046   \n3                                               SELL   \n4                                     18,989 Million   \n5                                           0.73 EPS   \n6  Datacenter, GPUs Demands, Self-driving, and ca...   \n7  missed consensus forecasts and strong total bo...   \n\n                                              answer  \n0              The current mortgage rate is near 7%.  \n1  The market capitalization of Alphabet Class A ...  \n2  The provided passages do not mention a current...  \n3  The provided passages contain detailed informa...  \n4  The provided passages do not contain any infor...  \n5  The passages provided do not contain any infor...  \n6  The passages provided do not explicitly mentio...  \n7  The latest financial metrics for Accenture PLC...",
+      "output_summary": "Improved results with more questions answered correctly, though some still lack sufficient context",
+      "output_type": "table",
+      "learns": ["final_rag_evaluation", "knowledge_completeness_impact"],
+      "reinforces": ["evaluation_pattern"],
+      "gotchas": ["Some answers still indicate missing information despite expanded knowledge base"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could implement more sophisticated evaluation metrics",
+        "when_to_use": "For quantitative performance measurement"
+      },
+      "state_after": {
+        "tables": ["rag_demo.queries", "rag_demo.documents"],
+        "views": ["rag_demo.chunks"],
+        "variables": ["queries_t", "documents_t", "document_urls", "chunks_t", "query_text", "sim", "nvidia_eps_query"],
+        "models_loaded": ["intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["final_evaluation_pattern", "rag_quality_assessment"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "rag_environment_setup",
+      "description": "Comprehensive setup for RAG applications including credentials and dependencies",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "rag-demo",
+      "code_template": "import os, getpass\nif 'API_KEY' not in os.environ:\n    os.environ['API_KEY'] = getpass.getpass('API Key:')\n%pip install -q dependencies",
+      "parameters": {
+        "API_KEY": "Environment variable name for API credentials",
+        "dependencies": "Required packages for RAG pipeline"
+      },
+      "variations": [
+        {
+          "name": "config_file_setup",
+          "difference": "Load credentials from configuration files",
+          "code": "import yaml\nwith open('config.yaml') as f:\n    config = yaml.safe_load(f)"
+        }
+      ],
+      "prerequisites": ["development_environment"],
+      "enables": ["secure_api_access", "rag_pipeline"],
+      "performance_impact": "One-time setup cost",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "document_table_pattern",
+      "description": "Create table with Document column type for storing various document formats",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "rag-demo",
+      "code_template": "documents_t = pxt.create_table(\n    'namespace.documents',\n    {'document': pxt.Document}\n)",
+      "parameters": {
+        "namespace": "Organizational namespace for tables",
+        "document_column": "Column name for document storage"
+      },
+      "variations": [
+        {
+          "name": "document_metadata_table",
+          "difference": "Add metadata columns for document properties",
+          "code": "{'document': pxt.Document, 'title': str, 'source': str, 'date': pxt.Timestamp}"
+        }
+      ],
+      "prerequisites": ["pixeltable_connection"],
+      "enables": ["document_storage", "file_processing"],
+      "performance_impact": "Minimal for table creation",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "document_chunking_pattern",
+      "description": "Split documents into chunks using DocumentSplitter with token limits",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "rag-demo",
+      "code_template": "chunks_t = pxt.create_view(\n    'namespace.chunks',\n    documents_t,\n    iterator=DocumentSplitter.create(\n        document=documents_t.document,\n        separators='token_limit',\n        limit=chunk_size\n    )\n)",
+      "parameters": {
+        "namespace": "Organizational namespace",
+        "chunk_size": "Maximum tokens per chunk",
+        "separators": "Splitting strategy (token_limit, sentence, paragraph)"
+      },
+      "variations": [
+        {
+          "name": "semantic_chunking",
+          "difference": "Use sentence or paragraph boundaries",
+          "code": "separators='sentence', limit=None"
+        }
+      ],
+      "prerequisites": ["document_table"],
+      "enables": ["granular_retrieval", "vector_indexing"],
+      "performance_impact": "Linear with document size",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "vector_search_setup",
+      "description": "Create embedding index on text data for semantic similarity search",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "rag-demo",
+      "code_template": "table.add_embedding_index(\n    'text_column',\n    embedding=embedding_provider.using(model_id='model_name')\n)",
+      "parameters": {
+        "text_column": "Column containing text to index",
+        "embedding_provider": "Provider (sentence_transformer, openai, etc.)",
+        "model_name": "Specific embedding model"
+      },
+      "variations": [
+        {
+          "name": "openai_embeddings",
+          "difference": "Use OpenAI embedding API",
+          "code": "embedding=openai.embeddings(model='text-embedding-3-small')"
+        }
+      ],
+      "prerequisites": ["text_data"],
+      "enables": ["semantic_search", "rag_retrieval"],
+      "performance_impact": "High initial cost, fast queries",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "query_decorator_pattern",
+      "description": "Create reusable parameterized queries using @query decorator",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "rag-demo",
+      "code_template": "@pxt.query\ndef query_function(param: type):\n    return table.filter(condition).select(columns).limit(k)",
+      "parameters": {
+        "param": "Query parameter with type annotation",
+        "condition": "Filter condition based on parameter",
+        "k": "Result limit"
+      },
+      "variations": [
+        {
+          "name": "multi_parameter_query",
+          "difference": "Accept multiple parameters",
+          "code": "def query_func(param1: type1, param2: type2)"
+        }
+      ],
+      "prerequisites": ["table_with_data"],
+      "enables": ["reusable_queries", "parameterized_operations"],
+      "performance_impact": "Negligible query definition cost",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "context_retrieval_pattern",
+      "description": "Automated context retrieval for each question using computed columns and queries",
+      "confidence": "high", 
+      "frequency": 2,
+      "first_seen": "rag-demo",
+      "code_template": "table.add_computed_column(\n    context=query_function(table.query_column)\n)",
+      "parameters": {
+        "context": "Column name for retrieved context",
+        "query_function": "Reusable query function",
+        "query_column": "Column containing search queries"
+      },
+      "variations": [
+        {
+          "name": "filtered_retrieval",
+          "difference": "Add filters to context retrieval",
+          "code": "query_function(table.query_col, table.filter_col)"
+        }
+      ],
+      "prerequisites": ["query_decorator_pattern", "vector_index"],
+      "enables": ["automated_rag", "batch_processing"],
+      "performance_impact": "Scales with query complexity",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "prompt_construction_pattern",
+      "description": "UDF pattern for converting context and questions into LLM prompts",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "rag-demo",
+      "code_template": "@pxt.udf\ndef create_prompt(context: list[dict], question: str) -> str:\n    context_text = '\\n\\n'.join(item['text'] for item in context)\n    return f'CONTEXT:\\n{context_text}\\n\\nQUESTION:\\n{question}'",
+      "parameters": {
+        "context": "List of context dictionaries with text and metadata",
+        "question": "User question string",
+        "prompt_template": "Template for combining context and question"
+      },
+      "variations": [
+        {
+          "name": "system_prompt_pattern",
+          "difference": "Include system instructions in prompt",
+          "code": "f'INSTRUCTIONS:\\n{instructions}\\n\\nCONTEXT:\\n{context}\\n\\nQUESTION:\\n{question}'"
+        }
+      ],
+      "prerequisites": ["context_data"],
+      "enables": ["llm_integration", "prompt_optimization"],
+      "performance_impact": "Linear with context size",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "llm_integration_pattern",
+      "description": "Integrate LLM APIs using computed columns for automated answer generation",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "rag-demo",
+      "code_template": "table.add_computed_column(\n    response=llm_provider.chat_completions(\n        model='model_name',\n        messages=message_list\n    )\n)",
+      "parameters": {
+        "llm_provider": "LLM service (openai, anthropic, etc.)",
+        "model_name": "Specific model identifier",
+        "message_list": "Formatted messages for chat API"
+      },
+      "variations": [
+        {
+          "name": "local_llm_pattern",
+          "difference": "Use local LLM inference",
+          "code": "response=local_llm.generate(prompt=table.prompt_col)"
+        }
+      ],
+      "prerequisites": ["api_credentials", "prompt_data"],
+      "enables": ["automated_qa", "rag_completion"],
+      "performance_impact": "High due to LLM API latency",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "incremental_indexing",
+      "description": "Automatic index updates when new documents are added to base tables",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "rag-demo",
+      "code_template": "# Initial setup creates auto-updating pipeline\ndocuments.insert(new_docs)\n# Chunks and embeddings update automatically",
+      "parameters": {
+        "base_table": "Source document table",
+        "new_docs": "New documents to index"
+      },
+      "variations": [
+        {
+          "name": "batch_incremental",
+          "difference": "Add multiple documents simultaneously",
+          "code": "documents.insert([doc1, doc2, doc3])"
+        }
+      ],
+      "prerequisites": ["document_chunking_pattern", "vector_search_setup"],
+      "enables": ["dynamic_knowledge_base", "real_time_indexing"],
+      "performance_impact": "Scales with new content volume",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "manual_recomputation_pattern",
+      "description": "Selectively trigger recomputation of expensive computed columns",
+      "confidence": "medium",
+      "frequency": 1,
+      "first_seen": "rag-demo",
+      "code_template": "table.recompute_columns('expensive_column')",
+      "parameters": {
+        "expensive_column": "Column with expensive computation (LLM calls, etc.)",
+        "trigger_condition": "When to trigger recomputation"
+      },
+      "variations": [
+        {
+          "name": "conditional_recomputation",
+          "difference": "Recompute only specific rows",
+          "code": "table.where(condition).recompute_columns('column')"
+        }
+      ],
+      "prerequisites": ["computed_columns"],
+      "enables": ["cost_control", "selective_updates"],
+      "performance_impact": "High during recomputation",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "evaluation_data_import",
+      "description": "Import structured evaluation datasets from external sources",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "rag-demo",
+      "code_template": "eval_table = pxt.io.import_excel('namespace.table_name', file_url)",
+      "parameters": {
+        "namespace": "Organizational namespace",
+        "table_name": "Name for evaluation table",
+        "file_url": "URL or path to evaluation data"
+      },
+      "variations": [
+        {
+          "name": "csv_import",
+          "difference": "Import from CSV files",
+          "code": "pxt.io.import_csv('table_name', 'file.csv')"
+        }
+      ],
+      "prerequisites": ["data_source"],
+      "enables": ["rag_evaluation", "performance_measurement"],
+      "performance_impact": "Linear with file size",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "OpenAI API rate limit exceeded",
+      "frequency": "common",
+      "cause": "Too many API calls in short time period",
+      "symptoms": ["429 rate limit errors", "Failed LLM responses"],
+      "solution": {
+        "quick_fix": "Add delays between API calls or reduce batch size",
+        "proper_fix": "Implement exponential backoff and request batching"
+      },
+      "prevention": "Monitor API usage and implement rate limiting",
+      "example": "openai.RateLimitError: Rate limit reached",
+      "first_seen": "rag-demo#16"
+    },
+    {
+      "error_type": "DocumentSplitter token limit errors",
+      "frequency": "occasional",
+      "cause": "Documents exceed maximum token limits for processing",
+      "symptoms": ["Chunking failures", "Empty chunk views"],
+      "solution": {
+        "quick_fix": "Reduce token limit per chunk",
+        "proper_fix": "Implement hierarchical chunking or document preprocessing"
+      },
+      "prevention": "Validate document sizes before processing",
+      "example": "Token limit exceeded for document chunk",
+      "first_seen": "rag-demo#7"
+    },
+    {
+      "error_type": "Embedding model CUDA memory error",
+      "frequency": "occasional",
+      "cause": "Large embedding models exceed GPU memory capacity",
+      "symptoms": ["CUDA out of memory errors during index creation"],
+      "solution": {
+        "quick_fix": "Use smaller embedding model or CPU processing",
+        "proper_fix": "Batch embedding computation or upgrade GPU"
+      },
+      "prevention": "Choose embedding models appropriate for hardware",
+      "example": "torch.cuda.OutOfMemoryError during embedding computation",
+      "first_seen": "rag-demo#10"
+    },
+    {
+      "error_type": "Invalid document format",
+      "frequency": "common",
+      "cause": "Unsupported file format or corrupted documents",
+      "symptoms": ["Document loading failures", "Empty text extraction"],
+      "solution": {
+        "quick_fix": "Validate file formats before insertion",
+        "proper_fix": "Implement robust error handling and format conversion"
+      },
+      "prevention": "Pre-validate document formats and integrity",
+      "example": "Failed to extract text from document",
+      "first_seen": "rag-demo#6"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What are the trade-offs between different document chunking strategies?",
+      "expected_concepts": ["token_limits", "semantic_boundaries", "retrieval_granularity"],
+      "difficulty": "advanced"
+    },
+    {
+      "question": "How does incremental indexing work in the RAG pipeline?",
+      "expected_concepts": ["computed_columns", "automatic_updates", "vector_index_updates"],
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "When would you use @query decorators vs direct table queries?",
+      "expected_concepts": ["reusability", "parameterization", "performance"],
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "What strategies can improve RAG answer quality?",
+      "expected_concepts": ["chunking_optimization", "embedding_model_selection", "prompt_engineering"],
+      "difficulty": "advanced"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Implement rate limiting for LLM API calls",
+      "impact": "Prevents API rate limit errors and reduces costs",
+      "implementation": "Use exponential backoff and batch processing strategies",
+      "trade_offs": "Increased latency for large batches",
+      "example": "Process queries in smaller batches with delays"
+    },
+    {
+      "tip": "Choose embedding models based on accuracy vs speed requirements",
+      "impact": "Significant performance and quality differences",
+      "implementation": "Use smaller models for speed, larger for accuracy",
+      "trade_offs": "Accuracy vs computational resources",
+      "example": "e5-small-v2 for speed vs e5-large-v2 for accuracy"
+    },
+    {
+      "tip": "Optimize document chunk sizes for retrieval quality",
+      "impact": "Better context relevance and answer quality", 
+      "implementation": "Test different token limits and splitting strategies",
+      "trade_offs": "Larger chunks provide more context but less precision",
+      "example": "300 tokens for precise retrieval, 1000 for more context"
+    },
+    {
+      "tip": "Cache expensive computations to avoid reprocessing",
+      "impact": "Eliminates redundant API calls and processing",
+      "implementation": "Pixeltable automatically caches computed column results",
+      "trade_offs": "Increased storage requirements",
+      "example": "Embeddings and LLM responses persist across sessions"
+    },
+    {
+      "tip": "Monitor and evaluate RAG performance continuously",
+      "impact": "Maintains answer quality as knowledge base grows",
+      "implementation": "Create evaluation datasets and track metrics",
+      "trade_offs": "Additional evaluation overhead",
+      "example": "Compare generated vs ground truth answers regularly"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 0,
+    "established_patterns": 12,
+    "total_patterns": 12
+  },
+  "cookies": "🍪 Why did the RAG system go to therapy? Because it had too many documents to process and couldn't find the right context for its feelings!"
+}

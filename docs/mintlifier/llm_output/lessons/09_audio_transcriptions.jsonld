@@ -1,0 +1,748 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "audio-transcriptions",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb",
+  "title": "Transcribing and Indexing Audio and Video in Pixeltable",
+  "objective": "Build an end-to-end workflow for audio extraction, transcription, semantic indexing, and search of video content using local and API-based speech-to-text services",
+  "difficulty": "intermediate",
+  "categories": ["audio-processing", "video-processing", "speech-to-text", "semantic-search", "incremental-updates"],
+  "prerequisites": ["pixeltable-basics"],
+  "imports_required": [
+    "pixeltable",
+    "numpy",
+    "openai",
+    "openai-whisper",
+    "sentence-transformers",
+    "spacy",
+    "pixeltable.functions.video.extract_audio",
+    "pixeltable.functions.audio.get_metadata", 
+    "pixeltable.functions.whisper",
+    "pixeltable.functions.openai",
+    "pixeltable.functions.huggingface.sentence_transformer",
+    "pixeltable.iterators.string.StringSplitter"
+  ],
+  "performance_notes": {
+    "typical_runtime": "5-10 minutes with GPU, 15-20 minutes CPU-only",
+    "resource_requirements": "4GB RAM minimum, GPU recommended for Whisper, 2GB disk for model downloads",
+    "bottlenecks": ["Whisper model download", "audio transcription computation", "embedding index creation"]
+  },
+  "key_learnings": [
+    "Media processing workflows with computed columns for audio/video",
+    "Local vs API-based transcription trade-offs and implementation patterns",
+    "Semantic search on transcribed content using sentence transformers",
+    "Incremental updates automatically propagate through entire pipeline",
+    "String splitting iterators for sentence-level indexing",
+    "Performance considerations for media processing at scale",
+    "Comparison patterns between different transcription services"
+  ],
+  "relationships": {
+    "builds_on": ["table-basics", "computed-columns", "views-iterators"],
+    "enables": ["podcast-indexing", "video-analysis", "content-search"],
+    "see_also": ["rag-demo#embedding_index", "pixeltable-basics#computed_columns"],
+    "contrasts_with": ["document-rag#text_processing"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Create a Table for Video Data",
+      "intent": "Set up a clean workspace and create a table to store video files",
+      "code": "import numpy as np\nimport pixeltable as pxt\n\npxt.drop_dir('transcription_demo', force=True)  # Ensure a clean slate for the demo\npxt.create_dir('transcription_demo')\n\n# Create a table to store our videos and workflow\nvideo_table = pxt.create_table(\n    'transcription_demo.video_table',\n    {'video': pxt.Video}\n)\n\nvideo_table",
+      "imports_used": ["pixeltable", "numpy"],
+      "explanation": "Initialize the environment by creating a dedicated directory and table for video processing workflow",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory `transcription_demo`.\nCreated table `video_table`.\n\n\nTable\n'transcription_demo.video_table'\n\n Column Name   Type Computed With\n       video  Video",
+      "output_summary": "Successfully created workspace directory and video table with single Video column",
+      "output_type": "table",
+      "learns": ["table_creation", "video_column_type", "workspace_setup"],
+      "reinforces": [],
+      "gotchas": ["force=True required to overwrite existing directories"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could use existing directory without force=True",
+        "when_to_use": "When preserving existing data"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": [],
+        "variables": ["video_table"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["clean_workspace_setup", "table_initialization"]
+    },
+    {
+      "number": 2,
+      "section_title": "Insert Video Data",
+      "intent": "Load video files from URLs into the table for processing",
+      "code": "videos = [\n    'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/audio-transcription-demo/'\n    f'Lex-Fridman-Podcast-430-Excerpt-{n}.mp4'\n    for n in range(3)\n]\n\nvideo_table.insert({'video': video} for video in videos[:2])\nvideo_table.show()",
+      "imports_used": ["pixeltable", "numpy"],
+      "explanation": "Load video files from GitHub URLs using generator expression for efficient batch insertion",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 4/4 [00:00<00:00, 26.25 cells/s]\nInserting rows into `video_table`: 2 rows [00:00, 1073.67 rows/s]\nComputing cells: 100%|████████████████████████████████████████████| 4/4 [00:00<00:00, 25.69 cells/s]\nInserted 2 rows with 0 errors.\n\n\n                                               video\n0  /Users/asiegel/.pixeltable/file_cache/ffc7607f...\n1  /Users/asiegel/.pixeltable/file_cache/ffc7607f...",
+      "output_summary": "Two video files downloaded and cached locally, with progress bars showing cell computation",
+      "output_type": "table",
+      "learns": ["url_video_loading", "batch_insertion_pattern", "file_caching"],
+      "reinforces": ["table_operations"],
+      "gotchas": ["URLs must be accessible and return valid video files"],
+      "performance": {
+        "execution_time": "2-5s depending on network",
+        "scaling": "O(n * file_size)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could use local file paths or S3 URLs",
+        "when_to_use": "When videos are stored locally or in cloud storage"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": [],
+        "variables": ["video_table", "videos"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["batch_url_loading", "generator_insertion"]
+    },
+    {
+      "number": 3,
+      "section_title": "Extract Audio from Videos",
+      "intent": "Add computed column to automatically extract audio tracks from video files",
+      "code": "from pixeltable.functions.video import extract_audio\n\nvideo_table.add_computed_column(\n    audio=extract_audio(video_table.video, format='mp3')\n)\nvideo_table.show()",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio"],
+      "explanation": "Create a computed column that automatically extracts MP3 audio from each video file using built-in video functions",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 2/2 [00:00<00:00,  2.20 cells/s]\nAdded 2 column values with 0 errors.\n\n\n                                               video  \\\n0  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n1  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n\n                                               audio  \n0  /Users/asiegel/.pixeltable/media/8597fd8a72514...  \n1  /Users/asiegel/.pixeltable/media/8597fd8a72514...",
+      "output_summary": "Audio files extracted and stored in Pixeltable's media directory with computed column tracking",
+      "output_type": "table",
+      "learns": ["computed_columns", "audio_extraction", "media_processing_functions"],
+      "reinforces": ["table_operations"],
+      "gotchas": ["Audio extraction requires valid video input"],
+      "performance": {
+        "execution_time": "1-2s per video",
+        "scaling": "O(n * video_length)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Different audio formats (wav, flac) or extraction parameters",
+        "when_to_use": "Based on downstream processing requirements"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": [],
+        "variables": ["video_table", "videos"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["computed_column_pattern", "media_extraction"]
+    },
+    {
+      "number": 4,
+      "section_title": "Extract Audio Metadata",
+      "intent": "Add metadata extraction to understand audio file properties",
+      "code": "from pixeltable.functions.audio import get_metadata\n\nvideo_table.add_computed_column(\n    metadata=get_metadata(video_table.audio)\n)\nvideo_table.show()",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata"],
+      "explanation": "Extract metadata from audio files to get information about duration, sample rate, and encoding",
+      "actual_output": "Computing cells: 100%|███████████████████████████████████████████| 2/2 [00:00<00:00, 289.64 cells/s]\nAdded 2 column values with 0 errors.\n\n\n                                               video  \\\n0  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n1  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n\n                                               audio  \\\n0  /Users/asiegel/.pixeltable/media/8597fd8a72514...   \n1  /Users/asiegel/.pixeltable/media/8597fd8a72514...   \n\n                                            metadata  \n0  {'size': 959276, 'streams': [{'type': 'audio',...  \n1  {'size': 959276, 'streams': [{'type': 'audio',...",
+      "output_summary": "Metadata extracted as JSON containing file size and stream information",
+      "output_type": "table",
+      "learns": ["audio_metadata_extraction", "json_column_type"],
+      "reinforces": ["computed_columns", "media_processing_functions"],
+      "gotchas": ["Metadata structure varies by audio format"],
+      "performance": {
+        "execution_time": "< 1s per audio file",
+        "scaling": "O(n)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could extract specific metadata fields as separate columns",
+        "when_to_use": "When you need to query specific metadata properties"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": [],
+        "variables": ["video_table", "videos"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["metadata_extraction", "json_storage"]
+    },
+    {
+      "number": 5,
+      "section_title": "Create Transcriptions with Local Whisper",
+      "intent": "Transcribe audio using locally-running Whisper model",
+      "code": "from pixeltable.functions import whisper\n\nvideo_table.add_computed_column(\n    transcription=whisper.transcribe(\n        audio=video_table.audio,\n        model='base.en'\n    )\n)\n\nvideo_table.select(\n    video_table.video,\n    video_table.transcription.text\n).show()",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper"],
+      "explanation": "Use Pixeltable's Whisper integration to transcribe audio files with the base English model",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 2/2 [00:04<00:00,  2.11s/ cells]\nAdded 2 column values with 0 errors.\n\n\n                                               video  \\\n0  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n1  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n\n                                  transcription_text  \n0   of experiencing self versus remembering self....  \n1   worse, the young adults had episodic memory. ...",
+      "output_summary": "Transcriptions completed with text extracted from JSON response structure",
+      "output_type": "table",
+      "learns": ["whisper_integration", "speech_to_text", "model_specification"],
+      "reinforces": ["computed_columns"],
+      "gotchas": ["Model download happens on first use", "English-only model used"],
+      "performance": {
+        "execution_time": "2-4s per minute of audio",
+        "scaling": "O(audio_length)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Different Whisper models (tiny, small, medium, large) or multilingual models",
+        "when_to_use": "Based on accuracy vs speed requirements"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": [],
+        "variables": ["video_table", "videos"],
+        "models_loaded": ["whisper-base.en"]
+      },
+      "pattern_refs": ["local_model_inference", "transcription_pipeline"]
+    },
+    {
+      "number": 6,
+      "section_title": "Split Transcriptions into Sentences",
+      "intent": "Create a view that breaks transcriptions into individual sentences for better indexing",
+      "code": "from pixeltable.iterators.string import StringSplitter\n\nsentences_view = pxt.create_view(\n    'transcription_demo.sentences_view',\n    video_table,\n    iterator=StringSplitter.create(\n        text=video_table.transcription.text,\n        separators='sentence'\n    )\n)",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.iterators.string.StringSplitter"],
+      "explanation": "Use StringSplitter iterator to create a view where each row represents a single sentence from the transcriptions",
+      "actual_output": "Inserting rows into `sentences_view`: 25 rows [00:00, 9187.56 rows/s]\nCreated view `sentences_view` with 25 rows, 0 exceptions.",
+      "output_summary": "View created with 25 sentence-level rows extracted from 2 video transcriptions",
+      "output_type": "text",
+      "learns": ["view_creation", "iterator_pattern", "text_splitting"],
+      "reinforces": ["computed_columns"],
+      "gotchas": ["Sentence splitting quality depends on transcription accuracy"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(text_length)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could split by paragraphs, fixed word counts, or custom patterns",
+        "when_to_use": "Based on content structure and search granularity needs"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view"],
+        "models_loaded": ["whisper-base.en"]
+      },
+      "pattern_refs": ["view_iterator_pattern", "text_chunking"]
+    },
+    {
+      "number": 7,
+      "section_title": "Preview Sentence Data",
+      "intent": "Examine the structure and content of the sentence-level view",
+      "code": "sentences_view.select(\n    sentences_view.pos,\n    sentences_view.text\n).show(8)",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.iterators.string.StringSplitter"],
+      "explanation": "Display the first 8 sentences to understand the structure of the split content",
+      "actual_output": "   pos                                               text\n0    0      of experiencing self versus remembering self.\n1    1  I was hoping you can give a simple answer of h...\n2    2  Based on the fact that our memories could be a...\n3    3  And maybe there is some wisdom in the fact tha...\n4    4  Oh, well, first I'll say I wish I could take y...\n5    5                 That was such a great description.\n6    6                      Can I be your opening answer?\n7    7       Oh my God, no, I'm gonna open for you, dude.",
+      "output_summary": "Eight sentences shown with position indices, demonstrating successful sentence-level splitting",
+      "output_type": "table",
+      "learns": ["view_data_exploration"],
+      "reinforces": ["view_creation", "text_splitting"],
+      "gotchas": ["Position starts at 0 and increments per sentence across all videos"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1) for preview",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could show all sentences or filter by specific videos",
+        "when_to_use": "For full data exploration vs quick preview"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view"],
+        "models_loaded": ["whisper-base.en"]
+      },
+      "pattern_refs": ["data_preview", "table_exploration"]
+    },
+    {
+      "number": 8,
+      "section_title": "Add Embedding Index for Semantic Search",
+      "intent": "Create a vector embedding index on sentence text for similarity search",
+      "code": "from pixeltable.functions.huggingface import sentence_transformer\n\nsentences_view.add_embedding_index(\n    'text',\n    embedding=sentence_transformer.using(model_id='intfloat/e5-large-v2')\n)",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.iterators.string.StringSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Create a vector index using the E5-large-v2 sentence transformer model for semantic similarity search",
+      "actual_output": "Computing cells: 100%|██████████████████████████████████████████| 25/25 [00:03<00:00,  8.18 cells/s]",
+      "output_summary": "Embedding index created with progress showing 25 sentences processed in ~3 seconds",
+      "output_type": "text",
+      "learns": ["embedding_index_creation", "sentence_transformer_usage"],
+      "reinforces": ["view_operations"],
+      "gotchas": ["Model download on first use", "GPU recommended for large models"],
+      "performance": {
+        "execution_time": "3-10s depending on model size and hardware",
+        "scaling": "O(n * embedding_dim)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Different embedding models (smaller/faster vs larger/more accurate)",
+        "when_to_use": "Based on accuracy vs performance requirements"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view"],
+        "models_loaded": ["whisper-base.en", "intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["embedding_index_pattern", "semantic_search_setup"]
+    },
+    {
+      "number": 9,
+      "section_title": "Test Semantic Search",
+      "intent": "Perform a similarity search to validate the embedding index functionality",
+      "code": "sim = sentences_view.text.similarity('What is happiness?')\n\n(\n    sentences_view\n    .order_by(sim, asc=False)\n    .limit(10)\n    .select(sentences_view.text,similarity=sim)\n    .collect()\n)",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.iterators.string.StringSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Query the embedding index for sentences most similar to 'What is happiness?' to test search functionality",
+      "actual_output": "                                                text  similarity\n0  Based on the fact that our memories could be a...    0.805073\n1  I was hoping you can give a simple answer of h...    0.792060\n2  Why would we have this period of time that's s...    0.789130\n3                                I want to really be    0.787846\n4                      Can I be your opening answer?    0.785402\n5      of experiencing self versus remembering self.    0.785325\n6                         I need a prefrontal cortex    0.785176\n7  And maybe there is some wisdom in the fact tha...    0.784597\n8                    What's the best way to do that?    0.783154\n9  And it's like, I realize I have to redefine wh...    0.775783",
+      "output_summary": "Top 10 semantically similar sentences retrieved with similarity scores ranging from 0.77-0.80",
+      "output_type": "table",
+      "learns": ["similarity_search", "semantic_ranking"],
+      "reinforces": ["embedding_index_creation"],
+      "gotchas": ["Similarity scores are cosine similarity (higher = more similar)"],
+      "performance": {
+        "execution_time": "< 1s for search",
+        "scaling": "O(log n) with index",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Different similarity metrics or search parameters",
+        "when_to_use": "Based on use case requirements"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view", "sim"],
+        "models_loaded": ["whisper-base.en", "intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["similarity_query_pattern", "semantic_search_validation"]
+    },
+    {
+      "number": 10,
+      "section_title": "Demonstrate Incremental Updates",
+      "intent": "Show how adding new videos automatically updates the entire pipeline including embeddings",
+      "code": "video_table.insert(video=videos[2])",
+      "imports_used": ["pixeltable", "numpy", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.iterators.string.StringSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Insert the third video to demonstrate how incremental updates propagate through the entire processing pipeline",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 5/5 [00:01<00:00,  2.58 cells/s]\nInserting rows into `video_table`: 1 rows [00:00, 277.18 rows/s]\nComputing cells: 100%|████████████████████████████████████████████| 5/5 [00:01<00:00,  2.57 cells/s]\nInserting rows into `sentences_view`: 8 rows [00:00, 978.69 rows/s]\nInserted 9 rows with 0 errors.\n\n\nUpdateStatus(num_rows=9, num_computed_values=5, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "New video processed through entire pipeline: audio extraction, transcription, sentence splitting, and embedding indexing",
+      "output_type": "text",
+      "learns": ["incremental_updates", "pipeline_propagation"],
+      "reinforces": ["computed_columns", "view_creation"],
+      "gotchas": ["All downstream operations update automatically"],
+      "performance": {
+        "execution_time": "3-5s for full pipeline per video",
+        "scaling": "O(video_length)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Could batch insert multiple videos at once",
+        "when_to_use": "For better performance with large datasets"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view", "sim"],
+        "models_loaded": ["whisper-base.en", "intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["incremental_update_pattern", "automatic_pipeline_updates"]
+    },
+    {
+      "number": 11,
+      "section_title": "OpenAI API Alternative Setup",
+      "intent": "Set up OpenAI API credentials for comparing API-based transcription",
+      "code": "import os\nimport getpass\n\nif 'OPENAI_API_KEY' not in os.environ:\n    os.environ['OPENAI_API_KEY'] = getpass.getpass('OpenAI API Key:')",
+      "imports_used": ["pixeltable", "numpy", "os", "getpass", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.iterators.string.StringSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Securely collect OpenAI API key for comparison with cloud-based Whisper service",
+      "actual_output": "OpenAI API Key: ········",
+      "output_summary": "API key collected securely and set in environment variables",
+      "output_type": "text",
+      "learns": ["api_key_management", "secure_credential_handling"],
+      "reinforces": [],
+      "gotchas": ["API key required for OpenAI endpoints", "Costs apply for API usage"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could set environment variable externally or use config files",
+        "when_to_use": "For production deployments"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view", "sim"],
+        "models_loaded": ["whisper-base.en", "intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["api_credential_pattern", "secure_setup"]
+    },
+    {
+      "number": 12,
+      "section_title": "Add OpenAI API Transcription",
+      "intent": "Create computed column using OpenAI's transcription API for comparison",
+      "code": "from pixeltable.functions import openai\n\nvideo_table.add_computed_column(\n    transcription_from_api=openai.transcriptions(\n        video_table.audio,\n        model='whisper-1'\n    )\n)",
+      "imports_used": ["pixeltable", "numpy", "os", "getpass", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.functions.openai", "pixeltable.iterators.string.StringSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Add API-based transcription using OpenAI's Whisper-1 model for comparison with local processing",
+      "actual_output": "Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:12<00:00,  4.14s/ cells]\nAdded 3 column values with 0 errors.\n\n\nUpdateStatus(num_rows=3, num_computed_values=3, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "API transcriptions completed for all 3 videos with ~4 seconds per transcription",
+      "output_type": "text",
+      "learns": ["api_based_transcription", "service_comparison_pattern"],
+      "reinforces": ["computed_columns"],
+      "gotchas": ["API calls incur costs", "Network latency affects performance", "Rate limits may apply"],
+      "performance": {
+        "execution_time": "4-6s per audio file",
+        "scaling": "O(n * api_latency)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Could use different OpenAI models or other cloud transcription services",
+        "when_to_use": "Based on accuracy requirements and cost considerations"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view", "sim"],
+        "models_loaded": ["whisper-base.en", "intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["api_integration_pattern", "service_comparison"]
+    },
+    {
+      "number": 13,
+      "section_title": "Compare Transcription Results",
+      "intent": "Compare local vs API transcription results side-by-side",
+      "code": "video_table.select(\n    video_table.video,\n    video_table.transcription.text,\n    video_table.transcription_from_api.text\n).show()",
+      "imports_used": ["pixeltable", "numpy", "os", "getpass", "pixeltable.functions.video.extract_audio", "pixeltable.functions.audio.get_metadata", "pixeltable.functions.whisper", "pixeltable.functions.openai", "pixeltable.iterators.string.StringSplitter", "pixeltable.functions.huggingface.sentence_transformer"],
+      "explanation": "Display both local and API transcription results to compare accuracy and formatting differences",
+      "actual_output": "                                               video  \\\n0  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n1  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n2  /Users/asiegel/.pixeltable/file_cache/ffc7607f...   \n\n                                  transcription_text  \\\n0   of experiencing self versus remembering self....   \n1   worse, the young adults had episodic memory. ...   \n2   about reusing information and making the most...   \n\n                           transcriptionfromapi_text  \n0  of experiencing self versus remembering self, ...  \n1  or worse, the young adults at episodic memory....  \n2  about reusing information and making the most ...",
+      "output_summary": "Side-by-side comparison shows similar but not identical results between local and API transcription",
+      "output_type": "table",
+      "learns": ["transcription_service_comparison", "quality_evaluation"],
+      "reinforces": ["computed_columns"],
+      "gotchas": ["Minor differences in punctuation and word choice", "Both use Whisper but different versions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Could compute similarity metrics between transcriptions",
+        "when_to_use": "For quantitative quality comparison"
+      },
+      "state_after": {
+        "tables": ["transcription_demo.video_table"],
+        "views": ["transcription_demo.sentences_view"],
+        "variables": ["video_table", "videos", "sentences_view", "sim"],
+        "models_loaded": ["whisper-base.en", "intfloat/e5-large-v2"]
+      },
+      "pattern_refs": ["service_comparison", "quality_validation"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "clean_workspace_setup",
+      "description": "Initialize clean workspace by dropping existing directories with force flag",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "audio-transcriptions",
+      "code_template": "pxt.drop_dir('workspace_name', force=True)\npxt.create_dir('workspace_name')",
+      "parameters": {
+        "workspace_name": "Directory name for organized data storage",
+        "force": "Boolean to overwrite existing directories"
+      },
+      "variations": [
+        {
+          "name": "conditional_cleanup",
+          "difference": "Check existence before dropping",
+          "code": "if pxt.list_dirs().get('workspace_name'):\n    pxt.drop_dir('workspace_name')\npxt.create_dir('workspace_name')"
+        }
+      ],
+      "prerequisites": ["pixeltable_connection"],
+      "enables": ["table_creation", "organized_workflows"],
+      "performance_impact": "Minimal overhead for clean state",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "computed_column_pattern",
+      "description": "Add computed columns that automatically update based on other column values",
+      "confidence": "high",
+      "frequency": 5,
+      "first_seen": "audio-transcriptions",
+      "code_template": "table.add_computed_column(\n    column_name=function_call(table.source_column, **params)\n)",
+      "parameters": {
+        "column_name": "Name for the computed column",
+        "function_call": "Pixeltable function to compute values",
+        "source_column": "Column(s) to compute from"
+      },
+      "variations": [
+        {
+          "name": "multi_column_computation",
+          "difference": "Compute from multiple source columns",
+          "code": "table.add_computed_column(\n    result=func(table.col1, table.col2)\n)"
+        }
+      ],
+      "prerequisites": ["table_creation"],
+      "enables": ["automatic_updates", "pipeline_processing"],
+      "performance_impact": "Computation cost scales with data size",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "media_extraction",
+      "description": "Extract specific media components (audio from video, frames from video)",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "audio-transcriptions", 
+      "code_template": "from pixeltable.functions.video import extract_audio\ntable.add_computed_column(\n    audio=extract_audio(table.video_col, format='format')\n)",
+      "parameters": {
+        "video_col": "Source video column",
+        "format": "Output format (mp3, wav, etc.)"
+      },
+      "variations": [
+        {
+          "name": "frame_extraction",
+          "difference": "Extract video frames instead of audio",
+          "code": "extract_frames(video_col, fps=1)"
+        }
+      ],
+      "prerequisites": ["video_data"],
+      "enables": ["audio_processing", "media_analysis"],
+      "performance_impact": "High for large videos",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "view_iterator_pattern",
+      "description": "Create views that iterate over split/chunked data from base tables",
+      "confidence": "high", 
+      "frequency": 3,
+      "first_seen": "audio-transcriptions",
+      "code_template": "view = pxt.create_view(\n    'view_name',\n    base_table,\n    iterator=Iterator.create(column=base_table.column)\n)",
+      "parameters": {
+        "view_name": "Name for the derived view",
+        "base_table": "Source table to iterate over",
+        "iterator": "Iterator type (StringSplitter, DocumentSplitter, etc.)"
+      },
+      "variations": [
+        {
+          "name": "custom_iterator",
+          "difference": "Use custom iterator logic",
+          "code": "iterator=CustomIterator.create(**params)"
+        }
+      ],
+      "prerequisites": ["base_table_data"],
+      "enables": ["data_chunking", "granular_indexing"],
+      "performance_impact": "Linear in source data size",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "embedding_index_pattern", 
+      "description": "Create vector embedding indices for semantic similarity search",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "audio-transcriptions",
+      "code_template": "table.add_embedding_index(\n    'text_column',\n    embedding=embedding_model.using(model_id='model_name')\n)",
+      "parameters": {
+        "text_column": "Column containing text to embed",
+        "embedding_model": "Embedding provider (sentence_transformer, openai, etc.)",
+        "model_id": "Specific model identifier"
+      },
+      "variations": [
+        {
+          "name": "custom_embedding",
+          "difference": "Use custom embedding function",
+          "code": "embedding=custom_embedding_func"
+        }
+      ],
+      "prerequisites": ["text_data"],
+      "enables": ["semantic_search", "similarity_queries"],
+      "performance_impact": "High initial cost, fast queries",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "similarity_query_pattern",
+      "description": "Query embedding indices using similarity ranking",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "audio-transcriptions", 
+      "code_template": "sim = table.text_col.similarity('query')\nresults = table.order_by(sim, asc=False).limit(k).collect()",
+      "parameters": {
+        "text_col": "Column with embedding index",
+        "query": "Search query string",
+        "k": "Number of top results to return"
+      },
+      "variations": [
+        {
+          "name": "filtered_similarity",
+          "difference": "Add filters before ranking",
+          "code": "table.where(condition).order_by(sim, asc=False)"
+        }
+      ],
+      "prerequisites": ["embedding_index"],
+      "enables": ["semantic_search", "content_retrieval"],
+      "performance_impact": "Fast with proper indexing",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "incremental_update_pattern",
+      "description": "Automatic pipeline updates when new data is added to base tables",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "audio-transcriptions",
+      "code_template": "base_table.insert(new_data)\n# All computed columns and views update automatically",
+      "parameters": {
+        "base_table": "Source table to insert into",
+        "new_data": "New rows to process"
+      },
+      "variations": [
+        {
+          "name": "batch_incremental",
+          "difference": "Insert multiple rows at once",
+          "code": "base_table.insert([row1, row2, ...])"
+        }
+      ],
+      "prerequisites": ["computed_columns", "views"],
+      "enables": ["real_time_processing", "pipeline_automation"],
+      "performance_impact": "Scales with pipeline complexity",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "service_comparison",
+      "description": "Add multiple computed columns to compare different service implementations",
+      "confidence": "medium",
+      "frequency": 2,
+      "first_seen": "audio-transcriptions",
+      "code_template": "table.add_computed_column(local_result=local_func(data))\ntable.add_computed_column(api_result=api_func(data))",
+      "parameters": {
+        "local_func": "Local processing function",
+        "api_func": "API-based processing function",
+        "data": "Source data column"
+      },
+      "variations": [
+        {
+          "name": "multi_service_comparison",
+          "difference": "Compare 3+ different services",
+          "code": "# Add columns for service1, service2, service3, etc."
+        }
+      ],
+      "prerequisites": ["source_data"],
+      "enables": ["quality_evaluation", "cost_analysis"],
+      "performance_impact": "Multiplicative with number of services",
+      "reusable": true,
+      "production_ready": false
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "ModuleNotFoundError: No module named 'whisper'",
+      "frequency": "common",
+      "cause": "Missing openai-whisper package installation",
+      "symptoms": ["Import error when using whisper functions"],
+      "solution": {
+        "quick_fix": "pip install openai-whisper",
+        "proper_fix": "Include in requirements.txt and install in virtual environment"
+      },
+      "prevention": "Always install media processing dependencies",
+      "example": "from pixeltable.functions import whisper",
+      "first_seen": "audio-transcriptions#5"
+    },
+    {
+      "error_type": "CUDA out of memory",
+      "frequency": "occasional",
+      "cause": "Large embedding model or batch size exceeds GPU memory",
+      "symptoms": ["GPU memory errors during embedding computation"],
+      "solution": {
+        "quick_fix": "Use smaller model or CPU-only processing",
+        "proper_fix": "Implement batch processing or use model with lower memory requirements"
+      },
+      "prevention": "Monitor GPU memory usage and choose appropriate model sizes",
+      "example": "sentence_transformer.using(model_id='intfloat/e5-small-v2')",
+      "first_seen": "audio-transcriptions#8"
+    },
+    {
+      "error_type": "Invalid audio format",
+      "frequency": "occasional", 
+      "cause": "Video file doesn't contain audio track or uses unsupported codec",
+      "symptoms": ["Audio extraction fails or produces empty files"],
+      "solution": {
+        "quick_fix": "Check video file has audio track",
+        "proper_fix": "Add validation and error handling for audio extraction"
+      },
+      "prevention": "Validate media files before processing",
+      "example": "Use get_metadata to check audio streams exist",
+      "first_seen": "audio-transcriptions#3"
+    },
+    {
+      "error_type": "OpenAI API authentication failed",
+      "frequency": "common",
+      "cause": "Missing or invalid OpenAI API key",
+      "symptoms": ["401 authentication errors from OpenAI API"],
+      "solution": {
+        "quick_fix": "Set OPENAI_API_KEY environment variable",
+        "proper_fix": "Implement secure API key management"
+      },
+      "prevention": "Validate API key before making requests",
+      "example": "os.environ['OPENAI_API_KEY'] = 'your-key-here'",
+      "first_seen": "audio-transcriptions#11"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What are the key differences between local and API-based transcription?",
+      "expected_concepts": ["local_processing", "api_costs", "performance_trade_offs"],
+      "difficulty": "intermediate"
+    },
+    {
+      "question": "How does incremental updating work in the transcription pipeline?",
+      "expected_concepts": ["computed_columns", "automatic_updates", "view_propagation"],
+      "difficulty": "intermediate"  
+    },
+    {
+      "question": "When would you choose sentence-level vs document-level indexing?",
+      "expected_concepts": ["granularity_trade_offs", "search_precision", "index_size"],
+      "difficulty": "advanced"
+    },
+    {
+      "question": "What performance optimizations would you implement for large video datasets?",
+      "expected_concepts": ["batch_processing", "gpu_utilization", "model_selection"],
+      "difficulty": "advanced"
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Use GPU-optimized instance types for Whisper transcription",
+      "impact": "3-5x faster transcription processing",
+      "implementation": "Deploy on GPU instances or use CUDA-enabled environments",
+      "trade_offs": "Higher infrastructure costs",
+      "example": "Use g4dn.xlarge or similar GPU instances on AWS"
+    },
+    {
+      "tip": "Implement batch processing for large video datasets",
+      "impact": "Better resource utilization and reduced processing time",
+      "implementation": "Process videos in batches instead of one-by-one",
+      "trade_offs": "Increased memory usage",
+      "example": "video_table.insert([{'video': url} for url in video_batch])"
+    },
+    {
+      "tip": "Choose embedding models based on accuracy vs speed requirements",
+      "impact": "Significant performance and cost differences",
+      "implementation": "Use smaller models (e5-small) for speed, larger for accuracy",
+      "trade_offs": "Accuracy vs processing speed",
+      "example": "intfloat/e5-small-v2 vs intfloat/e5-large-v2"
+    },
+    {
+      "tip": "Cache transcription results to avoid reprocessing",
+      "impact": "Eliminates redundant API calls and processing",
+      "implementation": "Pixeltable automatically caches computed column results",
+      "trade_offs": "Increased storage requirements",
+      "example": "Results persist across sessions automatically"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 0,
+    "established_patterns": 8,
+    "total_patterns": 8
+  },
+  "cookies": "🍪 Why did the audio file break up with the video file? Because it felt like they weren't on the same wavelength anymore!"
+}

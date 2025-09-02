@@ -14,21 +14,27 @@
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Introduction",
+            "group": "Developer's Guide",
             "pages": [
               "docs/overview/introduction",
               "docs/overview/installation",
-              "docs/overview/quick-start"
+              "docs/overview/quick-start",
+              "docs/overview/understanding-pixeltable",
+              "docs/overview/building-pixeltable-with-llms",
+              "docs/overview/configuration"
             ]
           },
           {
-            "group": "Platform",
+            "group": "Platform Guide",
             "pages": [
+              "docs/platform/intro",
               {
                 "group": "Tables and Schemas",
                 "pages": [
-                  "docs/platform/tables-and-schemas/tables-and-schemas",
-                  "docs/platform/tables-and-schemas/computed-columns"
+                  "docs/platform/tables-and-schemas/schemas",
+                  "docs/platform/tables-and-schemas/tables",
+                  "docs/platform/tables-and-schemas/computed-columns",
+                  "docs/platform/tables-and-schemas/computed-columns-two"
                 ]
               },
               {
@@ -41,6 +47,7 @@
               {
                 "group": "Query Syntax",
                 "pages": [
+                  "docs/platform/query-syntax/building-queries",
                   "docs/platform/query-syntax/query-syntax",
                   "docs/platform/query-syntax/sampling"
                 ]
@@ -48,121 +55,30 @@
               {
                 "group": "Views and Snapshots",
                 "pages": [
+                  "docs/platform/views-and-snapshots/views",
                   "docs/platform/views-and-snapshots/views-and-snapshots",
                   "docs/platform/views-and-snapshots/time-travel",
+                  "docs/platform/views-and-snapshots/iterators",
                   "docs/platform/views-and-snapshots/iterator-views"
                 ]
               },
               "docs/platform/importing-data",
               "docs/platform/error-handling",
               "docs/platform/indexing-and-vector-embeddings",
-              "docs/platform/udfs-and-uda"
+              "docs/platform/vector-databases",
+              "docs/platform/custom-functions",
+              "docs/platform/udfs-and-uda",
+              "docs/platform/file-caching-and-storage"
             ]
           },
           {
-            "group": "Built-in AI/ML Integrations",
+            "group": "Notebook & Tutorials",
             "pages": [
-              "docs/platform/integrations/overview",
-              {
-                "group": "Cloud LLM Providers",
-                "pages": [
-                  "docs/platform/integrations/cloud-llm-providers/anthropic-claude",
-                  "docs/platform/integrations/cloud-llm-providers/aws-bedrock",
-                  "docs/platform/integrations/cloud-llm-providers/deepseek",
-                  "docs/platform/integrations/cloud-llm-providers/fireworks",
-                  "docs/platform/integrations/cloud-llm-providers/google-gemini",
-                  "docs/platform/integrations/cloud-llm-providers/groq",
-                  "docs/platform/integrations/cloud-llm-providers/mistral-ai",
-                  "docs/platform/integrations/cloud-llm-providers/openai",
-                  "docs/platform/integrations/cloud-llm-providers/together-ai"
-                ]
-              },
-              {
-                "group": "Local LLM Runtimes",
-                "pages": [
-                  "docs/platform/integrations/local-llm-runtimes/llama-cpp",
-                  "docs/platform/integrations/local-llm-runtimes/ollama"
-                ]
-              },
-              {
-                "group": "Model Hubs",
-                "pages": [
-                  "docs/platform/integrations/model-hubs/hugging-face-hub",
-                  "docs/platform/integrations/model-hubs/replicate"
-                ]
-              },
-              {
-                "group": "Computer Vision & Audio",
-                "pages": [
-                  "docs/platform/integrations/computer-vision-audio/voxel51",
-                  "docs/platform/integrations/computer-vision-audio/whisper-whisperx",
-                  "docs/platform/integrations/computer-vision-audio/yolox"
-                ]
-              },
-              {
-                "group": "Annotation & Data Tools",
-                "pages": [
-                  "docs/platform/integrations/annotation-data-tools/label-studio",
-                  "docs/platform/integrations/annotation-data-tools/pandas"
-                ]
-              },
-              {
-                "group": "Custom Integrations",
-                "pages": [
-                  "docs/platform/integrations/custom-integrations/custom-embedding-models"
-                ]
-              },
-              "docs/platform/integrations/full-integration-catalog"
-            ]
-          },
-          {
-            "group": "Use-case Specific Guides",
-            "pages": [
-              {
-                "group": "Audio",
-                "pages": [
-                  "docs/use-case-guides/audio/overview"
-                ]
-              },
-              {
-                "group": "Video",
-                "pages": [
-                  "docs/use-case-guides/video/overview"
-                ]
-              },
-              {
-                "group": "Computer Vision / Images",
-                "pages": [
-                  "docs/use-case-guides/computer-vision-images/overview"
-                ]
-              },
-              {
-                "group": "Text / Documentation",
-                "pages": [
-                  "docs/use-case-guides/text-documentation/overview"
-                ]
-              },
-              {
-                "group": "Hybrid Media Solutions",
-                "pages": [
-                  "docs/use-case-guides/hybrid-media-solutions/overview"
-                ]
-              }
-            ]
-          },
-          {
-            "group": "In Depth Guides",
-            "pages": [
-              "docs/in-depth-guides/understanding-pixeltable"
-            ]
-          },
-          {
-            "group": "Notebooks",
-            "pages": [
-              "docs/notebooks/pixeltable-basics",
+              "docs/notebooks/notebook-intro",
               {
                 "group": "Fundamentals",
                 "pages": [
+                  "docs/notebooks/pixeltable-basics",
                   "docs/notebooks/fundamentals/computed-columns",
                   "docs/notebooks/fundamentals/queries-and-expressions",
                   "docs/notebooks/fundamentals/tables-and-data-operations"
@@ -171,30 +87,63 @@
               {
                 "group": "Feature Guides",
                 "pages": [
-                  "docs/notebooks/feature-guides/embedding-indexes",
                   "docs/notebooks/feature-guides/time-zones",
                   "docs/notebooks/feature-guides/udfs-in-pixeltable",
                   "docs/notebooks/feature-guides/working-with-external-files"
                 ]
               },
               {
-                "group": "Integrations",
+                "group": "Cloud LLM API Integrations",
                 "pages": [
-                  "docs/notebooks/integrations/working-with-openai",
                   "docs/notebooks/integrations/working-with-anthropic",
                   "docs/notebooks/integrations/working-with-bedrock",
                   "docs/notebooks/integrations/working-with-deepseek",
-                  "docs/notebooks/integrations/working-with-fiftyone",
                   "docs/notebooks/integrations/working-with-fireworks",
                   "docs/notebooks/integrations/working-with-gemini",
                   "docs/notebooks/integrations/working-with-groq",
-                  "docs/notebooks/integrations/working-with-hugging-face",
-                  "docs/notebooks/integrations/working-with-llama-cpp",
                   "docs/notebooks/integrations/working-with-mistralai",
-                  "docs/notebooks/integrations/working-with-ollama",
+                  "docs/notebooks/integrations/working-with-openai",
+                  "docs/notebooks/integrations/working-with-together"
+                ]
+              },
+              {
+                "group": "Local LLM Integrations",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-llama-cpp",
+                  "docs/notebooks/integrations/working-with-ollama"
+                ]
+              },
+              {
+                "group": "Model Hub Integrations",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-hugging-face",
                   "docs/notebooks/integrations/working-with-replicate",
-                  "docs/notebooks/integrations/working-with-together",
+                  "docs/tutorials/hugging-face-models"
+                ]
+              },
+              {
+                "group": "Computer Vision",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-fiftyone",
+                  "docs/tutorials/label-studio",
+                  "docs/tutorials/voxel51"
+                ]
+              },
+              {
+                "group": "Audio",
+                "pages": []
+              },
+              {
+                "group": "Annotation & Data Tools",
+                "pages": [
                   "docs/notebooks/integrations/using-label-studio-with-pixeltable"
+                ]
+              },
+              {
+                "group": "Embedding Models and Indexes",
+                "pages": [
+                  "docs/notebooks/feature-guides/embedding-indexes",
+                  "docs/tutorials/custom-embedding-models"
                 ]
               },
               {
@@ -209,8 +158,17 @@
             ]
           },
           {
-            "group": "Examples",
+            "group": "Sample Applications and Libraries",
             "pages": [
+              "docs/examples/examples-intro",
+              {
+                "group": "Libraries",
+                "pages": [
+                  "docs/libraries/pixelagent",
+                  "docs/libraries/mcp",
+                  "docs/libraries/yolox"
+                ]
+              },
               {
                 "group": "Explore",
                 "pages": [
@@ -232,8 +190,7 @@
                 "group": "Computer Vision",
                 "pages": [
                   "docs/examples/examples/vision/label-studio",
-                  "docs/examples/examples/vision/voxel51",
-                  "docs/examples/examples/vision/yolox"
+                  "docs/examples/examples/vision/voxel51"
                 ]
               },
               {
@@ -249,59 +206,9 @@
             ]
           },
           {
-            "group": "Tutorials",
-            "pages": [
-              "docs/tutorials/integrations/hugging-face-models",
-              "docs/tutorials/integrations/custom-embedding-models"
-            ]
-          },
-          {
-            "group": "Libraries",
-            "pages": [
-              "docs/libraries/pixelagent",
-              "docs/libraries/mcp",
-              "docs/libraries/yolox"
-            ]
-          },
-          {
-            "group": "Support",
-            "pages": [
-              "docs/support/getting-help",
-              "docs/support/faq"
-            ]
-          },
-          {
             "group": "\ud83d\udc80 Boneyard (Original Content)",
             "collapsed": true,
-            "pages": [
-              "docs/overview/pixeltable",
-              "docs/overview/configuration",
-              "docs/overview/building-pixeltable-with-llms"
-            ]
-          },
-          {
-            "group": "\ud83d\udc80 Tutorials (Boneyard)",
-            "collapsed": true,
-            "pages": [
-              "docs/tutorials-boneyard/fundamentals",
-              "docs/tutorials-boneyard/feature-guide"
-            ]
-          },
-          {
-            "group": "\ud83d\udc80 Pixeltable Universe (Boneyard)",
-            "collapsed": true,
-            "pages": [
-              "docs/datastore/tables-and-operations",
-              "docs/datastore/views",
-              "docs/datastore/iterators",
-              "docs/datastore/bringing-data",
-              "docs/datastore/filtering-and-selecting",
-              "docs/datastore/computed-columns",
-              "docs/datastore/vector-database",
-              "docs/datastore/custom-functions",
-              "docs/datastore/sampling",
-              "docs/datastore/ai-ml-integrations"
-            ]
+            "pages": ["docs/overview/pixeltable"]
           }
         ]
       },
@@ -393,99 +300,12 @@
           {
             "dropdown": "v0.4.9",
             "icon": "tag",
-            "pages": [
-              "docs/sdk/v0.4.9/index"
-            ]
+            "pages": ["docs/sdk/v0.4.9/index"]
           },
           {
             "dropdown": "v0.4.8",
             "icon": "tag",
-            "pages": [
-              "docs/sdk/v0.4.8/index"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "\ud83e\uddea Test Nestin'",
-        "groups": [
-          {
-            "group": "Test Navigation",
-            "pages": [
-              "docs/testnestin/overview",
-              {
-                "group": "Built In",
-                "pages": [
-                  "docs/testnestin/builtin-alpha",
-                  "docs/testnestin/builtin-beta"
-                ]
-              },
-              {
-                "group": "Bring Your Own",
-                "pages": [
-                  "docs/testnestin/byo-widget"
-                ]
-              },
-              "docs/testnestin/troubleshooting"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "\ud83d\udc80 Examples (Boneyard)",
-        "groups": [
-          {
-            "group": "Explore",
-            "pages": [
-              "docs/examples-boneyard/examples/use-cases",
-              "docs/examples-boneyard/examples/interactive-demos",
-              "docs/examples-boneyard/examples/sample-apps"
-            ]
-          },
-          {
-            "group": "Chatbot",
-            "pages": [
-              "docs/examples-boneyard/examples/chat/multimodal",
-              "docs/examples-boneyard/examples/chat/memory",
-              "docs/examples-boneyard/examples/chat/tools",
-              "docs/examples-boneyard/examples/chat/evals"
-            ]
-          },
-          {
-            "group": "Computer Vision",
-            "pages": [
-              "docs/examples-boneyard/examples/vision/label-studio",
-              "docs/examples-boneyard/examples/vision/voxel51",
-              "docs/examples-boneyard/examples/vision/yolox"
-            ]
-          },
-          {
-            "group": "Semantic Search",
-            "pages": [
-              "docs/examples-boneyard/examples/search/audio",
-              "docs/examples-boneyard/examples/search/images",
-              "docs/examples-boneyard/examples/search/PDF",
-              "docs/examples-boneyard/examples/search/website",
-              "docs/examples-boneyard/examples/search/video"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "\ud83d\udc80 Integrations (Boneyard)",
-        "groups": [
-          {
-            "group": "Built-in Integrations",
-            "pages": [
-              "docs/integrations-boneyard/frameworks",
-              "docs/integrations-boneyard/models"
-            ]
-          },
-          {
-            "group": "Bring Your Own",
-            "pages": [
-              "docs/integrations-boneyard/embedding-model"
-            ]
+            "pages": ["docs/sdk/v0.4.8/index"]
           }
         ]
       }

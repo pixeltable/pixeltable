@@ -1,0 +1,1380 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial", 
+  "@id": "queries-and-expressions",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb",
+  "title": "Queries and Expressions",
+  "objective": "Master Pixeltable expressions including column references, JSON operations, UDF calls, arithmetic operations, and the type system",
+  "difficulty": "beginner",
+  "categories": ["expressions", "queries", "json-operations", "udf-calls", "type-system", "column-references"],
+  "prerequisites": ["computed-columns"],
+  "imports_required": [
+    "import pixeltable as pxt",
+    "import datasets",
+    "from pixeltable.functions.huggingface import vit_for_image_classification, clip",
+    "import numpy as np"
+  ],
+  "performance_notes": {
+    "typical_runtime": "2-4 minutes with GPU, 5-8 minutes with CPU",
+    "resource_requirements": "1GB RAM minimum, GPU recommended for model inference, internet connection for dataset download",
+    "bottlenecks": ["MNIST dataset download", "Model inference operations", "Embedding computation"]
+  },
+  "key_learnings": [
+    "Expressions are Python objects that contain no data until used in queries",
+    "JSON accessors work with both dictionary and attribute syntax",
+    "UDF calls can use both method and function call syntax",
+    "Boolean operators use & | ~ instead of and or not",
+    "Array types require shape and dtype specifications",
+    "Error handling can be controlled with on_error parameter"
+  ],
+  "relationships": {
+    "builds_on": ["computed-columns", "table-creation", "data-insertion"],
+    "enables": ["advanced-queries", "complex-transformations", "custom-udfs"],
+    "see_also": ["computed-columns#expressions"],
+    "contrasts_with": ["traditional-sql-expressions"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Setup and Data Import",
+      "intent": "Import MNIST dataset to demonstrate various expression types",
+      "code": "import pixeltable as pxt\nimport datasets\n\npxt.drop_dir('demo', force=True)\npxt.create_dir('demo')\n\n# Download the first 50 images of the MNIST dataset\nds = datasets.load_dataset('ylecun/mnist', split='train[:50]')\n\n# Import them into a Pixeltable table\nt = pxt.io.import_huggingface_dataset('demo.mnist', ds)",
+      "imports_used": ["pixeltable", "datasets"],
+      "explanation": "Use Hugging Face datasets importer to load MNIST images for expression examples",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory 'demo'.\nCreated table `mnist_tmp_32592145`.\nInserting rows into `mnist_tmp_32592145`: 50 rows [00:00, 1071.83 rows/s]\nInserted 50 rows with 0 errors.",
+      "output_summary": "Database connected, demo directory created, MNIST dataset imported with 50 images",
+      "output_type": "text",
+      "learns": ["huggingface-dataset-import", "dataset-subsetting"],
+      "reinforces": ["directory-creation", "table-creation"],
+      "gotchas": ["Dataset split syntax uses slice notation", "Automatic table naming for temp imports"],
+      "performance": {
+        "execution_time": "2-5s depending on network",
+        "scaling": "O(n) where n is dataset size",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Load full MNIST dataset or use different subset size",
+        "when_to_use": "When you need larger datasets or different sampling"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["huggingface_dataset_import"]
+    },
+    {
+      "number": 2,
+      "section_title": "Column References as Expressions",
+      "intent": "Understand that column references are expressions containing no data",
+      "code": "t.image",
+      "imports_used": ["pixeltable", "datasets"],
+      "explanation": "Column references are Python objects representing expressions, not data",
+      "actual_output": "Column\n'image'\n(of table 'demo.mnist')\n\n Column Name   Type Computed With\n       image  Image              ",
+      "output_summary": "Column reference shows metadata but no actual data",
+      "output_type": "text",
+      "learns": ["expression-nature", "lazy-evaluation"],
+      "reinforces": ["column-references"],
+      "gotchas": ["Expressions are lazy - no data loaded until query", "Column references show schema information"],
+      "performance": {
+        "execution_time": "< 1ms",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Access via dictionary syntax: t['image']",
+        "when_to_use": "When column names contain special characters"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["column_reference_expression"]
+    },
+    {
+      "number": 3,
+      "section_title": "Adding Classification Model",
+      "intent": "Add image classification to demonstrate JSON operations",
+      "code": "from pixeltable.functions.huggingface import vit_for_image_classification\n\nt.add_computed_column(classification=vit_for_image_classification(\n    t.image,\n    model_id='farleyknight-org-username/vit-base-mnist'\n))",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Add classification model to generate JSON output for demonstrating JSON operations",
+      "actual_output": "Added 50 column values with 0 errors.\n\nUpdateStatus(num_rows=50, num_computed_values=50, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Classification model applied to all 50 MNIST images successfully",
+      "output_type": "text",
+      "learns": ["vision-transformer-models", "mnist-classification"],
+      "reinforces": ["model-inference", "computed-column-creation"],
+      "gotchas": ["Model downloads on first use", "Results are JSON dictionaries"],
+      "performance": {
+        "execution_time": "30-60s for first run",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use different vision models or custom classification",
+        "when_to_use": "When you need different model architectures or custom training"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["vision_model_inference"]
+    },
+    {
+      "number": 4,
+      "section_title": "JSON Dictionary Access",
+      "intent": "Demonstrate dictionary key access in JSON columns",
+      "code": "t.select(t.classification['labels']).head(3)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Use dictionary syntax to access specific keys in JSON-typed columns",
+      "actual_output": "  classification_labels\n0       [5, 3, 2, 8, 7]\n1       [0, 6, 9, 8, 1]\n2       [4, 1, 9, 7, 0]",
+      "output_summary": "Successfully extracted 'labels' array from classification JSON results",
+      "output_type": "table",
+      "learns": ["json-dictionary-access", "bracket-syntax"],
+      "reinforces": ["select-queries", "json-operations"],
+      "gotchas": ["Automatic column naming for expressions", "Arrays preserved as lists"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use attribute syntax: t.classification.labels",
+        "when_to_use": "When keys are valid Python identifiers"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["json_dictionary_access"]
+    },
+    {
+      "number": 5,
+      "section_title": "JSON Attribute Access",
+      "intent": "Show alternative attribute syntax for JSON property access",
+      "code": "t.select(t.classification.labels).head(3)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Attribute syntax provides convenient alternative to dictionary access for valid identifiers",
+      "actual_output": "  classification_labels\n0       [5, 3, 2, 8, 7]\n1       [0, 6, 9, 8, 1]\n2       [4, 1, 9, 7, 0]",
+      "output_summary": "Identical output to dictionary syntax, demonstrating equivalence",
+      "output_type": "table",
+      "learns": ["json-attribute-syntax", "jsonpath-expressions"],
+      "reinforces": ["json-dictionary-access"],
+      "gotchas": ["Only works for valid Python identifiers", "Cannot use with keys containing spaces or special characters"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Stick with dictionary syntax for consistency",
+        "when_to_use": "When working with keys that may not be valid identifiers"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["json_attribute_access"]
+    },
+    {
+      "number": 6,
+      "section_title": "Expression Nature Demonstration",
+      "intent": "Show that expressions contain no data until used in queries",
+      "code": "t.classification.labels",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Expressions by themselves are just Python objects with no data",
+      "actual_output": "classification.labels",
+      "output_summary": "Expression object shown without any actual data",
+      "output_type": "text",
+      "learns": ["expression-lazy-evaluation"],
+      "reinforces": ["column-reference-expression"],
+      "gotchas": ["Expressions look simple but represent complex operations", "No computation until query execution"],
+      "performance": {
+        "execution_time": "< 1ms",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Immediately query the expression with .collect()",
+        "when_to_use": "When you want to see the actual data"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["expression_lazy_evaluation"]
+    },
+    {
+      "number": 7,
+      "section_title": "JSON Array Indexing",
+      "intent": "Access specific elements within JSON arrays",
+      "code": "t.select(t.classification.labels[0]).head(3)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Use array indexing to extract specific elements from JSON arrays",
+      "actual_output": "   classification_labels0\n0                       5\n1                       0\n2                       4",
+      "output_summary": "First element (most likely prediction) extracted from each classification result",
+      "output_type": "table",
+      "learns": ["json-array-indexing", "prediction-extraction"],
+      "reinforces": ["json-attribute-access"],
+      "gotchas": ["Zero-based indexing", "Column names auto-generated with index suffix"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Extract multiple elements with slicing",
+        "when_to_use": "When you need top-k predictions"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["json_array_indexing"]
+    },
+    {
+      "number": 8,
+      "section_title": "JSON Array Slicing",
+      "intent": "Demonstrate array slicing within JSON columns",
+      "code": "t.select(t.classification.labels[:2]).head(3)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Standard Python slicing syntax works with JSON arrays",
+      "actual_output": "  classification_labels2\n0                 [5, 3]\n1                 [0, 6]\n2                 [4, 1]",
+      "output_summary": "Top 2 predictions extracted from each classification result",
+      "output_type": "table",
+      "learns": ["json-array-slicing", "top-k-extraction"],
+      "reinforces": ["json-array-indexing"],
+      "gotchas": ["Slice results are still arrays", "Column naming includes slice length"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use individual indexing for each element needed",
+        "when_to_use": "When you need non-contiguous elements"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["json_array_slicing"]
+    },
+    {
+      "number": 9,
+      "section_title": "Resilient JSON Access",
+      "intent": "Show how Pixeltable handles missing keys gracefully",
+      "code": "t.select(t.classification.not_a_key).head(3)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Pixeltable returns None for non-existent keys instead of raising errors",
+      "actual_output": "  classification_notakey\n0                   None\n1                   None\n2                   None",
+      "output_summary": "All rows return None for non-existent key, no errors raised",
+      "output_type": "table",
+      "learns": ["error-resilience", "graceful-degradation"],
+      "reinforces": ["json-attribute-access"],
+      "gotchas": ["Missing keys return None, not errors", "Useful for optional properties"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Check for key existence before access",
+        "when_to_use": "When you need to handle missing keys differently"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["json_resilient_access"]
+    },
+    {
+      "number": 10,
+      "section_title": "Creating Computed Column from Expression",
+      "intent": "Convert a JSON expression into a persistent computed column",
+      "code": "t.add_computed_column(pred_label=t.classification.label_text[0])",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Any expression can be made into a computed column for persistent storage",
+      "actual_output": "Added 50 column values with 0 errors.",
+      "output_summary": "Computed column created successfully for predicted labels",
+      "output_type": "text",
+      "learns": ["expression-to-column", "label-extraction"],
+      "reinforces": ["computed-column-creation", "json-array-indexing"],
+      "gotchas": ["Expression must be deterministic for computed columns"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Keep as dynamic expression in queries",
+        "when_to_use": "When storage space is limited or results change frequently"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["expression_to_computed_column"]
+    },
+    {
+      "number": 11,
+      "section_title": "Constructing Custom JSON Objects",
+      "intent": "Create new dictionaries from column expressions",
+      "code": "custom_dict = {\n    'ground_truth': t.label,\n    'prediction': t.pred_label,\n    'is_correct': t.label == t.pred_label,\n    'engine': 'pixeltable',\n}\n\nt.select(t.image, custom_dict).head(5)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Construct new JSON objects by combining columns and constants",
+      "actual_output": "                                               image  \\\n0  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n1  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n2  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n3  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n4  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n\n                                               col_1  \n0  {'ground_truth': '5', 'prediction': '5', 'is_c...  \n1  {'ground_truth': '0', 'prediction': '0', 'is_c...  \n2  {'ground_truth': '4', 'prediction': '4', 'is_c...  \n3  {'ground_truth': '1', 'prediction': '1', 'is_c...  \n4  {'ground_truth': '9', 'prediction': '9', 'is_c...",
+      "output_summary": "Custom JSON objects created combining multiple columns and boolean comparisons",
+      "output_type": "table",
+      "learns": ["json-construction", "boolean-expressions", "mixed-data-types"],
+      "reinforces": ["column-references", "arithmetic-expressions"],
+      "gotchas": ["Dictionary keys must be strings", "Constants can be mixed with expressions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Create separate columns for each property",
+        "when_to_use": "When you need to query individual properties efficiently"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["json_construction"]
+    },
+    {
+      "number": 12,
+      "section_title": "UDF Call Expressions",
+      "intent": "Demonstrate UDF calls as expressions with complex compositions",
+      "code": "rot_model_result = vit_for_image_classification(\n    t.image.rotate(90),\n    model_id='farleyknight-org-username/vit-base-mnist'\n)\n\nt.select(t.image, rot_label=rot_model_result.labels[0]).head(5)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "UDF calls can be composed with other operations and assigned to variables for reuse",
+      "actual_output": "                                               image  rot_label\n0  <PIL.JpegImagePlugin.JpegImageFile image mode=...          4\n1  <PIL.JpegImagePlugin.JpegImageFile image mode=...          0\n2  <PIL.JpegImagePlugin.JpegImageFile image mode=...          5\n3  <PIL.JpegImagePlugin.JpegImageFile image mode=...          1\n4  <PIL.JpegImagePlugin.JpegImageFile image mode=...          8",
+      "output_summary": "Model predictions on rotated images showing degraded performance",
+      "output_type": "table",
+      "learns": ["udf-composition", "expression-variables", "model-robustness"],
+      "reinforces": ["model-inference", "image-transformation"],
+      "gotchas": ["Expressions can be assigned to variables for reuse", "Rotated images perform worse"],
+      "performance": {
+        "execution_time": "30-60s for model inference",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Create computed columns for reused expressions",
+        "when_to_use": "When expressions will be used multiple times"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["udf_composition", "expression_variables"]
+    },
+    {
+      "number": 13,
+      "section_title": "Method Call vs Function Call Syntax",
+      "intent": "Show equivalence between method and function call syntax",
+      "code": "a = t.image.rotate(90)\nb = pxt.functions.image.rotate(t.image, 90)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "UDFs can be called as methods on columns or as functions from modules",
+      "actual_output": "",
+      "output_summary": "Two equivalent expressions created using different syntax",
+      "output_type": "none",
+      "learns": ["method-call-equivalence", "function-module-organization"],
+      "reinforces": ["image-transformation", "udf-calls"],
+      "gotchas": ["Method syntax only works for core module UDFs", "Both approaches create identical expressions"],
+      "performance": {
+        "execution_time": "< 1ms",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Choose consistent style throughout codebase",
+        "when_to_use": "Method syntax for core operations, function syntax for specialized modules"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["method_function_equivalence"]
+    },
+    {
+      "number": 14,
+      "section_title": "Boolean Expressions in Queries",
+      "intent": "Demonstrate boolean operators and comparisons in select and where clauses",
+      "code": "t.select(\n    t.image,\n    t.label,\n    t.label == '4',\n    t.label < '5',\n).head(5)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Boolean expressions can be used in select clauses to create conditional columns",
+      "actual_output": "                                               image label  col_2  col_3\n0  <PIL.JpegImagePlugin.JpegImageFile image mode=...     5  False  False\n1  <PIL.JpegImagePlugin.JpegImageFile image mode=...     0  False   True\n2  <PIL.JpegImagePlugin.JpegImageFile image mode=...     4   True   True\n3  <PIL.JpegImagePlugin.JpegImageFile image mode=...     1  False   True\n4  <PIL.JpegImagePlugin.JpegImageFile image mode=...     9  False  False",
+      "output_summary": "Boolean columns showing comparison results for each row",
+      "output_type": "table",
+      "learns": ["boolean-expressions", "comparison-operators"],
+      "reinforces": ["select-queries", "column-references"],
+      "gotchas": ["String comparisons work lexicographically", "Boolean results shown as True/False"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use where() clauses for filtering instead of select for boolean columns",
+        "when_to_use": "When you want to filter rows rather than create boolean columns"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["boolean_expressions"]
+    },
+    {
+      "number": 15,
+      "section_title": "Boolean Operators in Where Clauses",
+      "intent": "Show proper syntax for logical operators in Pixeltable",
+      "code": "rot_label = rot_model_result.label_text[0]\n\nt.where((t.label == '5') & (rot_label != '5')).select(\n    t.image, t.label, rot_label=rot_label\n).show()",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "Use & and | for logical operations, not and/or, following Pandas conventions",
+      "actual_output": "                                               image label rot_label\n0  <PIL.JpegImagePlugin.JpegImageFile image mode=...     5         4",
+      "output_summary": "One row found where ground truth is '5' but rotated model predicted '4'",
+      "output_type": "table",
+      "learns": ["logical-operators", "pandas-conventions", "complex-filtering"],
+      "reinforces": ["where-clauses", "boolean-expressions"],
+      "gotchas": ["Must use & and | instead of and/or", "Parentheses required for compound conditions"],
+      "performance": {
+        "execution_time": "30-60s including model inference",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Create boolean computed columns first, then filter",
+        "when_to_use": "When complex conditions will be reused multiple times"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist"]
+      },
+      "pattern_refs": ["logical_operators", "complex_filtering"]
+    },
+    {
+      "number": 16,
+      "section_title": "Array Operations and Embeddings",
+      "intent": "Demonstrate array-typed columns and operations",
+      "code": "from pixeltable.functions.huggingface import clip\n\nt.add_computed_column(clip=clip(t.image, model_id='openai/clip-vit-base-patch32'))",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "CLIP embeddings demonstrate array-typed columns with numerical operations",
+      "actual_output": "Added 50 column values with 0 errors.",
+      "output_summary": "CLIP embeddings computed for all images, creating array-typed column",
+      "output_type": "text",
+      "learns": ["embeddings", "array-columns", "clip-models"],
+      "reinforces": ["computed-column-creation", "model-inference"],
+      "gotchas": ["Arrays have specific shape and dtype", "Embeddings are high-dimensional"],
+      "performance": {
+        "execution_time": "30-60s for embedding computation",
+        "scaling": "O(n) where n is number of images",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use different embedding models or custom feature extraction",
+        "when_to_use": "When CLIP embeddings don't suit your use case"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist", "openai/clip-vit-base-patch32"]
+      },
+      "pattern_refs": ["embedding_computation"]
+    },
+    {
+      "number": 17,
+      "section_title": "Array Slicing Operations",
+      "intent": "Show how to slice and access array elements",
+      "code": "t.select(t.clip[0], t.clip[5:10], t.clip[-3:]).head(5)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface"],
+      "explanation": "NumPy-style array slicing works on array-typed columns",
+      "actual_output": "      col_0                                              col_1  \\\n0 -0.052472  [-0.03184929, 0.06963743, 1.1165005, -0.037148...   \n1  0.062565  [-0.3323701, -0.20095566, 1.0229394, -0.002611...   \n2 -0.059083  [-0.23313646, 0.23840791, 0.8635649, -0.135253...   \n3  0.098077  [-0.106710635, 0.038182013, 1.0814098, -0.1106...   \n4 -0.046089  [-0.11528104, 0.06613226, 1.0892408, -0.016736...   \n\n                                    col_2  \n0  [0.90351915, 0.036779515, -0.16105242]  \n1  [0.82265085, -0.14863057, -0.16314176]  \n2   [0.76470613, -0.36314437, 0.20581008]  \n3     [1.0230694, -0.1362458, 0.09243362]  \n4     [0.7860199, 0.09811185, 0.17112087]",
+      "output_summary": "Array elements and slices extracted showing floating point embedding values",
+      "output_type": "table",
+      "learns": ["array-slicing", "numpy-indexing", "embedding-inspection"],
+      "reinforces": ["array-operations"],
+      "gotchas": ["Negative indexing works from end", "Slices return sub-arrays"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Extract specific dimensions based on analysis needs",
+        "when_to_use": "When you need specific embedding dimensions for analysis"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist", "openai/clip-vit-base-patch32"]
+      },
+      "pattern_refs": ["array_slicing"]
+    },
+    {
+      "number": 18,
+      "section_title": "Ad Hoc UDFs with Apply",
+      "intent": "Create custom transformations using apply with Python functions",
+      "code": "import numpy as np\n\nt.select(t.clip.apply(np.ndarray.dumps, col_type=pxt.String)).head(2)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface", "numpy"],
+      "explanation": "Apply allows using arbitrary Python functions as one-off UDFs",
+      "actual_output": "",
+      "output_summary": "Serialized array data as strings using numpy dumps",
+      "output_type": "text",
+      "learns": ["ad-hoc-udfs", "apply-function", "type-specification"],
+      "reinforces": ["custom-transformations"],
+      "gotchas": ["Must specify col_type for functions without type hints", "apply is for one-off use"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Create proper UDF for reusable transformations",
+        "when_to_use": "When transformation will be used multiple times"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist", "openai/clip-vit-base-patch32"]
+      },
+      "pattern_refs": ["ad_hoc_udf"]
+    },
+    {
+      "number": 19,
+      "section_title": "Type Conversion with astype",
+      "intent": "Convert between Pixeltable types using astype",
+      "code": "# Show original type\nt.classification.label_text[0].col_type\n\n# Show converted type\nt.classification.label_text[0].astype(pxt.String).col_type",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface", "numpy"],
+      "explanation": "astype converts expressions from one Pixeltable type to another",
+      "actual_output": "Optional[Json]\n\nOptional[String]",
+      "output_summary": "Type conversion from Json to String demonstrated",
+      "output_type": "text",
+      "learns": ["type-conversion", "optional-types", "string-casting"],
+      "reinforces": ["type-system"],
+      "gotchas": ["Conversion may fail if data isn't compatible", "Optional wrapper indicates nullable"],
+      "performance": {
+        "execution_time": "< 1ms",
+        "scaling": "O(1) for type checking",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use type-specific UDFs for more control",
+        "when_to_use": "When you need custom conversion logic"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist", "openai/clip-vit-base-patch32"]
+      },
+      "pattern_refs": ["type_conversion"]
+    },
+    {
+      "number": 20,
+      "section_title": "Media Column Properties",
+      "intent": "Access special properties of media columns",
+      "code": "t.select(t.image, t.image.localpath).head(5)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface", "numpy"],
+      "explanation": "Media columns have special properties like localpath and fileurl",
+      "actual_output": "                                               image  \\\n0  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n1  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n2  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n3  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n4  <PIL.JpegImagePlugin.JpegImageFile image mode=...   \n\n                                     image_localpath  \n0  /Users/asiegel/.pixeltable/media/26d0c4b761ea4...  \n1  /Users/asiegel/.pixeltable/media/26d0c4b761ea4...  \n2  /Users/asiegel/.pixeltable/media/26d0c4b761ea4...  \n3  /Users/asiegel/.pixeltable/media/26d0c4b761ea4...  \n4  /Users/asiegel/.pixeltable/media/26d0c4b761ea4...",
+      "output_summary": "Local file paths shown for cached media files",
+      "output_type": "table", 
+      "learns": ["media-properties", "file-caching", "local-paths"],
+      "reinforces": ["media-columns"],
+      "gotchas": ["Media files automatically cached locally", "Paths point to Pixeltable media directory"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use fileurl property to get original URLs",
+        "when_to_use": "When you need to reference original media locations"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist", "openai/clip-vit-base-patch32"]
+      },
+      "pattern_refs": ["media_properties"]
+    },
+    {
+      "number": 21,
+      "section_title": "Error Handling with on_error",
+      "intent": "Demonstrate error handling in computed columns",
+      "code": "t.add_computed_column(channel=t.image.getchannel(1), on_error='ignore')",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface", "numpy"],
+      "explanation": "on_error='ignore' captures exceptions in computed columns instead of failing",
+      "actual_output": "Added 50 column values with 50 errors.\n\nUpdateStatus(num_rows=50, num_computed_values=50, num_excs=50, updated_cols=[], cols_with_excs=['mnist_tmp_32592145.channel'])",
+      "output_summary": "Column created with errors captured, 50 exceptions recorded",
+      "output_type": "text",
+      "learns": ["error-handling", "exception-capture", "on-error-parameter"],
+      "reinforces": ["computed-column-creation"],
+      "gotchas": ["Errors stored in column properties", "All operations failed due to single-channel images"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use on_error='abort' to fail immediately on errors",
+        "when_to_use": "When you want to catch errors during development"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist", "openai/clip-vit-base-patch32"]
+      },
+      "pattern_refs": ["error_handling"]
+    },
+    {
+      "number": 22,
+      "section_title": "Inspecting Error Information",
+      "intent": "Show how to access error details from failed computations",
+      "code": "t.select(t.image, t.channel, t.channel.errortype, t.channel.errormsg).head(5)",
+      "imports_used": ["pixeltable", "datasets", "pixeltable.functions.huggingface", "numpy"],
+      "explanation": "Error information is accessible via errortype and errormsg properties",
+      "actual_output": "                                               image channel  \\\n0  <PIL.JpegImagePlugin.JpegImageFile image mode=...    None   \n1  <PIL.JpegImagePlugin.JpegImageFile image mode=...    None   \n2  <PIL.JpegImagePlugin.JpegImageFile image mode=...    None   \n3  <PIL.JpegImagePlugin.JpegImageFile image mode=...    None   \n4  <PIL.JpegImagePlugin.JpegImageFile image mode=...    None   \n\n  channel_errortype         channel_errormsg  \n0        ValueError  band index out of range  \n1        ValueError  band index out of range  \n2        ValueError  band index out of range  \n3        ValueError  band index out of range  \n4        ValueError  band index out of range",
+      "output_summary": "Error details showing ValueError for out-of-range band access on grayscale images",
+      "output_type": "table",
+      "learns": ["error-inspection", "error-properties", "debugging-techniques"],
+      "reinforces": ["error-handling"],
+      "gotchas": ["Errors stored per row", "Useful for debugging failed operations"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Check error conditions before applying operations",
+        "when_to_use": "When you want to prevent errors proactively"
+      },
+      "state_after": {
+        "tables": ["mnist"],
+        "views": [],
+        "variables": ["t", "ds", "custom_dict", "rot_model_result", "a", "b", "rot_label"],
+        "models_loaded": ["farleyknight-org-username/vit-base-mnist", "openai/clip-vit-base-patch32"]
+      },
+      "pattern_refs": ["error_inspection"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "huggingface_dataset_import",
+      "description": "Import datasets from Hugging Face Hub with subsetting and automatic conversion",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "ds = datasets.load_dataset('dataset_name', split='train[:n]')\ntable = pxt.io.import_huggingface_dataset('dir.table', ds)",
+      "parameters": {
+        "dataset_name": "Name of dataset on Hugging Face Hub",
+        "split": "Dataset split with optional slicing syntax",
+        "table_name": "Full path for new Pixeltable table"
+      },
+      "variations": [
+        {
+          "name": "full_dataset",
+          "difference": "Import entire dataset without subsetting",
+          "code": "ds = datasets.load_dataset('dataset_name')"
+        }
+      ],
+      "prerequisites": ["datasets-library"],
+      "enables": ["ml-dataset-access", "rapid-prototyping"],
+      "performance_impact": "Network download time, automatic schema inference",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "column_reference_expression",
+      "description": "Column references as lazy expressions that show metadata without loading data",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.column_name  # Returns expression object, not data",
+      "parameters": {
+        "table": "Pixeltable table reference",
+        "column_name": "Name of column to reference"
+      },
+      "variations": [
+        {
+          "name": "dictionary_access",
+          "difference": "Use bracket syntax for column access",
+          "code": "table['column_name']"
+        }
+      ],
+      "prerequisites": ["table-creation"],
+      "enables": ["lazy-evaluation", "expression-composition"],
+      "performance_impact": "O(1) - no data loading",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "vision_model_inference",
+      "description": "Apply pre-trained vision models for image classification and analysis",
+      "confidence": "high", 
+      "frequency": 3,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.add_computed_column(result=vision_udf(table.image_col, model_id='model/name'))",
+      "parameters": {
+        "vision_udf": "Vision model function (classification, detection, etc.)",
+        "image_column": "Column containing images",
+        "model_id": "HuggingFace model identifier"
+      },
+      "variations": [
+        {
+          "name": "object_detection",
+          "difference": "Use detection models instead of classification",
+          "code": "detr_for_object_detection(img_col, model_id='facebook/detr-resnet-50')"
+        }
+      ],
+      "prerequisites": ["image-data"],
+      "enables": ["computer-vision", "automated-analysis"],
+      "performance_impact": "GPU recommended, model caching on first use",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "json_dictionary_access",
+      "description": "Access properties in JSON-typed columns using dictionary syntax",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "queries-and-expressions", 
+      "code_template": "table.json_column['property_name']",
+      "parameters": {
+        "json_column": "Column containing JSON/dict data",
+        "property_name": "Key to access in the JSON object"
+      },
+      "variations": [
+        {
+          "name": "nested_access",
+          "difference": "Access nested properties",
+          "code": "table.json_col['level1']['level2']"
+        }
+      ],
+      "prerequisites": ["json-data"],
+      "enables": ["structured-data-extraction", "model-result-processing"],
+      "performance_impact": "Fast property lookup, O(1)",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "json_attribute_access",
+      "description": "Access JSON properties using attribute syntax when keys are valid identifiers",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.json_column.property_name",
+      "parameters": {
+        "json_column": "Column containing JSON/dict data",
+        "property_name": "Valid Python identifier key name"
+      },
+      "variations": [
+        {
+          "name": "chained_access",
+          "difference": "Chain multiple property accesses",
+          "code": "table.json_col.prop1.prop2.prop3"
+        }
+      ],
+      "prerequisites": ["json-data", "valid-identifiers"],
+      "enables": ["clean-syntax", "jsonpath-style-access"],
+      "performance_impact": "Fast property lookup, O(1)",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "expression_lazy_evaluation",
+      "description": "Expressions are lazy objects containing no data until used in queries",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "expr = table.column.operation()  # No computation yet\nresult = table.select(expr).collect()  # Computation happens here",
+      "parameters": {
+        "expression": "Any Pixeltable expression",
+        "operation": "Transformation or calculation"
+      },
+      "variations": [
+        {
+          "name": "complex_expressions",
+          "difference": "Compose multiple operations without execution",
+          "code": "complex_expr = table.col1.op1().op2() + table.col2.op3()"
+        }
+      ],
+      "prerequisites": ["expression-understanding"],
+      "enables": ["efficient-query-planning", "expression-reuse"],
+      "performance_impact": "Zero until query execution",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "json_array_indexing",
+      "description": "Access specific elements in JSON arrays using index notation",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.json_column.array_property[index]",
+      "parameters": {
+        "json_column": "Column containing JSON data",
+        "array_property": "Property containing an array",
+        "index": "Zero-based index of element to extract"
+      },
+      "variations": [
+        {
+          "name": "negative_indexing",
+          "difference": "Use negative indices to access from end",
+          "code": "table.json_col.array_prop[-1]  # Last element"
+        }
+      ],
+      "prerequisites": ["json-attribute-access", "array-data"],
+      "enables": ["top-prediction-extraction", "result-selection"],
+      "performance_impact": "Fast array access, O(1)",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "json_array_slicing",
+      "description": "Extract sub-arrays from JSON arrays using Python slice syntax",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.json_column.array_property[start:end]",
+      "parameters": {
+        "json_column": "Column containing JSON data",
+        "array_property": "Property containing an array",
+        "slice_spec": "Python slice notation (start:end:step)"
+      },
+      "variations": [
+        {
+          "name": "top_k",
+          "difference": "Get first k elements",
+          "code": "table.json_col.array_prop[:k]"
+        }
+      ],
+      "prerequisites": ["json-array-indexing"],
+      "enables": ["top-k-results", "batch-extraction"],
+      "performance_impact": "Proportional to slice size",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "json_resilient_access",
+      "description": "JSON property access returns None for missing keys instead of errors",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.json_column.missing_property  # Returns None, not error",
+      "parameters": {
+        "json_column": "Column containing JSON data",
+        "property_name": "Property that may or may not exist"
+      },
+      "variations": [
+        {
+          "name": "optional_chaining",
+          "difference": "Chain access with potential missing properties",
+          "code": "table.json_col.maybe_missing.nested_prop"
+        }
+      ],
+      "prerequisites": ["json-attribute-access"],
+      "enables": ["robust-data-processing", "optional-field-handling"],
+      "performance_impact": "No overhead for missing properties",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "expression_to_computed_column",
+      "description": "Convert any expression into a persistent computed column",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.add_computed_column(name=expression)",
+      "parameters": {
+        "column_name": "Name for the new computed column",
+        "expression": "Any valid Pixeltable expression"
+      },
+      "variations": [
+        {
+          "name": "complex_expression",
+          "difference": "Use multi-step expressions",
+          "code": "table.add_computed_column(result=table.col1.op1().op2() + const)"
+        }
+      ],
+      "prerequisites": ["expression-composition"],
+      "enables": ["persistent-calculations", "pipeline-building"],
+      "performance_impact": "One-time computation, then cached",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "json_construction",
+      "description": "Build new JSON objects from columns, expressions, and constants",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "custom_dict = {'key1': table.col1, 'key2': expression, 'key3': constant}",
+      "parameters": {
+        "keys": "String keys for the new JSON object",
+        "values": "Mix of columns, expressions, and constants"
+      },
+      "variations": [
+        {
+          "name": "nested_objects",
+          "difference": "Create nested JSON structures",
+          "code": "{'outer': {'inner': table.col, 'value': 42}}"
+        }
+      ],
+      "prerequisites": ["column-references", "expressions"],
+      "enables": ["custom-data-structures", "result-formatting"],
+      "performance_impact": "Minimal overhead for object construction",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "udf_composition",
+      "description": "Compose UDF calls with other operations in complex expressions",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "result = udf_func(table.column.operation(), param=value)",
+      "parameters": {
+        "udf_func": "User-defined function",
+        "input_expression": "Expression providing input to UDF",
+        "parameters": "Additional UDF parameters"
+      },
+      "variations": [
+        {
+          "name": "chained_udfs",
+          "difference": "Chain multiple UDF calls",
+          "code": "result = udf2(udf1(table.col, p1), p2)"
+        }
+      ],
+      "prerequisites": ["udf-calls", "expression-composition"],
+      "enables": ["complex-pipelines", "multi-stage-processing"],
+      "performance_impact": "Cumulative cost of all operations",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "expression_variables",
+      "description": "Assign expressions to variables for reuse and readability",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "expr_var = table.complex_expression()\nresult = table.select(derived=expr_var.property)",
+      "parameters": {
+        "variable_name": "Python variable to store expression",
+        "expression": "Complex expression to reuse"
+      },
+      "variations": [
+        {
+          "name": "multiple_reuse",
+          "difference": "Use same expression in multiple contexts",
+          "code": "expr = table.col.op()\nresult1 = table.select(expr)\nresult2 = table.where(expr > threshold)"
+        }
+      ],
+      "prerequisites": ["expression-understanding"],
+      "enables": ["code-reuse", "readable-queries"],
+      "performance_impact": "No additional computation cost",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "method_function_equivalence",
+      "description": "UDFs can be called as methods on columns or as functions from modules",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "method_call = table.column.udf_name(params)\nfunc_call = pxt.functions.module.udf_name(table.column, params)",
+      "parameters": {
+        "column": "Column to operate on",
+        "udf_name": "Name of the UDF",
+        "module": "Module containing the UDF"
+      },
+      "variations": [
+        {
+          "name": "module_specific",
+          "difference": "Some UDFs only available as functions",
+          "code": "pxt.functions.specialized.custom_udf(table.col)"
+        }
+      ],
+      "prerequisites": ["udf-understanding"],
+      "enables": ["flexible-syntax", "consistent-apis"],
+      "performance_impact": "Identical performance for both approaches",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "boolean_expressions",
+      "description": "Create boolean expressions for comparisons and logical operations",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "queries-and-expressions",
+      "code_template": "bool_expr = table.column comparison_op value",
+      "parameters": {
+        "column": "Column to compare",
+        "comparison_op": "Comparison operator (==, !=, <, >, etc.)",
+        "value": "Value or expression to compare against"
+      },
+      "variations": [
+        {
+          "name": "column_comparison",
+          "difference": "Compare two columns",
+          "code": "table.col1 == table.col2"
+        }
+      ],
+      "prerequisites": ["column-references"],
+      "enables": ["filtering", "conditional-logic"],
+      "performance_impact": "Fast comparison operations",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "logical_operators",
+      "description": "Combine boolean expressions using &, |, and ~ operators",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "queries-and-expressions",
+      "code_template": "(condition1) & (condition2)",
+      "parameters": {
+        "condition1": "First boolean expression",
+        "condition2": "Second boolean expression",
+        "operator": "Logical operator (&, |, ~)"
+      },
+      "variations": [
+        {
+          "name": "negation",
+          "difference": "Use ~ for logical NOT",
+          "code": "~(table.col == value)"
+        }
+      ],
+      "prerequisites": ["boolean-expressions"],
+      "enables": ["complex-filtering", "compound-conditions"],
+      "performance_impact": "Minimal overhead for logical operations",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "complex_filtering",
+      "description": "Filter data using compound boolean expressions with proper operator precedence",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.where((condition1) & (condition2) | (condition3))",
+      "parameters": {
+        "conditions": "Multiple boolean expressions",
+        "operators": "Logical operators with proper parentheses"
+      },
+      "variations": [
+        {
+          "name": "mixed_operators",
+          "difference": "Combine AND and OR operations",
+          "code": "table.where(((a == 1) & (b > 2)) | (c != 3))"
+        }
+      ],
+      "prerequisites": ["logical-operators", "where-clauses"],
+      "enables": ["sophisticated-queries", "data-exploration"],
+      "performance_impact": "Depends on selectivity of conditions",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "embedding_computation",
+      "description": "Generate embeddings using pre-trained models for similarity and analysis",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.add_computed_column(embeddings=embedding_udf(table.data_col, model_id='model'))",
+      "parameters": {
+        "embedding_udf": "Embedding function (CLIP, sentence transformers, etc.)",
+        "data_column": "Column containing data to embed",
+        "model_id": "Pre-trained model identifier"
+      },
+      "variations": [
+        {
+          "name": "text_embeddings",
+          "difference": "Generate embeddings for text data",
+          "code": "sentence_transformer(table.text_col, model_id='all-MiniLM-L6-v2')"
+        }
+      ],
+      "prerequisites": ["model-inference"],
+      "enables": ["similarity-search", "clustering", "retrieval"],
+      "performance_impact": "GPU recommended, results cached automatically",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "array_slicing",
+      "description": "Access elements and slices of array-typed columns using NumPy syntax",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.array_column[slice_spec]",
+      "parameters": {
+        "array_column": "Column containing arrays",
+        "slice_spec": "NumPy-style indexing (int, slice, or tuple)"
+      },
+      "variations": [
+        {
+          "name": "multidimensional",
+          "difference": "Slice multi-dimensional arrays",
+          "code": "table.array_col[0:5, 10:20]"
+        }
+      ],
+      "prerequisites": ["array-columns"],
+      "enables": ["feature-selection", "dimensionality-reduction"],
+      "performance_impact": "Proportional to slice size",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "ad_hoc_udf",
+      "description": "Create one-off UDFs using apply with arbitrary Python functions",
+      "confidence": "medium",
+      "frequency": 1,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.column.apply(python_func, col_type=pxt.Type)",
+      "parameters": {
+        "python_func": "Arbitrary Python function",
+        "col_type": "Output column type specification",
+        "column": "Input column for the function"
+      },
+      "variations": [
+        {
+          "name": "lambda_functions",
+          "difference": "Use lambda functions for simple transformations",
+          "code": "table.col.apply(lambda x: x.upper(), col_type=pxt.String)"
+        }
+      ],
+      "prerequisites": ["python-functions"],
+      "enables": ["custom-transformations", "rapid-prototyping"],
+      "performance_impact": "Python function call overhead per row",
+      "reusable": false,
+      "production_ready": false
+    },
+    {
+      "name": "type_conversion",
+      "description": "Convert expressions between Pixeltable types using astype",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "expression.astype(target_type)",
+      "parameters": {
+        "expression": "Source expression to convert",
+        "target_type": "Destination Pixeltable type"
+      },
+      "variations": [
+        {
+          "name": "nullable_conversion",
+          "difference": "Handle optional/nullable types",
+          "code": "optional_expr.astype(pxt.String)"
+        }
+      ],
+      "prerequisites": ["type-system"],
+      "enables": ["type-safety", "data-cleaning"],
+      "performance_impact": "Type checking and conversion overhead",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "media_properties",
+      "description": "Access special properties of media columns like localpath and fileurl",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.media_column.property_name",
+      "parameters": {
+        "media_column": "Column of media type (Image, Video, Audio, Document)",
+        "property_name": "Special property (localpath, fileurl)"
+      },
+      "variations": [
+        {
+          "name": "file_operations",
+          "difference": "Use file paths for external tools",
+          "code": "external_tool(table.image.localpath)"
+        }
+      ],
+      "prerequisites": ["media-columns"],
+      "enables": ["file-system-access", "external-tool-integration"],
+      "performance_impact": "Path lookup overhead",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "error_handling",
+      "description": "Handle errors in computed columns using on_error parameter",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.add_computed_column(name=expression, on_error='ignore')",
+      "parameters": {
+        "expression": "Expression that may fail",
+        "on_error": "Error handling mode ('abort' or 'ignore')",
+        "column_name": "Name for computed column"
+      },
+      "variations": [
+        {
+          "name": "abort_on_error",
+          "difference": "Fail immediately on first error",
+          "code": "table.add_computed_column(col=expr, on_error='abort')"
+        }
+      ],
+      "prerequisites": ["computed-columns"],
+      "enables": ["robust-pipelines", "error-recovery"],
+      "performance_impact": "Error handling overhead when failures occur",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "error_inspection",
+      "description": "Access error details from failed computed column operations",
+      "confidence": "medium",
+      "frequency": 1,
+      "first_seen": "queries-and-expressions",
+      "code_template": "table.select(table.failed_column.errortype, table.failed_column.errormsg)",
+      "parameters": {
+        "failed_column": "Computed column that encountered errors",
+        "error_properties": "errortype and errormsg properties"
+      },
+      "variations": [
+        {
+          "name": "error_filtering",
+          "difference": "Filter rows based on error conditions",
+          "code": "table.where(table.col.errortype == 'ValueError')"
+        }
+      ],
+      "prerequisites": ["error-handling"],
+      "enables": ["debugging", "error-analysis"],
+      "performance_impact": "Minimal overhead for error property access",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Using 'and' instead of '&' in boolean expressions",
+      "frequency": "common",
+      "cause": "Python's 'and' operator cannot be overloaded for custom types",
+      "symptoms": ["TypeError about truth value", "Logical operators not working"],
+      "solution": {
+        "quick_fix": "Replace 'and' with '&', 'or' with '|', 'not' with '~'",
+        "proper_fix": "Always use Pandas-style operators for boolean operations"
+      },
+      "prevention": "Remember Pixeltable follows Pandas conventions for operators",
+      "example": "Use (a == 1) & (b == 2) instead of (a == 1) and (b == 2)",
+      "first_seen": "queries-and-expressions#step-15"
+    },
+    {
+      "error_type": "Accessing non-existent JSON properties expecting errors",
+      "frequency": "occasional",
+      "cause": "Assumption that missing properties raise exceptions like standard Python",
+      "symptoms": ["Unexpected None values", "No errors when expecting them"],
+      "solution": {
+        "quick_fix": "Check for None values in results",
+        "proper_fix": "Use explicit key checking if error handling is needed"
+      },
+      "prevention": "Understand Pixeltable's resilient JSON access design",
+      "example": "table.json_col.missing_key returns None, not KeyError",
+      "first_seen": "queries-and-expressions#step-9"
+    },
+    {
+      "error_type": "Forgetting col_type for apply functions without type hints",
+      "frequency": "common",
+      "cause": "Python functions without type annotations cannot infer output type",
+      "symptoms": ["TypeError about missing col_type", "Type inference failures"],
+      "solution": {
+        "quick_fix": "Add col_type=pxt.Type parameter to apply call",
+        "proper_fix": "Add type hints to functions or create proper UDFs"
+      },
+      "prevention": "Always specify col_type when using apply with untyped functions",
+      "example": "table.col.apply(func, col_type=pxt.String)",
+      "first_seen": "queries-and-expressions#step-18"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What's the difference between t.column and t.select(t.column).collect()?",
+      "answer": "t.column creates a lazy expression with no data, while t.select(t.column).collect() executes the query and returns actual data from the database."
+    },
+    {
+      "question": "How do you access nested properties in JSON-typed columns?",
+      "answer": "Use either attribute syntax (t.json_col.prop1.prop2) or bracket syntax (t.json_col['prop1']['prop2']). Both approaches work for nested access."
+    },
+    {
+      "question": "Why must you use & and | instead of 'and' and 'or' in Pixeltable expressions?",
+      "answer": "Python's 'and' and 'or' operators cannot be overloaded for custom types. Pixeltable follows Pandas conventions using &, |, and ~ for boolean operations."
+    },
+    {
+      "question": "What happens when you access a non-existent key in a JSON column?",
+      "answer": "Pixeltable returns None for missing keys instead of raising an error, making data processing more resilient to varying JSON structures."
+    },
+    {
+      "question": "What's the difference between method call and function call syntax for UDFs?",
+      "answer": "Method syntax (t.col.rotate(90)) and function syntax (pxt.functions.image.rotate(t.col, 90)) are equivalent. Method syntax only works for core module UDFs."
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Use expression variables for complex reusable expressions",
+      "impact": "Improves code readability and enables expression reuse across multiple queries",
+      "implementation": "Assign complex expressions to variables and reference them multiple times",
+      "trade_offs": "None - expressions are lazy so no computation overhead",
+      "example": "expr = t.model(t.image.resize(224)); result1 = t.select(expr); result2 = t.where(expr.score > 0.8)"
+    },
+    {
+      "tip": "Specify explicit column types when using apply()",
+      "impact": "Prevents type inference errors and improves performance",
+      "implementation": "Always include col_type parameter for functions without type hints",
+      "trade_offs": "Slightly more verbose but much more reliable",
+      "example": "t.col.apply(custom_func, col_type=pxt.String)"
+    },
+    {
+      "tip": "Use on_error='ignore' for robust production pipelines",
+      "impact": "Prevents single bad records from failing entire batch processing",
+      "implementation": "Add on_error='ignore' to computed columns that may encounter data quality issues",
+      "trade_offs": "May hide legitimate errors, requires error monitoring",
+      "example": "t.add_computed_column(result=risky_operation(t.col), on_error='ignore')"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 5,
+    "emerging_patterns": 8,
+    "established_patterns": 11,
+    "total_patterns": 24
+  },
+  "cookies": "🍪 Why don't expressions ever get hungry? Because they're always lazy and never actually consume any data until someone makes them work in a query!"
+}

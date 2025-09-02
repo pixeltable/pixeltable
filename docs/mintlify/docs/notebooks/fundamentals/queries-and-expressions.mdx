@@ -1,4 +1,8 @@
-
+---
+title: "Queries and Expressions"
+icon: "notebook"
+description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb)"
+---
 
 export const quartoRawHtml =
 [`
@@ -967,12 +971,6 @@ class="data row5 col2">image.getchannel(1)</td>
 </table>
 `];
 
-[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb)
-[![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb)
-
-# Pixeltable Fundamentals
-
-## Section 3: Queries and Expressions
 
 Welcome to Section 3 of the **Pixeltable Fundamentals** tutorial,
 **Queries and Expressions**.
@@ -1317,7 +1315,7 @@ rot_model_result = vit_for_image_classification(
     model_id='farleyknight-org-username/vit-base-mnist'
 )
 
-t.select(t.image, rot_label=rot_model_result.labels[0]).head(5)   
+t.select(t.image, rot_label=rot_model_result.labels[0]).head(5)
 ```
 
 <div dangerouslySetInnerHTML={{ __html: quartoRawHtml[20] }} />

@@ -1,0 +1,1349 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "pxt": "https://pixeltable.com/ontology#",
+    "patterns": "pxt:developerPatterns",
+    "concepts": "pxt:keyConcepts"
+  },
+  "@type": "DataCatalog",
+  "name": "Pixeltable Developer Patterns",
+  "description": "Curated examples demonstrating Pixeltable capabilities",
+  "dateModified": "2025-08-28T09:57:42.321715",
+  "dataset": [
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/1",
+      "name": "Pixeltable Basics",
+      "description": "Welcome to Pixeltable! In this tutorial, we'll survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations. If you want to follow along with this tutorial interactively, there are two ways to go. - Use a Kaggle or Colab container (easiest): Click on one of the badges above.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/pixeltable-basics.ipynb",
+      "keywords": [
+        "udf",
+        "incremental",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": [
+        {
+          "@type": "HowTo",
+          "name": "Creating a Table",
+          "description": "We can use `t.describe()` to examine the table schema. We see that it now contains a single column, as expected. The new table is initially empty, with no rows:",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "import pixeltable as pxt\n\n# Create the directory `demo` (if it doesn't already exist)\npxt.drop_dir('demo', force=True)  # First drop `demo` to ensure a clean environment\npxt.create_dir('demo')\n\n# Create the table `demo.first` with a single column `input_image`\nt = pxt.create_table('demo.first', {'input_image': pxt.Image})"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.describe()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.count()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 4,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 5,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 6,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions import huggingface\n\nt.add_computed_column(detections=huggingface.detr_for_object_detection(\n    t.input_image, model_id='facebook/detr-resnet-50'\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 7,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 8,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.add_computed_column(detections_text=t.detections.label_text)\nt.show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 9,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.describe()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 10,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "more_images = [\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000030.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000042.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000061.jpg'\n]\nt.insert({'input_image': image} for image in more_images)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 11,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.select(t.input_image, t.detections_text).show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 12,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "# Clear all variables in the notebook\n%reset -f\n\n# Instantiate a new client object\nimport pixeltable as pxt\nt = pxt.get_table('demo.first')\n\n# Display just the first two rows, to avoid cluttering the tutorial\nt.select(t.input_image, t.detections_text).show(2)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 13,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "import os\nimport getpass\nif 'OPENAI_API_KEY' not in os.environ:\n    os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 14,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions import openai\n\nt.add_computed_column(vision=openai.vision(\n    prompt=\"Describe what's in this image.\",\n    image=t.input_image,\n    model='gpt-4o-mini'\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 15,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.select(t.input_image, t.detections_text, t.vision).show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 16,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.add_computed_column(rot_image=t.input_image.rotate(180))\nt.add_computed_column(rot_vision=openai.vision(\n    prompt=\"Describe what's in this image.\",\n    image=t.rot_image,\n    model='gpt-4o-mini'\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 17,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.select(t.rot_image, t.rot_vision).show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 18,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "@pxt.udf\ndef top_detection(detect: dict) -> str:\n    scores = detect['scores']\n    label_text = detect['label_text']\n    # Get the index of the object with the highest confidence\n    i = scores.index(max(scores))\n    # Return the corresponding label\n    return label_text[i]"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 19,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.add_computed_column(top=top_detection(t.detections))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 20,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.select(t.detections_text, t.top).show()"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/2",
+      "name": "Pixeltable Fundamentals",
+      "description": "Welcome to Section 2 of the __Pixeltable Fundamentals__ tutorial, __Computed Columns__. In the previous section, [Tables and Data Operations](https://pixeltable.readme.io/docs/tables-and-data-operations), we learned how to create tables, populate them with data, and query and manipulate their contents. In this section, we'll introduce one of Pixeltable's most essential and powerful concepts: computed columns. We'll learn how to: - Add computed columns to a table",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/computed-columns.ipynb",
+      "keywords": [
+        "computed column",
+        "udf",
+        "incremental",
+        "iterator",
+        "multimodal"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/3",
+      "name": "Pixeltable Fundamentals",
+      "description": "Welcome to Section 3 of the __Pixeltable Fundamentals__ tutorial, __Queries and Expressions__. In the previous section of this tutorial, [Computed Columns](https://docs.pixeltable.com/docs/computed-columns), we saw how to issue queries over Pixeltable tables, such as: ```python",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/queries-and-expressions.ipynb",
+      "keywords": [
+        "computed column",
+        "incremental",
+        "embedding",
+        "iterator",
+        "multimodal"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/4",
+      "name": "Pixeltable Fundamentals",
+      "description": "Welcome to Section 1 of the Pixeltable Fundamentals tutorial, __Tables and Data Operations__. In this section, we'll learn how to: - Create and manage tables: Understand Pixeltable's table structure, create and modify tables, and work with table schemas - Manipulate data: Insert, update, and delete data within tables, and retrieve data from tables into Python variables",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb",
+      "keywords": [
+        "iterator",
+        "incremental",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/5",
+      "name": "Working with Embedding/Vector Indexes",
+      "description": "**If you are running this tutorial in Colab:** In order to make the tutorial run a bit snappier, let's switch to a GPU-equipped instance for this Colab session. To do that, click on the `Runtime -> Change runtime type` menu item at the top, then select the `GPU` radio button and click on `Save`. Main takeaways:",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/embedding-indexes.ipynb",
+      "keywords": [
+        "tool calling",
+        "computed column",
+        "udf",
+        "incremental",
+        "embedding",
+        "multimodal"
+      ],
+      "hasPart": [
+        {
+          "@type": "HowTo",
+          "name": "Creating an index",
+          "description": "The first parameter of `add_embedding_index()` is the name of the column being indexed; the `embed` parameter specifies the relevant embedding. Notice the notation we used:\n```python\nclip.using(model_id='openai/clip-vit-base-patch32')\n```\n`clip` is a general-purpose UDF that can accept any CLIP model available in the Hugging Face model repository. To define an embedding, however, we need to provide a specific embedding function to `add_embedding_index()`: a function that is _not_ parameterized on `model_id`. The `.using(model_id=...)` syntax tells Pixeltable to specialize the `clip` UDF by fixing the `model_id` parameter to the specific value `'openai/clip-vit-base-patch32'`.\n\n<div class=\"alert alert-block alert-info\">\nIf you're familiar with functional programming concepts, you might recognize <code>.using()</code> as a <b>partial function</b> operator. It's a general operator that can be applied to any UDF (not just embedding functions), transforming a UDF with <i>n</i> parameters into one with <i>k</i> parameters by fixing the values of <i>n</i>-<i>k</i> of its arguments. Python has something similar in the <code>functools</code> package: the <code><a href=\"https://docs.python.org/3/library/functools.html#functools.partial\">functools.partial()</a></code> operator.\n</div> `add_embedding_index()` provides a few other optional parameters:\n\n* `idx_name`: optional name for the index, which needs to be unique for the table; a default name is created if this isn't provided explicitly\n* `metric`: the metric to use to compute the similarity of two embedding vectors; one of:\n  * `'cosine'`: cosine distance (default)\n  * `'ip'`: inner product\n  * `'l2'`: L2 distance\n\nIf desired, you can create multiple indexes on the same column, using different embedding functions. This can be useful to evaluate the effectiveness of different embedding functions side-by-side, or to use embedding functions tailored to specific use cases. In that case, you can provide explicit names for those indexes and then reference them during queries. We'll illustrate that later with an example.",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions.huggingface import clip\nimport PIL.Image\n\n# create embedding index on the 'img' column\nimgs.add_embedding_index(\n    'img',\n    embedding=clip.using(model_id='openai/clip-vit-base-patch32')\n)"
+              }
+            }
+          ]
+        },
+        {
+          "@type": "HowTo",
+          "name": "Using the index in queries",
+          "description": "We then call the `similarity()` pseudo-function as a method on the indexed column and apply `order_by()` and `limit()`. We used the default cosine distance when we created the index, so we're going to order by descending similarity (`order_by(..., asc=False)`): We can combine nearest-neighbor/similarity search with standard predicates. Here's the same query, but filtering out the selected `sample_img` (which we already know has perfect similarity with itself):",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "# retrieve the 'img' column of some row as a PIL.Image.Image\nsample_img = imgs.select(imgs.img).collect()[6]['img']\nsample_img"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "sim = imgs.img.similarity(sample_img)\nres = (\n    imgs.order_by(sim, asc=False)  # Order by descending similarity\n    .limit(2)  # Limit number of results to 2\n    .select(imgs.id, imgs.img, sim)\n    .collect()  # Retrieve results now\n)\nres"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "res = (\n    imgs.order_by(sim, asc=False)\n    .where(imgs.id != 6)  # Additional clause\n    .limit(2)\n    .select(imgs.id, imgs.img, sim)\n    .collect()\n)\nres"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 4,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "more_img_urls = [\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000080.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000090.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000106.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000108.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000139.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000285.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000632.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000724.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000776.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000785.jpg',\n]\nimgs.insert({'id': 10 + i, 'img': url} for i, url in enumerate(more_img_urls))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 5,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "sim = imgs.img.similarity(sample_img)\nres = (\n    imgs.order_by(sim, asc=False)\n    .limit(2)\n    .select(imgs.id, imgs.img, sim)\n    .collect()\n)\nres"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 6,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "sim = imgs.img.similarity('train')  # String lookup\nres = (\n    imgs.order_by(sim, asc=False)\n    .limit(2)\n    .select(imgs.id, imgs.img, sim)\n    .collect()\n)\nres"
+              }
+            }
+          ]
+        },
+        {
+          "@type": "HowTo",
+          "name": "Creating multiple indexes on a single column",
+          "description": "When calling [`add_embedding_index()`](https://pixeltable.github.io/pixeltable/api/table/#pixeltable.Table.add_embedding_index), we now specify the index name (`idx_name`) directly. If it is not specified, Pixeltable will assign a name (such as `idx0`). To do a similarity query, we now call `similarity()` with the `idx` parameter:",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "txts = pxt.create_table('indices_demo.text_tbl', {'text': pxt.String})\nsentences = [\n    \"Pablo Ruiz Picasso (25 October 1881 \u2013 8 April 1973) was a Spanish painter, sculptor, printmaker, ceramicist, and theatre designer who spent most of his adult life in France.\",\n    \"One of the most influential artists of the 20th century, he is known for co-founding the Cubist movement, the invention of constructed sculpture,[8][9] the co-invention of collage, and for the wide variety of styles that he helped develop and explore.\",\n    \"Among his most famous works are the proto-Cubist Les Demoiselles d'Avignon (1907) and the anti-war painting Guernica (1937), a dramatic portrayal of the bombing of Guernica by German and Italian air forces during the Spanish Civil War.\",\n    \"Picasso demonstrated extraordinary artistic talent in his early years, painting in a naturalistic manner through his childhood and adolescence.\",\n    \"During the first decade of the 20th century, his style changed as he experimented with different theories, techniques, and ideas.\",\n    \"After 1906, the Fauvist work of the older artist Henri Matisse motivated Picasso to explore more radical styles, beginning a fruitful rivalry between the two artists, who subsequently were often paired by critics as the leaders of modern art.\",\n    \"Picasso's output, especially in his early career, is often periodized.\",\n    \"While the names of many of his later periods are debated, the most commonly accepted periods in his work are the Blue Period (1901\u20131904), the Rose Period (1904\u20131906), the African-influenced Period (1907\u20131909), Analytic Cubism (1909\u20131912), and Synthetic Cubism (1912\u20131919), also referred to as the Crystal period.\",\n    \"Much of Picasso's work of the late 1910s and early 1920s is in a neoclassical style, and his work in the mid-1920s often has characteristics of Surrealism.\",\n    \"His later work often combines elements of his earlier styles.\",\n]\ntxts.insert({'text': s} for s in sentences)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions.huggingface import sentence_transformer\n\ntxts.add_embedding_index(\n    'text',\n    idx_name='minilm_idx',\n    embedding=sentence_transformer.using(model_id='sentence-transformers/all-MiniLM-L12-v2')\n)\ntxts.add_embedding_index(\n    'text',\n    idx_name='e5_idx',\n    embedding=sentence_transformer.using(model_id='intfloat/e5-large-v2')\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "sim = txts.text.similarity('cubism', idx='minilm_idx')\nres = txts.order_by(sim, asc=False).limit(2).select(txts.text, sim).collect()\nres"
+              }
+            }
+          ]
+        },
+        {
+          "@type": "HowTo",
+          "name": "Using a UDF for a custom embedding",
+          "description": "The above examples show how to use any model in the Hugging Face `CLIP` or `sentence_transformer` model families, and essentially the same pattern can be used for any other embedding with built-in Pixeltable support, such as OpenAI embeddings. But what if you want to adapt a new model family that doesn't have built-in support in Pixeltable? This can be done by writing a custom Pixeltable UDF.\n\nIn the following example, we'll write a simple UDF to use the [BERT](https://www.kaggle.com/models/tensorflow/bert/tensorFlow2/en-uncased-preprocess/3) model built on TensorFlow. First we install the necessary dependencies. Text embedding UDFs must always take a string as input, and return a 1-dimensional numpy array of fixed dimension (512 in the case of `small_bert`, the variant we'll be using). If we were writing an image embedding UDF, the `input` would have type `PIL.Image.Image` rather than `str`. The UDF is straightforward, loading the model and evaluating it against the input, with a minor data conversion on either side of the model invocation.",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "%pip install -qU tensorflow tensorflow-hub tensorflow-text"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "import tensorflow as tf\nimport tensorflow_hub as hub\nimport tensorflow_text  # Necessary to ensure BERT dependencies are loaded\nimport pixeltable as pxt\n\n@pxt.udf\ndef bert(input: str) -> pxt.Array[(512,), pxt.Float]:\n    \"\"\"Computes text embeddings using the small_bert model.\"\"\"\n    preprocessor = hub.load('https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3')\n    bert_model = hub.load('https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-4_H-512_A-8/2')\n    tensor = tf.constant([input])  # Convert the string to a tensor\n    result = bert_model(preprocessor(tensor))['pooled_output']\n    return result.numpy()[0, :]"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "txts.add_embedding_index(\n    'text',\n    idx_name='bert_idx',\n    embedding=bert\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 4,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "sim = txts.text.similarity('cubism', idx='bert_idx')\nres = txts.order_by(sim, asc=False).limit(2).select(txts.text, sim).collect()\nres"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 5,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "txts.drop_embedding_index(idx_name='e5_idx')"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/6",
+      "name": "UDFs in Pixeltable",
+      "description": "Pixeltable comes with a library of built-in functions and integrations, but sooner or later, you'll want to introduce some customized logic into your workflow. This is where Pixeltable's rich UDF (User-Defined Function) capability comes in. Pixeltable UDFs let you write code in Python, then directly insert your custom logic into Pixeltable expressions and computed columns. In this how-to guide, we'll show how to define UDFs, extend their capabilities, and use them in computed columns. To start, we'll install the necessary dependencies, create a Pixeltable directory and table to experiment with, and add some sample data. A Pixeltable UDF is just a Python function that is marked with the `@pxt.udf` decorator. ```python @pxt.udf",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb",
+      "keywords": [
+        "computed column",
+        "udf",
+        "incremental",
+        "iterator",
+        "multimodal"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/7",
+      "name": "Working with External Files",
+      "description": "In Pixeltable, all media data (videos, images, audio) resides in external files, and Pixeltable stores references to those. The files can be local or remote (e.g., in S3). For the latter, Pixeltable automatically caches the files locally on access. When interacting with media data via Pixeltable, either through queries or UDFs, the user sees the following Python types: * `ImageType`: `PIL.Image.Image`",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb",
+      "keywords": [
+        "udf",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/8",
+      "name": "Time Zones in Pixeltable",
+      "description": "Because typical use cases involve datasets that span multiple time zones, Pixeltable strives to be precise in how it handles time zone arithmetic for datetimes. Timestamps are always stored in the Pixeltable database in UTC, to ensure consistency across datasets and deployments. Time zone considerations therefore apply during insertion and retrieval of timestamp data. Every Pixeltable deployment has a __default time zone__. The default time zone can be configured either by setting the `PIXELTABLE_TIME_ZONE` environment variable, or by adding a `time-zone` entry to the `[pixeltable]` section in `$PIXELTABLE_HOME/config.toml`. It must be a valid [IANA Time Zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). (See the [Pixeltable Configuration](https://pixeltable.github.io/pixeltable/config/) guide for more details on configuration options.)",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/time-zones.ipynb",
+      "keywords": [
+        "multimodal"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/9",
+      "name": "Working with Anthropic in Pixeltable",
+      "description": "Pixeltable's Anthropic integration enables you to access Anthropic's Claude LLM via the Anthropic API. - An Anthropic account with an API key (https://docs.anthropic.com/en/api/getting-started) - Anthropic usage may incur costs based on your Anthropic plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-anthropic.ipynb",
+      "keywords": [
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/10",
+      "name": "Using Label Studio for Annotations with Pixeltable",
+      "description": "This tutorial demonstrates how to integrate Pixeltable with Label Studio, in order to provide seamless management of annotations data across the annotation workflow. We'll assume that you're at least somewhat familiar with Pixeltable and have read the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-basics) tutorial. __This tutorial can only be run in a local Pixeltable installation, not in Colab or Kaggle__, since it relies on spinning up a locally running Label Studio instance. See the [Installation Guide](https://pixeltable.readme.io/docs/installation) for instructions on how to set up a local Pixeltable instance. To begin, let's ensure the requisite dependencies are installed.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/using-label-studio-with-pixeltable.ipynb",
+      "keywords": [
+        "iterator",
+        "incremental",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/11",
+      "name": "Working with Replicate in Pixeltable",
+      "description": "Pixeltable's Replicate integration enables you to access Replicate's models via the Replicate API. - A Replicate account with an API token. - Replicate usage may incur costs based on your Replicate plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-replicate.ipynb",
+      "keywords": [
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/12",
+      "name": "Working with Hugging Face",
+      "description": "Pixeltable unifies data and computation into a table interface. In this tutorial, we'll go into more depth on the Hugging Face integration between datasets and how Hugging Face models can be incorporated into Pixeltable workflows to run models locally. Now let's load the Hugging Face dataset, as described in the [Hugging Face documentation](https://huggingface.co/docs/datasets/en/package_reference/loading_methods).",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-hugging-face.ipynb",
+      "keywords": [
+        "udf",
+        "incremental",
+        "embedding",
+        "iterator",
+        "multimodal"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/13",
+      "name": "Working with Fireworks AI in Pixeltable",
+      "description": "Pixeltable's Fireworks integration enables you to access LLMs hosted on the Fireworks platform. - A Fireworks account with an API key (https://fireworks.ai/api-keys) - Fireworks usage may incur costs based on your Fireworks plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-fireworks.ipynb",
+      "keywords": [
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/14",
+      "name": "Working with Voxel51 in Pixeltable",
+      "description": "Pixeltable can export data directly from tables and views to the popular [Voxel51](https://voxel51.com/) frontend, providing a way to visualize and explore image and video datasets. In this tutorial, we'll learn how to: - Export data from Pixeltable to Voxel51 - Apply labels from image classification and object detection models to exported data",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-fiftyone.ipynb",
+      "keywords": [
+        "udf",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": [
+        {
+          "@type": "HowTo",
+          "name": "Example 1: An Image Dataset",
+          "description": "Now we export our new table to a Voxel51 dataset and load it into a new Voxel51 session within our demo notebook. Once it's been loaded, the images can be interactively navigated as with any other Voxel51 dataset. ## Adding Labels",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "import fiftyone as fo\nimport pixeltable as pxt\n\n# Create a Pixeltable directory for the demo. We first drop the directory if it\n# exists, in order to ensure a clean environment.\n\npxt.drop_dir('fo_demo', force=True)\npxt.create_dir('fo_demo')"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "# Create a Pixeltable table for our dataset and insert some sample images.\n\nurl_prefix = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images'\n\nurls = [\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000019.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',\n]\n\nt = pxt.create_table('fo_demo.images', {'image': pxt.Image})\nt.insert({'image': url} for url in urls)\nt.head()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "fo_dataset = pxt.io.export_images_as_fo_dataset(t, t.image)\nsession = fo.launch_app(fo_dataset)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 4,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions.huggingface import vit_for_image_classification, detr_for_object_detection\n\nt.add_computed_column(classifications=vit_for_image_classification(\n    t.image, model_id='google/vit-base-patch16-224'\n))\nt.add_computed_column(detections=detr_for_object_detection(\n    t.image, model_id='facebook/detr-resnet-50'\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 5,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.head()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 6,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "@pxt.udf\ndef vit_to_fo(vit_labels: list) -> list:\n    return [\n        {'label': label, 'confidence': score}\n        for label, score in zip(vit_labels['label_text'], vit_labels['scores'])\n    ]\n\n@pxt.udf\ndef detr_to_fo(img: pxt.Image, detr_labels: dict) -> list:\n    result = []\n    for label, box, score in zip(detr_labels['label_text'], detr_labels['boxes'], detr_labels['scores']):\n        # DETR gives us bounding boxes in (x1,y1,x2,y2) absolute (pixel) coordinates.\n        # Voxel51 expects (x,y,w,h) relative (fractional) coordinates.\n        # So we need to do a conversion.\n        fo_box = [\n            box[0] / img.width,\n            box[1] / img.height,\n            (box[2] - box[0]) / img.width,\n            (box[3] - box[1]) / img.height,\n        ]\n        result.append({'label': label, 'bounding_box': fo_box, 'confidence': score})\n    return result"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 7,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.select(\n    t.image,\n    t.classifications,\n    vit_to_fo(t.classifications),\n    t.detections,\n    detr_to_fo(t.image, t.detections)\n).head()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 8,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "fo_dataset = pxt.io.export_images_as_fo_dataset(\n    t,\n    t.image,\n    classifications=vit_to_fo(t.classifications),\n    detections=detr_to_fo(t.image, t.detections)\n)\nsession = fo.launch_app(fo_dataset)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 9,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "t.add_computed_column(detections_101=detr_for_object_detection(\n    t.image, model_id='facebook/detr-resnet-101'\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 10,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "fo_dataset = pxt.io.export_images_as_fo_dataset(\n    t,\n    t.image,\n    classifications=vit_to_fo(t.classifications),\n    detections={\n        'detections_50': detr_to_fo(t.image, t.detections),\n        'detections_101': detr_to_fo(t.image, t.detections_101)\n    }\n)\nsession = fo.launch_app(fo_dataset)"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/15",
+      "name": "Working with Gemini in Pixeltable",
+      "description": "Pixeltable's Gemini integration enables you to access the Gemini LLM via the Google Gemini API. - A Google AI Studio account with an API key (https://aistudio.google.com/app/apikey) - Google AI Studio usage may incur costs based on your plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-gemini.ipynb",
+      "keywords": [
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/16",
+      "name": "Working with Mistral AI in Pixeltable",
+      "description": "Pixeltable's Mistral AI integration enables you to access Mistral's LLM and other models via the Mistral AI API. - A Mistral AI account with an API key (https://console.mistral.ai/api-keys/) - Mistral AI usage may incur costs based on your Mistral AI plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-mistralai.ipynb",
+      "keywords": [
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/17",
+      "name": "Working with Together AI in Pixeltable",
+      "description": "- A Together AI account with an API key (https://api.together.ai/settings/api-keys) - Together.ai usage may incur costs based on your Together.ai plan. - Be mindful of sensitive data and consider security measures when integrating with external services.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-together.ipynb",
+      "keywords": [
+        "embedding",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/18",
+      "name": "Working with Deepseek in Pixeltable",
+      "description": "Pixeltable's Deepseek integration enables you to access Deepseek's LLM via the Deepseek API. - A Deepseek account with an API key (https://api-docs.deepseek.com/) - Deepseek usage may incur costs based on your Deepseek plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-deepseek.ipynb",
+      "keywords": [
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/19",
+      "name": "Working with Groq in Pixeltable",
+      "description": "Pixeltable's Groq integration enables you to access Groq models via the Groq API. - A Groq account with an API key (https://console.groq.com/docs/quickstart) - Groq usage may incur costs based on your Groq plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-groq.ipynb",
+      "keywords": [
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/20",
+      "name": "Working with Ollama in Pixeltable",
+      "description": "Ollama is a popular platform for local serving of LLMs. In this tutorial, we'll show how to integrate Ollama models into a Pixeltable workflow. You'll need to have an Ollama server instance to query. There are several ways to do this. If you're running this notebook on your own machine, running Windows, Mac OS, or Linux, you can install Ollama at: https://ollama.com/download ",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-ollama.ipynb",
+      "keywords": [
+        "incremental",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/21",
+      "name": "Working with llama.cpp in Pixeltable",
+      "description": "This tutorial demonstrates how to use Pixeltable's built-in `llama.cpp` integration to run local LLMs efficiently. **If you are running this tutorial in Colab:** In order to make the tutorial run a bit snappier, let's switch to a GPU-equipped instance for this Colab session. To do that, click on the `Runtime -> Change runtime type` menu item at the top, then select the `GPU` radio button and click on `Save`.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-llama-cpp.ipynb",
+      "keywords": [
+        "iterator",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/22",
+      "name": "Working with OpenAI in Pixeltable",
+      "description": "Pixeltable's OpenAI integration enables you to access OpenAI models via the OpenAI API. - An OpenAI account with an API key (https://openai.com/index/openai-api/) - OpenAI usage may incur costs based on your OpenAI plan.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-openai.ipynb",
+      "keywords": [
+        "embedding",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/23",
+      "name": "Working with Bedrock in Pixeltable",
+      "description": "Pixeltable's Bedrock integration enables you to access AWS Bedrock via the Bedrock API. - Activate Bedrock in your AWS account. - Request access to your desired models (e.g. Claude Sonnet 3.7, Amazon Nova Pro)",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-bedrock.ipynb",
+      "keywords": [
+        "udf",
+        "tool calling",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/24",
+      "name": "Document Indexing and RAG",
+      "description": "In this tutorial, we'll demonstrate how RAG operations can be implemented in Pixeltable. In particular, we'll develop a RAG application that summarizes a collection of PDF documents and uses ChatGPT to answer questions about them. In a traditional RAG workflow, such operations might be implemented as a Python script that runs on a periodic schedule or in response to certain events. In Pixeltable, they are implemented as persistent tables that are updated automatically and incrementally as new data becomes available. **If you are running this tutorial in Colab:**",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/rag-demo.ipynb",
+      "keywords": [
+        "computed column",
+        "udf",
+        "incremental",
+        "embedding",
+        "iterator",
+        "multimodal"
+      ],
+      "hasPart": []
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/25",
+      "name": "Object Detection in Videos",
+      "description": "In this tutorial, we'll demonstrate how to use Pixeltable to do frame-by-frame object detection, made simple through Pixeltable's video-related functionality: * automatic frame extraction * running complex functions against frames (in this case, the YOLOX object detection models)",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/object-detection-in-videos.ipynb",
+      "keywords": [
+        "iterator",
+        "incremental",
+        "multimodal",
+        "computed column"
+      ],
+      "hasPart": [
+        {
+          "@type": "HowTo",
+          "name": "Creating a tutorial directory and table",
+          "description": "All data in Pixeltable is stored in tables, which in turn reside in directories. We'll begin by creating a `detection_demo` directory and a table to hold our videos, with a single column of type `pxt.Video`. In order to interact with the frames, we take advantage of Pixeltable's component view concept: we create a \"view\" of our video table that contains one row for each frame of each video in the table. Pixeltable provides the built-in `FrameIterator` class for this.",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "%pip install -qU pixeltable pixeltable-yolox"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "import pixeltable as pxt\n\npxt.create_dir('detection_demo', if_exists='replace_force')\nvideos_table = pxt.create_table(\n    'detection_demo.videos',\n    {'video': pxt.Video}\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.iterators import FrameIterator\n\nframes_view = pxt.create_view(\n    'detection_demo.frames',\n    videos_table,\n    # `fps` determines the frame rate; a value of `0`\n    # indicates the native frame rate of the video.\n    iterator=FrameIterator.create(video=videos_table.video, fps=0)\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 4,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 5,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "videos_table.insert([\n    {\n        'video': 'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4'\n    }\n])"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 6,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "videos_table.show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 7,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view.select(\n    frames_view.pos,\n    frames_view.frame,\n    frames_view.frame.width,\n    frames_view.frame.height\n).show(5)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 8,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions.yolox import yolox"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 9,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "# Show the results of applying the `yolox_tiny` model\n# to the first few frames in the table.\n\nframes_view.select(\n    frames_view.frame,\n    yolox(frames_view.frame, model_id='yolox_tiny')\n).head(3)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 10,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "# Create a computed column to compute detections using the `yolox_tiny`\n# model.\n# We'll adjust the confidence threshold down a bit (the default is 0.5)\n# to pick up even more bounding boxes.\n\nframes_view.add_computed_column(detections_tiny=yolox(\n    frames_view.frame, model_id='yolox_tiny', threshold=0.25\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 11,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 12,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view.select(\n    frames_view.frame,\n    frames_view.detections_tiny\n).show(3)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 13,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "import pixeltable.functions as pxtf\n\nframes_view.select(\n    frames_view.frame,\n    pxtf.vision.draw_bounding_boxes(\n        frames_view.frame,\n        frames_view.detections_tiny.bboxes,\n        width=4\n    )\n).show(1)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 14,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view.group_by(videos_table).select(\n    pxt.functions.video.make_video(\n        frames_view.pos,\n        pxtf.vision.draw_bounding_boxes(\n            frames_view.frame,\n            frames_view.detections_tiny.bboxes,\n            width=4\n        )\n    )\n).show(1)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 15,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "# Here we use the larger `yolox_m` (medium) model.\n\nframes_view.add_computed_column(detections_m=yolox(\n    frames_view.frame, model_id='yolox_m', threshold=0.25\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 16,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view.group_by(videos_table).select(\n    pxt.functions.video.make_video(\n        frames_view.pos,\n        pxtf.vision.draw_bounding_boxes(\n            frames_view.frame,\n            frames_view.detections_tiny.bboxes,\n            width=4\n        )\n    ),\n    pxt.functions.video.make_video(\n        frames_view.pos,\n        pxtf.vision.draw_bounding_boxes(\n            frames_view.frame,\n            frames_view.detections_m.bboxes,\n            width=4\n        )\n    )\n).show(1)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 17,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view.add_computed_column(detections_x=yolox(\n    frames_view.frame, model_id='yolox_x', threshold=0.25\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 18,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 19,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions.vision import eval_detections, mean_ap\n\nframes_view.add_computed_column(eval_yolox_tiny=eval_detections(\n    pred_bboxes=frames_view.detections_tiny.bboxes,\n    pred_labels=frames_view.detections_tiny.labels,\n    pred_scores=frames_view.detections_tiny.scores,\n    gt_bboxes=frames_view.detections_x.bboxes,\n    gt_labels=frames_view.detections_x.labels\n))\n\nframes_view.add_computed_column(eval_yolox_m=eval_detections(\n    pred_bboxes=frames_view.detections_m.bboxes,\n    pred_labels=frames_view.detections_m.labels,\n    pred_scores=frames_view.detections_m.scores,\n    gt_bboxes=frames_view.detections_x.bboxes,\n    gt_labels=frames_view.detections_x.labels\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 20,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view.select(\n    frames_view.eval_yolox_tiny,\n    frames_view.eval_yolox_m\n).show(1)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 21,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "frames_view.select(\n    mean_ap(frames_view.eval_yolox_tiny),\n    mean_ap(frames_view.eval_yolox_m)\n).show()"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/26",
+      "name": "Transcribing and Indexing Audio and Video in Pixeltable",
+      "description": "In this tutorial, we'll build an end-to-end workflow for creating and indexing audio transcriptions of video data. We'll demonstrate how Pixeltable can be used to: 1) Extract audio data from video files; 2) Transcribe the audio using OpenAI Whisper;",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/audio-transcriptions.ipynb",
+      "keywords": [
+        "computed column",
+        "incremental",
+        "embedding",
+        "iterator",
+        "multimodal"
+      ],
+      "hasPart": [
+        {
+          "@type": "HowTo",
+          "name": "Using the OpenAI API",
+          "description": "This concludes our tutorial using the locally installed Whisper library. Sometimes, it may be preferable to use the OpenAI API rather than a locally installed library. In this section we'll show how this can be done in Pixeltable, simply by using a different function to construct our computed columns.\n\nSince this section relies on calling out to the OpenAI API, you'll need to have an API key, which you can enter below. Now let's compare the results from the local model and the API side-by-side.",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "import os\nimport getpass\n\nif 'OPENAI_API_KEY' not in os.environ:\n    os.environ['OPENAI_API_KEY'] = getpass.getpass('OpenAI API Key:')"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions import openai\n\nvideo_table.add_computed_column(\n    transcription_from_api=openai.transcriptions(\n        video_table.audio,\n        model='whisper-1'\n    )\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "video_table.select(\n    video_table.video,\n    video_table.transcription.text,\n    video_table.transcription_from_api.text\n).show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 4,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "video_table.select(\n    video_table.transcription,\n    video_table.transcription_from_api\n).show(1)"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "@type": "Dataset",
+      "@id": "pxt:pattern/27",
+      "name": "RAG Operations in Pixeltable",
+      "description": "In this tutorial, we'll explore Pixeltable's flexible handling of RAG operations on unstructured text. In a traditional AI workflow, such operations might be implemented as a Python script that runs on a periodic schedule or in response to certain events. In Pixeltable, as with everything else, they are implemented as persistent table operations that update incrementally as new data becomes available. In our tutorial workflow, we'll chunk Wikipedia articles in various ways with a document splitter, then apply several kinds of embeddings to the chunks. We start by installing the necessary dependencies, creating a Pixeltable directory `rag_ops_demo` (if it doesn't already exist), and setting up the table structure for our new workflow. Now we'll create the tables that represent our workflow, starting with a table to hold references to source documents. The table contains a single column `source_doc` whose elements have type `pxt.Document`, representing a general document instance. In this tutorial, we'll be working with HTML documents, but Pixeltable supports a range of other document types, such as Markdown and PDF.",
+      "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/rag-operations.ipynb",
+      "keywords": [
+        "tool calling",
+        "computed column",
+        "incremental",
+        "embedding",
+        "iterator",
+        "multimodal"
+      ],
+      "hasPart": [
+        {
+          "@type": "HowTo",
+          "name": "Creating Tables and Views",
+          "description": "If we take a peek at the `docs` table, we see its very simple structure. Next we create a view to represent chunks of our HTML documents. A Pixeltable view is a virtual table, which is dynamically derived from a source table by applying a transformation and/or selecting a subset of data. In this case, our view represents a one-to-many transformation from source documents into individual sentences. This is achieved using Pixeltable's built-in `DocumentSplitter` class.\n\nNote that the `docs` table is currently empty, so creating this view doesn't actually *do* anything yet: it simply defines an operation that we want Pixeltable to execute when it sees new data.",
+          "step": [
+            {
+              "@type": "HowToStep",
+              "position": 1,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "docs = pxt.create_table(\n    'rag_ops_demo.docs',\n    {'source_doc': pxt.Document}\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 2,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "docs"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 3,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.iterators.document import DocumentSplitter\n\nsentences = pxt.create_view(\n    'rag_ops_demo.sentences',  # Name of the view\n    docs,  # Table from which the view is derived\n    iterator=DocumentSplitter.create(\n        document=docs.source_doc,\n        separators='sentence',  # Chunk docs into sentences\n        metadata='title,heading,sourceline'\n    )\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 4,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "sentences"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 5,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "docs.insert([{'source_doc': 'https://en.wikipedia.org/wiki/Marc_Chagall'}])"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 6,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "docs.select(docs.source_doc.fileurl).show()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 7,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "sentences.select(sentences.text, sentences.heading).show(20)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 8,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "chunks = pxt.create_view(\n    'rag_ops_demo.chunks', docs,\n    iterator=DocumentSplitter.create(\n        document=docs.source_doc,\n        separators='paragraph,token_limit',\n        limit=2048,\n        overlap=0,\n        metadata='title,heading,sourceline'\n    )\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 9,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "short_chunks = pxt.create_view(\n    'rag_ops_demo.short_chunks', docs,\n    iterator=DocumentSplitter.create(\n        document=docs.source_doc,\n        separators='paragraph,token_limit',\n        limit=72,\n        overlap=0,\n        metadata='title,heading,sourceline'\n    )\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 10,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "short_char_chunks = pxt.create_view(\n    'rag_ops_demo.short_char_chunks', docs,\n    iterator=DocumentSplitter.create(\n        document=docs.source_doc,\n        separators='paragraph,char_limit',\n        limit=72,\n        overlap=0,\n        metadata='title,heading,sourceline'\n    )\n)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 11,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "chunks.select(chunks.text, chunks.heading).show(20)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 12,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "short_chunks.select(short_chunks.text, short_chunks.heading).show(20)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 13,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "short_char_chunks.select(short_char_chunks.text, short_char_chunks.heading).show(20)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 14,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "urls = [\n    'https://en.wikipedia.org/wiki/Pierre-Auguste_Renoir',\n    'https://en.wikipedia.org/wiki/Henri_Matisse',\n    'https://en.wikipedia.org/wiki/Marcel_Duchamp'\n]\ndocs.insert({'source_doc': url} for url in urls)"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 15,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions.huggingface import sentence_transformer\n\nchunks.add_computed_column(minilm_embed=sentence_transformer(\n    chunks.text,\n    model_id='paraphrase-MiniLM-L6-v2'\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 16,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "chunks"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 17,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "chunks.select(chunks.text, chunks.heading, chunks.minilm_embed).head()"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 18,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "from pixeltable.functions.huggingface import clip\n\nchunks.add_computed_column(clip_embed=clip(\n    chunks.text, model_id='openai/clip-vit-base-patch32'\n))"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 19,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "chunks"
+              }
+            },
+            {
+              "@type": "HowToStep",
+              "position": 20,
+              "text": "",
+              "codeSample": {
+                "@type": "SoftwareSourceCode",
+                "programmingLanguage": "Python",
+                "text": "chunks.select(chunks.text, chunks.heading, chunks.clip_embed).head()"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,9 @@
-
+---
+title: "Working with Gemini"
+sidebarTitle: "Google Gemini"
+icon: "notebook"
+description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-gemini.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-gemini.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-gemini.ipynb)"
+---
 
 export const quartoRawHtml =
 [`
@@ -105,9 +110,6 @@ width="480" />
 </table>
 `];
 
-[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-gemini.ipynb)[![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-gemini.ipynb)
-\# Working with Gemini in Pixeltable
-
 Pixeltable’s Gemini integration enables you to access the Gemini LLM via
 the Google Gemini API.
 
@@ -201,7 +203,7 @@ UpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], col
 ```python
 # Ask Gemini to generate some content based on the input
 t.insert([
-    {'input': 'Write a story about a magic backpack.'}, 
+    {'input': 'Write a story about a magic backpack.'},
     {'input': 'Tell me a science joke.'}
 ])
 ```
@@ -283,7 +285,7 @@ videos_t = pxt.create_table('gemini_demo.videos', {'prompt': pxt.String})
 videos_t.add_computed_column(generated_video=gemini.generate_videos(
     videos_t.prompt,
     model='veo-2.0-generate-001',
-))  
+))
 ```
 
 ``` text

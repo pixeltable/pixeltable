@@ -41,7 +41,9 @@ class LLMMapGenerator:
         try:
             module = importlib.import_module(module_path)
         except ImportError as e:
-            return self._create_error_entry(module_path, str(e), "Module")
+            error_entry = self._create_error_entry(module_path, str(e), "Module")
+            self.api_map["hasPart"].append(error_entry)
+            return error_entry
         
         doc = inspect.getdoc(module) or ""
         parsed = parse_docstring(doc) if doc else None
@@ -78,6 +80,8 @@ class LLMMapGenerator:
                     except AttributeError:
                         continue
         
+        # Add to main API map
+        self.api_map["hasPart"].append(module_entry)
         return module_entry
     
     def add_class(self, class_path: str, children: Optional[List[str]] = None) -> Dict:
@@ -89,12 +93,18 @@ class LLMMapGenerator:
         try:
             module = importlib.import_module(module_path)
             if not hasattr(module, class_name):
-                return self._create_error_entry(class_path, f"Class {class_name} not found", "Class")
+                error_entry = self._create_error_entry(class_path, f"Class {class_name} not found", "Class")
+                self.api_map["hasPart"].append(error_entry)
+                return error_entry
             cls = getattr(module, class_name)
             if not inspect.isclass(cls):
-                return self._create_error_entry(class_path, f"{class_name} is not a class", "Class")
+                error_entry = self._create_error_entry(class_path, f"{class_name} is not a class", "Class")
+                self.api_map["hasPart"].append(error_entry)
+                return error_entry
         except ImportError as e:
-            return self._create_error_entry(class_path, str(e), "Class")
+            error_entry = self._create_error_entry(class_path, str(e), "Class")
+            self.api_map["hasPart"].append(error_entry)
+            return error_entry
         
         doc = inspect.getdoc(cls) or ""
         parsed = parse_docstring(doc) if doc else None
@@ -143,18 +153,22 @@ class LLMMapGenerator:
                             if method_entry:
                                 class_entry["hasPart"].append(method_entry)
         
+        # Add to main API map
+        self.api_map["hasPart"].append(class_entry)
         return class_entry
     
     def add_type(self, type_path: str) -> Dict:
         """Add a type to the LLM map."""
         # Types are usually just type hints, not actual API elements
         # Return a minimal entry
-        return {
+        type_entry = {
             "@type": "DataType",
             "@id": f"pxt:{type_path}",
             "name": type_path.split('.')[-1],
             "description": "Type definition"
         }
+        self.api_map["hasPart"].append(type_entry)
+        return type_entry
     
     def add_function(self, function_path: str) -> Dict:
         """Add a function to the LLM map."""
@@ -165,14 +179,22 @@ class LLMMapGenerator:
         try:
             module = importlib.import_module(module_path)
             if not hasattr(module, func_name):
-                return self._create_error_entry(function_path, f"Function {func_name} not found", "Function")
+                error_entry = self._create_error_entry(function_path, f"Function {func_name} not found", "Function")
+                self.api_map["hasPart"].append(error_entry)
+                return error_entry
             func = getattr(module, func_name)
             if not callable(func):
-                return self._create_error_entry(function_path, f"{func_name} is not callable", "Function")
+                error_entry = self._create_error_entry(function_path, f"{func_name} is not callable", "Function")
+                self.api_map["hasPart"].append(error_entry)
+                return error_entry
         except ImportError as e:
-            return self._create_error_entry(function_path, str(e), "Function")
+            error_entry = self._create_error_entry(function_path, str(e), "Function")
+            self.api_map["hasPart"].append(error_entry)
+            return error_entry
         
-        return self._document_function(func, func_name, module_path)
+        func_entry = self._document_function(func, func_name, module_path)
+        self.api_map["hasPart"].append(func_entry)
+        return func_entry
     
     def _document_item(self, obj: Any, name: str, module_path: str) -> Optional[Dict]:
         """Document a single item."""
@@ -327,8 +349,10 @@ class LLMMapGenerator:
         return method_entry
     
     def _format_signature_json(self, sig: inspect.Signature) -> Dict:
-        """Format signature as JSON structure."""
+        """Format signature as JSON structure with formatted signature string."""
         params = []
+        param_strings = []
+        
         for param_name, param in sig.parameters.items():
             if param_name == 'self':
                 continue
@@ -338,20 +362,43 @@ class LLMMapGenerator:
                 "required": param.default == inspect.Parameter.empty,
             }
             
+            # Build parameter string for formatted signature
+            param_str = param_name
+            
             if param.annotation != inspect.Parameter.empty:
                 param_info["type"] = str(param.annotation)
+                param_str += f": {param.annotation}"
             
             if param.default != inspect.Parameter.empty:
                 param_info["default"] = str(param.default)
+                if param.default is None:
+                    param_str += " = None"
+                elif isinstance(param.default, str):
+                    param_str += f" = '{param.default}'"
+                else:
+                    param_str += f" = {param.default}"
             
             params.append(param_info)
+            param_strings.append(param_str)
         
-        result = {"parameters": params}
+        result = {
+            "parameters": params,
+            "formatted": self._wrap_signature_params(param_strings)
+        }
         
         if sig.return_annotation != inspect.Signature.empty:
             result["returns"] = str(sig.return_annotation)
         
         return result
+    
+    def _wrap_signature_params(self, param_strings: List[str]) -> str:
+        """Format parameters with line breaks after commas for readability."""
+        if not param_strings:
+            return "()"
+        
+        # ALWAYS wrap after commas for consistency
+        wrapped = "(\n    " + ",\n    ".join(param_strings) + "\n)"
+        return wrapped
     
     def _infer_category(self, name: str, module_path: str) -> str:
         """Infer the category/intent of a function from its name and module."""

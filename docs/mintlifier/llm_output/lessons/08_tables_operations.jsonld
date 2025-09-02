@@ -1,0 +1,2039 @@
+{
+  "@context": "https://pixeltable.com/learn",
+  "@type": "Tutorial",
+  "@id": "tables-and-data-operations",
+  "github_url": "https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb",
+  "title": "Tables and Data Operations",
+  "objective": "Learn fundamental table operations including creation, data manipulation, querying, filtering, and working with structured and media data",
+  "difficulty": "beginner",
+  "categories": ["table-operations", "data-manipulation", "querying", "filtering", "media-data", "persistence"],
+  "prerequisites": [],
+  "imports_required": [
+    "import pixeltable as pxt",
+    "from datetime import datetime"
+  ],
+  "performance_notes": {
+    "typical_runtime": "2-3 minutes",
+    "resource_requirements": "1GB RAM minimum, internet connection for CSV imports",
+    "bottlenecks": ["CSV download from URLs", "Large result set collections"]
+  },
+  "key_learnings": [
+    "All tables in Pixeltable are persistent across sessions",
+    "Tables are strongly typed with mandatory schemas",
+    "Directory structure organizes tables into namespaces",
+    "Data operations support both structured and media types",
+    "Table versioning enables safe rollback of changes",
+    "Aggregations and expressions work seamlessly with SQL-like syntax"
+  ],
+  "relationships": {
+    "builds_on": [],
+    "enables": ["computed-columns", "queries-and-expressions", "advanced-analytics"],
+    "see_also": ["computed-columns#persistence"],
+    "contrasts_with": ["pandas-dataframes", "in-memory-data-structures"]
+  },
+  "steps": [
+    {
+      "number": 1,
+      "section_title": "Environment Setup",
+      "intent": "Create directory structure and establish working environment",
+      "code": "import pixeltable as pxt\n\n# First we delete the `fundamentals` directory and all its contents (if\n# it exists), in order to ensure a clean environment for the tutorial.\npxt.drop_dir('fundamentals', force=True)\n\n# Now we create the directory.\npxt.create_dir('fundamentals')",
+      "imports_used": ["pixeltable"],
+      "explanation": "Initialize clean workspace by removing existing data and creating new directory",
+      "actual_output": "Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata\nCreated directory `fundamentals`.\n\n<pixeltable.catalog.dir.Dir at 0x319a80610>",
+      "output_summary": "Database connection established, clean directory created successfully",
+      "output_type": "text",
+      "learns": ["directory-management", "workspace-setup", "database-connection"],
+      "reinforces": [],
+      "gotchas": ["force=True required to delete existing directories", "Directory paths use dot notation"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1) for directory operations",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Skip directory cleanup if you want to preserve existing data",
+        "when_to_use": "When working with persistent development environment"
+      },
+      "state_after": {
+        "tables": [],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["directory_setup"]
+    },
+    {
+      "number": 2,
+      "section_title": "Basic Table Creation",
+      "intent": "Create first table with explicit schema definition",
+      "code": "films_t = pxt.create_table('fundamentals.films', {\n    'film_name': pxt.String,\n    'year': pxt.Int,\n    'revenue': pxt.Float\n})",
+      "imports_used": ["pixeltable"],
+      "explanation": "Create strongly-typed table with mandatory schema specification",
+      "actual_output": "Created table `films`.",
+      "output_summary": "Table created successfully with defined schema",
+      "output_type": "text",
+      "learns": ["table-creation", "schema-definition", "type-specification"],
+      "reinforces": ["directory-management"],
+      "gotchas": ["Schema is mandatory for table creation", "Types must be Pixeltable types, not Python types"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use schema inference from imported data instead",
+        "when_to_use": "When importing structured data with known format"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["table_creation_explicit_schema"]
+    },
+    {
+      "number": 3,
+      "section_title": "Data Insertion - List of Dictionaries",
+      "intent": "Insert multiple rows using list of dictionary format",
+      "code": "films_t.insert([\n    {'film_name': 'Jurassic Park', 'year': 1993, 'revenue': 1037.5},\n    {'film_name': 'Titanic', 'year': 1997, 'revenue': 2257.8},\n    {'film_name': 'Avengers: Endgame', 'year': 2019, 'revenue': 2797.5}\n])",
+      "imports_used": ["pixeltable"],
+      "explanation": "Batch insert multiple rows efficiently using list of dictionaries",
+      "actual_output": "Inserting rows into `films`: 3 rows [00:00, 490.68 rows/s]\nInserted 3 rows with 0 errors.\n\nUpdateStatus(num_rows=3, num_computed_values=3, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "3 rows inserted successfully with performance metrics",
+      "output_type": "text",
+      "learns": ["batch-insertion", "dictionary-format", "update-status"],
+      "reinforces": ["table-creation"],
+      "gotchas": ["Dictionary keys must match column names exactly", "UpdateStatus provides insertion metrics"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Insert rows one at a time for streaming scenarios",
+        "when_to_use": "When data arrives incrementally"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["batch_insertion"]
+    },
+    {
+      "number": 4,
+      "section_title": "Data Insertion - Single Row",
+      "intent": "Insert single row using keyword arguments",
+      "code": "films_t.insert(film_name='Inside Out 2', year=2024, revenue=1462.7)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Alternative syntax for single row insertion using keyword arguments",
+      "actual_output": "Inserting rows into `films`: 1 rows [00:00, 386.54 rows/s]\nInserted 1 row with 0 errors.\n\nUpdateStatus(num_rows=1, num_computed_values=1, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "Single row inserted with keyword syntax",
+      "output_type": "text",
+      "learns": ["single-row-insertion", "keyword-syntax", "insertion-alternatives"],
+      "reinforces": ["data-insertion"],
+      "gotchas": ["Keyword names must match column names", "More convenient for single rows"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use dictionary format for consistency with batch inserts",
+        "when_to_use": "When maintaining consistent insertion patterns"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["single_row_insertion"]
+    },
+    {
+      "number": 5,
+      "section_title": "Data Retrieval",
+      "intent": "Retrieve all data from table using collect method",
+      "code": "films_t.collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Collect method retrieves all rows from table into memory",
+      "actual_output": "           film_name  year  revenue\n0      Jurassic Park  1993   1037.5\n1            Titanic  1997   2257.8\n2  Avengers: Endgame  2019   2797.5\n3       Inside Out 2  2024   1462.7",
+      "output_summary": "All 4 rows displayed in tabular format",
+      "output_type": "table",
+      "learns": ["data-retrieval", "collect-method", "tabular-display"],
+      "reinforces": ["data-insertion"],
+      "gotchas": ["collect() loads all data into memory", "Be careful with large tables"],
+      "performance": {
+        "execution_time": "< 1s for small tables",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use limit() or head() for large tables",
+        "when_to_use": "When working with large datasets"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["data_retrieval_collect"]
+    },
+    {
+      "number": 6,
+      "section_title": "Filtering Data with Where",
+      "intent": "Filter rows based on column conditions",
+      "code": "films_t.where(films_t.revenue >= 2000.0).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Use where() to filter rows based on column value conditions",
+      "actual_output": "           film_name  year  revenue\n0            Titanic  1997   2257.8\n1  Avengers: Endgame  2019   2797.5",
+      "output_summary": "2 films with revenue >= 2000 million returned",
+      "output_type": "table",
+      "learns": ["filtering", "where-clauses", "column-references"],
+      "reinforces": ["data-retrieval"],
+      "gotchas": ["Column references use table.column_name syntax", "Conditions return boolean expressions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use multiple conditions with & and | operators",
+        "when_to_use": "When complex filtering logic is needed"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["basic_filtering"]
+    },
+    {
+      "number": 7,
+      "section_title": "Column Selection",
+      "intent": "Select specific columns from table",
+      "code": "films_t.select(films_t.film_name, films_t.year).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Use select() to choose specific columns for output",
+      "actual_output": "           film_name  year\n0      Jurassic Park  1993\n1            Titanic  1997\n2  Avengers: Endgame  2019\n3       Inside Out 2  2024",
+      "output_summary": "Only film_name and year columns displayed",
+      "output_type": "table",
+      "learns": ["column-selection", "select-method", "projection"],
+      "reinforces": ["column-references"],
+      "gotchas": ["Column references required for selection", "Order in select determines output order"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use dictionary syntax: films_t['film_name']",
+        "when_to_use": "When column names contain special characters"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["column_selection"]
+    },
+    {
+      "number": 8,
+      "section_title": "Dictionary Syntax for Column Access",
+      "intent": "Show alternative syntax for column references",
+      "code": "films_t.select(films_t['film_name'], films_t['year']).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Dictionary syntax provides alternative to dot notation for column access",
+      "actual_output": "           film_name  year\n0      Jurassic Park  1993\n1            Titanic  1997\n2  Avengers: Endgame  2019\n3       Inside Out 2  2024",
+      "output_summary": "Identical output using dictionary syntax",
+      "output_type": "table",
+      "learns": ["dictionary-syntax", "column-access-alternatives"],
+      "reinforces": ["column-selection"],
+      "gotchas": ["Functionally identical to dot notation", "Useful for programmatic column access"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use dot notation for cleaner code when possible",
+        "when_to_use": "When column names are valid Python identifiers"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["dictionary_column_access"]
+    },
+    {
+      "number": 9,
+      "section_title": "Expression in Select",
+      "intent": "Use expressions to create computed values in select",
+      "code": "films_t.select(films_t.film_name, films_t.revenue * 1000).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Mathematical expressions can be used in select to compute derived values",
+      "actual_output": "           film_name      col_1\n0      Jurassic Park  1037500.0\n1            Titanic  2257800.0\n2  Avengers: Endgame  2797500.0\n3       Inside Out 2  1462700.0",
+      "output_summary": "Revenue converted to thousands with auto-generated column name",
+      "output_type": "table",
+      "learns": ["expressions", "arithmetic-operations", "derived-columns"],
+      "reinforces": ["column-selection"],
+      "gotchas": ["Expressions get auto-generated names like col_1", "Operations applied per row"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use computed columns for persistent calculations",
+        "when_to_use": "When calculations will be used repeatedly"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["expression_in_select"]
+    },
+    {
+      "number": 10,
+      "section_title": "Named Expressions",
+      "intent": "Assign meaningful names to expressions using keyword syntax",
+      "code": "films_t.select(films_t.film_name, revenue_thousands=films_t.revenue * 1000).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Use keyword syntax to assign meaningful names to expression results",
+      "actual_output": "           film_name  revenue_thousands\n0      Jurassic Park          1037500.0\n1            Titanic          2257800.0\n2  Avengers: Endgame          2797500.0\n3       Inside Out 2          1462700.0",
+      "output_summary": "Expression result has meaningful column name 'revenue_thousands'",
+      "output_type": "table",
+      "learns": ["named-expressions", "keyword-syntax", "readable-output"],
+      "reinforces": ["expression-in-select"],
+      "gotchas": ["Keyword syntax only works in select", "Names must be valid Python identifiers"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Accept auto-generated names for temporary calculations",
+        "when_to_use": "When expression results are intermediate values"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["named_expressions"]
+    },
+    {
+      "number": 11,
+      "section_title": "Demonstrating Persistence",
+      "intent": "Show that tables persist across Python session resets",
+      "code": "%reset -f\nfilms_t.collect()  # Throws an exception now",
+      "imports_used": [],
+      "explanation": "Reset Python session to demonstrate database persistence vs in-memory variables",
+      "actual_output": "NameError: name 'films_t' is not defined\n[0;31m---------------------------------------------------------------------------[0m\n[0;31mNameError[0m                                 Traceback (most recent call last)\nCell [0;32mIn[11], line 2[0m\n[1;32m      1[0m get_ipython()[38;5;241m.[39mrun_line_magic([38;5;124m'[39m[38;5;124mreset[39m[38;5;124m'[39m, [38;5;124m'[39m[38;5;124m-f[39m[38;5;124m'[39m)\n[0;32m----> 2[0m [43mfilms_t[49m[38;5;241m.[39mcollect()  [38;5;66;03m# Throws an exception now[39;00m\n\n[0;31mNameError[0m: name 'films_t' is not defined",
+      "output_summary": "Variable cleared but data remains in database",
+      "output_type": "text",
+      "learns": ["persistence", "session-independence", "variable-vs-data"],
+      "reinforces": ["table-creation"],
+      "gotchas": ["Variables are references, not data storage", "Data survives session resets"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use temporary tables for session-scoped data",
+        "when_to_use": "When data should not persist beyond session"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": [],
+        "models_loaded": []
+      },
+      "pattern_refs": ["persistence_demonstration"]
+    },
+    {
+      "number": 12,
+      "section_title": "Recovering Table References",
+      "intent": "Reconnect to persistent table data after session reset",
+      "code": "import pixeltable as pxt\n\nfilms_t = pxt.get_table('fundamentals.films')\nfilms_t.collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Use get_table to reconnect to persistent database tables",
+      "actual_output": "           film_name  year  revenue\n0      Jurassic Park  1993   1037.5\n1            Titanic  1997   2257.8\n2  Avengers: Endgame  2019   2797.5\n3       Inside Out 2  2024   1462.7",
+      "output_summary": "All data recovered successfully from persistent storage",
+      "output_type": "table",
+      "learns": ["table-recovery", "get-table-method", "database-persistence"],
+      "reinforces": ["persistence"],
+      "gotchas": ["Table names are permanent identifiers", "Data persists across sessions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1) for table lookup",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use consistent variable names to avoid recovery need",
+        "when_to_use": "In stable development environments"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["table_recovery"]
+    },
+    {
+      "number": 13,
+      "section_title": "Listing Available Tables",
+      "intent": "Discover all tables in the database",
+      "code": "pxt.list_tables()",
+      "imports_used": ["pixeltable"],
+      "explanation": "List all existing tables to understand database contents",
+      "actual_output": "['fundamentals.films']",
+      "output_summary": "Shows our films table exists in the database",
+      "output_type": "text",
+      "learns": ["table-discovery", "database-introspection"],
+      "reinforces": ["database-persistence"],
+      "gotchas": ["Returns full table paths including directories"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of tables",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use directory-specific listing for organized exploration",
+        "when_to_use": "When working with many tables"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["table_listing"]
+    },
+    {
+      "number": 14,
+      "section_title": "Table Schema Inspection",
+      "intent": "View table structure and column types",
+      "code": "films_t.describe()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Inspect table schema to understand structure and types",
+      "actual_output": "<pandas.io.formats.style.Styler at 0x319c15490>",
+      "output_summary": "Schema displayed in formatted table showing columns and types",
+      "output_type": "text",
+      "learns": ["schema-inspection", "type-information"],
+      "reinforces": ["table-creation"],
+      "gotchas": ["describe() returns styled display object", "Shows computed column information"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Print table variable directly for similar information",
+        "when_to_use": "When you want text-based schema display"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["schema_inspection"]
+    },
+    {
+      "number": 15,
+      "section_title": "Alternative Schema Display",
+      "intent": "Show simpler schema display using table variable",
+      "code": "films_t",
+      "imports_used": ["pixeltable"],
+      "explanation": "Direct table reference shows schema in text format",
+      "actual_output": "table 'films'\n\nColumn Name   Type Computed With\n  film_name String              \n       year    Int              \n    revenue  Float              ",
+      "output_summary": "Text-based schema display with column names, types, and computed status",
+      "output_type": "text",
+      "learns": ["schema-display-alternatives", "computed-column-indicators"],
+      "reinforces": ["schema-inspection"],
+      "gotchas": ["'Computed With' column shows expression for computed columns", "Empty for regular columns"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use describe() for styled display in notebooks",
+        "when_to_use": "When working in rich display environments"
+      },
+      "state_after": {
+        "tables": ["films"],
+        "views": [],
+        "variables": ["films_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["schema_display_text"]
+    },
+    {
+      "number": 16,
+      "section_title": "Importing Real-World Data",
+      "intent": "Import earthquake dataset from CSV to demonstrate real-world operations",
+      "code": "eq_t = pxt.io.import_csv(\n    'fundamentals.earthquakes',  # Name for the new table\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/earthquakes.csv',\n    primary_key='id',  # Column 'id' is the primary key\n    parse_dates=[3]  # Interpret column 3 as a timestamp\n)",
+      "imports_used": ["pixeltable"],
+      "explanation": "Import real earthquake data with automatic schema inference and type parsing",
+      "actual_output": "Created table `earthquakes`.\nInserting rows into `earthquakes`: 1823 rows [00:00, 25263.30 rows/s]\nInserted 1823 rows with 0 errors.",
+      "output_summary": "1823 earthquake records imported successfully with high throughput",
+      "output_type": "text",
+      "learns": ["csv-import", "schema-inference", "url-data-sources", "primary-keys", "date-parsing"],
+      "reinforces": ["table-creation"],
+      "gotchas": ["URLs can be used as data sources", "parse_dates uses column indices", "Primary keys ensure unique rows"],
+      "performance": {
+        "execution_time": "2-5s depending on network",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Create table manually and insert data programmatically",
+        "when_to_use": "When you need precise control over schema or data processing"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["csv_import_advanced"]
+    },
+    {
+      "number": 17,
+      "section_title": "Limited Data Retrieval",
+      "intent": "Retrieve subset of large dataset using limit",
+      "code": "eq_t.limit(5).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Use limit() to retrieve only first N rows from large datasets",
+      "actual_output": "   id  magnitude                           location  \\\n0   0       1.15    10 km NW of Belfair, Washington   \n1   1       0.29   23 km ENE of Ashford, Washington   \n2   2       0.20   23 km ENE of Ashford, Washington   \n3   3       0.52   15 km NNE of Ashford, Washington   \n4   4       1.56  0 km WSW of Esperance, Washington   \n\n                         timestamp  longitude  latitude  \n0 2023-01-01 08:10:37.050000-08:00    -122.93     47.51  \n1 2023-01-02 01:02:43.950000-08:00    -121.76     46.85  \n2 2023-01-02 12:05:01.420000-08:00    -121.75     46.86  \n3 2023-01-02 12:45:14.220000-08:00    -121.95     46.89  \n4 2023-01-02 13:19:27.200000-08:00    -122.36     47.79",
+      "output_summary": "First 5 earthquake records with timestamp, location, and magnitude data",
+      "output_type": "table",
+      "learns": ["result-limiting", "large-dataset-handling", "timestamp-display"],
+      "reinforces": ["data-retrieval"],
+      "gotchas": ["limit() prevents memory issues with large tables", "Timestamps include timezone information"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(limit) - independent of table size",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use head() for insertion-order based retrieval",
+        "when_to_use": "When you want earliest inserted records specifically"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["limited_retrieval"]
+    },
+    {
+      "number": 18,
+      "section_title": "Head and Tail Operations",
+      "intent": "Use insertion-order based data retrieval methods",
+      "code": "eq_t.head(5)",
+      "imports_used": ["pixeltable"],
+      "explanation": "head() returns earliest inserted rows regardless of sorting",
+      "actual_output": "   id  magnitude                           location  \\\n0   0       1.15    10 km NW of Belfair, Washington   \n1   1       0.29   23 km ENE of Ashford, Washington   \n2   2       0.20   23 km ENE of Ashford, Washington   \n3   3       0.52   15 km NNE of Ashford, Washington   \n4   4       1.56  0 km WSW of Esperance, Washington   \n\n                         timestamp  longitude  latitude  \n0 2023-01-01 08:10:37.050000-08:00    -122.93     47.51  \n1 2023-01-02 01:02:43.950000-08:00    -121.76     46.85  \n2 2023-01-02 12:05:01.420000-08:00    -121.75     46.86  \n3 2023-01-02 12:45:14.220000-08:00    -121.95     46.89  \n4 2023-01-02 13:19:27.200000-08:00    -122.36     47.79",
+      "output_summary": "First 5 records by insertion order (same as limit in this case)",
+      "output_type": "table",
+      "learns": ["insertion-order-retrieval", "head-method"],
+      "reinforces": ["limited-retrieval"],
+      "gotchas": ["head() is insertion-order specific", "Different from limit() which doesn't guarantee order"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is requested count",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use order_by() with limit() for specific ordering",
+        "when_to_use": "When you need data sorted by specific criteria"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["head_tail_operations"]
+    },
+    {
+      "number": 19,
+      "section_title": "Tail Operation",
+      "intent": "Retrieve most recently inserted records",
+      "code": "eq_t.tail(5)",
+      "imports_used": ["pixeltable"],
+      "explanation": "tail() returns most recently inserted rows",
+      "actual_output": "     id  magnitude                             location  \\\n0  1818       1.70     14 km W of Skokomish, Washington   \n1  1819       1.06  7 km E of Lake McMurray, Washington   \n2  1820       0.48         4 km E of Duvall, Washington   \n3  1821       0.46      12 km NE of Ashford, Washington   \n4  1822       0.72          6 km ENE of Oso, Washington   \n\n                         timestamp  longitude  latitude  \n0 2024-06-29 08:55:50.030000-07:00    -123.35     47.32  \n1 2024-06-29 12:15:19.130000-07:00    -122.13     48.31  \n2 2024-06-30 09:15:43.020000-07:00    -121.93     47.75  \n3 2024-06-30 10:05:15.410000-07:00    -121.93     46.84  \n4 2024-06-30 11:12:41.900000-07:00    -121.84     48.28",
+      "output_summary": "Last 5 records showing most recent earthquakes in 2024",
+      "output_type": "table",
+      "learns": ["tail-method", "recent-data-access"],
+      "reinforces": ["head-tail-operations"],
+      "gotchas": ["tail() shows most recent insertions", "Useful for monitoring recent data"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is requested count",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use order_by descending with limit for value-based recent records",
+        "when_to_use": "When 'recent' means by data values not insertion time"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["head_tail_operations"]
+    },
+    {
+      "number": 20,
+      "section_title": "Row Counting",
+      "intent": "Get total number of rows in table",
+      "code": "eq_t.count()",
+      "imports_used": ["pixeltable"],
+      "explanation": "count() returns total number of rows without loading data",
+      "actual_output": "1823",
+      "output_summary": "Total of 1823 earthquake records in the dataset",
+      "output_type": "text",
+      "learns": ["row-counting", "table-size"],
+      "reinforces": ["table-operations"],
+      "gotchas": ["count() is efficient - doesn't load data into memory", "Returns integer not formatted output"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1) - database optimized",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use len(table.collect()) but only for small tables",
+        "when_to_use": "Never - count() is always more efficient"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["row_counting"]
+    },
+    {
+      "number": 21,
+      "section_title": "Ordering and Limiting",
+      "intent": "Sort data by column values and retrieve top results",
+      "code": "eq_t.order_by(eq_t.magnitude, asc=False).limit(5).collect()",
+      "imports_used": ["pixeltable"],
+      "explanation": "Combine order_by with limit to get top N records by specific criteria",
+      "actual_output": "     id  magnitude                            location  \\\n0  1002       4.30                   Port Townsend, WA   \n1  1226       4.04      6 km W of Quilcene, Washington   \n2   699       3.91  9 km NNE of Snoqualmie, Washington   \n3  1281       3.48  7 km SSW of River Road, Washington   \n4  1355       3.42    17 km WSW of Brinnon, Washington   \n\n                         timestamp  longitude  latitude  \n0 2023-10-09 02:21:08.960000-07:00    -122.73     48.04  \n1 2023-12-24 15:14:04.220000-08:00    -122.96     47.82  \n2 2023-08-08 10:17:23.910000-07:00    -121.77     47.60  \n3 2024-01-15 07:25:05.920000-08:00    -123.17     48.00  \n4 2024-02-16 16:30:18.830000-08:00    -123.09     47.59",
+      "output_summary": "Top 5 highest magnitude earthquakes, ranging from 4.30 to 3.42",
+      "output_type": "table",
+      "learns": ["sorting", "order-by-method", "descending-sort", "top-n-queries"],
+      "reinforces": ["limited-retrieval"],
+      "gotchas": ["asc=False for descending order", "Can chain order_by with other operations"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n log n) for sorting, then O(limit)",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use multiple order_by criteria for tie-breaking",
+        "when_to_use": "When primary sort key has duplicate values"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["sorting_and_limiting"]
+    },
+    {
+      "number": 22,
+      "section_title": "Complex Filtering with Dates",
+      "intent": "Filter data using date ranges and compound conditions",
+      "code": "from datetime import datetime\n\neq_t.where((eq_t.timestamp >= datetime(2023, 6, 1)) & (eq_t.timestamp < datetime(2023, 10, 1))) \\\n  .order_by(eq_t.magnitude, asc=False).limit(5).collect()",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Combine date filtering with sorting to find highest magnitude earthquakes in Q3 2023",
+      "actual_output": "    id  magnitude                             location  \\\n0  699       3.91   9 km NNE of Snoqualmie, Washington   \n1  799       2.86        5 km E of Ashford, Washington   \n2  710       2.84    8 km ENE of Fall City, Washington   \n3  577       2.79  0 km NE of Maple Valley, Washington   \n4  769       2.73      16 km NE of Ashford, Washington   \n\n                         timestamp  longitude  latitude  \n0 2023-08-08 10:17:23.910000-07:00    -121.77     47.60  \n1 2023-08-27 10:10:23.770000-07:00    -121.96     46.77  \n2 2023-08-08 11:51:12.750000-07:00    -121.79     47.60  \n3 2023-07-04 15:52:54.430000-07:00    -122.04     47.40  \n4 2023-08-22 23:44:12.250000-07:00    -121.88     46.87",
+      "output_summary": "Top 5 earthquakes in Q3 2023, highest magnitude was 3.91",
+      "output_type": "table",
+      "learns": ["date-filtering", "compound-conditions", "logical-operators", "datetime-comparisons"],
+      "reinforces": ["complex-filtering", "sorting-and-limiting"],
+      "gotchas": ["Use & instead of 'and' for boolean operations", "Parentheses required for compound conditions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) for filtering, O(m log m) for sorting where m is filtered count",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use date functions for more complex date operations",
+        "when_to_use": "When filtering by specific date components like day of week"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["date_range_filtering"]
+    },
+    {
+      "number": 23,
+      "section_title": "Using isin for Multiple Values",
+      "intent": "Filter rows where column values match any in a list",
+      "code": "eq_t.where(eq_t.id.isin([123,456,789])).collect()",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Use isin() to filter for rows where column value matches any in a specified list",
+      "actual_output": "    id  magnitude                        location  \\\n0  123       1.23  7 km SW of Rainier, Washington   \n1  456       0.23                      Washington   \n2  789       1.67  Puget Sound region, Washington   \n\n                         timestamp  longitude  latitude  \n0 2023-02-17 00:28:25.460000-08:00    -122.75     46.84  \n1 2023-05-23 08:49:02.450000-07:00    -121.98     46.87  \n2 2023-08-26 04:04:11.200000-07:00    -122.57     47.60",
+      "output_summary": "3 specific earthquakes by ID with varying magnitudes and locations",
+      "output_type": "table",
+      "learns": ["isin-operator", "multiple-value-filtering", "list-based-filtering"],
+      "reinforces": ["filtering"],
+      "gotchas": ["isin() accepts any iterable", "More efficient than multiple OR conditions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is table size, not list size",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use multiple OR conditions for small lists",
+        "when_to_use": "When you need additional logic beyond simple matching"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["isin_filtering"]
+    },
+    {
+      "number": 24,
+      "section_title": "String Operations in Filtering",
+      "intent": "Use string methods like contains() in where clauses",
+      "code": "eq_t.where(eq_t.location.contains('Rainier')).collect()",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "String methods can be used in filtering to search within text columns",
+      "actual_output": "     id  magnitude                          location  \\\n0    40       1.22  11 km SSE of Rainier, Washington   \n1    85       1.45  10 km SSE of Rainier, Washington   \n2   123       1.23    7 km SW of Rainier, Washington   \n3   467       1.09  10 km SSE of Rainier, Washington   \n4  1399       1.08    5 km SW of Rainier, Washington   \n5  1709       1.16    10 km S of Rainier, Washington   \n6  1776       1.17    12 km S of Rainier, Washington   \n\n                         timestamp  longitude  latitude  \n0 2023-01-19 21:52:29.910000-08:00    -122.65     46.79  \n1 2023-02-02 20:08:27.810000-08:00    -122.65     46.79  \n2 2023-02-17 00:28:25.460000-08:00    -122.75     46.84  \n3 2023-05-26 19:39:44.120000-07:00    -122.65     46.80  \n4 2024-03-04 22:34:25.210000-08:00    -122.74     46.85  \n5 2024-05-22 18:28:38.130000-07:00    -122.68     46.79  \n6 2024-06-17 18:25:33.400000-07:00    -122.66     46.77",
+      "output_summary": "7 earthquakes near Rainier, Washington with magnitudes ranging from 1.08 to 1.45",
+      "output_type": "table",
+      "learns": ["string-operations", "contains-method", "text-searching"],
+      "reinforces": ["filtering"],
+      "gotchas": ["contains() is case-sensitive", "String methods create boolean expressions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use regular expressions for more complex pattern matching",
+        "when_to_use": "When simple substring matching isn't sufficient"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["string_filtering"]
+    },
+    {
+      "number": 25,
+      "section_title": "Aggregation Functions",
+      "intent": "Use built-in aggregation functions for statistical analysis",
+      "code": "eq_t.select(min=pxt.functions.min(eq_t.id), max=pxt.functions.max(eq_t.id)).collect()",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Aggregation functions compute summary statistics across all rows",
+      "actual_output": "   min   max\n0    0  1822",
+      "output_summary": "ID range from 0 to 1822 showing complete sequential numbering",
+      "output_type": "table",
+      "learns": ["aggregation-functions", "statistical-operations", "min-max-functions"],
+      "reinforces": ["select-operations"],
+      "gotchas": ["Aggregations return single row results", "Must use pxt.functions module"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use pandas describe() on collected data for more statistics",
+        "when_to_use": "When you need multiple statistics and can afford to load data"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["aggregation_functions"]
+    },
+    {
+      "number": 26,
+      "section_title": "Working with Result Objects",
+      "intent": "Extract data from query results into Python objects",
+      "code": "result = eq_t.limit(5).collect()\nresult[0]  # Get the first row of the results as a dict",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Query results can be accessed as dictionaries for individual row data",
+      "actual_output": "{'id': 0,\n 'magnitude': 1.15,\n 'location': '10 km NW of Belfair, Washington',\n 'timestamp': datetime.datetime(2023, 1, 1, 8, 10, 37, 50000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),\n 'longitude': -122.93,\n 'latitude': 47.51}",
+      "output_summary": "First row as Python dictionary with proper data types including timezone-aware datetime",
+      "output_type": "text",
+      "learns": ["result-object-access", "row-as-dictionary", "timezone-handling"],
+      "reinforces": ["data-retrieval"],
+      "gotchas": ["Timestamps include timezone information", "Results are indexable like lists"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(1) for single row access",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Iterate over result object for multiple rows",
+        "when_to_use": "When processing multiple rows programmatically"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["result_object_access"]
+    },
+    {
+      "number": 27,
+      "section_title": "Column-wise Data Access",
+      "intent": "Access entire columns as lists from result objects",
+      "code": "result['timestamp']  # Get a list of the `timestamp` field of all the rows that were queried",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Result objects support column-wise access returning lists of values",
+      "actual_output": "[datetime.datetime(2023, 1, 1, 8, 10, 37, 50000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),\n datetime.datetime(2023, 1, 2, 1, 2, 43, 950000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),\n datetime.datetime(2023, 1, 2, 12, 5, 1, 420000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),\n datetime.datetime(2023, 1, 2, 12, 45, 14, 220000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),\n datetime.datetime(2023, 1, 2, 13, 19, 27, 200000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles'))]",
+      "output_summary": "List of 5 timestamps from the first day of 2023",
+      "output_type": "text",
+      "learns": ["column-wise-access", "list-extraction"],
+      "reinforces": ["result-object-access"],
+      "gotchas": ["Column access returns lists", "Useful for passing to other Python functions"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows in result",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use pandas conversion for DataFrame-style operations",
+        "when_to_use": "When you need pandas functionality on the results"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["column_wise_access"]
+    },
+    {
+      "number": 28,
+      "section_title": "Pandas Integration",
+      "intent": "Convert Pixeltable results to pandas DataFrames",
+      "code": "df = result.to_pandas()  # Convert the result set into a Pandas dataframe\ndf['magnitude'].describe()",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Seamless conversion to pandas enables use of pandas analysis tools",
+      "actual_output": "count    5.000000\nmean     0.744000\nstd      0.587988\nmin      0.200000\n25%      0.290000\n50%      0.520000\n75%      1.150000\nmax      1.560000\nName: magnitude, dtype: float64",
+      "output_summary": "Statistical summary of magnitude column showing mean of 0.744 and range 0.2-1.56",
+      "output_type": "text",
+      "learns": ["pandas-integration", "dataframe-conversion", "statistical-analysis"],
+      "reinforces": ["result-object-access"],
+      "gotchas": ["to_pandas() creates copy of data", "Full pandas functionality available"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "demo"
+      },
+      "alternatives": {
+        "description": "Use Pixeltable aggregation functions for simple statistics",
+        "when_to_use": "When you don't need pandas-specific functionality"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["pandas_integration"]
+    },
+    {
+      "number": 29,
+      "section_title": "Adding Columns to Existing Tables",
+      "intent": "Modify table schema by adding new columns",
+      "code": "eq_t.add_column(note=pxt.String)",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Tables can be modified after creation by adding new columns",
+      "actual_output": "Added 1823 column values with 0 errors.\n\nUpdateStatus(num_rows=1823, num_computed_values=1823, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "New string column added to all 1823 existing rows with NULL values",
+      "output_type": "text",
+      "learns": ["schema-modification", "add-column-method", "retroactive-schema-changes"],
+      "reinforces": ["table-operations"],
+      "gotchas": ["New columns added to all existing rows", "Default values are NULL"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of existing rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Create new table with desired schema and migrate data",
+        "when_to_use": "When you need to change column types or constraints"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["add_column"]
+    },
+    {
+      "number": 30,
+      "section_title": "Updating Table Data",
+      "intent": "Modify existing row data using update operations",
+      "code": "(\n    eq_t\n    .where(eq_t.id.isin([121,123]))\n    .update({'note': 'Still investigating.', 'contact_email': 'contact@pixeltable.com'})\n)",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Update specific rows by combining where clauses with update operations",
+      "actual_output": "Inserting rows into `earthquakes`: 2 rows [00:00, 638.55 rows/s]\n\nUpdateStatus(num_rows=2, num_computed_values=0, num_excs=0, updated_cols=['earthquakes.note', 'earthquakes.contact_email'], cols_with_excs=[])",
+      "output_summary": "2 rows updated with note and contact information",
+      "output_type": "text",
+      "learns": ["data-updates", "where-update-pattern", "multi-column-updates"],
+      "reinforces": ["filtering"],
+      "gotchas": ["Update without where() affects all rows", "Updates are immediate and permanent"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of matching rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use batch_update for multiple rows with different values",
+        "when_to_use": "When each row needs different update values"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["conditional_updates"]
+    },
+    {
+      "number": 31,
+      "section_title": "Batch Updates",
+      "intent": "Update multiple rows with different values efficiently",
+      "code": "updates = [\n    {'id': 500, 'note': 'This is an example note.'},\n    {'id': 501, 'note': 'This is a different note.'},\n    {'id': 502, 'note': 'A third note, unrelated to the others.'}\n]\neq_t.batch_update(updates)",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "batch_update efficiently updates multiple rows with different values per row",
+      "actual_output": "Inserting rows into `earthquakes`: 3 rows [00:00, 1600.88 rows/s]\n\nUpdateStatus(num_rows=3, num_computed_values=0, num_excs=0, updated_cols=['earthquakes.note'], cols_with_excs=[])",
+      "output_summary": "3 rows updated with individual note values at high throughput",
+      "output_type": "text",
+      "learns": ["batch-updates", "individual-row-values", "efficient-updates"],
+      "reinforces": ["data-updates"],
+      "gotchas": ["Each dictionary must include primary key", "More efficient than multiple single updates"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of updates",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use regular update() with expressions for computed values",
+        "when_to_use": "When update values can be calculated from existing data"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df", "updates"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["batch_updates"]
+    },
+    {
+      "number": 32,
+      "section_title": "Row Deletion",
+      "intent": "Remove rows from table using delete operations",
+      "code": "eq_t.where(eq_t.timestamp >= datetime(2024, 1, 1)).delete()",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Delete rows matching specific criteria using where clauses",
+      "actual_output": "UpdateStatus(num_rows=587, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])",
+      "output_summary": "587 rows (all 2024 earthquakes) deleted successfully",
+      "output_type": "text",
+      "learns": ["row-deletion", "date-based-deletion", "bulk-deletion"],
+      "reinforces": ["filtering"],
+      "gotchas": ["Delete without where() removes all rows", "Deletions are permanent"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of matching rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use table versioning to track deletions",
+        "when_to_use": "When you might need to recover deleted data"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df", "updates"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["conditional_deletion"]
+    },
+    {
+      "number": 33,
+      "section_title": "Table Versioning and Rollback",
+      "intent": "Demonstrate table versioning with revert operations",
+      "code": "eq_t.revert()",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Table versioning enables rolling back the most recent change",
+      "actual_output": "",
+      "output_summary": "Previous delete operation rolled back",
+      "output_type": "none",
+      "learns": ["table-versioning", "rollback-operations", "change-history"],
+      "reinforces": ["data-safety"],
+      "gotchas": ["revert() cannot be undone", "Only most recent change can be reverted"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "Depends on size of reverted operation",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use explicit backups for more granular recovery",
+        "when_to_use": "When you need to recover from multiple operations"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df", "updates"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["table_versioning"]
+    },
+    {
+      "number": 34,
+      "section_title": "Adding Media Columns",
+      "intent": "Add image column to demonstrate media data support",
+      "code": "eq_t.add_column(map_image=pxt.Image)",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Media types like Image can be added as columns to existing tables",
+      "actual_output": "Added 1823 column values with 0 errors.",
+      "output_summary": "Image column added to all rows with NULL values initially",
+      "output_type": "text",
+      "learns": ["media-columns", "image-data-types", "multimodal-tables"],
+      "reinforces": ["add-column"],
+      "gotchas": ["Media columns store file references", "Images can be URLs or file paths"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of existing rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Create separate media tables and reference via foreign keys",
+        "when_to_use": "When media and structured data have different update patterns"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df", "updates"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["media_columns"]
+    },
+    {
+      "number": 35,
+      "section_title": "Inserting Media Data",
+      "intent": "Add image data to specific rows using URLs",
+      "code": "eq_t.where(eq_t.id == 1002).update(\n    {'map_image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/port-townsend-map.jpeg'}\n)",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Images can be inserted using URLs, with automatic downloading and caching",
+      "actual_output": "Inserting rows into `earthquakes`: 1 rows [00:00, 327.99 rows/s]\n\nUpdateStatus(num_rows=1, num_computed_values=0, num_excs=0, updated_cols=['earthquakes.map_image'], cols_with_excs=[])",
+      "output_summary": "Map image added to Port Townsend earthquake record",
+      "output_type": "text",
+      "learns": ["media-insertion", "url-based-media", "automatic-caching"],
+      "reinforces": ["conditional-updates", "media-columns"],
+      "gotchas": ["URLs must be publicly accessible", "Images downloaded and cached automatically"],
+      "performance": {
+        "execution_time": "1-3s depending on network and image size",
+        "scaling": "O(1) per image, plus download time",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use local file paths for images already on disk",
+        "when_to_use": "When images are stored locally and network access is limited"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df", "updates"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["media_url_insertion"]
+    },
+    {
+      "number": 36,
+      "section_title": "Querying Media Data",
+      "intent": "Display image data in query results",
+      "code": "eq_t.where(eq_t.id >= 1000).select(eq_t.id, eq_t.magnitude, eq_t.location, eq_t.map_image).head(5)",
+      "imports_used": ["pixeltable", "datetime"],
+      "explanation": "Images display as thumbnails in notebook query results",
+      "actual_output": "     id  magnitude                    location  \\\n0  1000      -0.02  17 km SSE of Carbonado, WA   \n1  1001       0.82    22 km ENE of Ashford, WA   \n2  1002       4.30           Port Townsend, WA   \n3  1003       1.04                          WA   \n4  1004       0.79    24 km ENE of Ashford, WA   \n\n                                           map_image  \n0                                               None  \n1                                               None  \n2  <PIL.JpegImagePlugin.JpegImageFile image mode=...  \n3                                               None  \n4                                               None",
+      "output_summary": "Query results show image thumbnail for Port Townsend earthquake only",
+      "output_type": "table",
+      "learns": ["media-display", "thumbnail-rendering", "mixed-data-queries"],
+      "reinforces": ["media-columns", "column-selection"],
+      "gotchas": ["Only populated images show thumbnails", "PIL objects displayed in notebooks"],
+      "performance": {
+        "execution_time": "< 1s",
+        "scaling": "O(n) where n is number of rows",
+        "optimization": "production"
+      },
+      "alternatives": {
+        "description": "Use image.localpath to get file system paths for external tools",
+        "when_to_use": "When integrating with tools that need file paths"
+      },
+      "state_after": {
+        "tables": ["films", "earthquakes"],
+        "views": [],
+        "variables": ["films_t", "eq_t", "result", "df", "updates"],
+        "models_loaded": []
+      },
+      "pattern_refs": ["media_query_display"]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "directory_setup",
+      "description": "Create and manage directory hierarchies for organizing tables",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "pxt.create_dir('parent.child')",
+      "parameters": {
+        "directory_path": "Dot-separated path for nested directories"
+      },
+      "variations": [
+        {
+          "name": "cleanup_first",
+          "difference": "Drop existing directory before creating",
+          "code": "pxt.drop_dir('dir', force=True); pxt.create_dir('dir')"
+        }
+      ],
+      "prerequisites": [],
+      "enables": ["table-organization", "namespace-separation"],
+      "performance_impact": "Minimal overhead for directory operations",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "table_creation_explicit_schema",
+      "description": "Create tables with explicit type specifications for all columns",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table = pxt.create_table('dir.name', {'col1': pxt.Type1, 'col2': pxt.Type2})",
+      "parameters": {
+        "table_name": "Full path including directory",
+        "schema": "Dictionary mapping column names to Pixeltable types"
+      },
+      "variations": [
+        {
+          "name": "media_columns",
+          "difference": "Include media types in schema",
+          "code": "{'text': pxt.String, 'image': pxt.Image, 'data': pxt.Json}"
+        }
+      ],
+      "prerequisites": ["directory-setup"],
+      "enables": ["structured-data", "type-safety"],
+      "performance_impact": "Type checking enforced at insertion",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "batch_insertion",
+      "description": "Insert multiple rows efficiently using list of dictionaries",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.insert([{'col1': val1, 'col2': val2}, {'col1': val3, 'col2': val4}])",
+      "parameters": {
+        "row_data": "List of dictionaries with column name keys"
+      },
+      "variations": [
+        {
+          "name": "generator_insert",
+          "difference": "Use generator for memory efficiency",
+          "code": "table.insert({'col': value} for value in data_source)"
+        }
+      ],
+      "prerequisites": ["table-creation"],
+      "enables": ["bulk-data-loading", "efficient-inserts"],
+      "performance_impact": "Much faster than individual inserts, O(n) scaling",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "single_row_insertion",
+      "description": "Insert individual rows using keyword argument syntax",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.insert(col1=value1, col2=value2)",
+      "parameters": {
+        "column_values": "Keyword arguments matching column names"
+      },
+      "variations": [
+        {
+          "name": "dictionary_insert",
+          "difference": "Use dictionary for single row",
+          "code": "table.insert({'col1': value1, 'col2': value2})"
+        }
+      ],
+      "prerequisites": ["table-creation"],
+      "enables": ["incremental-data-entry", "interactive-insertion"],
+      "performance_impact": "Higher overhead per row than batch, fine for small volumes",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "data_retrieval_collect",
+      "description": "Load all table data into memory for analysis",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "result = table.collect()",
+      "parameters": {
+        "table": "Table or query to collect data from"
+      },
+      "variations": [
+        {
+          "name": "limited_collect",
+          "difference": "Use with limit() for large tables",
+          "code": "result = table.limit(100).collect()"
+        }
+      ],
+      "prerequisites": ["data-insertion"],
+      "enables": ["data-analysis", "result-processing"],
+      "performance_impact": "O(n) memory usage - dangerous for large tables",
+      "reusable": true,
+      "production_ready": false
+    },
+    {
+      "name": "basic_filtering",
+      "description": "Filter table rows using where clauses with comparison operations",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.where(table.column op value)",
+      "parameters": {
+        "column": "Column reference for comparison",
+        "operator": "Comparison operator (==, !=, <, >, <=, >=)",
+        "value": "Value or expression to compare against"
+      },
+      "variations": [
+        {
+          "name": "compound_conditions",
+          "difference": "Multiple conditions with logical operators",
+          "code": "table.where((table.col1 == val1) & (table.col2 > val2))"
+        }
+      ],
+      "prerequisites": ["table-data"],
+      "enables": ["selective-queries", "data-exploration"],
+      "performance_impact": "O(n) scan unless indexed",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "column_selection",
+      "description": "Select specific columns from tables for projection queries",
+      "confidence": "high",
+      "frequency": 4,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.select(table.col1, table.col2)",
+      "parameters": {
+        "columns": "Column references or expressions to include"
+      },
+      "variations": [
+        {
+          "name": "named_selection",
+          "difference": "Assign names to expressions",
+          "code": "table.select(table.col1, derived=table.col2 * 2)"
+        }
+      ],
+      "prerequisites": ["table-data"],
+      "enables": ["data-projection", "bandwidth-reduction"],
+      "performance_impact": "Reduces network transfer, same computation",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "dictionary_column_access",
+      "description": "Access columns using dictionary-style syntax as alternative to dot notation",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table['column_name']",
+      "parameters": {
+        "column_name": "String name of column to access"
+      },
+      "variations": [
+        {
+          "name": "programmatic_access",
+          "difference": "Use variables for column names",
+          "code": "col_name = 'dynamic'; table[col_name]"
+        }
+      ],
+      "prerequisites": ["table-structure"],
+      "enables": ["programmatic-queries", "dynamic-column-access"],
+      "performance_impact": "Identical to dot notation",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "expression_in_select",
+      "description": "Use arithmetic and other expressions in select clauses for derived values",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.select(table.col, table.numeric_col * factor)",
+      "parameters": {
+        "base_columns": "Original columns to include",
+        "expressions": "Calculated expressions using columns"
+      },
+      "variations": [
+        {
+          "name": "string_expressions",
+          "difference": "Use string operations in expressions",
+          "code": "table.select(table.name.upper(), table.text.replace('old', 'new'))"
+        }
+      ],
+      "prerequisites": ["column-selection"],
+      "enables": ["data-transformation", "calculated-fields"],
+      "performance_impact": "Computation per row, not stored",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "named_expressions",
+      "description": "Assign meaningful names to expressions using keyword syntax in select",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.select(table.col, meaningful_name=expression)",
+      "parameters": {
+        "expression": "Calculation or transformation to name",
+        "name": "Valid Python identifier for result column"
+      },
+      "variations": [
+        {
+          "name": "multiple_named",
+          "difference": "Multiple named expressions in one select",
+          "code": "table.select(name1=expr1, name2=expr2, name3=expr3)"
+        }
+      ],
+      "prerequisites": ["expression-in-select"],
+      "enables": ["readable-output", "clear-analysis"],
+      "performance_impact": "No additional cost beyond expression computation",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "persistence_demonstration",
+      "description": "Show that table data persists across Python session resets",
+      "confidence": "medium",
+      "frequency": 1,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "# Session reset breaks variable references\n%reset -f\n# But data remains in database\ntable = pxt.get_table('path')",
+      "parameters": {
+        "table_path": "Full path to persistent table"
+      },
+      "variations": [
+        {
+          "name": "explicit_disconnect",
+          "difference": "Explicitly disconnect and reconnect",
+          "code": "pxt.disconnect(); pxt.connect(); table = pxt.get_table('path')"
+        }
+      ],
+      "prerequisites": ["table-creation", "data-insertion"],
+      "enables": ["session-independence", "reliability-demonstration"],
+      "performance_impact": "Database persistence has minimal overhead",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "table_recovery",
+      "description": "Reconnect to persistent tables after losing variable references",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table = pxt.get_table('directory.table_name')",
+      "parameters": {
+        "table_path": "Full path including directory structure"
+      },
+      "variations": [
+        {
+          "name": "with_verification",
+          "difference": "Verify table contents after recovery",
+          "code": "table = pxt.get_table('path'); assert table.count() > 0"
+        }
+      ],
+      "prerequisites": ["table-existence"],
+      "enables": ["session-recovery", "robust-workflows"],
+      "performance_impact": "Fast metadata lookup",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "table_listing",
+      "description": "Discover all available tables in the database",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "all_tables = pxt.list_tables()",
+      "parameters": {},
+      "variations": [
+        {
+          "name": "directory_filtering",
+          "difference": "List tables in specific directory",
+          "code": "dir_tables = [t for t in pxt.list_tables() if t.startswith('dir.')]"
+        }
+      ],
+      "prerequisites": ["database-connection"],
+      "enables": ["database-exploration", "table-discovery"],
+      "performance_impact": "Fast metadata query",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "schema_inspection",
+      "description": "View table structure, column types, and computed column definitions",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.describe()",
+      "parameters": {
+        "table": "Table to inspect"
+      },
+      "variations": [
+        {
+          "name": "text_schema",
+          "difference": "Show schema in text format",
+          "code": "print(table)"
+        }
+      ],
+      "prerequisites": ["table-access"],
+      "enables": ["schema-understanding", "debugging"],
+      "performance_impact": "Fast metadata access",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "csv_import_advanced",
+      "description": "Import CSV data with schema inference, primary keys, and date parsing",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table = pxt.io.import_csv('dir.name', 'url', primary_key='id', parse_dates=[3])",
+      "parameters": {
+        "table_name": "Full path for new table",
+        "data_source": "URL or file path to CSV",
+        "primary_key": "Column name to use as primary key",
+        "parse_dates": "List of column indices to parse as dates"
+      },
+      "variations": [
+        {
+          "name": "schema_override",
+          "difference": "Override inferred types",
+          "code": "pxt.io.import_csv('path', 'url', schema_overrides={'col': pxt.Type})"
+        }
+      ],
+      "prerequisites": ["directory-setup"],
+      "enables": ["rapid-data-import", "external-data-integration"],
+      "performance_impact": "Network latency for URLs, efficient bulk insert",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "limited_retrieval",
+      "description": "Retrieve subset of large tables to avoid memory issues",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "result = table.limit(n).collect()",
+      "parameters": {
+        "n": "Number of rows to retrieve",
+        "table": "Table or query to limit"
+      },
+      "variations": [
+        {
+          "name": "with_offset",
+          "difference": "Skip rows before limiting",
+          "code": "result = table.offset(100).limit(50).collect()"
+        }
+      ],
+      "prerequisites": ["table-data"],
+      "enables": ["safe-exploration", "memory-management"],
+      "performance_impact": "O(limit) - independent of table size",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "head_tail_operations",
+      "description": "Access earliest and most recent records based on insertion order",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "early = table.head(n); recent = table.tail(n)",
+      "parameters": {
+        "n": "Number of records to retrieve"
+      },
+      "variations": [
+        {
+          "name": "streaming_monitor",
+          "difference": "Monitor recent insertions",
+          "code": "latest = table.tail(10)  # Check latest data"
+        }
+      ],
+      "prerequisites": ["table-data"],
+      "enables": ["data-monitoring", "insertion-tracking"],
+      "performance_impact": "Efficient - uses insertion order metadata",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "row_counting",
+      "description": "Get total number of rows without loading data",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "total_rows = table.count()",
+      "parameters": {
+        "table": "Table or filtered query to count"
+      },
+      "variations": [
+        {
+          "name": "conditional_count",
+          "difference": "Count rows matching condition",
+          "code": "filtered_count = table.where(condition).count()"
+        }
+      ],
+      "prerequisites": ["table-access"],
+      "enables": ["size-estimation", "progress-tracking"],
+      "performance_impact": "O(1) for full table, O(n) for filtered",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "sorting_and_limiting",
+      "description": "Sort table data and retrieve top N results efficiently",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.order_by(table.column, asc=False).limit(n).collect()",
+      "parameters": {
+        "sort_column": "Column to sort by",
+        "ascending": "Sort direction (True for asc, False for desc)",
+        "limit": "Number of top results to retrieve"
+      },
+      "variations": [
+        {
+          "name": "multi_column_sort",
+          "difference": "Sort by multiple columns",
+          "code": "table.order_by(table.col1, table.col2.asc()).limit(n)"
+        }
+      ],
+      "prerequisites": ["table-data"],
+      "enables": ["top-n-analysis", "ranking-queries"],
+      "performance_impact": "O(n log n) for sort, then O(limit) for result",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "date_range_filtering",
+      "description": "Filter data using date ranges and compound temporal conditions",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.where((table.date_col >= start_date) & (table.date_col < end_date))",
+      "parameters": {
+        "date_column": "Column containing timestamp data",
+        "start_date": "Beginning of date range",
+        "end_date": "End of date range (exclusive)"
+      },
+      "variations": [
+        {
+          "name": "relative_dates",
+          "difference": "Use relative date calculations",
+          "code": "from datetime import timedelta; table.where(table.date > (datetime.now() - timedelta(days=30)))"
+        }
+      ],
+      "prerequisites": ["timestamp-data", "logical-operators"],
+      "enables": ["temporal-analysis", "time-series-filtering"],
+      "performance_impact": "Efficient with proper indexing on date columns",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "isin_filtering",
+      "description": "Filter rows where column values match any in a specified list",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.where(table.column.isin([value1, value2, value3]))",
+      "parameters": {
+        "column": "Column to check for membership",
+        "values": "List or iterable of acceptable values"
+      },
+      "variations": [
+        {
+          "name": "exclusion_filter",
+          "difference": "Filter out values in list",
+          "code": "table.where(~table.column.isin(excluded_values))"
+        }
+      ],
+      "prerequisites": ["basic-filtering"],
+      "enables": ["membership-testing", "multi-value-selection"],
+      "performance_impact": "More efficient than multiple OR conditions",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "string_filtering",
+      "description": "Use string methods in where clauses for text-based filtering",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.where(table.text_column.contains('substring'))",
+      "parameters": {
+        "text_column": "Column containing string data",
+        "pattern": "Substring or pattern to search for"
+      },
+      "variations": [
+        {
+          "name": "case_insensitive",
+          "difference": "Case-insensitive string matching",
+          "code": "table.where(table.text_col.lower().contains(pattern.lower()))"
+        },
+        {
+          "name": "regex_matching",
+          "difference": "Use regular expressions",
+          "code": "table.where(table.text_col.matches(r'pattern.*'))"
+        }
+      ],
+      "prerequisites": ["string-data"],
+      "enables": ["text-search", "pattern-matching"],
+      "performance_impact": "O(n) scan for each row",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "aggregation_functions",
+      "description": "Compute summary statistics using built-in aggregation functions",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.select(stat_name=pxt.functions.agg_func(table.column))",
+      "parameters": {
+        "agg_func": "Aggregation function (min, max, sum, avg, count, etc.)",
+        "column": "Column to aggregate",
+        "stat_name": "Name for result column"
+      },
+      "variations": [
+        {
+          "name": "multiple_aggregations",
+          "difference": "Compute multiple statistics",
+          "code": "table.select(min=pxt.functions.min(col), max=pxt.functions.max(col), avg=pxt.functions.avg(col))"
+        }
+      ],
+      "prerequisites": ["table-data"],
+      "enables": ["statistical-analysis", "summary-reports"],
+      "performance_impact": "O(n) single pass for most aggregations",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "result_object_access",
+      "description": "Extract individual rows and column data from query results",
+      "confidence": "high",
+      "frequency": 3,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "result = table.query().collect(); row = result[index]; col_data = result['column']",
+      "parameters": {
+        "query": "Query that produces results",
+        "index": "Row index to access",
+        "column": "Column name for column-wise access"
+      },
+      "variations": [
+        {
+          "name": "iteration",
+          "difference": "Iterate over all rows",
+          "code": "for row in result: process(row)"
+        }
+      ],
+      "prerequisites": ["data-retrieval"],
+      "enables": ["result-processing", "data-extraction"],
+      "performance_impact": "In-memory access after collection",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "column_wise_access",
+      "description": "Extract entire columns as lists from result objects",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "column_values = result['column_name']",
+      "parameters": {
+        "result": "Collected query result",
+        "column_name": "Name of column to extract"
+      },
+      "variations": [
+        {
+          "name": "multiple_columns",
+          "difference": "Extract multiple columns",
+          "code": "col1, col2 = result['col1'], result['col2']"
+        }
+      ],
+      "prerequisites": ["result-object-access"],
+      "enables": ["column-analysis", "external-tool-integration"],
+      "performance_impact": "Fast list access from pre-loaded data",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "pandas_integration",
+      "description": "Convert Pixeltable results to pandas DataFrames for analysis",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "df = result.to_pandas()",
+      "parameters": {
+        "result": "Collected query result to convert"
+      },
+      "variations": [
+        {
+          "name": "direct_conversion",
+          "difference": "Convert query directly",
+          "code": "df = table.query().collect().to_pandas()"
+        }
+      ],
+      "prerequisites": ["result-object-access", "pandas-library"],
+      "enables": ["pandas-analysis", "statistical-computing"],
+      "performance_impact": "Memory copy, enables pandas optimizations",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "add_column",
+      "description": "Add new columns to existing tables with retroactive application",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.add_column(column_name=column_type)",
+      "parameters": {
+        "column_name": "Name for new column",
+        "column_type": "Pixeltable type for the column"
+      },
+      "variations": [
+        {
+          "name": "computed_column",
+          "difference": "Add computed column with expression",
+          "code": "table.add_computed_column(name=expression)"
+        }
+      ],
+      "prerequisites": ["table-existence"],
+      "enables": ["schema-evolution", "incremental-development"],
+      "performance_impact": "O(n) to add column to existing rows",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "conditional_updates",
+      "description": "Update specific rows using where clauses with new values",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.where(condition).update({'column': new_value})",
+      "parameters": {
+        "condition": "Boolean expression for row selection",
+        "updates": "Dictionary of column names to new values"
+      },
+      "variations": [
+        {
+          "name": "expression_updates",
+          "difference": "Use expressions for new values",
+          "code": "table.where(cond).update({'col': table.other_col * 2})"
+        }
+      ],
+      "prerequisites": ["table-data", "filtering"],
+      "enables": ["selective-updates", "data-correction"],
+      "performance_impact": "O(n) scan plus update cost",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "batch_updates",
+      "description": "Update multiple rows with different values using batch operations",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.batch_update([{'id': id1, 'col': val1}, {'id': id2, 'col': val2}])",
+      "parameters": {
+        "updates": "List of dictionaries with primary key and update values"
+      },
+      "variations": [
+        {
+          "name": "partial_updates",
+          "difference": "Update only some columns per row",
+          "code": "table.batch_update([{'id': 1, 'col1': val}, {'id': 2, 'col2': val}])"
+        }
+      ],
+      "prerequisites": ["table-data", "primary-keys"],
+      "enables": ["efficient-bulk-updates", "data-synchronization"],
+      "performance_impact": "Much faster than individual updates",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "conditional_deletion",
+      "description": "Delete rows matching specific criteria using where clauses",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.where(condition).delete()",
+      "parameters": {
+        "condition": "Boolean expression for row selection"
+      },
+      "variations": [
+        {
+          "name": "cascading_delete",
+          "difference": "Delete with foreign key constraints",
+          "code": "# Automatic if foreign keys defined"
+        }
+      ],
+      "prerequisites": ["table-data", "filtering"],
+      "enables": ["data-cleanup", "selective-removal"],
+      "performance_impact": "O(n) scan plus deletion cost",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "table_versioning",
+      "description": "Use built-in versioning to rollback recent changes",
+      "confidence": "high",
+      "frequency": 1,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.revert()",
+      "parameters": {},
+      "variations": [
+        {
+          "name": "multiple_reverts",
+          "difference": "Revert multiple operations",
+          "code": "table.revert(); table.revert(); table.revert()"
+        }
+      ],
+      "prerequisites": ["table-modifications"],
+      "enables": ["change-recovery", "safe-experimentation"],
+      "performance_impact": "Depends on size of reverted operation",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "media_columns",
+      "description": "Add and manage media type columns (Image, Video, Audio, Document)",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.add_column(media_col=pxt.MediaType)",
+      "parameters": {
+        "column_name": "Name for media column",
+        "media_type": "pxt.Image, pxt.Video, pxt.Audio, or pxt.Document"
+      },
+      "variations": [
+        {
+          "name": "specialized_media",
+          "difference": "Use specialized media types",
+          "code": "table.add_column(img=pxt.Image[(224,224), 'RGB'])"
+        }
+      ],
+      "prerequisites": ["table-existence"],
+      "enables": ["multimodal-data", "media-processing"],
+      "performance_impact": "Media files cached locally",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "media_url_insertion",
+      "description": "Insert media data using URLs with automatic downloading and caching",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.update({'media_col': 'https://example.com/file.jpg'})",
+      "parameters": {
+        "media_column": "Column of media type",
+        "url": "Publicly accessible URL to media file"
+      },
+      "variations": [
+        {
+          "name": "local_files",
+          "difference": "Use local file paths",
+          "code": "table.update({'media_col': '/path/to/local/file.jpg'})"
+        }
+      ],
+      "prerequisites": ["media-columns"],
+      "enables": ["web-based-media", "automatic-caching"],
+      "performance_impact": "Network latency plus caching overhead",
+      "reusable": true,
+      "production_ready": true
+    },
+    {
+      "name": "media_query_display",
+      "description": "Query and display media data with automatic thumbnail rendering",
+      "confidence": "high",
+      "frequency": 2,
+      "first_seen": "tables-and-data-operations",
+      "code_template": "table.select(table.text_cols, table.media_col).collect()",
+      "parameters": {
+        "text_columns": "Regular columns to include",
+        "media_column": "Media column to display"
+      },
+      "variations": [
+        {
+          "name": "media_properties",
+          "difference": "Access media file properties",
+          "code": "table.select(table.image.localpath, table.image.fileurl)"
+        }
+      ],
+      "prerequisites": ["media-data"],
+      "enables": ["visual-data-exploration", "media-analysis"],
+      "performance_impact": "Thumbnail generation for display",
+      "reusable": true,
+      "production_ready": true
+    }
+  ],
+  "common_errors": [
+    {
+      "error_type": "Schema type mismatch during insertion",
+      "frequency": "common",
+      "cause": "Inserting Python types that don't match declared Pixeltable column types",
+      "symptoms": ["Type conversion errors", "Insertion failures"],
+      "solution": {
+        "quick_fix": "Ensure inserted values match column types exactly",
+        "proper_fix": "Use proper type conversion or adjust schema if needed"
+      },
+      "prevention": "Double-check column types in schema and data types being inserted",
+      "example": "Inserting string '123' into pxt.Int column - use int(123) instead",
+      "first_seen": "tables-and-data-operations#step-3"
+    },
+    {
+      "error_type": "Memory exhaustion from collect() on large tables",
+      "frequency": "common",
+      "cause": "Using collect() without limit() on tables with millions of rows",
+      "symptoms": ["Out of memory errors", "System slowdown", "Jupyter kernel restart"],
+      "solution": {
+        "quick_fix": "Use limit() or head() to restrict result size",
+        "proper_fix": "Process data in chunks or use aggregations instead of full collection"
+      },
+      "prevention": "Always check table size with count() before collecting full results",
+      "example": "Use table.limit(1000).collect() instead of table.collect() for exploration",
+      "first_seen": "tables-and-data-operations#step-5"
+    },
+    {
+      "error_type": "Accidental deletion of all table data",
+      "frequency": "occasional",
+      "cause": "Using delete() without where() clause removes all rows",
+      "symptoms": ["Empty table after delete operation", "Unexpected zero row count"],
+      "solution": {
+        "quick_fix": "Use table.revert() if operation just happened",
+        "proper_fix": "Restore from backup or re-import data"
+      },
+      "prevention": "Always use where() clauses with delete() and test conditions first",
+      "example": "Use table.where(condition).delete() never table.delete() alone",
+      "first_seen": "tables-and-data-operations#step-32"
+    },
+    {
+      "error_type": "URL accessibility issues for media files",
+      "frequency": "common",
+      "cause": "URLs requiring authentication, behind firewalls, or temporarily unavailable",
+      "symptoms": ["Download failures", "Timeout errors", "403/404 HTTP errors"],
+      "solution": {
+        "quick_fix": "Verify URL accessibility in browser first",
+        "proper_fix": "Use authenticated requests or download files locally"
+      },
+      "prevention": "Test URLs individually before batch operations",
+      "example": "Public GitHub raw URLs work, private repos need authentication",
+      "first_seen": "tables-and-data-operations#step-35"
+    }
+  ],
+  "test_questions": [
+    {
+      "question": "What happens to table data when you reset your Python session?",
+      "answer": "Table data persists in the database - only Python variable references are lost. You can reconnect to tables using pxt.get_table('table_name')."
+    },
+    {
+      "question": "What's the difference between table.limit(5).collect() and table.head(5)?",
+      "answer": "limit() makes no promises about ordering and just returns any 5 rows, while head() always returns the 5 earliest-inserted rows based on insertion order."
+    },
+    {
+      "question": "Why do you need to use & instead of 'and' in Pixeltable where clauses?",
+      "answer": "Python's 'and' and 'or' operators cannot be overloaded. Pixeltable follows pandas conventions using &, |, and ~ for boolean operations in expressions."
+    },
+    {
+      "question": "What's the safest way to explore a large table you've never seen before?",
+      "answer": "First use table.count() to see the size, then table.head(10) or table.limit(10).collect() to see sample data, and table.describe() to understand the schema."
+    },
+    {
+      "question": "How do computed columns differ from expressions in select statements?",
+      "answer": "Computed columns are permanent parts of the table schema that update automatically with new data, while select expressions are calculated on-demand and not stored."
+    }
+  ],
+  "production_tips": [
+    {
+      "tip": "Always use limit() when exploring unknown tables",
+      "impact": "Prevents memory exhaustion and system crashes",
+      "implementation": "Check table.count() first, then use table.limit(100).collect() for exploration",
+      "trade_offs": "May not see representative sample if data is skewed",
+      "example": "if table.count() > 1000: sample = table.limit(100).collect()"
+    },
+    {
+      "tip": "Use batch operations for bulk data modifications",
+      "impact": "10-100x performance improvement over individual operations",
+      "implementation": "Collect updates into lists and use batch_insert() or batch_update()",
+      "trade_offs": "Less fine-grained error handling per row",
+      "example": "table.batch_update([{'id': i, 'status': 'processed'} for i in id_list])"
+    },
+    {
+      "tip": "Implement proper error handling for media URL insertions",
+      "impact": "Prevents pipeline failures from network issues",
+      "implementation": "Validate URLs before insertion and use retry logic",
+      "trade_offs": "Additional complexity and latency",
+      "example": "try: response = requests.head(url); if response.status_code == 200: table.insert(...)"
+    },
+    {
+      "tip": "Use table versioning strategically in production",
+      "impact": "Enables quick recovery from mistakes",
+      "implementation": "Document major operations and use revert() judiciously",
+      "trade_offs": "Storage overhead for version history",
+      "example": "# Before major update\nbackup_count = table.count()\ntable.major_update()\nif table.count() != expected: table.revert()"
+    }
+  ],
+  "pattern_maturity": {
+    "novel_patterns": 8,
+    "emerging_patterns": 15,
+    "established_patterns": 12,
+    "total_patterns": 35
+  },
+  "cookies": "🍪 Why did the database administrator break up with the pandas DataFrame? Because they were tired of everything being in-memory and wanted a relationship that would last beyond the session!"
+}

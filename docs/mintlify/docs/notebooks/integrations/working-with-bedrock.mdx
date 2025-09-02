@@ -1,4 +1,9 @@
-
+---
+title: "Working with Bedrock"
+sidebarTitle: "AWS Bedrock"
+icon: "notebook"
+description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb)"
+---
 
 export const quartoRawHtml =
 [`
@@ -67,8 +72,6 @@ free to ask!</td>
 </table>
 `];
 
-[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb)[![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb)
-\# Working with Bedrock in Pixeltable
 
 Pixeltable’s Bedrock integration enables you to access AWS Bedrock via
 the Bedrock API.
@@ -258,8 +261,8 @@ tools = pxt.tools(search_news, get_weather)
 ```python
 # Create base table
 tool_agent = pxt.create_table(
-    "agents.tools", 
-    {"prompt": pxt.String}, 
+    "agents.tools",
+    {"prompt": pxt.String},
     if_exists="ignore"
 )
 
@@ -302,8 +305,8 @@ UpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], col
 # Add response formatting
 tool_agent.add_computed_column(
     tool_response_prompt=pxtf.string.format(
-        "Orginal Prompt\n{0}: Tool Output\n{1}", 
-        tool_agent.prompt, 
+        "Orginal Prompt\n{0}: Tool Output\n{1}",
+        tool_agent.prompt,
         tool_agent.tool_output
     ),
     if_exists="ignore",

@@ -1,0 +1,24 @@
+---
+title: "The Pixeltable Platform"
+sidebarTitle: "Introduction"
+---
+
+The Pixeltable Platform is a complete system for building performant, AI-enabled applications that process images, videos, audio, documents and other media files at scale.
+
+The platform is unique in that it pairs a Postgres engine that has been specifically tuned for multimedia with a declarative Python syntax that abstracts away needless complexity. This frees developers to focus on building maintainable applications and data processing pipelines without getting bogged down in the details of plumbing. We've already done that for you.
+
+In this section we will introduce the concepts used throughout this documentation, with each concept covered in detail on its own page.
+
+The core object in Pixeltable is the [Table](/docs/platform/tables-and-schemas/tables) object. Tables are where you store references to your media and text files and related data. Each row represents a media file, document, or data record, along with any metadata, computed results, or relationships you need to track.
+
+To create a table, you must define its [schema](/docs/platform/tables-and-schemas/schemas). Here's the key thing: you'll never actually work with schemas directly. A schema in Pixeltable is just the dictionary of column names and types you provide when creating a table. Each table has its own schema. Once you've created the table, the schema becomes invisible. You won't query it, modify it, or even think about it. But it's foundational, silently determining what operations are possible and how data flows through your pipeline.
+
+The real power comes from [computed columns](/docs/platform/tables-and-schemas/computed-columns), which automatically transform your data using functions you define or AI models you configure. These aren't just one-time calculations. They're declarative transformations that run incrementally as new data arrives. Your [data operations](/docs/platform/data-operations/data-operations) work seamlessly across stored and computed columns, with full [version history](/docs/platform/data-operations/table-history) tracked automatically.
+
+Pixeltable's [query syntax](/docs/platform/query-syntax/query-syntax) will feel familiar if you've used SQL or pandas, but extends naturally to handle multimedia operations and AI model outputs. You can filter, join, and aggregate just like traditional databases, but also perform similarity searches on embeddings or extract frames from videos. The system includes [sampling](/docs/platform/query-syntax/sampling) capabilities for working with large datasets efficiently.
+
+For organizing your work beyond simple tables, Pixeltable provides [views and snapshots](/docs/platform/views-and-snapshots/views-and-snapshots). Views are live queries that always reflect current data, while snapshots freeze a table's state at a point in time. Combined with [iterators](/docs/platform/views-and-snapshots/iterator-views), you can create powerful one-to-many transformations like extracting all frames from videos or chunking documents for RAG applications. The [time travel](/docs/platform/views-and-snapshots/time-travel) feature lets you query historical versions of your data.
+
+Getting data into Pixeltable is straightforward through various [import mechanisms](/docs/platform/importing-data), whether from files, URLs, or other data sources. The system handles [errors](/docs/platform/error-handling) gracefully, letting you choose whether to fail fast or continue processing with partial results. For similarity search and RAG applications, [embedding indexes](/docs/platform/indexing-and-vector-embeddings) provide efficient vector search capabilities.
+
+Beyond basic functionality, you can extend Pixeltable with [user-defined functions (UDFs) and aggregations (UDAs)](/docs/platform/udfs-and-uda), letting you implement custom logic that runs efficiently within the system. And unlike many data platforms, Pixeltable comes with [extensive AI/ML integrations](/docs/platform/integrations/overview) built in, from OpenAI and Anthropic to local models, computer vision, and audio processing tools.

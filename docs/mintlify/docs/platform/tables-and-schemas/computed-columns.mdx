@@ -1,12 +1,619 @@
 ---
 title: "Computed Columns"
-description: "Automatic data transformations and AI workflows in Pixeltable"
+description: "Automatic data transformations and AI-powered workflows that update incrementally"
 ---
 
 # Computed Columns
 
-This page covers Pixeltable's computed columns feature for automatic data processing and AI model execution.
+Computed columns are Pixeltable's most powerful feature - they automatically execute transformations, AI models, and custom functions on your data. Unlike traditional database computed columns, Pixeltable's computed columns are **persistent**, **versioned**, and **automatically updated** when new data arrives.
 
-## Overview
+## What Are Computed Columns?
 
-Content coming soon - this page will explain how to create and manage computed columns.
+A computed column is a column whose values are automatically calculated based on:
+- **Other columns** in the same table
+- **Built-in functions** (image processing, string operations, math)
+- **AI models** (OpenAI, Anthropic, HuggingFace, local models)
+- **Custom functions** (your own Python code)
+
+The key insight: you define the transformation **once**, and it runs automatically on all current and future data.
+
+## Basic Computed Columns
+
+### Simple Arithmetic
+
+```python
+# Create a sales table
+sales = pxt.create_table('company.sales', {
+    'product': pxt.String,
+    'quantity': pxt.Int,
+    'unit_price': pxt.Float
+})
+
+# Add computed column for total revenue
+sales.add_computed_column(
+    total_revenue=sales.quantity * sales.unit_price
+)
+
+# Insert data - computed column calculates automatically
+sales.insert({
+    'product': 'Widget A',
+    'quantity': 100,
+    'unit_price': 25.99
+})
+# total_revenue automatically becomes 2599.0
+```
+
+### String Operations
+
+```python
+# Create user table
+users = pxt.create_table('app.users', {
+    'first_name': pxt.String,
+    'last_name': pxt.String,
+    'email': pxt.String
+})
+
+# Add computed columns for derived text
+users.add_computed_column(
+    full_name=users.first_name + ' ' + users.last_name
+)
+
+users.add_computed_column(
+    domain=users.email.split('@')[1]
+)
+
+users.add_computed_column(
+    initials=(users.first_name[0] + users.last_name[0]).upper()
+)
+```
+
+## Chaining Computed Columns
+
+Computed columns can reference other computed columns, creating dependency chains:
+
+```python
+# Population growth analysis
+pop_table = pxt.create_table('demographics.population', {
+    'country': pxt.String,
+    'pop_2022': pxt.Int,
+    'pop_2023': pxt.Int
+})
+
+# Step 1: Calculate absolute change
+pop_table.add_computed_column(
+    change=pop_table.pop_2023 - pop_table.pop_2022
+)
+
+# Step 2: Calculate percentage change (depends on previous column)
+pop_table.add_computed_column(
+    growth_rate=100.0 * pop_table.change / pop_table.pop_2022
+)
+
+# Step 3: Categorize growth (depends on percentage)
+pop_table.add_computed_column(
+    growth_category='high' if pop_table.growth_rate > 2.0 else 
+                   ('moderate' if pop_table.growth_rate > 0.5 else 'low')
+)
+```
+
+<Info>
+**Incremental Updates**: When you insert new data, Pixeltable automatically computes values for all computed columns in the correct dependency order. No manual recalculation needed!
+</Info>
+
+## Image Processing Columns
+
+Pixeltable excels at multimedia transformations:
+
+```python
+# Image processing pipeline
+images = pxt.create_table('media.images', {
+    'name': pxt.String,
+    'original_image': pxt.Image
+})
+
+# Add image transformations
+images.add_computed_column(
+    thumbnail=images.original_image.resize((150, 150))
+)
+
+images.add_computed_column(
+    grayscale=images.original_image.convert('L')
+)
+
+images.add_computed_column(
+    rotated=images.original_image.rotate(90)
+)
+
+# Chained transformations in single expression
+images.add_computed_column(
+    processed=images.original_image.resize((224, 224)).convert('RGB')
+)
+```
+
+### Advanced Image Operations
+
+```python
+# Complex image processing pipeline
+images.add_computed_column(
+    # Resize, normalize, and prepare for ML models
+    model_ready=(
+        images.original_image
+        .resize((224, 224))
+        .convert('RGB')
+        .normalize(mean=[0.485, 0.456, 0.406], 
+                  std=[0.229, 0.224, 0.225])
+    )
+)
+
+# Extract metadata
+images.add_computed_column(
+    dimensions=[images.original_image.width, images.original_image.height]
+)
+
+images.add_computed_column(
+    aspect_ratio=images.original_image.width / images.original_image.height
+)
+```
+
+## AI Model Integration
+
+### Object Detection
+
+```python
+from pixeltable.functions import huggingface
+
+# Add object detection to images
+images.add_computed_column(
+    detections=huggingface.detr_for_object_detection(
+        images.processed,
+        model_id='facebook/detr-resnet-50'
+    )
+)
+
+# Extract just the detected object labels
+images.add_computed_column(
+    objects=images.detections.label_text
+)
+```
+
+### Language Models
+
+```python
+from pixeltable.functions import openai
+
+# Content analysis table
+content = pxt.create_table('content.articles', {
+    'title': pxt.String,
+    'body': pxt.String,
+    'author': pxt.String
+})
+
+# Add AI-powered analysis
+content.add_computed_column(
+    summary=openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{
+            'role': 'user', 
+            'content': f'Summarize this article: {content.body}'
+        }]
+    )
+)
+
+content.add_computed_column(
+    sentiment=openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{
+            'role': 'user',
+            'content': f'Analyze the sentiment of: {content.body}'
+        }]
+    )
+)
+```
+
+### Vision Models
+
+```python
+from pixeltable.functions import openai
+
+# Add vision analysis
+images.add_computed_column(
+    description=openai.vision(
+        prompt="Describe what you see in this image in detail",
+        image=images.original_image,
+        model='gpt-4o'
+    )
+)
+
+images.add_computed_column(
+    tags=openai.vision(
+        prompt="List 5-10 relevant tags for this image, comma-separated",
+        image=images.original_image,
+        model='gpt-4o-mini'
+    )
+)
+```
+
+## Working with JSON Data
+
+Extract and transform JSON fields in computed columns:
+
+```python
+# API response data
+api_data = pxt.create_table('analytics.api_responses', {
+    'endpoint': pxt.String,
+    'response_json': pxt.Json,
+    'timestamp': pxt.Timestamp
+})
+
+# Extract nested JSON fields
+api_data.add_computed_column(
+    status_code=api_data.response_json.status
+)
+
+api_data.add_computed_column(
+    user_id=api_data.response_json.data.user.id
+)
+
+api_data.add_computed_column(
+    error_message=api_data.response_json.error.message
+)
+
+# Handle arrays in JSON
+api_data.add_computed_column(
+    first_result=api_data.response_json.results[0]
+)
+
+api_data.add_computed_column(
+    result_count=api_data.response_json.results.len()
+)
+```
+
+## Custom Functions (UDFs)
+
+Create your own functions for computed columns:
+
+```python
+@pxt.udf
+def extract_domain(email: str) -> str:
+    """Extract domain from email address"""
+    return email.split('@')[1] if '@' in email else None
+
+@pxt.udf  
+def calculate_bmi(weight_kg: float, height_m: float) -> float:
+    """Calculate Body Mass Index"""
+    return weight_kg / (height_m ** 2)
+
+@pxt.udf
+def categorize_age(age: int) -> str:
+    """Categorize age into groups"""
+    if age < 18:
+        return 'minor'
+    elif age < 65:
+        return 'adult'
+    else:
+        return 'senior'
+
+# Use UDFs in computed columns
+users.add_computed_column(
+    email_domain=extract_domain(users.email)
+)
+
+health.add_computed_column(
+    bmi=calculate_bmi(health.weight_kg, health.height_m)
+)
+
+users.add_computed_column(
+    age_group=categorize_age(users.age)
+)
+```
+
+### Advanced UDF Patterns
+
+```python
+@pxt.udf
+def process_image_metadata(img: pxt.Image) -> dict:
+    """Extract comprehensive image metadata"""
+    return {
+        'width': img.width,
+        'height': img.height,
+        'format': img.format,
+        'mode': img.mode,
+        'size_bytes': len(img.tobytes())
+    }
+
+@pxt.udf
+def sentiment_score(text: str) -> float:
+    """Custom sentiment analysis (would use your preferred library)"""
+    # Placeholder - implement with your sentiment model
+    positive_words = ['good', 'great', 'excellent', 'amazing']
+    negative_words = ['bad', 'terrible', 'awful', 'horrible']
+    
+    words = text.lower().split()
+    pos_count = sum(1 for word in words if word in positive_words)
+    neg_count = sum(1 for word in words if word in negative_words)
+    
+    total = pos_count + neg_count
+    return (pos_count - neg_count) / total if total > 0 else 0.0
+
+# Use in computed columns
+images.add_computed_column(
+    metadata=process_image_metadata(images.original_image)
+)
+
+reviews.add_computed_column(
+    sentiment=sentiment_score(reviews.review_text)
+)
+```
+
+## Incremental Updates
+
+The power of computed columns becomes clear with incremental updates:
+
+```python
+# Create table with computed columns
+sales = pxt.create_table('sales.transactions', {
+    'product_id': pxt.String,
+    'quantity': pxt.Int,
+    'unit_price': pxt.Float
+})
+
+sales.add_computed_column(total=sales.quantity * sales.unit_price)
+sales.add_computed_column(tax=sales.total * 0.08)
+sales.add_computed_column(final_total=sales.total + sales.tax)
+
+# Insert initial data
+sales.insert([
+    {'product_id': 'A001', 'quantity': 10, 'unit_price': 25.00},
+    {'product_id': 'B002', 'quantity': 5, 'unit_price': 50.00}
+])
+# All computed columns calculated automatically
+
+# Insert more data later - only new rows are processed
+sales.insert([
+    {'product_id': 'C003', 'quantity': 20, 'unit_price': 15.00},
+    {'product_id': 'D004', 'quantity': 3, 'unit_price': 100.00}
+])
+# Computed columns calculated only for new rows
+```
+
+<Warning>
+**Model Caching**: The first time an AI model is used, it downloads and caches locally. Subsequent operations are much faster. Plan for initial model download times in production deployments.
+</Warning>
+
+## Performance and Optimization
+
+### Batched Operations
+
+```python
+# For expensive operations, Pixeltable automatically batches
+images.add_computed_column(
+    embeddings=openai.embeddings(
+        text=images.description,
+        model='text-embedding-3-small'
+    )
+)
+# API calls are automatically batched for efficiency
+```
+
+### Caching Behavior
+
+```python
+# Results are permanently cached
+sales.add_computed_column(
+    analysis=expensive_analysis_udf(sales.data)
+)
+
+# First query triggers computation and caches results
+results1 = sales.select(sales.analysis).collect()
+
+# Subsequent queries use cached values - no recomputation
+results2 = sales.select(sales.analysis).collect()  # Instant
+
+# Only new rows trigger computation
+sales.insert({'data': 'new_value'})  # Only processes this row
+```
+
+## Error Handling
+
+Handle errors gracefully in computed columns:
+
+```python
+# Robust computed columns with error handling
+@pxt.udf
+def safe_division(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator != 0 else None
+
+@pxt.udf
+def extract_number(text: str) -> int:
+    """Extract first number from text, return None if not found"""
+    import re
+    match = re.search(r'\d+', text)
+    return int(match.group()) if match else None
+
+# Use with error handling
+data.add_computed_column(
+    ratio=safe_division(data.value1, data.value2)
+)
+
+data.add_computed_column(
+    extracted_num=extract_number(data.text_field)
+)
+
+# Handle API failures
+data.add_computed_column(
+    ai_analysis=openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{'role': 'user', 'content': data.text}]
+    ),
+    on_error='ignore'  # Continue processing other rows if some fail
+)
+```
+
+## Best Practices
+
+### Design Principles
+
+```python
+# ✅ Good computed column design
+products.add_computed_column(
+    # Descriptive names
+    price_with_tax=products.base_price * 1.08,
+    
+    # Logical dependencies
+    profit_margin=(products.selling_price - products.cost_price) / products.selling_price,
+    
+    # Reusable intermediate results
+    formatted_name=products.brand + ' ' + products.model
+)
+
+# ❌ Avoid these patterns
+products.add_computed_column(
+    # Vague names
+    calc1=products.price * 1.08,
+    
+    # Overly complex single expressions
+    complex=(products.a + products.b) / (products.c - products.d) * products.e,
+    
+    # Non-deterministic functions
+    random_id=generate_random_uuid()  # Will change on recomputation!
+)
+```
+
+### Performance Optimization
+
+```python
+# Cache expensive intermediate results
+data.add_computed_column(
+    preprocessed_text=expensive_text_preprocessing(data.raw_text)
+)
+
+# Use the cached result in multiple dependent columns
+data.add_computed_column(
+    sentiment=sentiment_analysis(data.preprocessed_text)
+)
+
+data.add_computed_column(
+    keywords=keyword_extraction(data.preprocessed_text)
+)
+
+data.add_computed_column(
+    summary=text_summarization(data.preprocessed_text)
+)
+```
+
+### Debugging and Monitoring
+
+```python
+# Add debugging columns during development
+data.add_computed_column(
+    debug_info={
+        'input_length': data.text.len(),
+        'processing_timestamp': datetime.now(),
+        'model_version': '1.2.3'
+    }
+)
+
+# Monitor data quality
+data.add_computed_column(
+    is_valid_email=data.email.contains('@') & data.email.contains('.')
+)
+
+data.add_computed_column(
+    data_quality_score=(
+        (data.field1 != None).cast(pxt.Int) +
+        (data.field2 != None).cast(pxt.Int) +
+        (data.field3.len() > 0).cast(pxt.Int)
+    ) / 3.0
+)
+```
+
+## Common Patterns
+
+### Content Processing Pipeline
+
+```python
+# Complete content analysis pipeline
+content = pxt.create_table('content.articles', {
+    'title': pxt.String,
+    'body': pxt.String,
+    'url': pxt.String
+})
+
+# Step 1: Text preprocessing
+content.add_computed_column(
+    clean_body=content.body.strip().lower()
+)
+
+# Step 2: AI analysis
+content.add_computed_column(
+    summary=openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{'role': 'user', 'content': f'Summarize: {content.clean_body}'}]
+    )
+)
+
+# Step 3: Embeddings for search
+content.add_computed_column(
+    embeddings=openai.embeddings(
+        text=content.summary.choices[0].message.content,
+        model='text-embedding-3-small'
+    )
+)
+
+# Step 4: Classification
+content.add_computed_column(
+    category=openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{
+            'role': 'user',
+            'content': f'Categorize this content into one of: tech, business, science, entertainment: {content.summary.choices[0].message.content}'
+        }]
+    )
+)
+```
+
+### E-commerce Analytics
+
+```python
+# Product performance analysis
+products = pxt.create_table('ecommerce.products', {
+    'product_id': pxt.String,
+    'name': pxt.String,
+    'price': pxt.Float,
+    'cost': pxt.Float,
+    'units_sold': pxt.Int,
+    'customer_rating': pxt.Float,
+    'num_reviews': pxt.Int
+})
+
+# Financial metrics
+products.add_computed_column(
+    revenue=products.price * products.units_sold
+)
+
+products.add_computed_column(
+    profit=products.revenue - (products.cost * products.units_sold)
+)
+
+products.add_computed_column(
+    profit_margin=products.profit / products.revenue
+)
+
+# Performance scoring
+products.add_computed_column(
+    performance_score=(
+        (products.profit_margin * 0.4) +
+        (products.customer_rating / 5.0 * 0.3) +
+        (products.units_sold / 1000.0 * 0.3)
+    )
+)
+
+# Category assignment
+products.add_computed_column(
+    performance_tier='top' if products.performance_score > 0.8 else
+                    ('good' if products.performance_score > 0.6 else
+                    ('average' if products.performance_score > 0.4 else 'needs_attention'))
+)
+```
+
+Computed columns transform static tables into dynamic, intelligent data processing pipelines. They're the key to building robust, scalable AI applications that automatically adapt to new data while maintaining consistency and performance.

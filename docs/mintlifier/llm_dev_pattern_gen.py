@@ -5,7 +5,7 @@ Extract patterns from Jupyter notebooks for LLM consumption.
 This script walks through notebooks and extracts:
 1. Code patterns that use Pixeltable API
 2. Explanatory text that provides context
-3. Common workflows and use cases
+3. Common developer patterns and use cases
 4. Links patterns to the public API from OPML
 """
 
@@ -71,22 +71,21 @@ class NotebookPatternExtractor:
             'notebook': str(notebook_path.relative_to(self.notebooks_dir)),
             'title': self._extract_title(nb),
             'description': self._extract_description(nb),
-            'workflows': [],
-            'api_usage': {},
+            'developer_patterns': [],
             'key_concepts': [],
             'code_snippets': []
         }
         
-        current_workflow = None
+        current_pattern = None
         current_explanation = []
         
         for cell in nb.cells:
             if cell.cell_type == 'markdown':
-                # Look for workflow headers
-                if self._is_workflow_header(cell.source):
-                    if current_workflow:
-                        patterns['workflows'].append(current_workflow)
-                    current_workflow = {
+                # Look for pattern headers
+                if self._is_pattern_header(cell.source):
+                    if current_pattern:
+                        patterns['developer_patterns'].append(current_pattern)
+                    current_pattern = {
                         'title': self._extract_header_text(cell.source),
                         'explanation': [],
                         'code_blocks': []
@@ -94,27 +93,17 @@ class NotebookPatternExtractor:
                     current_explanation = []
                 else:
                     # Accumulate explanation text
-                    if current_workflow:
-                        current_workflow['explanation'].append(cell.source)
+                    if current_pattern:
+                        current_pattern['explanation'].append(cell.source)
                     else:
                         current_explanation.append(cell.source)
                         
             elif cell.cell_type == 'code':
                 code = cell.source
                 
-                # Extract API usage
-                api_calls = self._extract_api_calls(code)
-                for api_call in api_calls:
-                    if api_call not in patterns['api_usage']:
-                        patterns['api_usage'][api_call] = []
-                    patterns['api_usage'][api_call].append({
-                        'code': code,
-                        'context': '\n'.join(current_explanation[-2:]) if current_explanation else ''
-                    })
-                
-                # Add to current workflow if exists
-                if current_workflow:
-                    current_workflow['code_blocks'].append({
+                # Add to current pattern if exists
+                if current_pattern:
+                    current_pattern['code_blocks'].append({
                         'code': code,
                         'output': self._extract_output(cell),
                         'explanation': '\n'.join(current_explanation)
@@ -128,9 +117,9 @@ class NotebookPatternExtractor:
                         'output': self._extract_output(cell)
                     })
         
-        # Don't forget the last workflow
-        if current_workflow:
-            patterns['workflows'].append(current_workflow)
+        # Don't forget the last pattern
+        if current_pattern:
+            patterns['developer_patterns'].append(current_pattern)
             
         # Extract key concepts from the patterns
         patterns['key_concepts'] = self._extract_key_concepts(patterns)
@@ -148,22 +137,29 @@ class NotebookPatternExtractor:
         return "Untitled"
     
     def _extract_description(self, nb: nbformat.NotebookNode) -> str:
-        """Extract description from early markdown cells."""
+        """Extract description from early markdown cells, removing badge links."""
         description_lines = []
         for cell in nb.cells[:5]:  # Look at first 5 cells
             if cell.cell_type == 'markdown':
-                # Skip headers
-                lines = [l for l in cell.source.split('\n') 
-                        if not l.startswith('#') and l.strip()]
+                # Skip headers and badge links
+                lines = []
+                for line in cell.source.split('\n'):
+                    # Skip headers and Kaggle/Colab badges
+                    if line.startswith('#'):
+                        continue
+                    if '[![Kaggle]' in line or '[![Colab]' in line:
+                        continue
+                    if line.strip():
+                        lines.append(line)
                 description_lines.extend(lines[:3])  # Take first 3 non-header lines
                 if len(description_lines) >= 3:
                     break
         return ' '.join(description_lines)
     
-    def _is_workflow_header(self, text: str) -> bool:
-        """Check if markdown text is a workflow section header."""
+    def _is_pattern_header(self, text: str) -> bool:
+        """Check if markdown text is a pattern section header."""
         patterns = [
-            r'^#{2,3}\s+(step|workflow|example|task|tutorial)',
+            r'^#{2,3}\s+(step|pattern|example|task|tutorial)',
             r'^#{2,3}\s+\d+\.',  # Numbered sections
             r'^#{2,3}\s+(creating|building|implementing|using)',
         ]
@@ -180,40 +176,6 @@ class NotebookPatternExtractor:
                 return line.strip('#').strip()
         return text.split('\n')[0]
     
-    def _extract_api_calls(self, code: str) -> List[str]:
-        """Extract Pixeltable API calls from code."""
-        api_calls = []
-        
-        # Common patterns
-        patterns = [
-            r'pxt\.(\w+)',  # pxt.create_table, etc.
-            r'pixeltable\.(\w+)',  # pixeltable.create_table
-            r'from pixeltable import (\w+)',  # imports
-            r'(\w+)\.add_computed_column',  # table operations
-            r'(\w+)\.insert',
-            r'(\w+)\.select',
-            r'@pxt\.udf',  # decorators
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, code)
-            api_calls.extend(matches)
-            
-        # Filter to only public API
-        return [call for call in api_calls if self._is_public_api(call)]
-    
-    def _is_public_api(self, api_element: str) -> bool:
-        """Check if an API element is in the public API."""
-        # Check direct match
-        if api_element in self.public_api:
-            return True
-        
-        # Check with common prefixes
-        for prefix in ['pixeltable.', 'pxt.', 'functions.', 'iterators.']:
-            if f"{prefix}{api_element}" in self.public_api:
-                return True
-                
-        return False
     
     def _extract_output(self, cell) -> Optional[str]:
         """Extract relevant output from a code cell."""
@@ -279,30 +241,98 @@ class NotebookPatternExtractor:
         return all_patterns
     
     def save_patterns(self, output_path: str):
-        """Save extracted patterns to JSON file."""
+        """Save extracted patterns to JSON-LD file."""
         patterns = self.extract_all_patterns()
         
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # Convert to JSON-LD format with proper structure
+        jsonld_patterns = self._convert_to_jsonld(patterns)
+        
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(patterns, f, indent=2)
+            json.dump(jsonld_patterns, f, indent=2)
             
-        print(f"Saved patterns to {output_path}")
+        print(f"Saved developer patterns to {output_path}")
+    
+    def _convert_to_jsonld(self, patterns: Dict) -> Dict:
+        """Convert patterns to JSON-LD format with GitHub links."""
+        base_github_url = "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks"
         
-        # Also create a summary
-        self._create_summary(patterns, output_path.parent / 'llm_patterns_summary.md')
+        return {
+            "@context": {
+                "@vocab": "https://schema.org/",
+                "pxt": "https://pixeltable.com/ontology#",
+                "patterns": "pxt:developerPatterns",
+                "concepts": "pxt:keyConcepts"
+            },
+            "@type": "DataCatalog",
+            "name": "Pixeltable Developer Patterns",
+            "description": "Curated examples demonstrating Pixeltable capabilities",
+            "dateModified": patterns['generated'],
+            "dataset": [
+                {
+                    "@type": "Dataset",
+                    "@id": f"pxt:pattern/{i}",
+                    "name": nb['title'],
+                    "description": nb['description'],
+                    "url": f"{base_github_url}/{nb['notebook']}",
+                    "keywords": nb['key_concepts'],
+                    "hasPart": [
+                        {
+                            "@type": "HowTo",
+                            "name": pattern['title'],
+                            "description": ' '.join(pattern['explanation'][:2]) if pattern['explanation'] else '',
+                            "step": [
+                                {
+                                    "@type": "HowToStep",
+                                    "position": j,
+                                    "text": block.get('explanation', ''),
+                                    "codeSample": {
+                                        "@type": "SoftwareSourceCode",
+                                        "programmingLanguage": "Python",
+                                        "text": block['code']
+                                    }
+                                }
+                                for j, block in enumerate(pattern['code_blocks'], 1)
+                            ]
+                        }
+                        for pattern in nb['developer_patterns']
+                    ]
+                }
+                for i, nb in enumerate(patterns['notebooks'], 1)
+            ]
+        }
         
-    def _create_summary(self, patterns: Dict, summary_path: Path):
-        """Create a markdown summary of extracted patterns."""
+    def _old_create_summary(self, patterns: Dict, summary_path: Path):
+        """Create a markdown summary of extracted patterns for LLM consumption."""
         with open(summary_path, 'w') as f:
-            f.write("# Pixeltable Pattern Library Summary\n\n")
-            f.write(f"Generated: {patterns['generated']}\n")
-            f.write(f"Total notebooks: {len(patterns['notebooks'])}\n\n")
+            f.write("# Pixeltable Developer Patterns\n\n")
+            f.write(f"> A curated collection of {len(patterns['notebooks'])} working examples demonstrating Pixeltable capabilities\n\n")
             
-            f.write("## Notebooks by Category\n\n")
+            f.write("## Key Concepts Covered\n\n")
             
-            # Group by directory
+            # Collect all concepts with counts
+            concept_counts = {}
+            for nb in patterns['notebooks']:
+                for concept in nb['key_concepts']:
+                    concept_counts[concept] = concept_counts.get(concept, 0) + 1
+            
+            for concept, count in sorted(concept_counts.items(), key=lambda x: -x[1]):
+                f.write(f"- **{concept}** ({count} examples)\n")
+            f.write("\n")
+            
+            f.write("## Pattern Categories\n\n")
+            
+            # Group by category with better descriptions
+            category_descriptions = {
+                '': 'Getting Started',
+                'feature-guides': 'Core Features',
+                'fundamentals': 'Fundamentals', 
+                'integrations': 'AI Model Integrations',
+                'use-cases': 'Real-World Applications'
+            }
+            
             categories = {}
             for nb in patterns['notebooks']:
                 category = Path(nb['notebook']).parent.name
@@ -311,23 +341,20 @@ class NotebookPatternExtractor:
                 categories[category].append(nb)
             
             for category, notebooks in sorted(categories.items()):
-                f.write(f"### {category.title()}\n\n")
+                category_name = category_descriptions.get(category, category.title())
+                f.write(f"### {category_name}\n\n")
                 for nb in notebooks:
-                    f.write(f"- **{nb['title']}** ({nb['notebook']})\n")
-                    f.write(f"  - Concepts: {', '.join(nb['key_concepts'])}\n")
-                    f.write(f"  - Workflows: {len(nb['workflows'])}\n")
-                    f.write(f"  - API calls: {len(nb['api_usage'])}\n")
+                    f.write(f"**{nb['title']}**\n")
+                    if nb['description']:
+                        # First 150 chars of description
+                        desc = nb['description'][:150] + ('...' if len(nb['description']) > 150 else '')
+                        f.write(f"  {desc}\n")
+                    if nb['key_concepts']:
+                        f.write(f"  *Demonstrates: {', '.join(nb['key_concepts'])}*\n")
+                    if nb['developer_patterns']:
+                        f.write(f"  *{len(nb['developer_patterns'])} code patterns*\n")
+                    f.write("\n")
                 f.write("\n")
-            
-            # Most used API calls
-            f.write("## Most Used API Calls\n\n")
-            api_counts = {}
-            for nb in patterns['notebooks']:
-                for api_call in nb['api_usage']:
-                    api_counts[api_call] = api_counts.get(api_call, 0) + 1
-            
-            for api_call, count in sorted(api_counts.items(), key=lambda x: -x[1])[:20]:
-                f.write(f"- `{api_call}`: {count} notebooks\n")
                 
         print(f"Created summary at {summary_path}")
 
@@ -336,7 +363,10 @@ if __name__ == "__main__":
     # Use the OPML from mintlifier as source of truth
     extractor = NotebookPatternExtractor(
         opml_path="mintlifier.opml",
-        notebooks_dir="../../notebooks"
+        notebooks_dir="../notebooks"
     )
     
-    extractor.save_patterns("llm_patterns.json")
+    # Save to llm_output directory with correct name
+    output_dir = Path("llm_output")
+    output_dir.mkdir(exist_ok=True)
+    extractor.save_patterns(output_dir / "llm_dev_patterns.jsonld")
