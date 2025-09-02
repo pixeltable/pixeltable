@@ -460,9 +460,7 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
 
 
 @pxt.udf(batch_size=8)
-def text_generation(
-    text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None,
-) -> Batch[str]:
+def text_generation(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> Batch[str]:
     """
     Generates text using a pretrained language model. `model_id` should be a reference to a pretrained
     [text generation model](https://huggingface.co/models?pipeline_tag=text-generation).
@@ -507,11 +505,7 @@ def text_generation(
 
     with torch.no_grad():
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
-        outputs = model.generate(
-            **inputs.to(device),
-            pad_token_id=tokenizer.eos_token_id,
-            **model_kwargs
-        )
+        outputs = model.generate(**inputs.to(device), pad_token_id=tokenizer.eos_token_id, **model_kwargs)
 
     results = []
     for i, output in enumerate(outputs):
@@ -526,8 +520,8 @@ def text_generation(
 def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> Batch[list[dict[str, Any]]]:
     """
     Classifies text using a pretrained classification model. `model_id` should be a reference to a pretrained
-    [text classification model](https://huggingface.co/models?pipeline_tag=text-classification) such as BERT,
-    RoBERTa, or DistilBERT.
+    [text classification model](https://huggingface.co/docs/transformers/en/tasks/sequence_classification)
+    such as BERT, RoBERTa, or DistilBERT.
 
     __Requirements:__
 
@@ -563,27 +557,28 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
         logits = outputs.logits
 
     probs = torch.softmax(logits, dim=-1)
-    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, logits.shape[-1]), dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
 
     results = []
     for i in range(len(text)):
         # Return as list of individual classification items for HuggingFace compatibility
         classification_items = []
         for k in range(top_k_probs.shape[1]):
-            classification_items.append({
-                'label': model.config.id2label[top_k_indices[i, k].item()],
-                'score': top_k_probs[i, k].item()
-            })
+            classification_items.append(
+                {'label': model.config.id2label[top_k_indices[i, k].item()], 'score': top_k_probs[i, k].item()}
+            )
         results.append(classification_items)
 
     return results
 
 
 @pxt.udf(batch_size=4)
-def image_captioning(image: Batch[PIL.Image.Image], *, model_id: str, max_length: int = 50) -> Batch[str]:
+def image_captioning(
+    image: Batch[PIL.Image.Image], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None
+) -> Batch[str]:
     """
     Generates captions for images using a pretrained image captioning model. `model_id` should be a reference to a
-    pretrained [image-to-text model](https://huggingface.co/models?pipeline_tag=image-to-text) such as BLIP,
+    pretrained [image-to-text model](https://huggingface.co/docs/transformers/en/tasks/image_captioning) such as BLIP,
     Git, or LLaVA.
 
     __Requirements:__
@@ -593,17 +588,19 @@ def image_captioning(image: Batch[PIL.Image.Image], *, model_id: str, max_length
     Args:
         image: The image to caption.
         model_id: The pretrained model to use for captioning.
-        max_length: Maximum length of the generated caption.
+        model_kwargs: Additional keyword arguments to pass to the model's `generate` method, such as `max_length`.
 
     Returns:
         The generated caption text.
 
     Examples:
-        Add a computed column that generates captions for images:
+        Add a computed column `caption` to an existing table `tbl` that generates captions using the
+        `Salesforce/blip-image-captioning-base` model:
 
         >>> tbl.add_computed_column(caption=image_captioning(
         ...     tbl.image,
-        ...     model_id='Salesforce/blip-image-captioning-base'
+        ...     model_id='Salesforce/blip-image-captioning-base',
+        ...     model_kwargs={'max_length': 30}
         ... ))
     """
     env.Env.get().require_package('transformers')
@@ -617,7 +614,7 @@ def image_captioning(image: Batch[PIL.Image.Image], *, model_id: str, max_length
 
     with torch.no_grad():
         inputs = processor(images=normalized_images, return_tensors='pt')
-        outputs = model.generate(**inputs.to(device), max_length=max_length)
+        outputs = model.generate(**inputs.to(device), **model_kwargs)
 
     captions = processor.batch_decode(outputs, skip_special_tokens=True)
     return captions
@@ -884,12 +881,7 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
         for i in range(len(context)):
             # Tokenize the question and context
             inputs = tokenizer.encode_plus(
-                question[i],
-                context[i],
-                add_special_tokens=True,
-                return_tensors='pt',
-                truncation=True,
-                max_length=512
+                question[i], context[i], add_special_tokens=True, return_tensors='pt', truncation=True, max_length=512
             )
 
             # Get model predictions
@@ -909,7 +901,7 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
             input_ids = inputs['input_ids'][0]
 
             # Extract answer tokens
-            answer_tokens = input_ids[start_idx:end_idx + 1]
+            answer_tokens = input_ids[start_idx : end_idx + 1]
             answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
 
             # Calculate confidence score
@@ -917,12 +909,9 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
             end_probs = torch.softmax(end_scores, dim=1)
             confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
 
-            results.append({
-                'answer': answer.strip(),
-                'score': confidence,
-                'start': int(start_idx),
-                'end': int(end_idx)
-            })
+            results.append(
+                {'answer': answer.strip(), 'score': confidence, 'start': int(start_idx), 'end': int(end_idx)}
+            )
 
     return results
 
