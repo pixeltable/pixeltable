@@ -213,15 +213,6 @@
         ]
       },
       {
-        "tab": "Built with Pixeltable",
-        "groups": [
-          {
-            "group": "Coming Soon",
-            "pages": []
-          }
-        ]
-      },
-      {
         "tab": "Pixeltable SDK",
         "dropdowns": [
           {
