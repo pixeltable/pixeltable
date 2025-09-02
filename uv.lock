@@ -2695,7 +2695,7 @@ wheels = [
 
 [[package]]
 name = "llama-cpp-python"
-version = "0.3.9"
+version = "0.3.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "diskcache" },
@@ -2703,7 +2703,7 @@ dependencies = [
     { name = "numpy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/6d/4a20e676bdf7d9d3523be3a081bf327af958f9bdfe2a564f5cf485faeaec/llama_cpp_python-0.3.9.tar.gz", hash = "sha256:a3a985f558385e2f5de5b663f4e9b0817506d6af98122450142cd98e79216370", size = 67858575, upload-time = "2025-05-08T11:12:05.992Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/b4/c8cd17629ced0b9644a71d399a91145aedef109c0333443bef015e45b704/llama_cpp_python-0.3.16.tar.gz", hash = "sha256:34ed0f9bd9431af045bb63d9324ae620ad0536653740e9bb163a2e1fcb973be6", size = 50688636, upload-time = "2025-08-15T04:58:29.212Z" }
 
 [[package]]
 name = "llvmlite"
@@ -4398,7 +4398,7 @@ dev = [
     { name = "groq" },
     { name = "ipykernel" },
     { name = "label-studio-sdk" },
-    { name = "llama-cpp-python", marker = "sys_platform != 'win32'" },
+    { name = "llama-cpp-python", marker = "sys_platform == 'linux'" },
     { name = "mcp" },
     { name = "mistralai" },
     { name = "mistune" },
@@ -4441,6 +4441,9 @@ dev = [
     { name = "types-toml" },
     { name = "types-tqdm" },
     { name = "whisperx", marker = "(python_full_version < '3.13' and platform_machine != 'x86_64') or (python_full_version < '3.13' and sys_platform != 'darwin')" },
+]
+extra-dev = [
+    { name = "llama-cpp-python", marker = "sys_platform != 'win32'" },
 ]
 test = [
     { name = "coverage" },
@@ -4498,7 +4501,7 @@ dev = [
     { name = "groq", specifier = ">=0.26.0" },
     { name = "ipykernel", specifier = ">=6.27.1,<7" },
     { name = "label-studio-sdk", specifier = ">=1.0.18" },
-    { name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.9" },
+    { name = "llama-cpp-python", marker = "sys_platform == 'linux'", specifier = ">=0.3.16" },
     { name = "mcp", specifier = ">=1.9.4" },
     { name = "mistralai", specifier = ">=1.8.2" },
     { name = "mistune", specifier = ">=3.0.2,<4" },
@@ -4542,6 +4545,7 @@ dev = [
     { name = "types-tqdm", specifier = "~=4.64" },
     { name = "whisperx", marker = "(python_full_version < '3.13' and platform_machine != 'x86_64') or (python_full_version < '3.13' and sys_platform != 'darwin')", specifier = ">=3.3.4" },
 ]
+extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" }]
 test = [
     { name = "coverage", specifier = ">=7.9" },
     { name = "filelock", specifier = ">=3.13" },
