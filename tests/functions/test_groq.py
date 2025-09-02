@@ -16,11 +16,11 @@ class TestGroq:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=chat_completions(messages=msgs, model='llama3-8b-8192'))
+        t.add_computed_column(output=chat_completions(messages=msgs, model='llama-3.1-8b-instant'))
         t.add_computed_column(
             output2=chat_completions(
                 messages=msgs,
-                model='llama3-8b-8192',
+                model='llama-3.1-8b-instant',
                 model_kwargs={
                     'temperature': 0.8,
                     'top_p': 0.95,
