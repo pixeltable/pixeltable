@@ -224,3 +224,284 @@ class TestHuggingface:
         result = t.collect()
         assert 'administration' in result['transcription'][0]
         assert 'construire' in result['translation'][0]
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_text_generation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import text_generation
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        test_prompts = ['The weather today is', 'Machine learning is']
+
+        # Test with GPT-2 (lightweight model)
+        t.add_computed_column(completion=text_generation(t.prompt, model_id='gpt2', max_length=20, temperature=0.5))
+
+        validate_update_status(t.insert({'prompt': p} for p in test_prompts), expected_rows=2)
+        results = t.select(t.completion).collect()
+
+        # Verify we got text completions
+        assert len(results) == 2
+        for result in results:
+            assert isinstance(result['completion'], str)
+            assert len(result['completion'].strip()) > 0
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_text_classification(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import text_classification
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        test_texts = ['I love this product!', 'This is terrible.']
+
+        # Test with a sentiment analysis model
+        t.add_computed_column(
+            sentiment=text_classification(t.text, model_id='cardiffnlp/twitter-roberta-base-sentiment-latest', top_k=2)
+        )
+
+        validate_update_status(t.insert({'text': text} for text in test_texts), expected_rows=2)
+        results = t.select(t.sentiment).collect()
+
+        # Verify we got classification results
+        assert len(results) == 2
+        for result in results:
+            assert isinstance(result['sentiment'], list)
+            assert len(result['sentiment']) <= 2  # top_k=2
+            for item in result['sentiment']:
+                assert 'label' in item
+                assert 'score' in item
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_image_captioning(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import image_captioning
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+
+        # Test with BLIP model
+        t.add_computed_column(
+            caption=image_captioning(t.img, model_id='Salesforce/blip-image-captioning-base', max_length=30)
+        )
+
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        result = t.select(t.caption).collect()[0]
+
+        # Verify we got a caption
+        assert isinstance(result['caption'], str)
+        assert len(result['caption'].strip()) > 0
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_text_summarization(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import text_summarization
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        long_text = (
+            'Machine learning is a method of data analysis that automates analytical model building. '
+            'It is a branch of artificial intelligence based on the idea that systems can learn from data, '
+            'identify patterns and make decisions with minimal human intervention.'
+        )
+
+        # Test with BART model
+        t.add_computed_column(
+            summary=text_summarization(t.text, model_id='facebook/bart-large-cnn', max_length=50, min_length=10)
+        )
+
+        validate_update_status(t.insert(text=long_text), expected_rows=1)
+        result = t.select(t.summary).collect()[0]
+
+        # Verify we got a summary
+        assert isinstance(result['summary'], str)
+        assert len(result['summary'].strip()) > 0
+        assert len(result['summary']) < len(long_text)  # Should be shorter than original
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_question_answering(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import question_answering
+
+        t = pxt.create_table('test_tbl', {'context': pxt.String, 'question': pxt.String})
+        context = 'Paris is the capital of France. It is known for the Eiffel Tower.'
+        question = 'What is the capital of France?'
+
+        # Test with DistilBERT QA model
+        t.add_computed_column(
+            answer=question_answering(t.question, t.context, model_id='distilbert-base-cased-distilled-squad')
+        )
+
+        validate_update_status(t.insert(context=context, question=question), expected_rows=1)
+        result = t.select(t.answer).collect()[0]
+
+        # Verify we got an answer
+        assert isinstance(result['answer'], dict)
+        assert 'answer' in result['answer']
+        assert 'score' in result['answer']
+        assert 'paris' in result['answer']['answer'].lower()
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_translation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import translation
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        english_text = 'Hello, how are you?'
+
+        # Test with Helsinki-NLP translation model
+        t.add_computed_column(
+            french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr', src_lang='en', tgt_lang='fr')
+        )
+
+        validate_update_status(t.insert(text=english_text), expected_rows=1)
+        result = t.select(t.french).collect()[0]
+
+        # Verify we got a translation
+        assert isinstance(result['french'], str)
+        assert len(result['french'].strip()) > 0
+        assert result['french'] != english_text  # Should be different from input
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_named_entity_recognition(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import named_entity_recognition
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        text_with_entities = 'Apple Inc. is located in Cupertino, California.'
+
+        # Test with BERT NER model
+        t.add_computed_column(
+            entities=named_entity_recognition(
+                t.text, model_id='dbmdz/bert-large-cased-finetuned-conll03-english', aggregation_strategy='simple'
+            )
+        )
+
+        validate_update_status(t.insert(text=text_with_entities), expected_rows=1)
+        result = t.select(t.entities).collect()[0]
+
+        # Verify we got entities
+        assert isinstance(result['entities'], list)
+        assert len(result['entities']) > 0
+        for entity in result['entities']:
+            assert 'entity_group' in entity
+            assert 'score' in entity
+            assert 'word' in entity
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
+    def test_automatic_speech_recognition(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import automatic_speech_recognition
+
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        audio_file = next(
+            file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
+        )
+
+        # Test with Whisper model
+        t.add_computed_column(transcript=automatic_speech_recognition(t.audio, model_id='openai/whisper-tiny'))
+
+        validate_update_status(t.insert(audio=audio_file), expected_rows=1)
+        result = t.select(t.transcript).collect()[0]
+
+        # Verify we got a transcription
+        assert isinstance(result['transcript'], str)
+        assert len(result['transcript'].strip()) > 0
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_text_to_speech(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import text_to_speech
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        test_text = 'Hello world, this is a test.'
+
+        # Test with SpeechT5 model
+        t.add_computed_column(
+            audio=text_to_speech(t.text, model_id='microsoft/speecht5_tts', vocoder='microsoft/speecht5_hifigan')
+        )
+
+        validate_update_status(t.insert(text=test_text), expected_rows=1)
+        result = t.select(t.audio).collect()[0]
+
+        # Verify we got audio data
+        assert result['audio'] is not None
+        # Audio should be pxt.Audio type - basic check that it's not empty
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_text_to_image(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('diffusers')
+        from pixeltable.functions.huggingface import text_to_image
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        test_prompt = 'a simple red circle'
+
+        # Test with Stable Diffusion (use small image size for faster testing)
+        t.add_computed_column(
+            image=text_to_image(
+                t.prompt,
+                model_id='runwayml/stable-diffusion-v1-5',
+                height=256,
+                width=256,
+                num_inference_steps=10,  # Fewer steps for testing
+            )
+        )
+
+        validate_update_status(t.insert(prompt=test_prompt), expected_rows=1)
+        result = t.select(t.image).collect()[0]
+
+        # Verify we got an image
+        assert result['image'] is not None
+        # Should be a PIL Image or similar
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    def test_image_to_image(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('diffusers')
+        from pixeltable.functions.huggingface import image_to_image
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'prompt': pxt.String})
+        test_prompt = 'turn this into a red circle'
+
+        # Test with Stable Diffusion
+        t.add_computed_column(
+            modified_image=image_to_image(
+                t.img,
+                t.prompt,
+                model_id='runwayml/stable-diffusion-v1-5',
+                strength=0.5,
+                num_inference_steps=10,  # Fewer steps for testing
+            )
+        )
+
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL, prompt=test_prompt), expected_rows=1)
+        result = t.select(t.modified_image).collect()[0]
+
+        # Verify we got a modified image
+        assert result['modified_image'] is not None
+        # Should be a PIL Image or similar
+
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
+    @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
+    def test_image_to_video(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('diffusers')
+        skip_test_if_not_installed('av')
+        from pixeltable.functions.huggingface import image_to_video
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+
+        # Test with I2VGen-XL (use minimal settings for testing)
+        t.add_computed_column(
+            video=image_to_video(
+                t.img,
+                model_id='ali-vilab/i2vgen-xl',
+                num_frames=8,  # Minimal frames for testing
+                num_inference_steps=5,  # Fewer steps for testing
+            )
+        )
+
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        result = t.select(t.video).collect()[0]
+
+        # Verify we got a video
+        assert result['video'] is not None
+        # Should be pxt.Video type
