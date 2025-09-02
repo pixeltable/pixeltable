@@ -5,7 +5,7 @@ from .base import ComponentIterator
 from .document import DocumentSplitter
 from .image import TileIterator
 from .string import StringSplitter
-from .video import FrameIterator
+from .video import FrameIterator, VideoSplitter
 
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
 __removed_symbols = {'base', 'document', 'video'}

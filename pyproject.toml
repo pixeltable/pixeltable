@@ -149,7 +149,7 @@ dev = [
     "whisperx>=3.3.4 ; python_version < '3.13' and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
     "label-studio-sdk>=1.0.18",
     "ollama>=0.5.1",
-    "llama-cpp-python>=0.3.9 ; sys_platform != 'win32'",
+    "llama-cpp-python>=0.3.16 ; sys_platform == 'linux'",
     "mcp>=1.9.4",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
@@ -160,6 +160,10 @@ test = [
     "pytest-rerunfailures>=15.1",
     "coverage>=7.9",
     "filelock>=3.13",
+]
+extra-dev = [
+    # This is for dependencies that will be installed locally for devs (via `make install`), but not in CI.
+    "llama-cpp-python>=0.3.16 ; sys_platform != 'win32'"
 ]
 
 [tool.hatch.build.targets.sdist]

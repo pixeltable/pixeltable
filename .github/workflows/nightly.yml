@@ -98,10 +98,10 @@ jobs:
         run: |
           conda install -y python=${{ matrix.python-version }} pip=25.0
           conda info
-      - name: Install ffmpeg
-        # libiconv and ffmpeg are needed by whisper.
-        if: ${{ contains(matrix.package-configs, 'whisper') }}
-        run: ./scripts/retry.sh 3 30 conda install -c conda-forge libiconv 'ffmpeg=>=6,<7'
+      - name: Install tools and libraries
+        # cmake is needed for certain CI environments where it is not preinstalled.
+        # libiconv and ffmpeg are needed by WhisperX.
+        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

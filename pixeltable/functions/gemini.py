@@ -14,6 +14,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs
+from pixeltable.utils.code import local_public_names
 from pixeltable.utils.media_store import TempStore
 
 if TYPE_CHECKING:
@@ -232,3 +233,10 @@ async def generate_videos(
 @generate_videos.resource_pool
 def _(model: str) -> str:
     return f'request-rate:veo:{model}'
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__() -> list[str]:
+    return __all__
