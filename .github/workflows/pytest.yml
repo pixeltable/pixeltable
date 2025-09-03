@@ -159,6 +159,10 @@ jobs:
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
       - name: Clean the uv cache
         run: uv cache clean
+      - name: Print utilization
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: |
+          df -h
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
