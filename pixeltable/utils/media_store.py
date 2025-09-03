@@ -189,6 +189,12 @@ class MediaStore:
         result.sort(key=lambda e: e[3], reverse=True)
         return result
 
+    def clear(self) -> None:
+        """Clear all files from the media store."""
+        assert self.__base_dir.exists()
+        shutil.rmtree(self.__base_dir)
+        self.__base_dir.mkdir()
+
 
 class TempStore:
     """
@@ -235,3 +241,8 @@ class TempStore:
         if tbl_id is not None:
             return MediaStore(cls._tmp_dir())._prepare_media_path_raw(tbl_id, 0, 0, extension)
         return cls._tmp_dir() / f'{uuid.uuid4()}{extension}'
+
+    @classmethod
+    def clear(cls) -> None:
+        """Clear all files from the temporary store."""
+        MediaStore(cls._tmp_dir()).clear()

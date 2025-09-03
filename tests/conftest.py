@@ -19,6 +19,7 @@ from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.media_store import MediaStore, TempStore
 
 from .utils import (
     ReloadTester,
@@ -99,8 +100,8 @@ def reset_db(init_env: None) -> None:
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
-    # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
-    # TempStore.clear()
+    TempStore.clear()
+    MediaStore.get().clear()
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
