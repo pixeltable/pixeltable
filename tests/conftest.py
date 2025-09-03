@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+import shutil
 from typing import Callable, Iterator
 
 import pytest
@@ -22,6 +23,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore, TempStore
 
 from .utils import (
+    IN_CI,
     ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
@@ -100,14 +102,59 @@ def reset_db(init_env: None) -> None:
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
+
+    if IN_CI:
+        _free_disk_space()
+
+    reload_catalog()
+    FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+
+def _free_disk_space() -> None:
+    assert IN_CI
+
+    # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
+    # tests.
+
+    # Clear the temp store and media store
     try:
         TempStore.clear()
         MediaStore.get().clear()
+        _logger.info('Cleared TempStore and MediaStore.')
     except PermissionError:
         # Sometimes this happens on Windows if a file is held open by a concurrent process.
-        pass
-    reload_catalog()
-    FileCache.get().set_capacity(10 << 30)  # 10 GiB
+        _logger.info('PermissionError trying to clear TempStore and MediaStore.')
+
+    try:
+        _clear_hf_caches()
+    except ImportError:
+        pass  # huggingface_hub not installed in this CI environment
+
+
+def _clear_hf_caches() -> None:
+    from huggingface_hub import scan_cache_dir
+    from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
+
+    assert IN_CI
+
+    # Scan the cache directory for all revisions of all models
+    cache_info = scan_cache_dir()
+    revisions_to_delete = [
+        revision.commit_hash
+        for repo in cache_info.repos
+        for revision in repo.revisions
+    ]
+
+    cache_info.delete_revisions(*revisions_to_delete).execute()
+
+    _logger.info(f"Deleted {len(revisions_to_delete)} revision(s) from huggingface cache directory.")
+
+    xet_cache = pathlib.Path(HUGGINGFACE_HUB_CACHE) / 'xet'
+    try:
+        shutil.rmtree(xet_cache)
+        _logger.info(f'Deleted xet cache directory: {xet_cache}')
+    except PermissionError:
+        _logger.info(f'PermissionError trying to delete xet cache directory: {xet_cache}')
 
 
 def clean_db(restore_md_tables: bool = True) -> None:
