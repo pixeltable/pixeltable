@@ -512,6 +512,11 @@ def skip_test_if_no_client(client_name: str) -> None:
         pytest.skip(str(exc))
 
 
+def skip_test_if_no_pxt_credentials() -> None:
+    if not Env.get().pxt_api_key:
+        pytest.skip('No Pixeltable API key is configured.')
+
+
 def skip_test_if_no_aws_credentials() -> None:
     import boto3
     from botocore.exceptions import NoCredentialsError

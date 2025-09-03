@@ -605,7 +605,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> str:
+    def pxt_api_key(self) -> Optional[str]:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:

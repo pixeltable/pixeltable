@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 from tests.conftest import clean_db
-from tests.utils import assert_resultset_eq, get_image_files, reload_catalog
+from tests.utils import assert_resultset_eq, get_image_files, reload_catalog, skip_test_if_no_pxt_credentials
 
 
 class TestReplica:
@@ -16,6 +16,8 @@ class TestReplica:
         - Explicit main ('pxt-test:main')
         - Non-main database ('pxt-test:my-db')
         """
+        skip_test_if_no_pxt_credentials()
+
         test_imgs = get_image_files()
 
         t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String, 'imgcol': pxt.Image})
