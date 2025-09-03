@@ -139,15 +139,11 @@ def _clear_hf_caches() -> None:
 
     # Scan the cache directory for all revisions of all models
     cache_info = scan_cache_dir()
-    revisions_to_delete = [
-        revision.commit_hash
-        for repo in cache_info.repos
-        for revision in repo.revisions
-    ]
+    revisions_to_delete = [revision.commit_hash for repo in cache_info.repos for revision in repo.revisions]
 
     cache_info.delete_revisions(*revisions_to_delete).execute()
 
-    _logger.info(f"Deleted {len(revisions_to_delete)} revision(s) from huggingface cache directory.")
+    _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface cache directory.')
 
     xet_cache = pathlib.Path(HUGGINGFACE_HUB_CACHE) / 'xet'
     try:
