@@ -606,11 +606,6 @@ class Env:
 
     @property
     def pxt_api_key(self) -> str:
-        if self._pxt_api_key is None:
-            raise excs.Error(
-                'No API key is configured. Set the PIXELTABLE_API_KEY environment variable, or add an entry to '
-                'config.toml as described here:\nhttps://pixeltable.github.io/pixeltable/config/'
-            )
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
