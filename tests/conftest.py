@@ -100,8 +100,12 @@ def reset_db(init_env: None) -> None:
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
-    TempStore.clear()
-    MediaStore.get().clear()
+    try:
+        TempStore.clear()
+        MediaStore.get().clear()
+    except PermissionError:
+        # Sometimes this happens on Windows if a file is held open by a concurrent process.
+        pass
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
