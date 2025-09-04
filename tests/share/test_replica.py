@@ -20,20 +20,30 @@ class TestReplica:
 
         test_imgs = get_image_files()
 
-        t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String, 'imgcol': pxt.Image})
-        t.insert({'icol': i, 'scol': f'string {i}', 'imgcol': test_imgs[i]} for i in range(10))
-        snap = pxt.create_snapshot('test_snapshot', t)
-        data = snap.head(n=500)
+        tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String, 'imgcol': pxt.Image})
+        tbl.insert({'icol': i, 'scol': f'string {i}', 'imgcol': test_imgs[i]} for i in range(10))
+        snap = pxt.create_snapshot('snap', tbl)
+        snap_data = snap.head(n=500)
 
-        remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
-        _ = pxt.create_replica(remote_uri, source=snap)
+        tbl.insert({'icol': i, 'scol': f'string {i}', 'imgcol': test_imgs[i]} for i in range(10, 20))
+        tbl_data = tbl.head(n=500)
+
+        snap_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
+        tbl_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
+        _ = pxt.create_replica(snap_remote_uri, source=snap)
+        # _ = pxt.create_replica(tbl_remote_uri, source=tbl)
 
         clean_db()
         reload_catalog()
 
-        replica = pxt.create_replica('test_replica', source=remote_uri)
-        replica_data = replica.head(n=500)
+        snap_replica = pxt.create_replica('snap_replica', source=snap_remote_uri)
+        snap_replica_data = snap_replica.head(n=500)
 
-        pxt.drop_table(remote_uri)
+        # tbl_replica = pxt.create_replica('tbl_replica', source=tbl_remote_uri)
+        # tbl_replica_data = tbl_replica.head(n=500)
 
-        assert_resultset_eq(data, replica_data)
+        pxt.drop_table(snap_remote_uri)
+        # pxt.drop_table(tbl_remote_uri)
+
+        assert_resultset_eq(snap_data, snap_replica_data, compare_col_names=True)
+        # assert_resultset_eq(tbl_data, tbl_replica_data, compare_col_names=True)
