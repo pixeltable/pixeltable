@@ -141,7 +141,12 @@ def _clear_hf_caches() -> None:
         try:
             # Scan the cache directory for all revisions of all models
             cache_info = scan_cache_dir()
-            revisions_to_delete = [revision.commit_hash for repo in cache_info.repos for revision in repo.revisions]
+            revisions_to_delete = [
+                revision.commit_hash
+                for repo in cache_info.repos
+                if repo.repo_id != 'openai/clip-vit-base-patch32'  # Keep this one since it's reused by many tests
+                for revision in repo.revisions
+            ]
             cache_info.delete_revisions(*revisions_to_delete).execute()
             _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface hub cache directory.')
         except (OSError, PermissionError) as exc:
