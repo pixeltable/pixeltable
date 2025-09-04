@@ -26,10 +26,10 @@ class TestReplica:
         snap_data = snap.head(n=500)
 
         tbl.insert({'icol': i, 'scol': f'string {i}', 'imgcol': test_imgs[i]} for i in range(10, 20))
-        tbl_data = tbl.head(n=500)
+        # tbl_data = tbl.head(n=500)
 
         snap_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
-        tbl_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
+        # tbl_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
         _ = pxt.create_replica(snap_remote_uri, source=snap)
         # _ = pxt.create_replica(tbl_remote_uri, source=tbl)
 
