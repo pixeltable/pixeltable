@@ -19,9 +19,8 @@ export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
 "$SCRIPT_DIR/prepare-nb-tests.sh" docs/notebooks
-rm -f target/nb-tests/audio-transcriptions.ipynb  # temporary workaround
-rm -f target/nb-tests/rag-demo.ipynb  # failing in CI for unknown reasons
-rm -f target/nb-tests/working-with-llama-cpp.ipynb  # isolated test fails in CI for unknown reasons
+rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
+rm -f "$TEST_PATH"/rag-demo.ipynb  # failing in CI for unknown reasons
 
 FAILURES=0
 
@@ -35,8 +34,10 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Installing pytest ..."
     pip install -qU pip
     pip install -q pytest nbmake
+    echo "Installing pixeltable ..."
+    pip install -q pixeltable
     echo "Running notebook $nb ..."
-    pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || ((FAILURES++))
+    pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ ))
     echo "Cleaning $PIXELTABLE_DB postgres DB ..."
     POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))')
     PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
