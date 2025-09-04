@@ -53,9 +53,11 @@ def pxt_test_harness() -> Iterator[None]:
     _logger.info(f'Running Pixeltable test: {current_test}')
     pxtf.huggingface._model_cache.clear()
     pxtf.huggingface._processor_cache.clear()
+
+    yield
+
     if IN_CI:
         _free_disk_space()
-    yield
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
@@ -151,6 +153,7 @@ def _clear_hf_caches() -> None:
     if huggingface_xet_cache.exists():
         try:
             shutil.rmtree(huggingface_xet_cache)
+            huggingface_xet_cache.mkdir()
             _logger.info(f'Deleted xet cache directory: {huggingface_xet_cache}')
         except (OSError, PermissionError) as exc:
             _logger.info(
