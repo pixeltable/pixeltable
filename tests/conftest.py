@@ -53,6 +53,8 @@ def pxt_test_harness() -> Iterator[None]:
     _logger.info(f'Running Pixeltable test: {current_test}')
     pxtf.huggingface._model_cache.clear()
     pxtf.huggingface._processor_cache.clear()
+    if IN_CI:
+        _free_disk_space()
     yield
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
@@ -102,10 +104,6 @@ def reset_db(init_env: None) -> None:
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
-
-    if IN_CI:
-        _free_disk_space()
-
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
@@ -138,13 +136,14 @@ def _clear_hf_caches() -> None:
     assert IN_CI
 
     if pathlib.Path(HUGGINGFACE_HUB_CACHE).exists():
-        # Scan the cache directory for all revisions of all models
-        cache_info = scan_cache_dir()
-        revisions_to_delete = [revision.commit_hash for repo in cache_info.repos for revision in repo.revisions]
-
-        cache_info.delete_revisions(*revisions_to_delete).execute()
-
-        _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface cache directory.')
+        try:
+            # Scan the cache directory for all revisions of all models
+            cache_info = scan_cache_dir()
+            revisions_to_delete = [revision.commit_hash for repo in cache_info.repos for revision in repo.revisions]
+            cache_info.delete_revisions(*revisions_to_delete).execute()
+            _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface hub cache directory.')
+        except (OSError, PermissionError) as exc:
+            _logger.info(f'{type(exc).__name__} trying to clear huggingface hub cache directory: {xet_cache}')
 
     xet_cache = pathlib.Path(HF_HOME) / 'xet'
     if xet_cache.exists():
