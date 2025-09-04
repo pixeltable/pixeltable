@@ -125,34 +125,18 @@ def _free_disk_space() -> None:
         # Sometimes this happens on Windows if a file is held open by a concurrent process.
         _logger.info('PermissionError trying to clear TempStore and MediaStore.')
 
+    # Clear all Huggingface caches
     try:
-        _clear_hf_caches()
+        from huggingface_hub.constants import HF_HOME
+
+        try:
+            if pathlib.Path(HF_HOME).exists():
+                shutil.rmtree(HF_HOME)
+                _logger.info(f'Deleted Huggingface cache directory: {HF_HOME}')
+        except PermissionError:
+            _logger.info(f'PermissionError trying to delete Huggingface cache directory: {HF_HOME}')
     except ImportError:
         pass  # huggingface_hub not installed in this CI environment
-
-
-def _clear_hf_caches() -> None:
-    from huggingface_hub import scan_cache_dir
-    from huggingface_hub.constants import HF_HOME, HUGGINGFACE_HUB_CACHE
-
-    assert IN_CI
-
-    if pathlib.Path(HUGGINGFACE_HUB_CACHE).exists():
-        # Scan the cache directory for all revisions of all models
-        cache_info = scan_cache_dir()
-        revisions_to_delete = [revision.commit_hash for repo in cache_info.repos for revision in repo.revisions]
-
-        cache_info.delete_revisions(*revisions_to_delete).execute()
-
-        _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface cache directory.')
-
-    xet_cache = pathlib.Path(HF_HOME) / 'xet'
-    if xet_cache.exists():
-        try:
-            shutil.rmtree(xet_cache)
-            _logger.info(f'Deleted xet cache directory: {xet_cache}')
-        except PermissionError:
-            _logger.info(f'PermissionError trying to delete xet cache directory: {xet_cache}')
 
 
 def clean_db(restore_md_tables: bool = True) -> None:
