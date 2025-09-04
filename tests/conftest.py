@@ -133,8 +133,8 @@ def _free_disk_space() -> None:
             if pathlib.Path(HF_HOME).exists():
                 shutil.rmtree(HF_HOME)
                 _logger.info(f'Deleted Huggingface cache directory: {HF_HOME}')
-        except PermissionError:
-            _logger.info(f'PermissionError trying to delete Huggingface cache directory: {HF_HOME}')
+        except (OSError, PermissionError) as exc:
+            _logger.info(f'{type(exc).__name__} trying to delete Huggingface cache directory: {HF_HOME}\n{exc}')
     except ImportError:
         pass  # huggingface_hub not installed in this CI environment
 
