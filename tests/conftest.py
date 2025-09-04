@@ -133,24 +133,26 @@ def _free_disk_space() -> None:
 
 def _clear_hf_caches() -> None:
     from huggingface_hub import scan_cache_dir
-    from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
+    from huggingface_hub.constants import HF_HOME, HUGGINGFACE_HUB_CACHE
 
     assert IN_CI
 
-    # Scan the cache directory for all revisions of all models
-    cache_info = scan_cache_dir()
-    revisions_to_delete = [revision.commit_hash for repo in cache_info.repos for revision in repo.revisions]
+    if pathlib.Path(HUGGINGFACE_HUB_CACHE).exists():
+        # Scan the cache directory for all revisions of all models
+        cache_info = scan_cache_dir()
+        revisions_to_delete = [revision.commit_hash for repo in cache_info.repos for revision in repo.revisions]
 
-    cache_info.delete_revisions(*revisions_to_delete).execute()
+        cache_info.delete_revisions(*revisions_to_delete).execute()
 
-    _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface cache directory.')
+        _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface cache directory.')
 
-    xet_cache = pathlib.Path(HUGGINGFACE_HUB_CACHE) / 'xet'
-    try:
-        shutil.rmtree(xet_cache, ignore_errors=True)
-        _logger.info(f'Deleted xet cache directory: {xet_cache}')
-    except PermissionError:
-        _logger.info(f'PermissionError trying to delete xet cache directory: {xet_cache}')
+    xet_cache = pathlib.Path(HF_HOME) / 'xet'
+    if xet_cache.exists():
+        try:
+            shutil.rmtree(xet_cache)
+            _logger.info(f'Deleted xet cache directory: {xet_cache}')
+        except (OSError, PermissionError) as exc:
+            _logger.info(f'{type(exc).__name__} trying to delete xet cache directory: {xet_cache}')
 
 
 def clean_db(restore_md_tables: bool = True) -> None:
