@@ -17,11 +17,11 @@
             "group": "Developer's Guide",
             "pages": [
               "docs/overview/introduction",
-              "docs/overview/installation",
               "docs/overview/quick-start",
-              "docs/overview/understanding-pixeltable",
+              "docs/overview/installation",
+              "docs/overview/configuration",
               "docs/overview/building-pixeltable-with-llms",
-              "docs/overview/configuration"
+              "docs/overview/understanding-pixeltable"
             ]
           },
           {
@@ -48,7 +48,6 @@
                 "group": "Query Syntax",
                 "pages": [
                   "docs/platform/query-syntax/building-queries",
-                  "docs/platform/query-syntax/query-syntax",
                   "docs/platform/query-syntax/sampling"
                 ]
               },
@@ -172,7 +171,6 @@
               {
                 "group": "Explore",
                 "pages": [
-                  "docs/examples/examples/use-cases",
                   "docs/examples/examples/interactive-demos",
                   "docs/examples/examples/sample-apps"
                 ]
@@ -204,11 +202,6 @@
                 ]
               }
             ]
-          },
-          {
-            "group": "\ud83d\udc80 Boneyard (Original Content)",
-            "collapsed": true,
-            "pages": ["docs/overview/pixeltable"]
           }
         ]
       },

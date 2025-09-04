@@ -96,139 +96,267 @@ This guide builds on tables created in previous sections. The `movies` table fro
   </Tab>
 </Tabs>
 
-## Intermediate Queries
+## Column References
 
-<AccordionGroup>
-  <Accordion title="Text Filtering" icon="font">
-    Work with string data in movie plots:
-    ```python
-    # Find movies with "secret" in plot
-    movies.where(
-        movies.plot.contains('secret')
-    ).collect()
+Pixeltable supports two syntaxes for column references:
 
-    # Find movies with "Park" in title
-    movies.where(
-        movies.title.contains('Park')
-    ).collect()
-    ```
-  </Accordion>
+```python
+# Dot notation (preferred)
+t.column_name
 
-  <Accordion title="Multiple Conditions" icon="filter">
-    Combine conditions with `&` (and), `|` (or):
-    ```python
-    # Modern high-budget films
-    movies.where(
-        (movies.year >= 2000) &
-        (movies.budget >= 200.0)
-    ).collect()
+# Dictionary notation (useful for dynamic column names)
+t['column_name']
 
-    # Classics or low-budget films
-    movies.where(
-        (movies.year < 2000) |
-        (movies.budget < 100.0)
-    ).collect()
-    ```
-  </Accordion>
+# Both are equivalent
+t.select(t.name, t.age).collect()
+t.select(t['name'], t['age']).collect()
+```
 
-  <Accordion title="Sorting Results" icon="arrow-down-wide-short">
-    Use `order_by()` to sort results:
-    ```python
-    # Sort by budget (highest first)
-    movies.order_by(
-        movies.budget, 
-        asc=False
-    ).collect()
+## Boolean Logic and Conditions
 
-    # Sort by year then budget
-    movies.order_by(
-        [movies.year, movies.budget], 
-        asc=[True, False]
-    ).collect()
-    ```
-  </Accordion>
-</AccordionGroup>
+### Combining Conditions
 
-## Advanced Queries
+Use `&` (AND), `|` (OR), and `~` (NOT) for complex conditions:
 
-<CardGroup cols={1}>
-  <Card title="Text Analysis" icon="text-size">
-    Analyze plot text and titles:
-    ```python
-    # Calculate plot length statistics
-    movies.select(
-        movies.title,
-        plot_length=movies.plot.len()
-    ).collect()
+```python
+# AND operation
+movies.where((movies.year >= 2000) & (movies.budget >= 200.0)).collect()
 
-    # Find movies with subtitles (colon in title)
-    movies.where(
-        movies.title.like('%: %')
-    ).collect()
-    ```
-  </Card>
+# OR operation  
+movies.where((movies.year < 2000) | (movies.budget < 100.0)).collect()
 
-  <Card title="Numeric Analysis" icon="calculator">
-    Budget calculations and comparisons:
-    ```python
-    # Calculate budget statistics
-    movies.select(
-        avg_budget=movies.budget.avg(),
-        total_budget=movies.budget.sum(),
-        movie_count=movies.title.count()
-    ).collect()
-    
-    # Movies above average budget
-    avg_budget = movies.select(
-        movies.budget.avg()
-    ).collect()[0][0]
-    
-    movies.where(
-        movies.budget > avg_budget
-    ).collect()
-    ```
-  </Card>
+# NOT operation
+movies.where(~movies.title.contains('Park')).collect()
 
-  <Card title="Complex Filtering" icon="layer-group">
-    Combine multiple operations:
-    ```python
-    # Top 3 highest-budget movies since 2000
-    movies.where(
-        movies.year >= 2000
-    ).order_by(
-        movies.budget, 
-        asc=False
-    ).limit(3).collect()
-    
-    # Analyze plots excluding specific keywords
-    movies.where(
-        ~(movies.plot.contains('secret') | 
-          movies.plot.contains('dream'))
-    ).select(
-        movies.title,
-        plot_length=movies.plot.len()
-    ).collect()
-    ```
-  </Card>
-</CardGroup>
+# Complex combinations
+movies.where(
+    ((movies.year > 2010) & (movies.budget > 100)) | 
+    (movies.title.contains('Classic'))
+).collect()
+```
 
-## Key Concepts
+<Warning>
+Use `&`, `|`, `~` instead of Python's `and`, `or`, `not`. Always use parentheses around individual conditions.
+</Warning>
 
-<CardGroup cols={2}>
-  <Card title="Column References" icon="table-columns">
-    Access columns using dot notation (`movies.title`).
-  </Card>
-  <Card title="Chaining Operations" icon="link">
-    Combine `where()`, `select()`, `order_by()`, and `limit()` in any order.
-  </Card>
-  <Card title="Boolean Logic" icon="code-compare">
-    Use `&` (and), `|` (or), and `~` (not) for complex conditions.
-  </Card>
-  <Card title="Transformations" icon="wand-magic-sparkles">
-    Transform data during selection with mathematical and string operations.
-  </Card>
-</CardGroup>
+### List-Based Filtering
 
-<Tip>
-Build complex queries incrementally by starting with basic filters and adding operations one at a time. This makes debugging easier and helps ensure your query returns the expected results.
-</Tip>
+Use `isin()` for multiple value matching:
+
+```python
+# Check if value is in list
+genres = ['Action', 'Adventure', 'Sci-Fi']
+movies.where(movies.genre.isin(genres)).collect()
+
+# More efficient than multiple OR conditions
+valid_ids = [123, 456, 789]
+movies.where(movies.id.isin(valid_ids)).collect()
+```
+
+## Text Operations
+
+Work with string data using built-in methods:
+
+```python
+# String contains
+movies.where(movies.plot.contains('secret')).collect()
+
+# Case conversion
+movies.select(movies.title.upper(), movies.title.lower()).collect()
+
+# String length
+movies.where(movies.title.len() > 10).collect()
+
+# Pattern matching
+movies.where(movies.title.like('%: %')).collect()  # Find titles with subtitles
+```
+
+## Working with JSON Data
+
+Extract and query JSON fields:
+
+```python
+# Dot notation for JSON fields
+t.select(t.metadata.author, t.metadata.created_date).collect()
+
+# Bracket notation for dynamic keys
+t.select(t.config['api_key'], t.config['timeout']).collect()
+
+# Nested JSON access
+t.select(t.user.profile.name, t.user.preferences.theme).collect()
+
+# Handle missing keys (returns None, no errors)
+t.where(t.metadata.author != None).collect()
+```
+
+## Sorting and Limiting
+
+### Order By
+
+Sort results using `order_by()`:
+
+```python
+# Single column sorting
+movies.order_by(movies.budget, asc=False).collect()  # Highest budget first
+
+# Multiple column sorting  
+movies.order_by([movies.year, movies.budget], asc=[True, False]).collect()
+
+# Expression-based sorting
+movies.order_by(movies.revenue / movies.budget, asc=False).collect()
+```
+
+### Limiting Results
+
+Control result set size with `limit()`:
+
+```python
+# Get top 10 results
+movies.order_by(movies.score, asc=False).limit(10).collect()
+
+# Pagination (skip first 20, get next 10)
+movies.order_by(movies.id).limit(10, offset=20).collect()
+```
+
+## Expressions and Computed Values
+
+### Arithmetic Operations
+
+Perform calculations within queries:
+
+```python
+# Basic arithmetic
+movies.select(
+    movies.title,
+    price_with_tax=movies.price * 1.08,
+    profit_margin=(movies.revenue - movies.budget) / movies.revenue
+).collect()
+
+# Boolean expressions
+movies.select(
+    movies.title,
+    is_blockbuster=movies.revenue > 1000.0,
+    is_recent=movies.year >= 2020
+).collect()
+```
+
+### Expression Variables
+
+Store complex expressions for reuse:
+
+```python
+# Define reusable expressions
+high_budget = movies.budget > 200.0
+recent_release = movies.year >= 2020
+blockbuster = (movies.revenue > 1000.0) & high_budget
+
+# Use in multiple queries
+big_movies = movies.where(blockbuster).collect()
+recent_big_movies = movies.where(blockbuster & recent_release).collect()
+```
+
+## Aggregations
+
+Compute aggregate values:
+
+```python
+# Count rows
+total_movies = movies.count()
+
+# Basic aggregations
+movies.select(
+    avg_budget=movies.budget.mean(),
+    total_revenue=movies.revenue.sum(),
+    max_year=movies.year.max(),
+    min_budget=movies.budget.min()
+).collect()
+
+# Group by operations
+movies.group_by(movies.genre).agg({
+    'count': movies.id.count(),
+    'avg_budget': movies.budget.mean(),
+    'total_revenue': movies.revenue.sum()
+}).collect()
+```
+
+## Working with Dates and Timestamps
+
+Query temporal data effectively:
+
+```python
+from datetime import datetime, date
+
+# Date range queries
+events.where(events.created_date >= date(2024, 1, 1)).collect()
+events.where(events.timestamp <= datetime.now()).collect()
+
+# Date arithmetic
+events.select(
+    events.event_name,
+    days_ago=(datetime.now() - events.event_date).days
+).collect()
+
+# Extract date parts
+events.select(
+    events.timestamp.year,
+    events.timestamp.month,
+    events.timestamp.day_of_week
+).collect()
+```
+
+## Vector and Similarity Operations
+
+Query by vector similarity (requires embedding index):
+
+```python
+# Similarity search
+sim = t.embedding.similarity(query_vector)
+results = t.order_by(sim, asc=False).limit(10).select(
+    t.id, t.content, similarity=sim
+).collect()
+
+# Text-to-image search with CLIP
+text_query = "a sunset over mountains"
+sim = images.image.similarity(text_query)
+results = images.order_by(sim, asc=False).limit(5).collect()
+```
+
+## Advanced Query Patterns
+
+### Chaining Operations
+
+Build complex queries step by step:
+
+```python
+# Multi-step query pipeline
+result = (movies
+    .where(movies.year >= 2000)
+    .select(movies.title, movies.genre, movies.revenue)
+    .order_by(movies.revenue, asc=False)
+    .limit(50)
+    .collect()
+)
+```
+
+### Common Patterns
+
+```python
+# Data exploration - quick profiling
+movies.select(
+    count=movies.id.count(),
+    min_budget=movies.budget.min(),
+    max_budget=movies.budget.max(),
+    avg_budget=movies.budget.mean()
+).collect()
+
+# Find unique values
+movies.select(movies.genre).distinct().collect()
+
+# Data validation - find invalid records
+invalid = movies.where(
+    (movies.budget <= 0) |
+    (movies.revenue < 0) |
+    (movies.title == None)
+).collect()
+```
+

@@ -1,157 +1,403 @@
 ---
 title: 'Quick Start'
-description: 'Welcome to Pixeltable! In this tutorial, we will survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations.'
-icon: 'wand-magic-sparkles'
+description: 'A hands-on tour of Pixeltable features in 20 steps'
 ---
 
-<Note>
-This guide will get you from zero to a working AI application in under 5 minutes. Learn more by looking at this tutorial on [Github](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb).
-</Note>
+We'll quickstartbuild walksanthatanalyzesEadweardMuybridge'shorsegalloping sequence building public domain images that bridge photography and motion pictures Each step introduces a new Pixeltable concept.
 
-## Create Your First Multimodal AI Application
+## OverviewPrerequisites
 
-Let's build an image analysis application that combines object detection and OpenAI Vision.
-
-## Installation
-
-  Please refer to our installation section [here](/docs/overview/installation).
-  
-  ```bash
-  pip install -qU torch transformers openai pixeltable
-  ```
-
-<Steps>
-  <Step title="Create Table Structure">
-    ```python
-    import pixeltable as pxt
-    
-    # Create directory for our tables
-    pxt.drop_dir('demo', force=True)  
-    pxt.create_dir('demo')
-    
-    # Create table with image column
-    t = pxt.create_table('demo.first', {'input_image': pxt.Image})
-    ```
-
-    <Tip>
-    This creates a persistent and versioned table that holds data.
-    </Tip>
-  </Step>
-
-  <Step title="Add Object Detection">
-    ```python
-    from pixeltable.functions import huggingface
-
-    # Add ResNet-50 object detection
-    t.add_computed_column(
-        detections=huggingface.detr_for_object_detection(
-            t.input_image, 
-            model_id='facebook/detr-resnet-50'
-        )
-    )
-    
-    # Extract just the labels
-    t.add_computed_column(detections_text=t.detections.label_text)
-    ```
-
-    <Tip>
-    Computed columns are populated whenever new data is added to their input columns.
-    </Tip>
-  </Step>
-
-  <Step title="Add OpenAI Vision Analysis">
-    ```python
-    import os
-    import getpass
-
-    from pixeltable.functions import openai    
-
-    if 'OPENAI_API_KEY' not in os.environ:
-      os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')        
-
-    t.add_computed_column(
-        vision=openai.vision(
-            prompt="Describe what's in this image.",
-            image=t.input_image,
-            model='gpt-4o-mini'
-        )
-    )
-    ```
-  <Tip>
-  Pixeltable handles parallelization, rate limiting, and incremental processing automatically.
-  </Tip>     
-  </Step>
-
-  <Step title="Use Your Application">
-    ```python
-  # Insert an image
-  t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
-
-  # Retrieve results
-  t.select(
-      t.input_image,
-      t.detections_text,
-      t.vision
-  ).collect()
-    ```
-  <Tip>
-  The query engine uses lazy evaluation, only computing what's needed.
-  </Tip>    
-  </Step>
-</Steps>
-
-<Accordion title="What happened behind the scenes?">
-Pixeltable automatically:
-  1. Created a persistent table
-  2. Downloaded and cached the ResNet model
-  3. Orchestrated the OpenAI API call
-  4. Created an efficient processing workflow
-  5. Stored all results for future use
-</Accordion>
-
-## Key Features
-
-<CardGroup cols={2}>
-  <Card title="Persistent Storage" icon="database">
-    All data and computed results are automatically stored and versioned. Your app state persists between sessions.
-  </Card>
-  <Card title="Computed Columns" icon="calculator">
-    Define transformations once, they run automatically on new data. Perfect for AI orchestration.
-  </Card>
-  <Card title="Multimodal Support" icon="photo-film">
-    Handle images, video, audio, and text seamlessly in one unified interface.
-  </Card>
-  <Card title="AI Integration" icon="brain">
-    Built-in support for popular AI services like OpenAI, YOLOX, Hugging Face, Label Studio, Replicate, Anthropic...
-  </Card>
-</CardGroup>
-
-## Custom Functions (UDFs)
-
-Extend Pixeltable with your own functions using the `@pxt.udf` decorator:
-
-```python
-@pxt.udf
-def top_detection(detect: dict) -> str:
-    scores = detect['scores']
-    label_text = detect['label_text']
-    i = scores.index(max(scores))
-    return label_text[i]
-
-# Use it in a computed column
-t.add_computed_column(top=top_detection(t.detections))
+WeInstall Pixeltable:
+```bash
+pip install pixeltable
+Create a project directory:
+```bash
+mkdir pixeltable-quickstart
+cd pixeltable-quickstart
 ```
 
-## Next Steps
+Now that you've seen the basics, dive deeper into specific areas:
 
-<CardGroup cols={3}>
-  <Card title="RAG Tutorial" icon="books" href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">
-    Build a production-grade RAG system
-  </Card>
-  <Card title="Video Analysis" icon="video" href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/object-detection-in-videos.ipynb">
-    Process video with object detection
-  </Card>
-  <Card title="LLM Integration" icon="message" href="/docs/integrations/frameworks#local-llm-runtimes">
-    Work with OpenAI and other LLM providers
-  </Card>
-</CardGroup>
+Create your Python file:
+```bash
+touch quickstart.py
+```
+
+## Part 1: Tables and Basic Operations
+
+### Step 1: Initialize Pixeltable
+```python
+import pixeltable as pxt
+
+# Clean slate - remove any existing demo directory
+pxt.drop_dir('quickstart', force=True)
+pxt.create_dir('quickstart')
+```
+[Learn more about directories →](/docs/platform/tables-and-schemas/schemas)
+
+### Step 2: Create a table with schema
+```python
+# Define schema with different column types
+schema = {
+    'frame_number': pxt.Int,
+    'image': pxt.Image,
+    'timestamp': pxt.Float,
+    'description': pxt.String
+}
+
+horses = pxt.create_table('quickstart.horses', schema)
+```
+[Learn more about tables →](/docs/platform/tables-and-schemas/tables)
+
+### Step 3: Insert data
+```python
+# Muybridge's famous horse galloping sequence (public domain)
+# Using individual frames from "The Horse in Motion" (1878)
+base_url = "https://upload.wikimedia.org/wikipedia/commons"
+
+data = [
+    {
+        'frame_number': 1, 
+        'image': f'{base_url}/7/73/The_Horse_in_Motion.jpg',
+        'timestamp': 0.0,
+        'description': 'Horse with all four hooves off ground'
+    },
+    {
+        'frame_number': 2,
+        'image': f'{base_url}/0/07/The_Horse_in_Motion-anim.gif', 
+        'timestamp': 0.042,  # ~24fps equivalent
+        'description': 'Mid-gallop extension'
+    },
+    {
+        'frame_number': 3,
+        'image': f'{base_url}/d/dd/Muybridge_race_horse_animated.gif',
+        'timestamp': 0.084,
+        'description': 'Landing phase'
+    }
+]
+
+horses.insert(data)
+```
+[Learn more about data operations →](/docs/platform/data-operations/data-operations)
+
+### Step 4: Query your data
+```python
+# Basic select query
+result = horses.select(horses.frame_number, horses.image).collect()
+print(f"Inserted {len(result)} images")
+
+# Query with filtering
+first_frame = horses.where(horses.frame_number == 1).collect()
+```
+[Learn more about queries →](/docs/platform/query-syntax/building-queries)
+
+## Part 2: Computed Columns and Transformations
+
+### Step 5: Add a simple computed column
+```python
+# Add computed column that derives from existing data
+horses.add_computed_column(
+    frame_id=horses.frame_number.astype(pxt.String) + '_' + horses.timestamp.astype(pxt.String)
+)
+```
+[Learn more about computed columns →](/docs/platform/tables-and-schemas/computed-columns)
+
+### Step 6: Add image processing
+```python
+from pixeltable.functions import image
+
+# Add grayscale version
+horses.add_computed_column(
+    grayscale=image.convert(horses.image, mode='L')
+)
+
+# Add thumbnail
+horses.add_computed_column(
+    thumbnail=image.resize(horses.image, width=128)
+)
+```
+[Learn more about built-in functions →](/docs/sdk/latest/built-in-functions-and-operators/image)
+
+### Step 7: Create a User-Defined Function (UDF)
+```python
+@pxt.udf
+def analyze_brightness(img: pxt.Image) -> float:
+    """Calculate average brightness of an image"""
+    import numpy as np
+    from PIL import Image
+    
+    # Convert to grayscale and calculate mean
+    gray = img.convert('L')
+    return np.array(gray).mean() / 255.0
+
+# Use the UDF in a computed column
+horses.add_computed_column(
+    brightness=analyze_brightness(horses.image)
+)
+```
+[Learn more about custom functions →](/docs/platform/custom-functions)
+
+## Part 3: Views and Data Organization
+
+### Step 8: Create a view
+```python
+# Create a filtered view for bright frames
+bright_frames = pxt.create_view(
+    'quickstart.bright_frames',
+    horses,
+    filter=horses.brightness > 0.5
+)
+
+print(f"Bright frames: {bright_frames.count()}")
+```
+[Learn more about views →](/docs/platform/views-and-snapshots/views)
+
+### Step 9: Create a snapshot
+```python
+# Snapshot captures the current state
+snapshot = horses.create_snapshot('initial_import')
+
+# You can query snapshots like tables
+print(f"Snapshot has {snapshot.count()} rows")
+```
+[Learn more about snapshots →](/docs/platform/views-and-snapshots/views-and-snapshots)
+
+### Step 10: Use an iterator for frame extraction
+```python
+from pixeltable.iterators import FrameIterator
+
+# If we had video data, we could extract frames
+# This is a conceptual example
+videos = pxt.create_table('quickstart.videos', {'video': pxt.Video})
+
+frames_view = pxt.create_view(
+    'quickstart.frames',
+    videos,
+    iterator=FrameIterator.create(
+        video=videos.video,
+        fps=1.0  # Extract 1 frame per second
+    )
+)
+```
+[Learn more about iterators →](/docs/platform/views-and-snapshots/iterators)
+
+## Part 4: AI Integration
+
+### Step 11: Add object detection
+```python
+from pixeltable.functions import huggingface
+
+# Add DETR object detection
+horses.add_computed_column(
+    objects=huggingface.detr_for_object_detection(
+        horses.image,
+        model_id='facebook/detr-resnet-50'
+    )
+)
+
+# Extract just the labels
+horses.add_computed_column(
+    object_labels=horses.objects.label_text
+)
+```
+[Learn more about AI integrations →](/docs/sdk/latest/ai-integrations/huggingface)
+
+### Step 12: Add embeddings and similarity search
+```python
+from pixeltable.functions.huggingface import clip
+
+# Create embedding index for similarity search
+horses.add_embedding_index(
+    'image',
+    embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+)
+
+# Query similar images (if we had a reference image)
+# similarity = horses.image.similarity(reference_image)
+# similar_images = horses.order_by(similarity, asc=False).limit(5)
+```
+[Learn more about embeddings →](/docs/platform/indexing-and-vector-embeddings)
+
+### Step 13: Add LLM analysis (optional)
+```python
+# Example with OpenAI (requires API key)
+# from pixeltable.functions import openai
+# import os
+
+# os.environ['OPENAI_API_KEY'] = 'your-key-here'
+
+# horses.add_computed_column(
+#     description_ai=openai.vision(
+#         prompt="Describe this historical photograph",
+#         image=horses.image,
+#         model='gpt-4o-mini'
+#     )
+# )
+```
+[Learn more about LLM integration →](/docs/notebooks/integrations/working-with-openai)
+
+## Part 5: Advanced Features
+
+### Step 14: Update data
+```python
+# Update existing rows
+horses.update(
+    {'description': 'Updated: ' + horses.description},
+    where=horses.frame_number == 1
+)
+```
+[Learn more about updates →](/docs/platform/data-operations/data-operations)
+
+### Step 15: Track table history
+```python
+# View change history
+history = horses.get_history()
+print(f"Table has been modified {len(history)} times")
+```
+[Learn more about history →](/docs/platform/data-operations/table-history)
+
+### Step 16: Use sampling for large datasets
+```python
+# Sample 50% of the data randomly
+sample = horses.select(horses.image).sample(0.5).collect()
+```
+[Learn more about sampling →](/docs/platform/query-syntax/sampling)
+
+### Step 17: Export data
+```python
+# Export to DataFrame
+df = horses.select(
+    horses.frame_number,
+    horses.brightness,
+    horses.object_labels
+).to_pandas()
+
+print(df.head())
+```
+[Learn more about import/export →](/docs/platform/importing-data)
+
+### Step 18: Error handling
+```python
+# Pixeltable tracks errors in computed columns
+errors = horses.get_errors()
+if errors:
+    print(f"Found {len(errors)} errors in processing")
+```
+[Learn more about error handling →](/docs/platform/error-handling)
+
+### Step 19: Create an aggregate function
+```python
+# Calculate statistics across all images
+stats = horses.select(
+    avg_brightness=horses.brightness.mean(),
+    max_brightness=horses.brightness.max(),
+    total_frames=horses.count()
+).collect()[0]
+
+print(f"Average brightness: {stats['avg_brightness']:.2f}")
+```
+[Learn more about aggregations →](/docs/platform/udfs-and-uda)
+
+### Step 20: Clean up
+```python
+# Optional: Remove the demo directory when done
+# pxt.drop_dir('quickstart', force=True)
+
+print("Quickstart complete!")
+```
+
+## Complete Code
+
+Here's everything in one file:
+
+```python
+import pixeltable as pxt
+from pixeltable.functions import image, huggingface
+from pixeltable.functions.huggingface import clip
+from pixeltable.iterators import FrameIterator
+
+# Initialize
+pxt.drop_dir('quickstart', force=True)
+pxt.create_dir('quickstart')
+
+# Create table
+schema = {
+    'frame_number': pxt.Int,
+    'image': pxt.Image,
+    'timestamp': pxt.Float,
+    'description': pxt.String
+}
+horses = pxt.create_table('quickstart.horses', schema)
+
+# Insert data
+base_url = "https://upload.wikimedia.org/wikipedia/commons"
+data = [
+    {
+        'frame_number': 1, 
+        'image': f'{base_url}/7/73/The_Horse_in_Motion.jpg',
+        'timestamp': 0.0,
+        'description': 'Horse with all four hooves off ground'
+    },
+    {
+        'frame_number': 2,
+        'image': f'{base_url}/0/07/The_Horse_in_Motion-anim.gif', 
+        'timestamp': 0.042,
+        'description': 'Mid-gallop extension'
+    },
+    {
+        'frame_number': 3,
+        'image': f'{base_url}/d/dd/Muybridge_race_horse_animated.gif',
+        'timestamp': 0.084,
+        'description': 'Landing phase'
+    }
+]
+horses.insert(data)
+
+# Add computed columns
+horses.add_computed_column(
+    frame_id=horses.frame_number.astype(pxt.String) + '_' + horses.timestamp.astype(pxt.String)
+)
+horses.add_computed_column(grayscale=image.convert(horses.image, mode='L'))
+horses.add_computed_column(thumbnail=image.resize(horses.image, width=128))
+
+# UDF
+@pxt.udf
+def analyze_brightness(img: pxt.Image) -> float:
+    import numpy as np
+    from PIL import Image
+    gray = img.convert('L')
+    return np.array(gray).mean() / 255.0
+
+horses.add_computed_column(brightness=analyze_brightness(horses.image))
+
+# Create view
+bright_frames = pxt.create_view(
+    'quickstart.bright_frames',
+    horses,
+    filter=horses.brightness > 0.5
+)
+
+# Add AI features
+horses.add_computed_column(
+    objects=huggingface.detr_for_object_detection(
+        horses.image,
+        model_id='facebook/detr-resnet-50'
+    )
+)
+horses.add_computed_column(object_labels=horses.objects.label_text)
+
+# Add embeddings
+horses.add_embedding_index(
+    'image',
+    embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+)
+
+# Query and export
+df = horses.select(
+    horses.frame_number,
+    horses.brightness,
+    horses.object_labels
+).to_pandas()
+
+print("Quickstart complete!")
+```
