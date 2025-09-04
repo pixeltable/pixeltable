@@ -1,19 +1,16 @@
-import os
 import sysconfig
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
-
-from ..utils import get_audio_files, runs_linux_with_gpu, skip_test_if_not_installed, validate_update_status, IN_CI
+from ..utils import get_audio_files, runs_linux_with_gpu, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on CI Linux ARM instances'
 )
-@pytest.mark.skipif(os.environ.get('PXTTEST_CI_OS') == 'ubuntu-x64-t4', reason='crashes on t4 CI instances')
-@pytest.mark.skipif(runs_linux_with_gpu() and not IN_CI, reason='crashes on Linux with GPU')
+@pytest.mark.skipif(runs_linux_with_gpu(), reason='crashes on Linux with GPU')
 class TestWhisperx:
     def test_transcription(self, reset_db: None) -> None:
         skip_test_if_not_installed('whisperx')
