@@ -4,6 +4,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
+
 from ..utils import get_audio_files, runs_linux_with_gpu, skip_test_if_not_installed, validate_update_status
 
 
