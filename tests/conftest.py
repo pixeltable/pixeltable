@@ -147,7 +147,7 @@ def _clear_hf_caches() -> None:
 
     xet_cache = pathlib.Path(HUGGINGFACE_HUB_CACHE) / 'xet'
     try:
-        shutil.rmtree(xet_cache)
+        shutil.rmtree(xet_cache, ignore_errors=True)
         _logger.info(f'Deleted xet cache directory: {xet_cache}')
     except PermissionError:
         _logger.info(f'PermissionError trying to delete xet cache directory: {xet_cache}')
