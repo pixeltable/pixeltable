@@ -143,15 +143,19 @@ def _clear_hf_caches() -> None:
             cache_info.delete_revisions(*revisions_to_delete).execute()
             _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface hub cache directory.')
         except (OSError, PermissionError) as exc:
-            _logger.info(f'{type(exc).__name__} trying to clear huggingface hub cache directory: {xet_cache}')
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface hub cache directory: {HUGGINGFACE_HUB_CACHE}'
+            )
 
-    xet_cache = pathlib.Path(HF_HOME) / 'xet'
-    if xet_cache.exists():
+    huggingface_xet_cache = pathlib.Path(HF_HOME) / 'xet'
+    if huggingface_xet_cache.exists():
         try:
-            shutil.rmtree(xet_cache)
-            _logger.info(f'Deleted xet cache directory: {xet_cache}')
+            shutil.rmtree(huggingface_xet_cache)
+            _logger.info(f'Deleted xet cache directory: {huggingface_xet_cache}')
         except (OSError, PermissionError) as exc:
-            _logger.info(f'{type(exc).__name__} trying to delete xet cache directory: {xet_cache}')
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface xet cache directory: {huggingface_xet_cache}'
+            )
 
 
 def clean_db(restore_md_tables: bool = True) -> None:
