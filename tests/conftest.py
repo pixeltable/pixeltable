@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+import shutil
 from typing import Callable, Iterator
 
 import pytest
@@ -19,8 +20,10 @@ from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.media_store import MediaStore, TempStore
 
 from .utils import (
+    IN_CI,
     ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
@@ -50,7 +53,11 @@ def pxt_test_harness() -> Iterator[None]:
     _logger.info(f'Running Pixeltable test: {current_test}')
     pxtf.huggingface._model_cache.clear()
     pxtf.huggingface._processor_cache.clear()
+
     yield
+
+    if IN_CI:
+        _free_disk_space()
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
@@ -99,10 +106,65 @@ def reset_db(init_env: None) -> None:
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
-    # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
-    # TempStore.clear()
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+
+def _free_disk_space() -> None:
+    assert IN_CI
+
+    # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
+    # tests.
+
+    # Clear the temp store and media store
+    try:
+        TempStore.clear()
+        MediaStore.get().clear()
+        _logger.info('Cleared TempStore and MediaStore.')
+    except PermissionError:
+        # Sometimes this happens on Windows if a file is held open by a concurrent process.
+        _logger.info('PermissionError trying to clear TempStore and MediaStore.')
+
+    try:
+        _clear_hf_caches()
+    except ImportError:
+        pass  # huggingface_hub not installed in this CI environment
+
+
+def _clear_hf_caches() -> None:
+    from huggingface_hub import scan_cache_dir
+    from huggingface_hub.constants import HF_HOME, HUGGINGFACE_HUB_CACHE
+
+    assert IN_CI
+
+    if pathlib.Path(HUGGINGFACE_HUB_CACHE).exists():
+        try:
+            # Scan the cache directory for all revisions of all models
+            cache_info = scan_cache_dir()
+            revisions_to_delete = [
+                revision.commit_hash
+                for repo in cache_info.repos
+                # Keep around models that are used by multiple tests
+                if repo.repo_id not in ('openai/clip-vit-base-patch32', 'intfloat/e5-large-v2')
+                for revision in repo.revisions
+            ]
+            cache_info.delete_revisions(*revisions_to_delete).execute()
+            _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface hub cache directory.')
+        except (OSError, PermissionError) as exc:
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface hub cache directory: {HUGGINGFACE_HUB_CACHE}'
+            )
+
+    huggingface_xet_cache = pathlib.Path(HF_HOME) / 'xet'
+    if huggingface_xet_cache.exists():
+        try:
+            shutil.rmtree(huggingface_xet_cache)
+            huggingface_xet_cache.mkdir()
+            _logger.info(f'Deleted xet cache directory: {huggingface_xet_cache}')
+        except (OSError, PermissionError) as exc:
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface xet cache directory: {huggingface_xet_cache}'
+            )
 
 
 def clean_db(restore_md_tables: bool = True) -> None:
