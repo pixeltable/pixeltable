@@ -4,24 +4,46 @@ import pytest
 
 import pixeltable as pxt
 from tests.conftest import clean_db
-from tests.utils import assert_resultset_eq, reload_catalog
+from tests.utils import assert_resultset_eq, get_image_files, reload_catalog, skip_test_if_no_pxt_credentials
 
 
-@pytest.mark.skip(reason='Turned off by default until we are confident that internal-api.pixeltable.com is stable')
 class TestReplica:
-    def test_replica_round_trip(self, reset_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
-        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
-        snap = pxt.create_snapshot('test_snapshot', t)
-        data = snap.head(n=500)
+    @pytest.mark.parametrize('org_slug', ['pxt-test', 'pxt-test:main', 'pxt-test:my-db'])
+    def test_replica_round_trip(self, reset_db: None, org_slug: str) -> None:
+        """
+        Test a publish/clone/drop snapshot round trip, with three different organization slug configurations:
+        - Default main ('pxt-test')
+        - Explicit main ('pxt-test:main')
+        - Non-main database ('pxt-test:my-db')
+        """
+        skip_test_if_no_pxt_credentials()
 
-        remote_uri = f'pxt://asiegel/test_{uuid.uuid4().hex}'
-        _ = pxt.create_replica(remote_uri, source=snap)
+        test_imgs = get_image_files()
+
+        tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String, 'imgcol': pxt.Image})
+        tbl.insert({'icol': i, 'scol': f'string {i}', 'imgcol': test_imgs[i]} for i in range(10))
+        snap = pxt.create_snapshot('snap', tbl)
+        snap_data = snap.head(n=500)
+
+        tbl.insert({'icol': i, 'scol': f'string {i}', 'imgcol': test_imgs[i]} for i in range(10, 20))
+        # tbl_data = tbl.head(n=500)
+
+        snap_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
+        # tbl_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
+        _ = pxt.create_replica(snap_remote_uri, source=snap)
+        # _ = pxt.create_replica(tbl_remote_uri, source=tbl)
 
         clean_db()
         reload_catalog()
 
-        replica = pxt.create_replica('test_replica', source=remote_uri)
-        replica_data = replica.head(n=500)
+        snap_replica = pxt.create_replica('snap_replica', source=snap_remote_uri)
+        snap_replica_data = snap_replica.head(n=500)
 
-        assert_resultset_eq(data, replica_data)
+        # tbl_replica = pxt.create_replica('tbl_replica', source=tbl_remote_uri)
+        # tbl_replica_data = tbl_replica.head(n=500)
+
+        pxt.drop_table(snap_remote_uri)
+        # pxt.drop_table(tbl_remote_uri)
+
+        assert_resultset_eq(snap_data, snap_replica_data, compare_col_names=True)
+        # assert_resultset_eq(tbl_data, tbl_replica_data, compare_col_names=True)

@@ -11,6 +11,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import threading
 import types
@@ -82,6 +83,7 @@ class Env:
     _file_cache_size_g: float
     _pxt_api_key: Optional[str]
     _stdout_handler: logging.StreamHandler
+    _default_video_encoder: str | None
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
@@ -132,6 +134,7 @@ class Env:
         self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
+        self._default_video_encoder = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -602,12 +605,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> str:
-        if self._pxt_api_key is None:
-            raise excs.Error(
-                'No API key is configured. Set the PIXELTABLE_API_KEY environment variable, or add an entry to '
-                'config.toml as described here:\nhttps://pixeltable.github.io/pixeltable/config/'
-            )
+    def pxt_api_key(self) -> Optional[str]:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
@@ -676,6 +674,41 @@ class Env:
         register_heif_opener()
         self._start_web_server()
         self.__register_packages()
+
+    @property
+    def default_video_encoder(self) -> str | None:
+        if self._default_video_encoder is None:
+            self._default_video_encoder = self._determine_default_video_encoder()
+        return self._default_video_encoder
+
+    def _determine_default_video_encoder(self) -> str | None:
+        """
+        Returns the first available encoder from a list of candidates.
+
+        TODO:
+        - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
+        - allow user override via a config option 'video_encoder'
+        """
+        # look for available encoders, in this order
+        candidates = [
+            'libx264',  # GPL, best quality
+            'libopenh264',  # BSD
+        ]
+
+        try:
+            # Get list of available encoders
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+
+            if result.returncode == 0:
+                available_encoders = result.stdout
+                for encoder in candidates:
+                    # ffmpeg -encoders output format: " V..... encoder_name  description"
+                    if f' {encoder} ' in available_encoders:
+                        _logger.debug(f'Using H.264 encoder: {encoder}')
+                        return encoder
+        except Exception:
+            pass
+        return None
 
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""

@@ -105,7 +105,7 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
         'groq': ProviderConfig(
             prompt_udf=create_chatgpt_prompt,
             udf=pxtf.groq.chat_completions,
-            default_model='llama3-8b-8192',
+            default_model='llama-3.1-8b-instant',
             kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
         ),
         'mistralai': ProviderConfig(

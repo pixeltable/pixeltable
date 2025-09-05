@@ -2399,29 +2399,47 @@ class TestTable:
         v = pxt.create_view('recompute_view', base=t.where(t.i < 20), additional_columns={'i3': t.i2 + 1})
         validate_update_status(t.insert({'i': i, 's': str(i)} for i in range(100)), expected_rows=100 + 20)
 
+        def validate(i1_incr: int, i2_incr: int, t_interval: tuple[int, int] = (0, 100)) -> None:
+            result = t.where((t.i >= t_interval[0]) & (t.i < t_interval[1])).select(t.i1, t.i2).order_by(t.i).collect()
+            t_i_range = range(t_interval[0], t_interval[1])
+            assert result['i1'] == [i + i1_incr for i in t_i_range], 'i1'
+            assert result['i2'] == [2 * (i + i2_incr) for i in t_i_range], 'i2'
+            result = v.where((v.i >= t_interval[0]) & (v.i < t_interval[1])).select(v.i3).order_by(v.i).collect()
+            v_i_range = range(t_interval[0], min(t_interval[1], 20))
+            assert result['i3'] == [2 * (i + i2_incr) + 1 for i in v_i_range], 'i3'
+
         # recompute without propagation
         TestTable.recompute_udf_increment = 1
         status = t.recompute_columns(t.i1, cascade=False)
         assert status.num_rows == 100
         assert set(status.updated_cols) == {'recompute_test.i1'}
-        result = t.select(t.i1, t.i2).order_by(t.i).collect()
-        assert result['i1'] == [i + 1 for i in range(100)]
-        assert result['i2'] == [2 * i for i in range(100)]
-        result = v.select(v.i3).order_by(v.i).collect()
-        assert result['i3'] == [2 * i + 1 for i in range(20)]
+        validate(1, 0)
+
+        # recompute without propagation, with predicate
+        TestTable.recompute_udf_increment = 0
+        status = t.recompute_columns(t.i1, where=t.i < 10, cascade=False)
+        assert status.num_rows == 10
+        assert set(status.updated_cols) == {'recompute_test.i1'}
+        validate(0, 0, t_interval=(0, 10))
+        validate(1, 0, t_interval=(11, 100))
 
         # recompute with propagation, via a ColumnRef
         TestTable.recompute_udf_increment = 1
         status = t.i1.recompute()
         assert status.num_rows == 100 + 20
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
-        result = t.select(t.i1, t.i2).order_by(t.i).collect()
-        assert result['i1'] == [i + 1 for i in range(100)]
-        assert result['i2'] == [2 * (i + 1) for i in range(100)]
-        result = v.select(v.i3).order_by(v.i).collect()
-        assert result['i3'] == [2 * (i + 1) + 1 for i in range(20)]
+        validate(1, 1)
+
+        # recompute with propagation and predicate, via a DataFrame
+        TestTable.recompute_udf_increment = 0
+        status = t.where(t.i < 10).recompute_columns(t.i1, cascade=True)
+        assert status.num_rows == 10 + 10
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        validate(0, 0, t_interval=(0, 10))
+        validate(1, 1, t_interval=(11, 100))
 
         # recompute multiple columns
+        TestTable.recompute_udf_increment = 1
         status = t.recompute_columns('i1', t.s1)
         assert status.num_rows == 100 + 20
         assert set(status.updated_cols) == {
@@ -2430,11 +2448,7 @@ class TestTable:
             'recompute_test.s1',
             'recompute_view.i3',
         }
-        result = t.select(t.i1, t.i2).order_by(t.i).collect()
-        assert result['i1'] == [i + 1 for i in range(100)]
-        assert result['i2'] == [2 * (i + 1) for i in range(100)]
-        result = v.select(v.i3).order_by(v.i).collect()
-        assert result['i3'] == [2 * (i + 1) + 1 for i in range(20)]
+        validate(1, 1)
 
         # add some errors
         TestTable.recompute_udf_increment = 0
@@ -2453,8 +2467,12 @@ class TestTable:
 
         # recompute errors
         TestTable.recompute_udf_error_val = None
+        status = t.recompute_columns(t.i1, where=t.i < 10, errors_only=True)
+        assert status.num_rows == 1 + 1
+        assert status.num_excs == 0
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         status = t.recompute_columns(t.i1, errors_only=True)
-        assert status.num_rows == 10 + 2
+        assert status.num_rows == 9 + 1
         assert status.num_excs == 0
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
 
@@ -2473,6 +2491,9 @@ class TestTable:
             v.recompute_columns(v.i1)
         with pytest.raises(pxt.Error, match='Cannot recompute column of a base'):
             v.i1.recompute()
+        with pytest.raises(pxt.Error, match="not bound by table 'recompute_test'"):
+            y = pxt.create_table('other_table', {'i': pxt.Int})
+            t.recompute_columns('i1', where=y.i == 0)
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""

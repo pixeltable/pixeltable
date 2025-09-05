@@ -1478,12 +1478,17 @@ class Table(SchemaObject):
             return result
 
     def recompute_columns(
-        self, *columns: str | ColumnRef, errors_only: bool = False, cascade: bool = True
+        self,
+        *columns: str | ColumnRef,
+        where: 'exprs.Expr' | None = None,
+        errors_only: bool = False,
+        cascade: bool = True,
     ) -> UpdateStatus:
         """Recompute the values in one or more computed columns of this table.
 
         Args:
             columns: The names or references of the computed columns to recompute.
+            where: A predicate to filter rows to recompute.
             errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
                 `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
             cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
@@ -1498,6 +1503,10 @@ class Table(SchemaObject):
             it:
 
             >>> tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
+
+            Recompute column `c1` and its dependents, but only for rows with `c2` == 0:
+
+            >>> tbl.recompute_columns('c1', where=tbl.c2 == 0)
 
             Recompute column `c1` and its dependents, but only for rows that have errors in it:
 
@@ -1535,7 +1544,12 @@ class Table(SchemaObject):
                     raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
                 col_names.append(col_name)
 
-            result = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
+            if where is not None and not where.is_bound_by([self._tbl_version_path]):
+                raise excs.Error(f"'where' ({where}) not bound by {self._display_str()}")
+
+            result = self._tbl_version.get().recompute_columns(
+                col_names, where=where, errors_only=errors_only, cascade=cascade
+            )
             FileCache.get().emit_eviction_warnings()
             return result
 

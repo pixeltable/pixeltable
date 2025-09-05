@@ -27,15 +27,11 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 def push_replica(
     dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
 ) -> str:
-    if not src_tbl._tbl_version_path.is_snapshot():
-        raise excs.Error('Only snapshots may be published.')
-
     packager = TablePackager(
         src_tbl, additional_md={'table_uri': dest_tbl_uri, 'bucket_name': bucket, 'is_public': access == 'public'}
     )
     request_json = packager.md | {'operation_type': 'publish_snapshot'}
-    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
-    response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
+    response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error publishing snapshot: {response.text}')
     response_json = response.json()
@@ -70,7 +66,7 @@ def push_replica(
         'preview_data': packager.md['preview_data'],
     }
     # TODO: Use Pydantic for validation
-    finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=headers_json)
+    finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=_api_headers())
     if finalize_response.status_code != 200:
         raise excs.Error(f'Error finalizing snapshot: {finalize_response.text}')
     finalize_response_json = finalize_response.json()
@@ -112,9 +108,8 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
 
 def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
-    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     clone_request_json = {'operation_type': 'clone_snapshot', 'table_uri': src_tbl_uri}
-    response = requests.post(PIXELTABLE_API_URL, json=clone_request_json, headers=headers_json)
+    response = requests.post(PIXELTABLE_API_URL, json=clone_request_json, headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error cloning snapshot: {response.text}')
     response_json = response.json()
@@ -268,11 +263,18 @@ def _download_from_presigned_url(
 # TODO: This will be replaced by drop_table with cloud table uri
 def delete_replica(dest_path: str) -> None:
     """Delete cloud replica"""
-    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     delete_request_json = {'operation_type': 'delete_snapshot', 'table_uri': dest_path}
-    response = requests.post(PIXELTABLE_API_URL, json=delete_request_json, headers=headers_json)
+    response = requests.post(PIXELTABLE_API_URL, json=delete_request_json, headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error deleting replica: {response.text}')
     response_json = response.json()
     if not isinstance(response_json, dict) or 'table_uri' not in response_json:
         raise excs.Error(f'Error deleting replica: unexpected response from server.\n{response_json}')
+
+
+def _api_headers() -> dict[str, str]:
+    headers = {'Content-Type': 'application/json'}
+    api_key = Env.get().pxt_api_key
+    if api_key is not None:
+        headers['X-api-key'] = api_key
+    return headers
