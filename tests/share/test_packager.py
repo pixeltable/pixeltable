@@ -465,6 +465,29 @@ class TestPackager:
         for n in (4, 0, 8, 10, 6):
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
 
+    def test_interleaved_non_snapshots(self, reset_db: None) -> None:
+        """
+        Test the case where two versions of a non-snapshot table are packaged out of order.
+        """
+        t = pxt.create_table('tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(512))
+
+        t_bundle = self.__package_table(t)
+
+        v = pxt.create_view('view', t.where(t.int_col % 3 == 0))
+        t.insert({'int_col': i} for i in range(512, 1024))
+
+        v_bundle = self.__package_table(v)
+
+        # v_bundle has more rows, but fewer columns.
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(v_bundle, 'view_replica')
+        self.__restore_and_check_table(t_bundle, 'tbl_replica')
+
+
     def test_replica_ops(self, reset_db: None, clip_embed: pxt.Function) -> None:
         t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
         t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
