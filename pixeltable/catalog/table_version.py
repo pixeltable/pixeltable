@@ -1065,21 +1065,28 @@ class TableVersion:
 
         return update_targets
 
-    def recompute_columns(self, col_names: list[str], errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
+    def recompute_columns(
+        self, col_names: list[str], where: exprs.Expr | None = None, errors_only: bool = False, cascade: bool = True
+    ) -> UpdateStatus:
         assert self.is_mutable
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
 
+        from pixeltable.exprs import CompoundPredicate
         from pixeltable.plan import Planner
 
         target_columns = [self.cols_by_name[name] for name in col_names]
         where_clause: Optional[exprs.Expr] = None
+        if where is not None:
+            self._validate_where_clause(where, error_prefix="'where' argument")
+            where_clause = where
         if errors_only:
-            where_clause = (
+            errortype_pred = (
                 exprs.ColumnPropertyRef(exprs.ColumnRef(target_columns[0]), exprs.ColumnPropertyRef.Property.ERRORTYPE)
                 != None
             )
+            where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(
             self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
         )
@@ -1142,40 +1149,30 @@ class TableVersion:
             self._write_md(new_version=True, new_schema_version=False)
         return result
 
-    def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
-        """Delete rows in this table.
-        Args:
-            where: a predicate to filter rows to delete.
-
-        Returns:
-            UpdateStatus: an object containing the number of deleted rows and other statistics.
-        """
+    def _validate_where_clause(self, pred: exprs.Expr, error_prefix: str) -> None:
+        """Validates that pred can be expressed as a SQL Where clause"""
         assert self.is_insertable
         from pixeltable.exprs import Expr
         from pixeltable.plan import Planner
 
-        sql_where_clause: Optional[Expr] = None
-        if where is not None:
-            if not isinstance(where, Expr):
-                raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self.path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-            sql_where_clause = analysis_info.sql_where_clause
+        if not isinstance(pred, Expr):
+            raise excs.Error(f'{error_prefix} must be a predicate, got {type(pred)}')
+        analysis_info = Planner.analyze(self.path, pred)
+        # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+        if analysis_info.filter is not None:
+            raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
-        status = self.propagate_delete(sql_where_clause, base_versions=[], timestamp=time.time())
+    def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
+        assert self.is_insertable
+        if where is not None:
+            self._validate_where_clause(where, error_prefix="'where' argument")
+        status = self.propagate_delete(where, base_versions=[], timestamp=time.time())
         return status
 
     def propagate_delete(
         self, where: Optional[exprs.Expr], base_versions: list[Optional[int]], timestamp: float
     ) -> UpdateStatus:
-        """Delete rows in this table and propagate to views.
-        Args:
-            where: a predicate to filter rows to delete.
-        Returns:
-            number of deleted rows
-        """
+        """Delete rows in this table and propagate to views"""
         # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         # #print(f'sql_where_clause={str(sql_where_clause) if sql_where_clause is not None else None}')
