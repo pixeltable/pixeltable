@@ -13,7 +13,7 @@ import PIL
 import PIL.Image
 import sqlalchemy as sql
 
-from pixeltable import catalog, env
+from pixeltable import catalog, env, type_system as ts
 from pixeltable.utils.media_store import MediaStore, TempStore
 
 
@@ -56,14 +56,14 @@ class DataRow:
     img_slot_idxs: list[int]
     media_slot_idxs: list[int]
     array_slot_idxs: list[int]
+    json_slot_idxs: list[int]
 
     # the primary key of a store row is a sequence of ints (the number is different for table vs view)
     pk: Optional[tuple[int, ...]]
 
     # file_urls:
     # - stored url of file for media in vals[i]
-    # - None if vals[i] is not media type
-    # - not None if file_paths[i] is not None
+    # - None if vals[i] does not export data to a file
     file_urls: np.ndarray  # of str
 
     # file_paths:
@@ -75,18 +75,22 @@ class DataRow:
     parent_row: Optional[DataRow]
     parent_slot_idx: Optional[int]
 
+    MAX_ARRAY_IN_DB = 10_000  # arrays larger than this get stored outside the DB
+
     def __init__(
         self,
         size: int,
         img_slot_idxs: list[int],
         media_slot_idxs: list[int],
         array_slot_idxs: list[int],
+        json_slot_idxs: list[int],
         parent_row: Optional[DataRow] = None,
         parent_slot_idx: Optional[int] = None,
     ):
         self.img_slot_idxs = img_slot_idxs
         self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
+        self.json_slot_idxs = json_slot_idxs
         self.init(size)
         self.parent_row = parent_row
         self.parent_slot_idx = parent_slot_idx
@@ -197,28 +201,30 @@ class DataRow:
             pass
         assert self.has_val[index]
 
+        val = self.vals[index]
+
         if self.file_urls[index] is not None and (index in self.img_slot_idxs or index in self.media_slot_idxs):
-            # if this is an image or other media type we want to store, we should have a url
+            # For media data, always prefer the file URL even if the value hasn't been flushed yet
+            # (for example, when doing a dynamic select())
             return self.file_urls[index]
 
-        if self.vals[index] is not None and index in self.array_slot_idxs:
-            assert isinstance(self.vals[index], np.ndarray)
-            np_array = self.vals[index]
-            if sa_col_type is not None and isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
-                return np_array
+        if isinstance(val, np.ndarray):
+            if isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
+                return val
             buffer = io.BytesIO()
-            np.save(buffer, np_array)
+            np.save(buffer, val, allow_pickle=False)
             return buffer.getvalue()
 
         # for JSON columns, we need to store None as an explicit NULL, otherwise it stores a json 'null'
-        if self.vals[index] is None and sa_col_type is not None and isinstance(sa_col_type, sql.JSON):
+        if val is None and isinstance(sa_col_type, sql.JSON):
             return sql.sql.null()
 
-        if isinstance(self.vals[index], datetime.datetime) and self.vals[index].tzinfo is None:
+        if isinstance(val, datetime.datetime) and val.tzinfo is None:
             # if the datetime is naive, cast it to the default time zone
-            return self.vals[index].replace(tzinfo=env.Env.get().default_time_zone)
+            return val.replace(tzinfo=env.Env.get().default_time_zone)
 
-        return self.vals[index]
+        # for anything else, just return val itself
+        return val
 
     def __setitem__(self, idx: int, val: Any) -> None:
         """Assign in-memory cell value
@@ -252,42 +258,208 @@ class DataRow:
             if idx in self.media_slot_idxs:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
-            self.vals[idx] = np.load(io.BytesIO(val))
+            self.vals[idx] = self.reconstruct_array(val)
+        elif idx in self.json_slot_idxs:
+            self.vals[idx] = self.reconstruct_json(val)
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
-        """Save or discard the in-memory value (required to be a PIL.Image.Image)"""
+    def flush_media(self, index: int, col: Optional[catalog.Column] = None) -> None:
         if self.vals[index] is None:
             return
         assert self.excs[index] is None
-        if self.file_paths[index] is None:
-            if col is not None:
-                image = self.vals[index]
-                format = None
-                if isinstance(image, PIL.Image.Image):
-                    # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-                    # In that case, use WebP instead.
-                    format = 'webp' if image.has_transparency_data else 'jpeg'
-                filepath, url = MediaStore.get().save_media_object(image, col, format=format)
-                self.file_paths[index] = str(filepath)
-                self.file_urls[index] = url
-            else:
-                # we discard the content of this cell
-                self.has_val[index] = False
+
+        if col is None:
+            # Discard the contents of this cell
+            self.has_val[index] = False
+            self.vals[index] = None
+            return
+
+        if col.col_type.is_image_type():
+            self.flush_img(index, col)
+        elif col.col_type.is_media_type():
+            # Non-image media
+            self.move_tmp_media_file(index, col)
+            self.vals[index] = self.file_urls[index]
+
+        if col.col_type.is_array_type():
+            self.flush_array(index, col)
+
+        if col.col_type.is_json_type():
+            self.flush_json(index, col)
+
+    def flush_img(self, index: int, col: catalog.Column) -> None:
+        """Save the in-memory value (required to be a PIL.Image.Image)"""
+        if self.file_urls[index] is None:
+            image = self.vals[index]
+            assert isinstance(image, PIL.Image.Image)
+            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+            # In that case, use WebP instead.
+            format = 'webp' if image.has_transparency_data else 'jpeg'
+            filepath, url = MediaStore.get().save_media_object(image, col, format=format)
+            self.file_paths[index] = str(filepath)
+            self.file_urls[index] = url
+            self.vals[index] = url
         else:
-            # we already have a file for this image, nothing left to do
-            pass
-        self.vals[index] = None
+            # we already have a URL for this image, just update vals accordingly
+            self.move_tmp_media_file(index, col)
+            self.vals[index] = self.file_urls[index]
+
+    def flush_array(self, index: int, col: catalog.Column) -> None:
+        """If the array size exceeds MAX_ARRAY_IN_DB, save it to a file and store the URL instead."""
+        if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
+            # Never flush pgvector-indexed arrays to external storage
+            return
+        array = self.vals[index]
+        assert isinstance(array, np.ndarray)
+        if array.size >= self.MAX_ARRAY_IN_DB:
+            path = TempStore.create_path(extension='.npy')
+            with open(path, 'wb') as fp:
+                np.save(fp, array, allow_pickle=False)
+            url = MediaStore.get().relocate_local_media_file(path, col)
+            self.file_urls[index] = url
+            # We need to store the URL in the DB in place of array data. The DB column type is BINARY, so we
+            # binary-encode the URL string, with a magic prefix to make sure it's distinguishable from a
+            # serialized numpy array.
+            self.vals[index] = b'\x01' + url.encode('utf-8')  # magic prefix + utf-8 encoded bytes
+
+    @classmethod
+    def reconstruct_array(cls, data: bytes) -> np.ndarray:
+        """Reconstruct a numpy array from bytes in the database."""
+        if data.startswith(b'\x93NUMPY'):  # npy magic string
+            return np.load(io.BytesIO(data), allow_pickle=False)
+        else:
+            assert data.startswith(b'\x01')
+            url = data[1:].decode('utf-8')
+            parsed = urllib.parse.urlparse(url)
+            assert parsed.scheme == 'file'
+            path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+            with open(path, 'rb') as fp:
+                return np.load(fp, allow_pickle=False)
+
+    def flush_json(self, index: int, col: catalog.Column) -> None:
+        """If the JSON object contains images or arrays, save them to a media store and rewrite the JSON object."""
+        # TODO: Do the same thing for lists that exceed a certain length?
+        # TODO: Also allow datetimes?
+        if self.__has_media(self.vals[index]):
+            path = TempStore.create_path(extension='.bin')
+            with open(path, 'wb') as fp:
+                self.vals[index] = self.__rewrite_json(self.vals[index], fp)
+            # Now move the temp file to the media store and update the JSON structure with the new URL
+            url = MediaStore.get().relocate_local_media_file(path, col)
+            self.__add_url_to_json(self.vals[index], url)
+            self.file_urls[index] = url
+
+    @classmethod
+    def __has_media(cls, element: Any) -> bool:
+        if isinstance(element, list):
+            return any(cls.__has_media(v) for v in element)
+        if isinstance(element, dict):
+            return any(cls.__has_media(v) for v in element.values())
+        return isinstance(element, (np.ndarray, PIL.Image.Image))
+
+    @classmethod
+    def __rewrite_json(cls, element: Any, fp: io.BufferedWriter) -> Any:
+        """Recursively rewrites a JSON structure by exporting any arrays or images to a binary file."""
+        if isinstance(element, list):
+            return [cls.__rewrite_json(v, fp) for v in element]
+        if isinstance(element, dict):
+            return {k: cls.__rewrite_json(v, fp) for k, v in element.items()}
+        if isinstance(element, np.ndarray):
+            begin = fp.tell()
+            np.save(fp, element, allow_pickle=False)
+            end = fp.tell()
+            return {'__pxttype__': ts.ColumnType.Type.ARRAY.name, '__pxtbegin__': begin, '__pxtend__': end}
+        if isinstance(element, PIL.Image.Image):
+            format = 'webp' if element.has_transparency_data else 'jpeg'
+            begin = fp.tell()
+            element.save(fp, format=format)
+            end = fp.tell()
+            return {'__pxttype__': ts.ColumnType.Type.IMAGE.name, '__pxtbegin__': begin, '__pxtend__': end}
+        return element
+
+    @classmethod
+    def __add_url_to_json(cls, element: Any, url: str) -> None:
+        if isinstance(element, list):
+            for v in element:
+                cls.__add_url_to_json(v, url)
+        if isinstance(element, dict):
+            if '__pxttype__' in element:
+                element['__pxturl__'] = url
+            else:
+                for v in element.values():
+                    cls.__add_url_to_json(v, url)
+
+    @classmethod
+    def reconstruct_json(cls, element: Any) -> Any:
+        """
+        Recursively reconstructs a JSON structure that may contain references to image or array
+        data stored in a binary file.
+        """
+        url = cls.__find_pxturl(element)
+        if url is None:
+            return element
+        parsed = urllib.parse.urlparse(url)
+        assert parsed.scheme == 'file'
+        path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        with open(path, 'rb') as fp:
+            return cls.__reconstruct_json(element, fp)
+
+    @classmethod
+    def __find_pxturl(cls, element: Any) -> Optional[str]:
+        if isinstance(element, list):
+            for v in element:
+                url = cls.__find_pxturl(v)
+                if url is not None:
+                    return url
+
+        if isinstance(element, dict):
+            if '__pxturl__' in element:
+                return element['__pxturl__']
+            for v in element.values():
+                url = cls.__find_pxturl(v)
+                if url is not None:
+                    return url
+
+        return None
+
+    @classmethod
+    def __reconstruct_json(cls, element: Any, fp: io.BufferedReader) -> Any:
+        if isinstance(element, list):
+            return [cls.__reconstruct_json(v, fp) for v in element]
+        if isinstance(element, dict):
+            if '__pxttype__' in element:
+                begin = element['__pxtbegin__']
+                end = element['__pxtend__']
+                assert isinstance(begin, int)
+                assert isinstance(end, int)
+                fp.seek(begin)
+                assert fp.tell() == begin
+                if element['__pxttype__'] == ts.ColumnType.Type.ARRAY.name:
+                    arr = np.load(fp, allow_pickle=False)
+                    assert fp.tell() == end
+                    return arr
+                else:
+                    assert element['__pxttype__'] == ts.ColumnType.Type.IMAGE.name
+                    bytesio = io.BytesIO(fp.read(end - begin))
+                    img = PIL.Image.open(bytesio)
+                    img.load()
+                    assert fp.tell() == end, f'{fp.tell()} != {end} / {begin}'
+                    return img
+            else:
+                return {k: cls.__reconstruct_json(v, fp) for k, v in element.items()}
+        return element
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
         """If a media url refers to data in a temporary file, move the data to a MediaStore"""
         if self.file_urls[index] is None:
             return
+        url = self.file_urls[index]
+        assert isinstance(url, str)  # This will only be called if stored_vals[index] is a URL
         assert self.excs[index] is None
         assert col.col_type.is_media_type()
-        src_path = TempStore.resolve_url(self.file_urls[index])
+        src_path = TempStore.resolve_url(url)
         if src_path is None:
             # The media url does not point to a temporary file, leave it as is
             return

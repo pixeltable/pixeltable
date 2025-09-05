@@ -1434,6 +1434,7 @@ class TestTable:
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Image],
             'c8': pxt.Required[pxt.Video],
+            'c9': pxt.Required[pxt.Timestamp],
         }
         tbl_name = 'test1'
         t = pxt.create_table(tbl_name, schema)
@@ -1453,6 +1454,7 @@ class TestTable:
             c6={'key': 'val'},
             c7=get_image_files()[0],
             c8=get_video_files()[0],
+            c9=datetime.datetime.now(tz=datetime.timezone.utc),
         )
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -1480,26 +1482,24 @@ class TestTable:
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
-            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c5', 'c2', 'c2']
+            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c9', 'c2', 'c2', 'c2']
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
             t = pxt.create_table(tbl_name, {col_name: col_type})
-            with pytest.raises(pxt.Error, match=r'expected|not a valid Pixeltable JSON object') as exc_info:
+            with pytest.raises(pxt.Error, match=r'expected|not a valid Pixeltable JSON object'):
                 t.insert({col_name: r[value_col_name]} for r in rows)
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.String})
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Unsupported data source type'):
             t.insert(['1'])  # xtype: ignore[list-item]
-        assert 'Unsupported data source type' in str(exc_info.value)
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.Required[pxt.String]})
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='expected non-None'):
             t.insert(c1=None)
-        assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
@@ -1540,6 +1540,59 @@ class TestTable:
         assert t.count() == 1
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
+
+    def test_insert_large_array(self, reset_db: None) -> None:
+        """
+        Test that large arrays (larger than 10,000 elements) survive a round trip to the database.
+        """
+        array1 = np.arange(1000, dtype=np.int64).reshape((200, 5))
+        array2 = np.arange(15000, dtype=np.int64).reshape((3000, 5))
+
+        t = pxt.create_table('test', {'col': pxt.Array})
+        assert MediaStore.get().count(t._id) == 0
+        t.insert([{'col': array1}, {'col': array2}])
+        assert MediaStore.get().count(t._id) == 1  # Just the large array should be exported as a data file
+        expected = pxt.dataframe.DataFrameResultSet([[array1], [array2]], t._get_schema())
+        assert_resultset_eq(expected, t.head())
+
+    def test_insert_nonstandard_json(self, reset_db: None) -> None:
+        """
+        Test that images and numpy arrays embedded in JSON structures properly survive a round trip to the database.
+        """
+        imgs = [PIL.Image.open(file) for file in get_image_files()[:10]]
+        arrays = [np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64), np.array(['abc', 'def'], dtype=np.str_)]
+
+        t = pxt.create_table('test', {'col': pxt.Json})
+        val = {
+            'some_text': 'This is a string',
+            'some_number': 4171780,
+            'some_image': imgs[0],
+            'another_image': imgs[1],
+            'list_of_images': imgs[2:5],
+            'nested_image': {'image': imgs[5], 'nested_list': [imgs[6], imgs[7]]},
+            'list_of_arrays': arrays,
+        }
+        t.insert(col=val)
+
+        # We cannot expect the images to be a bytewise exact match, due to the approximate nature of jpeg encoding.
+        # However, it should be the case that if we do a direct round trip via insertion into an image column, then
+        # we should get an identical result as if the image were embedded in a JSON structure. The following logic
+        # uses this principle to construct an expected result.
+        tmp_tbl = pxt.create_table('tmp', {'col': pxt.Image})
+        tmp_tbl.insert({'col': img} for img in imgs)
+        expected_imgs = tmp_tbl.head()['col']
+        expected_val = {
+            'some_text': 'This is a string',
+            'some_number': 4171780,
+            'some_image': expected_imgs[0],
+            'another_image': expected_imgs[1],
+            'list_of_images': expected_imgs[2:5],
+            'nested_image': {'image': expected_imgs[5], 'nested_list': [expected_imgs[6], expected_imgs[7]]},
+            'list_of_arrays': arrays,
+        }
+        expected = pxt.dataframe.DataFrameResultSet([[expected_val]], t._get_schema())
+
+        assert_resultset_eq(expected, t.head())
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
