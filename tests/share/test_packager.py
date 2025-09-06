@@ -16,6 +16,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrameResultSet
+from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.media_store import TempStore
 from tests.conftest import clean_db
@@ -268,14 +269,14 @@ class TestPackager:
 
         self.__do_round_trip(snapshot)
 
-        # Double-check that the iterator view and its base table have the correct number of rows
+        # Double-check that the snapshot and its base table have the correct number of rows
         snapshot_replica = pxt.get_table('new_replica')
         assert snapshot_replica._snapshot_only
         assert snapshot_replica.count() == snapshot_row_count
-        v_replica = snapshot_replica.get_base_table()
-        assert v_replica.count() == snapshot_row_count
-        t_replica = v_replica.get_base_table()
-        assert t_replica.count() == 2
+        # We can't query the base table directly via snapshot_replica.get_base_table(), because it doesn't exist as a
+        # visible catalog object (it's hidden in _system). But we can manually construct the DataFrame and check that.
+        t_replica_df = pxt.DataFrame(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
+        assert t_replica_df.count() == 2
 
     def test_multi_view_round_trip_1(self, reset_db: None) -> None:
         """

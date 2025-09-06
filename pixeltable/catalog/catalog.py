@@ -906,9 +906,9 @@ class Catalog:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
         if (tbl_id, version) not in self._tbls:
             if version is None:
-                self._load_tbl(tbl_id)
+                return self._load_tbl(tbl_id)
             else:
-                self._load_tbl_at_version(tbl_id, version)
+                return self._load_tbl_at_version(tbl_id, version)
         return self._tbls.get((tbl_id, version))
 
     @retry_loop(for_write=True)
@@ -1466,7 +1466,7 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
-    def _load_tbl(self, tbl_id: UUID) -> None:
+    def _load_tbl(self, tbl_id: UUID) -> Optional[Table]:
         """Loads metadata for the table with the given id and caches it."""
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
@@ -1491,7 +1491,7 @@ class Catalog:
         )
         row = conn.execute(q).one_or_none()
         if row is None:
-            return
+            return None
         tbl_record, _ = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
 
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
@@ -1514,10 +1514,8 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             if row is not None:
                 version = row[0]
-                self._load_tbl_at_version(tbl_id, version)
-                assert (tbl_id, version) in self._tbls
-                self._tbls[tbl_id, None] = self._tbls[tbl_id, version]
-            return
+                return self._load_tbl_at_version(tbl_id, version)
+            return None
 
         if view_md is None and not tbl_md.is_replica:
             # this is a base, non-replica table
@@ -1525,7 +1523,7 @@ class Catalog:
                 _ = self._load_tbl_version(tbl_id, None)
             tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(tbl_id, None))
             self._tbls[tbl_id, None] = tbl
-            return
+            return tbl
 
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
@@ -1550,8 +1548,9 @@ class Catalog:
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id, None] = view
+        return view
 
-    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> None:
+    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> Optional[Table]:
         from .view import View
 
         # Load the specified TableMd and TableVersionMd records from the db.
@@ -1611,6 +1610,7 @@ class Catalog:
 
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
         self._tbls[tbl_id, version] = view
+        return view
 
     @retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
