@@ -1084,8 +1084,9 @@ class Catalog:
             # the new TableVersion instance. This is necessary because computed columns of descendant tables might
             # reference columns of the ancestor table that only exist in the new version.
             replica = Catalog.get().get_table_by_id(ancestor_id)
-            assert replica is not None  # If it didn't exist before, it must have been created by now.
-            replica._tbl_version_path.clear_cached_md()
+            # assert replica is not None  # If it didn't exist before, it must have been created by now.
+            if replica is not None:
+                replica._tbl_version_path.clear_cached_md()
 
         # Finally, store the metadata for the table being replicated; as before, it could be a new version or a known
         # version. If it's a new version, then a TableVersion record will be created, unless the table being replicated
@@ -1104,6 +1105,7 @@ class Catalog:
         new_tbl_md: Optional[schema.TableMd] = None
         new_version_md: Optional[schema.TableVersionMd] = None
         new_schema_version_md: Optional[schema.TableSchemaVersionMd] = None
+        is_new_tbl_version: bool = False
 
         # We need to ensure that the table metadata in the catalog always reflects the latest observed version of
         # this table. (In particular, if this is a base table, then its table metadata need to be consistent
@@ -1138,14 +1140,21 @@ class Catalog:
         existing_version_md_row = conn.execute(q).one_or_none()
         if existing_version_md_row is None:
             new_version_md = md.version_md
+            is_new_tbl_version = True
         else:
             existing_version_md = schema.md_from_dict(schema.TableVersionMd, existing_version_md_row.md)
-            if existing_version_md != md.version_md:
+            # Validate that the existing metadata are identical to the new metadata, except that their is_hidden
+            # flags may differ.
+            if dataclasses.replace(existing_version_md, is_hidden=md.version_md.is_hidden) != md.version_md:
                 raise excs.Error(
                     f'The version metadata for the replica {path!r}:{md.version_md.version} is inconsistent with '
                     'the metadata recorded from a prior replica.\n'
                     'This is likely due to data corruption in the replicated table.'
                 )
+            if existing_version_md.is_hidden and not md.version_md.is_hidden:
+                # There's a hidden table version in the DB, but we're importing a visible copy of the same version;
+                # is_hidden flag to False in the DB.
+                new_version_md = md.version_md
 
         # Do the same thing for TableSchemaVersion.
         q = (
@@ -1162,6 +1171,7 @@ class Catalog:
             existing_schema_version_md = schema.md_from_dict(
                 schema.TableSchemaVersionMd, existing_schema_version_md_row.md
             )
+            # Validate that the existing metadata are identical to the new metadata.
             if existing_schema_version_md != md.schema_version_md:
                 raise excs.Error(
                     f'The schema version metadata for the replica {path!r}:{md.schema_version_md.schema_version} '
@@ -1171,7 +1181,7 @@ class Catalog:
 
         self.store_tbl_md(UUID(tbl_id), None, new_tbl_md, new_version_md, new_schema_version_md)
 
-        if new_version_md is not None and not md.is_pure_snapshot:
+        if is_new_tbl_version and not md.is_pure_snapshot:
             # It's a new version of a table that has a physical store, so we need to create a TableVersion instance.
             TableVersion.create_replica(md)
 
@@ -1481,13 +1491,36 @@ class Catalog:
         )
         row = conn.execute(q).one_or_none()
         if row is None:
-            return None
+            return
         tbl_record, _ = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
 
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         view_md = tbl_md.view_md
+
+        if tbl_md.is_replica and not tbl_md.is_snapshot:
+            # If this is a non-snapshot replica, we have to load it as a specific version handle. This is because:
+            # (1) the head version might be a hidden version that isn't user-accessible, and
+            # (2) the cached data in view_md.base_versions is not reliable, since the replicated version does not
+            #     necessarily track the head version of the originally shared table.
+
+            # Query for the latest non-hidden table version.
+            q = (
+                sql.select(schema.TableVersion.version)
+                .where(schema.TableVersion.tbl_id == tbl_id)
+                .where(schema.TableVersion.md['is_hidden'].astext == 'false')
+                .order_by(schema.TableVersion.md['version'].cast(sql.Integer).desc())
+                .limit(1)
+            )
+            row = conn.execute(q).one_or_none()
+            if row is not None:
+                version = row[0]
+                self._load_tbl_at_version(tbl_id, version)
+                assert (tbl_id, version) in self._tbls
+                self._tbls[tbl_id, None] = self._tbls[tbl_id, version]
+            return
+
         if view_md is None and not tbl_md.is_replica:
-            # this is a base table
+            # this is a base, non-replica table
             if (tbl_id, None) not in self._tbl_versions:
                 _ = self._load_tbl_version(tbl_id, None)
             tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(tbl_id, None))
@@ -1724,10 +1757,25 @@ class Catalog:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
                 assert version_md.schema_version == schema_version_md.schema_version
-            tbl_version_record = schema.TableVersion(
-                tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
-            )
-            session.add(tbl_version_record)
+            if session.query(schema.TableVersion).filter(
+                schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version
+            ).count() > 0:
+                # This table version already exists; update it. (This typically happens when setting the is_hidden
+                # flag of an existing TableVersion from True to False.)
+                result = session.execute(
+                    sql.update(schema.TableVersion.__table__)
+                    .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
+                    .where(
+                        schema.TableVersion.tbl_id == tbl_id,
+                        schema.TableVersion.version == version_md.version,
+                    )
+                )
+            else:
+                # It's a new table version; insert a new record in the DB for it.
+                tbl_version_record = schema.TableVersion(
+                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
+                )
+                session.add(tbl_version_record)
 
         # Construct and insert a new schema version record if requested.
         if schema_version_md is not None:
@@ -1796,6 +1844,10 @@ class Catalog:
             # destination catalog.
             ancestor_md.tbl_md.current_version = ancestor_md.version_md.version
             ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
+            # Also, the table version of every proper ancestor is emphemeral; it does not represent a queryable
+            # table version (the data might be incomplete, since we have only retrieved one of its views, not
+            # the table itself).
+            ancestor_md.version_md.is_hidden = True
 
         return md
 

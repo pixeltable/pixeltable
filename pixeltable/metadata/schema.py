@@ -244,6 +244,10 @@ class TableVersionMd:
     schema_version: int
     user: Optional[str] = None  # User that created this version
     update_status: Optional[UpdateStatus] = None  # UpdateStatus of the change that created this version
+    # A hidden table version cannot be queried or instantiated via get_table(). Typically, a hidden table version
+    # represents a version of a replica table that has incomplete data, and exists only to provide base table support
+    # for a dependent view.
+    is_hidden: bool = False
     additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
