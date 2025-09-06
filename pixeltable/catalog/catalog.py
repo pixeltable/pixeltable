@@ -1046,17 +1046,12 @@ class Catalog:
         existing = self.get_table_by_id(tbl_id)
         if existing is not None:
             existing_path = Path.parse(existing._path(), allow_system_path=True)
-            if existing_path != path:
+            if existing_path != path and not existing_path.is_system_path:
                 # It does exist, under a different path from the specified one.
-                if not existing_path.is_system_path:
-                    raise excs.Error(
-                        f'That table has already been replicated as {existing_path!r}.\n'
-                        f'Drop the existing replica if you wish to re-create it.'
-                    )
-                # If it's a system table, then this means it was created at some point as the ancestor of some other
-                # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named)
-                # location.
-                self._move(existing_path, path)
+                raise excs.Error(
+                    f'That table has already been replicated as {existing_path!r}.\n'
+                    f'Drop the existing replica if you wish to re-create it.'
+                )
 
         # Now store the metadata for this replica's proper ancestors. If one or more proper ancestors
         # do not yet exist in the store, they will be created as anonymous system tables.
@@ -1088,10 +1083,21 @@ class Catalog:
             if replica is not None:
                 replica._tbl_version_path.clear_cached_md()
 
-        # Finally, store the metadata for the table being replicated; as before, it could be a new version or a known
-        # version. If it's a new version, then a TableVersion record will be created, unless the table being replicated
+        # Store the metadata for the table being replicated; as before, it could be a new version or a known version.
+        # If it's a new version, then a TableVersion record will be created, unless the table being replicated
         # is a pure snapshot.
         self.__store_replica_md(path, md[0])
+
+        # Finally, it's possible that the table already exists in the catalog, but as an anonymous system table that
+        # was hidden the last time we checked (and that just became visible when the replica was imported). In this
+        # case, we need to make the existing table visible by moving it to the specified path.
+        existing = self.get_table_by_id(tbl_id)
+        if existing is not None:
+            existing_path = Path.parse(existing._path(), allow_system_path=True)
+            if existing_path != path:
+                assert existing_path.is_system_path
+                self._move(existing_path, path)
+
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
@@ -1770,6 +1776,7 @@ class Catalog:
                         schema.TableVersion.version == version_md.version,
                     )
                 )
+                assert result.rowcount == 1, result.rowcount
             else:
                 # It's a new table version; insert a new record in the DB for it.
                 tbl_version_record = schema.TableVersion(

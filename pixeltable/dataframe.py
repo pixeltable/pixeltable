@@ -1276,10 +1276,10 @@ class DataFrame:
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
-        if self._first_tbl.is_snapshot():
-            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
         if self._first_tbl.is_replica():
             raise excs.Error(f'Cannot use `{op_name}` on a replica.')
+        if self._first_tbl.is_snapshot():
+            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
         """Tests whether the sequence of operations on this DataFrame is valid for a mutation operation."""

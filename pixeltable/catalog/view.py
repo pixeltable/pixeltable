@@ -47,17 +47,13 @@ class View(Table):
             self._tbl_version = tbl_version_path.tbl_version
 
     def _display_name(self) -> str:
-        name: str
-        if self._tbl_version_path.is_snapshot():
-            name = 'snapshot'
-        elif self._tbl_version_path.is_view():
-            name = 'view'
-        else:
-            assert self._tbl_version_path.is_replica()
-            name = 'table'
         if self._tbl_version_path.is_replica():
-            name = f'{name}-replica'
-        return name
+            return 'replica'
+        if self._tbl_version_path.is_snapshot():
+            return 'snapshot'
+        if self._tbl_version_path.is_view():
+            return 'view'
+        return 'table'
 
     @classmethod
     def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:

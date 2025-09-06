@@ -515,29 +515,29 @@ class TestPackager:
         t = pxt.get_table('tbl_replica')
         v = pxt.get_table('view_replica')
 
-        for s, name, kind in ((t, 'tbl_replica', 'table-replica'), (v, 'view_replica', 'view-replica')):
-            display_str = f'{kind} {name!r}'
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a {kind}.'):
+        for s, name in ((t, 'tbl_replica'), (v, 'view_replica')):
+            display_str = f'replica {name!r}'
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a replica.'):
                 s.insert({'icol': 10, 'scol': 'string 10'})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a replica.'):
                 s.delete()
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
                 s.add_column(new_col=pxt.Bool)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
                 s.add_columns({'new_col': pxt.Bool})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
                 s.add_computed_column(new_col=(t.icol + 1))
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a replica.'):
                 s.drop_column('scol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a replica.'):
                 s.add_embedding_index('icol', embedding=clip_embed)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a replica.'):
                 s.drop_embedding_index(column='icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a replica.'):
                 s.update({'icol': 11})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a replica.'):
                 s.recompute_columns('icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a replica.'):
                 s.revert()
 
             # TODO: Align these DataFrame error messages with Table error messages

@@ -1772,10 +1772,10 @@ class Table(SchemaObject):
         return pxt.dataframe.DataFrameResultSet(report_lines, self._REPORT_SCHEMA)
 
     def __check_mutable(self, op_descr: str) -> None:
+        if self._tbl_version_path.is_replica():
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a replica.')
         if self._tbl_version_path.is_snapshot():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
-        if self._tbl_version_path.is_replica():
-            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')
 
 
 class ColumnMetadata(TypedDict):

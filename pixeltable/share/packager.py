@@ -362,6 +362,8 @@ class TableRestorer:
         for md in tbl_md:
             md.tbl_md.is_replica = True
 
+        assert not tbl_md[0].version_md.is_hidden  # Top-level table must be visible
+
         cat = catalog.Catalog.get()
 
         with cat.begin_xact(for_write=True):
