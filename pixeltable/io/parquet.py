@@ -62,7 +62,7 @@ def export_parquet(
         with Catalog.get().begin_xact(for_write=False):
             for record_batch in to_record_batches(df, partition_size_bytes):
                 output_path = temp_path / f'part-{batch_num:05d}.parquet'
-                arrow_tbl = pa.Table.from_batches([record_batch])
+                arrow_tbl = pa.Table.from_batches([record_batch])  # type: ignore
                 pa.parquet.write_table(arrow_tbl, str(output_path))
                 batch_num += 1
 

@@ -37,7 +37,7 @@ def export_lancedb(
             - `'append'`: append to the existing table
     """
     try:
-        import lancedb
+        import lancedb  # type: ignore[import-untyped]
     except ImportError as e:
         raise excs.Error(f"export_lancedb(): requires 'lancedb' and 'pyarrow' packages: {e}") from None
     if if_exists not in ('error', 'overwrite', 'append'):

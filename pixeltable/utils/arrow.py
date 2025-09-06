@@ -1,7 +1,7 @@
 import datetime
 import io
 import json
-from typing import TYPE_CHECKING, Any, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
 
 import numpy as np
 import PIL.Image
@@ -100,14 +100,13 @@ def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa
 
     pa_arrays: list[pa.Array] = []
     for field in schema:
-        pa_array: pa.Array
         if isinstance(field.type, pa.FixedShapeTensorType):
             stacked_arr = np.stack(column_vals[field.name])
-            pa_array = pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr)
+            pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
         else:
-            pa_array = pa.array(column_vals[field.name])
-        pa_arrays.append(pa_array)
-    return pa.RecordBatch.from_arrays(pa_arrays, schema=schema)
+            pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
+            pa_arrays.append(pa_array)
+    return pa.RecordBatch.from_arrays(pa_arrays, schema=schema)  # type: ignore
 
 
 def to_record_batches(df: 'pxt.DataFrame', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
