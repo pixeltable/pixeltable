@@ -429,6 +429,28 @@ class TestPackager:
         for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
 
+    def test_interleaved_non_snapshots(self, reset_db: None) -> None:
+        """
+        Test the case where two versions of a non-snapshot table are packaged out of order.
+        """
+        t = pxt.create_table('tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(512))
+
+        t_bundle = self.__package_table(t)
+
+        v = pxt.create_view('view', t.where(t.int_col % 3 == 0))
+        t.insert({'int_col': i} for i in range(512, 1024))
+
+        v_bundle = self.__package_table(v)
+
+        # v_bundle has more rows, but fewer columns.
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(v_bundle, 'view_replica')
+        self.__restore_and_check_table(t_bundle, 'tbl_replica')
+
     def test_multi_view_non_snapshot_round_trip(self, reset_db: None) -> None:
         """
         A similar test, this one involving multiple versions of a table that is not a snapshot,
@@ -457,37 +479,11 @@ class TestPackager:
         clean_db()
         reload_catalog()
 
-        # Restore the odd-numbered bundles (directly packaged table versions). This needs to be done in order
-        # currently, because we don't have a way to get a handle to an older version of a table.
-        # TODO: Randomize the order once we have such a feature.
-        for n in (1, 3, 7, 9):
-            self.__restore_and_check_table(bundles[n], 'replica')
-
-        for n in (4, 0, 8, 10, 6):
-            self.__restore_and_check_table(bundles[n], f'replica_{n}')
-
-    def test_interleaved_non_snapshots(self, reset_db: None) -> None:
-        """
-        Test the case where two versions of a non-snapshot table are packaged out of order.
-        """
-        t = pxt.create_table('tbl', {'int_col': pxt.Int})
-        t.insert({'int_col': i} for i in range(512))
-
-        t_bundle = self.__package_table(t)
-
-        v = pxt.create_view('view', t.where(t.int_col % 3 == 0))
-        t.insert({'int_col': i} for i in range(512, 1024))
-
-        v_bundle = self.__package_table(v)
-
-        # v_bundle has more rows, but fewer columns.
-
-        clean_db()
-        reload_catalog()
-
-        self.__restore_and_check_table(v_bundle, 'view_replica')
-        self.__restore_and_check_table(t_bundle, 'tbl_replica')
-
+        for n in (4, 1, 0, 3, 8, 10, 7, 9, 6):
+            # We need to use a consistent name for the non-snapshot bundles, and distinct names for the snapshots.
+            # The non-snapshot bundles are traversed in temporal order; the snapshot bundles are randomized.
+            name = 'replica' if n % 2 != 0 else f'replica_{n}'
+            self.__restore_and_check_table(bundles[n], name)
 
     def test_replica_ops(self, reset_db: None, clip_embed: pxt.Function) -> None:
         t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
