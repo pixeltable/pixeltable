@@ -65,7 +65,7 @@ def export_lancedb(
             if if_exists == 'error':
                 raise excs.Error(f'export_lancedb(): table {table_name!r} already exists in {db_uri!r}')
         except ValueError:
-            # Table doesn't exist, which is fine for creating a new one
+            # table doesn't exist
             pass
 
         with Catalog.get().begin_xact(for_write=False):

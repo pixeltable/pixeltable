@@ -11,6 +11,8 @@ import pytest
 
 import pixeltable as pxt
 
+from ..utils import skip_test_if_not_installed
+
 
 @pxt.udf
 def udf_with_exc(i: int, val: int) -> int:
@@ -21,6 +23,7 @@ def udf_with_exc(i: int, val: int) -> int:
 
 class TestLanceDb:
     def test_export(self, reset_db: None, tmp_path: Path) -> None:
+        skip_test_if_not_installed('lancedb')
         import lancedb  # type: ignore[import-untyped]
 
         n_rows = 1000
