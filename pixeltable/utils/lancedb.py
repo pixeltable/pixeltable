@@ -16,7 +16,7 @@ def export_lancedb(
     table_or_df: pxt.Table | pxt.DataFrame,
     db_uri: Path,
     table_name: str = 'pixeltable_export',
-    partition_size_bytes: int = 128 * 2**20,
+    batch_size_bytes: int = 128 * 2**20,
     if_exists: Literal['error', 'overwrite', 'append'] = 'error',
 ) -> None:
     """
@@ -29,7 +29,7 @@ def export_lancedb(
         table_or_df : Table or Dataframe to export.
         db_uri: Local Path to the LanceDB database.
         table_name : Name of the table in the LanceDB database.
-        partition_size_bytes : Maximum size in bytes for each batch.
+        batch_size_bytes : Maximum size in bytes for each batch.
         if_exists: Determines the behavior if the table already exists. Must be one of the following:
 
             - `'error'`: raise an error
@@ -54,7 +54,7 @@ def export_lancedb(
     db_exists = False
     if db_uri.exists():
         if not db_uri.is_dir():
-            raise excs.Error(f'export_lancedb(): {db_uri!r} exists and is not a directory')
+            raise excs.Error(f"export_lancedb(): '{db_uri!s}' exists and is not a directory")
         db_exists = True
 
     try:
@@ -64,20 +64,20 @@ def export_lancedb(
             lance_tbl = db.open_table(table_name)
             if if_exists == 'error':
                 raise excs.Error(f'export_lancedb(): table {table_name!r} already exists in {db_uri!r}')
-            elif if_exists == 'overwrite':
-                lance_tbl.delete()
-                lance_tbl = None
-        except lancedb.LanceDBError:
+        except ValueError:
+            # Table doesn't exist, which is fine for creating a new one
             pass
 
         with Catalog.get().begin_xact(for_write=False):
-            if lance_tbl is None:
+            if lance_tbl is None or if_exists == 'overwrite':
+                mode = 'overwrite' if lance_tbl is not None else 'create'
                 arrow_schema = to_arrow_schema(df.schema)
-                _ = db.create_table(table_name, to_record_batches(df, partition_size_bytes), schema=arrow_schema)
+                _ = db.create_table(table_name, to_record_batches(df, batch_size_bytes), schema=arrow_schema, mode=mode)
             else:
-                lance_tbl.add(to_record_batches(df, partition_size_bytes))
+                lance_tbl.add(to_record_batches(df, batch_size_bytes))
 
-    finally:
+    except Exception as e:
         # cleanup
         if not db_exists:
             shutil.rmtree(db_uri)
+        raise e

@@ -115,61 +115,68 @@ def to_record_batches(df: 'pxt.DataFrame', batch_size_bytes: int) -> Iterator[pa
     current_byte_estimate = 0
     num_batch_rows = 0
 
-    for data_row in df._exec():
-        for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
+    # TODO: in order to avoid having to deal with ExprEvalError here, DataFrameResultSet should be an iterator
+    # over _exec()
+    try:
+        for data_row in df._exec():
             num_batch_rows += 1
-            val = data_row[e.slot_idx]
-            val_size_bytes: int
-            if val is None:
-                batch_columns[col_name].append(val)
-                continue
+            for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
+                val = data_row[e.slot_idx]
+                val_size_bytes: int
+                if val is None:
+                    batch_columns[col_name].append(val)
+                    continue
 
-            assert val is not None
-            if col_type.is_image_type():
-                # images get inlined into the parquet file
-                if data_row.file_paths[e.slot_idx] is not None:
-                    # if there is a file, read directly to preserve information
-                    with open(data_row.file_paths[e.slot_idx], 'rb') as f:
-                        val = f.read()
-                elif isinstance(val, PIL.Image.Image):
-                    # no file available: save as png
-                    buf = io.BytesIO()
-                    val.save(buf, format='png')
-                    val = buf.getvalue()
+                assert val is not None
+                if col_type.is_image_type():
+                    # images get inlined into the parquet file
+                    if data_row.file_paths[e.slot_idx] is not None:
+                        # if there is a file, read directly to preserve information
+                        with open(data_row.file_paths[e.slot_idx], 'rb') as f:
+                            val = f.read()
+                    elif isinstance(val, PIL.Image.Image):
+                        # no file available: save as png
+                        buf = io.BytesIO()
+                        val.save(buf, format='png')
+                        val = buf.getvalue()
+                    else:
+                        raise excs.Error(f'unknown image type {type(val)}')
+                    val_size_bytes = len(val)
+                elif col_type.is_string_type():
+                    val_size_bytes = len(val)
+                elif col_type.is_media_type():
+                    assert data_row.file_paths[e.slot_idx] is not None
+                    val = data_row.file_paths[e.slot_idx]
+                    val_size_bytes = len(val)
+                elif col_type.is_json_type():
+                    val = json.dumps(val)
+                    val_size_bytes = len(val)
+                elif col_type.is_array_type():
+                    val_size_bytes = val.nbytes
+                elif col_type.is_int_type() or col_type.is_float_type():
+                    val_size_bytes = 8
+                elif col_type.is_bool_type():
+                    val_size_bytes = 1
+                elif col_type.is_date_type():
+                    val_size_bytes = 4
+                elif col_type.is_timestamp_type():
+                    val = val.astimezone(datetime.timezone.utc)
+                    val_size_bytes = 8
                 else:
-                    raise excs.Error(f'unknown image type {type(val)}')
-                val_size_bytes = len(val)
-            elif col_type.is_string_type():
-                val_size_bytes = len(val)
-            elif col_type.is_media_type():
-                assert data_row.file_paths[e.slot_idx] is not None
-                val = data_row.file_paths[e.slot_idx]
-                val_size_bytes = len(val)
-            elif col_type.is_json_type():
-                val = json.dumps(val)
-                val_size_bytes = len(val)
-            elif col_type.is_array_type():
-                val_size_bytes = val.nbytes
-            elif col_type.is_int_type() or col_type.is_float_type():
-                val_size_bytes = 8
-            elif col_type.is_bool_type():
-                val_size_bytes = 1
-            elif col_type.is_date_type():
-                val_size_bytes = 4
-            elif col_type.is_timestamp_type():
-                val = val.astimezone(datetime.timezone.utc)
-                val_size_bytes = 8
-            else:
-                raise excs.Error(f'unknown type {col_type} for {col_name}')
+                    raise excs.Error(f'unknown type {col_type} for {col_name}')
 
-            batch_columns[col_name].append(val)
-            current_byte_estimate += val_size_bytes
+                batch_columns[col_name].append(val)
+                current_byte_estimate += val_size_bytes
 
-        if current_byte_estimate > batch_size_bytes:
-            record_batch = _to_record_batch(batch_columns, arrow_schema)
-            yield record_batch
-            batch_columns = {k: [] for k in df.schema}
-            current_byte_estimate = 0
+            if current_byte_estimate > batch_size_bytes and num_batch_rows > 0:
+                record_batch = _to_record_batch(batch_columns, arrow_schema)
+                yield record_batch
+                batch_columns = {k: [] for k in df.schema}
+                current_byte_estimate = 0
+                num_batch_rows = 0
+
+    except excs.ExprEvalError as e:
+        df._raise_expr_eval_err(e)
 
     if num_batch_rows > 0:
         record_batch = _to_record_batch(batch_columns, arrow_schema)
