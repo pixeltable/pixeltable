@@ -23,8 +23,6 @@ class TestLanceDb:
     def test_export(self, reset_db: None, tmp_path: Path) -> None:
         import lancedb  # type: ignore[import-untyped]
 
-        from pixeltable.io.lancedb import export_lancedb
-
         n_rows = 1000
         schema = {
             'row_id': pxt.Int,
@@ -79,17 +77,17 @@ class TestLanceDb:
                 assert lance_img.size == original_img.size
                 assert lance_img.mode == original_img.mode
 
-        export_lancedb(t, db_path, 'test')
+        pxt.io.export_lancedb(t, db_path, 'test')
         validate_data('test', list(t.collect()))
 
         with pytest.raises(pxt.Error, match='already exists in'):
-            export_lancedb(t, db_path, 'test', if_exists='error')
+            pxt.io.export_lancedb(t, db_path, 'test', if_exists='error')
 
         with pytest.raises(pxt.Error, match='must be one of'):
-            export_lancedb(t, db_path, 'test', if_exists='badval') # type: ignore[arg-type]
+            pxt.io.export_lancedb(t, db_path, 'test', if_exists='badval')  # type: ignore[arg-type]
 
         with pytest.raises(pxt.Error, match='exists and is not a directory'):
-            export_lancedb(t, Path(__file__), 'test', if_exists='overwrite')
+            pxt.io.export_lancedb(t, Path(__file__), 'test', if_exists='overwrite')
 
         # export query result containing PIL image, with if_exists='overwrite'
         t2 = pxt.create_table('test2', schema)
@@ -106,15 +104,15 @@ class TestLanceDb:
             t2.c_array,
             c_image=t2.c_image.rotate(180),
         )
-        export_lancedb(df, db_path, 'test', if_exists='overwrite')
+        pxt.io.export_lancedb(df, db_path, 'test', if_exists='overwrite')
         validate_data('test', list(df.collect()))
 
         # if_exists='append'
-        export_lancedb(t, db_path, 'test', if_exists='append', batch_size_bytes=1024)
+        pxt.io.export_lancedb(t, db_path, 'test', if_exists='append', batch_size_bytes=1024)
         validate_data('test', list(df.collect()) + list(t.collect()))
 
         # error during export
         error_db_path = tmp_path / 'error_db'
         with pytest.raises(pxt.Error):
-            export_lancedb(t.select(t.c_int, udf_with_exc(t.c_int, 100)), error_db_path, 'test')
+            pxt.io.export_lancedb(t.select(t.c_int, udf_with_exc(t.c_int, 100)), error_db_path, 'test')
         assert not error_db_path.exists()
