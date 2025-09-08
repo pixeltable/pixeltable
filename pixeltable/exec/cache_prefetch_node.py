@@ -14,9 +14,8 @@ from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_destination import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps
 
-# from pixeltable.utils.media_store import TempStore
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -216,7 +215,7 @@ class CachePrefetchNode(ExecNode):
 
     def __fetch_url(self, url: str) -> tuple[Optional[Path], Optional[Exception]]:
         """Fetches a remote URL into the TempStore and returns its path"""
-        from pixeltable.utils.media_store import TempStore
+        from pixeltable.utils.local_store import TempStore
 
         _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
         parsed = urllib.parse.urlparse(url)

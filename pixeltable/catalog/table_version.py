@@ -20,7 +20,7 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_destination import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps
 
 from .tbl_ops import TableOp
 

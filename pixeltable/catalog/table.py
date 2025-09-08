@@ -19,7 +19,7 @@ import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
-from pixeltable.utils.media_destination import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper

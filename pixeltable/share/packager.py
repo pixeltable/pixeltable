@@ -24,8 +24,8 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.media_destination import ObjectOps
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectOps
 
 _logger = logging.getLogger('pixeltable')
 

@@ -14,7 +14,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 from .packager import TablePackager, TableRestorer
 

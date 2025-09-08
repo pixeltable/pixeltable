@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Optional
 
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
-from pixeltable.utils.media_destination import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
+from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
     from botocore.exceptions import ClientError

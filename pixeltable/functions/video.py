@@ -10,7 +10,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 _format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
     'wav': ('pcm_s16le', 'wav'),

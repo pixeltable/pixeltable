@@ -10,9 +10,8 @@ from typing import AsyncIterator, Iterator, NamedTuple, Optional
 from uuid import UUID
 
 from pixeltable import exprs
-from pixeltable.utils.media_destination import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-# from pixeltable.utils.media_store import LocalStore, TempStore
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -163,7 +162,7 @@ class ObjectStoreSaveNode(ExecNode):
             self.ready_rows[idx] = row
 
     def __process_completions(self, done: set[futures.Future], ignore_errors: bool) -> None:
-        from pixeltable.utils.media_store import TempStore
+        from pixeltable.utils.local_store import TempStore
 
         for f in done:
             work_designator = self.in_flight_requests.pop(f)
@@ -190,7 +189,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
-        from pixeltable.utils.media_store import LocalStore, TempStore
+        from pixeltable.utils.local_store import LocalStore, TempStore
 
         # Create a list of work to do for media storage in this row
         row_idx = next(self.row_idx)

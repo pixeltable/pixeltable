@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-from pixeltable.utils.media_destination import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, validate_update_status
 

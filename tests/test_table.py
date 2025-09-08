@@ -21,7 +21,7 @@ from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_destination import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     TESTS_DIR,

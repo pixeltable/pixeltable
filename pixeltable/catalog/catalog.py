@@ -15,7 +15,6 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
 
-# from pixeltable import exceptions as excs, UpdateStatus
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema

@@ -6,8 +6,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators.audio import AudioSplitter
-from pixeltable.utils.media_destination import ObjectOps
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import ReloadTester, get_audio_file, get_audio_files, get_video_files, validate_update_status
 

@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.config import Config
-from pixeltable.utils.media_destination import ObjectOps, ObjectPath
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 
 
 class TestDestination:
@@ -319,7 +319,7 @@ class TestDestination:
 
     def dest_public_read_only(self, src_base: str, src_obj: str) -> None:
         """Test downloading a media object from a public Store"""
-        from pixeltable.utils.media_store import TempStore
+        from pixeltable.utils.local_store import TempStore
 
         src_uri = src_base + src_obj
         # Download a media object from Azure Blob Storage

@@ -14,7 +14,7 @@ import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import catalog, env
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 
 class DataRow:

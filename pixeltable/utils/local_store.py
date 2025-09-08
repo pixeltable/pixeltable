@@ -16,7 +16,7 @@ from uuid import UUID
 import PIL.Image
 
 from pixeltable import env, exceptions as excs
-from pixeltable.utils.media_destination import ObjectPath, ObjectStoreBase, StorageObjectAddress
+from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column

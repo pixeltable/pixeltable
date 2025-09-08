@@ -23,7 +23,7 @@ import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
     import openai
