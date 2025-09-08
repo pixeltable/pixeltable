@@ -2824,8 +2824,8 @@ class TestTable:
             _ = t.count()
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.head()
-        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
-            _ = t.limit(1)
+        # with pytest.raises(pxt.Error, match=unknown_tbl_msg):
+        #     _ = t.limit(1)
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.tail()
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):

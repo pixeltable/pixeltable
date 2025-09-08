@@ -645,6 +645,8 @@ class TestPackager:
             pxt.drop_table(f'replica_{i}')
             tables.remove(i)
             assert sorted(pxt.list_tables()) == sorted(f'replica_{j}' for j in tables)
+            # The total number of tables remaining should be equal to 1 + max(tables); any tables beyond this no longer
+            # have dependents and should have been purged. Of these, len(tables) are visible, so the rest are hidden.
             expected_hidden_tables = 0 if len(tables) == 0 else 1 + max(tables) - len(tables)
             assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == expected_hidden_tables
             for j in tables:
