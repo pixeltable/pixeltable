@@ -541,3 +541,88 @@ class TestPackager:
                 s.where(s.icol < 5).update({'icol': 100})
             with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
                 s.where(s.icol < 5).delete()
+
+    def test_drop_replica(self, reset_db: None) -> None:
+        """
+        Test dropping a replica table.
+        """
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        t.insert([{'c1': i} for i in range(100)])
+        t_bundle = self.__package_table(t)
+
+        v = pxt.create_view('view', t)
+        v_bundle = self.__package_table(v)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(t_bundle, 'replica_tbl')
+        assert pxt.list_tables() == ['replica_tbl']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+        pxt.drop_table('replica_tbl')
+        assert pxt.list_tables() == []
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+
+        clean_db()
+        reload_catalog()
+
+        # Now try with both a table and a view
+
+        # Restoring the view should materialize the base table as a hidden table
+        self.__restore_and_check_table(v_bundle, 'replica_view')
+        assert pxt.list_tables() == ['replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 1
+
+        # Restoring the table should rename it to a visible table
+        self.__restore_and_check_table(t_bundle, 'replica_tbl')
+        assert sorted(pxt.list_tables()) == ['replica_tbl', 'replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+        self.__check_table(v_bundle, 'replica_view')  # Check the view again
+
+        # Now drop the table; this should revert it to a hidden table
+        pxt.drop_table('replica_tbl')
+        assert pxt.list_tables() == ['replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 1
+
+        # Now drop the view; this should delete it
+        pxt.drop_table('replica_view')
+        assert pxt.list_tables() == []
+        # TODO: We should also garbage-collect the hidden table at this time; then this assertion will be 0.
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 1
+
+    def test_deep_view_hierarchy(self, reset_db: None) -> None:
+        """
+        Test dropping various replica tables.
+        """
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        tbls: list[pxt.Table] = [t]
+        bundles: list[TestPackager.BundleInfo] = [self.__package_table(t)]
+        for i in range(10):
+            t.insert([{'c1': i} for i in range(i * 10, (i + 1) * 10)])
+            v = pxt.create_view(f'view_{i}', tbls[i])
+            tbls.append(v)
+            bundles.append(self.__package_table(v))
+
+        assert len(tbls) == 11
+        assert len(bundles) == 11
+
+        clean_db()
+        reload_catalog()
+
+        # Restore a few intermediate views
+        for i in (7, 5, 2, 10):
+            self.__restore_and_check_table(bundles[i], f'replica_{i}')
+
+        assert pxt.list_tables() == [f'replica_{i}' for i in (2, 5, 7, 10)]  # 4 visible tables
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 7  # 7 hidden tables
+
+        # Now drop the visible tables one by one.
+        tables = [7, 5, 2, 10]
+        for i in (5, 10, 2, 7):
+            print(f'Dropping replica_{i}')
+            pxt.drop_table(f'replica_{i}')
+            tables.remove(i)
+            assert sorted(pxt.list_tables()) == sorted(f'replica_{j}' for j in tables)
+            for j in tables:
+                # Re-check all tables that are still present
+                self.__check_table(bundles[j], f'replica_{j}')

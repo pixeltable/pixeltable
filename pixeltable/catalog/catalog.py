@@ -1098,8 +1098,9 @@ class Catalog:
                 assert existing_path.is_system_path
                 self._move(existing_path, path)
 
-    def __ensure_system_dir_exists(self) -> None:
-        self._create_dir(Path.parse('_system', allow_system_path=True), if_exists=IfExistsParam.IGNORE, parents=False)
+    def __ensure_system_dir_exists(self) -> Dir:
+        system_path = Path.parse('_system', allow_system_path=True)
+        return self._create_dir(system_path, if_exists=IfExistsParam.IGNORE, parents=False)
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
@@ -1238,13 +1239,13 @@ class Catalog:
         self._acquire_tbl_lock(tbl_id=tbl._id, for_write=True, lock_mutable_tree=False)
 
         view_ids = self.get_view_ids(tbl._id, for_update=True)
+        is_replica = tbl._tbl_version_path.is_replica()
         if len(view_ids) > 0:
             if not force:
-                if tbl._tbl_version_path.is_replica():
+                if is_replica:
                     # Dropping a replica with dependents and no 'force': just rename it to be a hidden table.
-                    self.__ensure_system_dir_exists()
-                    # '_system.replica_{ancestor_id.hex}'
-                    tbl._move(f'replica_{tbl._id.hex}', self.get_dir('_system')._id)
+                    system_dir = self.__ensure_system_dir_exists()
+                    tbl._move(f'replica_{tbl._id.hex}', system_dir._id)
                     return
 
                 # It's not a replica, so it's an error to drop it.
@@ -1290,7 +1291,8 @@ class Catalog:
             tv.drop()
 
         self.delete_tbl_md(tbl._id)
-        assert (tbl._id, None) in self._tbls
+        # non-replica tables must have an entry with effective_version=None
+        assert is_replica or (tbl._id, None) in self._tbls
         versions = [k[1] for k in self._tbls if k[0] == tbl._id]
         for version in versions:
             del self._tbls[tbl._id, version]

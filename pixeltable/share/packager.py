@@ -371,6 +371,9 @@ class TableRestorer:
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
 
+            _logger.debug(f'Now will import data for {len(tbl_md)} table(s):')
+            _logger.debug(repr([md.tbl_md.tbl_id for md in tbl_md[::-1]]))
+
             # Now we need to load data for replica_tbl and its ancestors, except that we skip
             # replica_tbl itself if it's a pure snapshot.
             for md in tbl_md[::-1]:  # Base table first

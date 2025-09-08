@@ -357,6 +357,7 @@ class FullTableMd(NamedTuple):
     def is_pure_snapshot(self) -> bool:
         return (
             self.tbl_md.view_md is not None
+            and self.tbl_md.view_md.is_snapshot
             and self.tbl_md.view_md.predicate is None
             and len(self.schema_version_md.columns) == 0
         )
