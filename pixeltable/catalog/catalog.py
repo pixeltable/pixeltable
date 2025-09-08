@@ -1040,7 +1040,7 @@ class Catalog:
             )
 
         # Ensure that the system directory exists.
-        self._create_dir(Path.parse('_system', allow_system_path=True), if_exists=IfExistsParam.IGNORE, parents=False)
+        self.__ensure_system_dir_exists()
 
         # Now check to see if this table already exists in the catalog.
         existing = self.get_table_by_id(tbl_id)
@@ -1098,6 +1098,8 @@ class Catalog:
                 assert existing_path.is_system_path
                 self._move(existing_path, path)
 
+    def __ensure_system_dir_exists(self) -> None:
+        self._create_dir(Path.parse('_system', allow_system_path=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
@@ -1238,16 +1240,22 @@ class Catalog:
         view_ids = self.get_view_ids(tbl._id, for_update=True)
         if len(view_ids) > 0:
             if not force:
-                is_snapshot = tbl._tbl_version_path.is_snapshot()
-                obj_type_str = 'Snapshot' if is_snapshot else tbl._display_name().capitalize()
+                if tbl._tbl_version_path.is_replica():
+                    # Dropping a replica with dependents and no 'force': just rename it to be a hidden table.
+                    self.__ensure_system_dir_exists()
+                    # '_system.replica_{ancestor_id.hex}'
+                    tbl._move(f'replica_{tbl._id.hex}', self.get_dir('_system')._id)
+                    return
+
+                # It's not a replica, so it's an error to drop it.
                 msg: str
                 if is_replace:
                     msg = (
-                        f'{obj_type_str} {tbl._path()} already exists and has dependents. '
+                        f'{tbl._display_name()} {tbl._path()!r} already exists and has dependents. '
                         "Use `if_exists='replace_force'` to replace it."
                     )
                 else:
-                    msg = f'{obj_type_str} {tbl._path()} has dependents.'
+                    msg = f'{tbl._display_name()} {tbl._path()!r} has dependents.'
                 raise excs.Error(msg)
 
             for view_id in view_ids:
