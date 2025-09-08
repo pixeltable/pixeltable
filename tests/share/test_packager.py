@@ -587,8 +587,30 @@ class TestPackager:
         # Now drop the view; this should delete it
         pxt.drop_table('replica_view')
         assert pxt.list_tables() == []
-        # TODO: We should also garbage-collect the hidden table at this time; then this assertion will be 0.
+        # this should also have resulted in the base table being deleted
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+
+        # Try again, this time deleting the view first.
+        # We do all the checks again with a full restore cycle, so that we also check that multiple
+        # create/delete roundtrips on the same replicas succeed without leaving cruft around.
+        self.__restore_and_check_table(v_bundle, 'replica_view')
+        assert pxt.list_tables() == ['replica_view']
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 1
+        self.__restore_and_check_table(t_bundle, 'replica_tbl')
+        assert sorted(pxt.list_tables()) == ['replica_tbl', 'replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+        self.__check_table(v_bundle, 'replica_view')  # Check the view again
+
+        # Now drop the view; this should delete it
+        pxt.drop_table('replica_view')
+        # this should NOT have resulted in the base table being deleted, since it's now a visible table
+        assert pxt.list_tables() == ['replica_tbl']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+
+        # Now drop the table; this should delete it
+        pxt.drop_table('replica_tbl')
+        assert pxt.list_tables() == []
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
 
     def test_deep_view_hierarchy(self, reset_db: None) -> None:
         """
@@ -623,6 +645,8 @@ class TestPackager:
             pxt.drop_table(f'replica_{i}')
             tables.remove(i)
             assert sorted(pxt.list_tables()) == sorted(f'replica_{j}' for j in tables)
+            expected_hidden_tables = 0 if len(tables) == 0 else 1 + max(tables) - len(tables)
+            assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == expected_hidden_tables
             for j in tables:
                 # Re-check all tables that are still present
                 self.__check_table(bundles[j], f'replica_{j}')

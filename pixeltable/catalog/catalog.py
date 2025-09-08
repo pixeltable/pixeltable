@@ -1238,17 +1238,31 @@ class Catalog:
         self._acquire_dir_xlock(dir_id=tbl._dir_id)
         self._acquire_tbl_lock(tbl_id=tbl._id, for_write=True, lock_mutable_tree=False)
 
+        base = tbl._get_base_table()  # we may need this later
         view_ids = self.get_view_ids(tbl._id, for_update=True)
         is_replica = tbl._tbl_version_path.is_replica()
-        if len(view_ids) > 0:
-            if not force:
-                if is_replica:
-                    # Dropping a replica with dependents and no 'force': just rename it to be a hidden table.
-                    system_dir = self.__ensure_system_dir_exists()
-                    tbl._move(f'replica_{tbl._id.hex}', system_dir._id)
-                    return
+        do_drop = True
 
-                # It's not a replica, so it's an error to drop it.
+        _logger.debug(f'Preparing to drop table {tbl._id} (force={force!r}, is_replica={is_replica}).')
+
+        if len(view_ids) > 0:
+            if force:
+                # recursively drop views first
+                for view_id in view_ids:
+                    view = self.get_table_by_id(view_id)
+                    self._drop_tbl(view, force=force, is_replace=is_replace)
+
+            elif is_replica:
+                # Dropping a replica with dependents and no 'force': just rename it to be a hidden table;
+                # the actual table will not be dropped.
+                system_dir = self.__ensure_system_dir_exists()
+                new_name = f'replica_{tbl._id.hex}'
+                _logger.debug(f'{tbl._path()!r} is a replica with dependents; renaming to {new_name!r}.')
+                tbl._move(new_name, system_dir._id)
+                do_drop = False  # don't actually clear the catalog for this table
+
+            else:
+                # It has dependents but is not a replica and no 'force', so it's an error to drop it.
                 msg: str
                 if is_replace:
                     msg = (
@@ -1258,10 +1272,6 @@ class Catalog:
                 else:
                     msg = f'{tbl._display_name()} {tbl._path()!r} has dependents.'
                 raise excs.Error(msg)
-
-            for view_id in view_ids:
-                view = self.get_table_by_id(view_id)
-                self._drop_tbl(view, force=force, is_replace=is_replace)
 
         # if this is a mutable view of a mutable base, advance the base's view_sn
         if isinstance(tbl, View) and tbl._tbl_version_path.is_mutable() and tbl._tbl_version_path.base.is_mutable():
@@ -1276,27 +1286,44 @@ class Catalog:
             )
             assert result.rowcount == 1, result.rowcount
 
-        if tbl._tbl_version is not None:
-            # invalidate the TableVersion instance when we're done so that existing references to it can find out it
-            # has been dropped
-            self._modified_tvs.add(tbl._tbl_version)
-        tv = tbl._tbl_version.get() if tbl._tbl_version is not None else None
-        # if tv is not None:
-        #     tv = tbl._tbl_version.get()
-        #     # invalidate the TableVersion instance so that existing references to it can find out it has been dropped
-        #     tv.is_validated = False
-        if tbl._tbl_version is not None:
-            # drop the store table before deleting the Table record
-            tv = tbl._tbl_version.get()
-            tv.drop()
+        if do_drop:
+            if tbl._tbl_version is not None:
+                # invalidate the TableVersion instance when we're done so that existing references to it can find out it
+                # has been dropped
+                self._modified_tvs.add(tbl._tbl_version)
+            tv = tbl._tbl_version.get() if tbl._tbl_version is not None else None
+            if tbl._tbl_version is not None:
+                # drop the store table before deleting the Table record
+                tv = tbl._tbl_version.get()
+                tv.drop()
 
-        self.delete_tbl_md(tbl._id)
-        # non-replica tables must have an entry with effective_version=None
-        assert is_replica or (tbl._id, None) in self._tbls
-        versions = [k[1] for k in self._tbls if k[0] == tbl._id]
+            self.delete_tbl_md(tbl._id)
+            known_tvs = [version for id, version in self._tbl_versions if id == tbl._id]
+            for known_tv in known_tvs:
+                del self._tbl_versions[tbl._id, known_tv]
+
+        assert (
+            is_replica
+            or (tbl._id, None) in self._tbls  # non-replica tables must have an entry with effective_version=None
+        )
+
+        # Remove visible Table references (we do this even for a replica that was just renamed).
+        versions = [version for id, version in self._tbls if id == tbl._id]
         for version in versions:
             del self._tbls[tbl._id, version]
-        _logger.info(f'Dropped table `{tbl._path()}`.')
+
+        _logger.info(f'Dropped table {tbl._path()!r}.')
+
+        if (
+            is_replica  # if this is a replica,
+            and do_drop  # and it was actually dropped (not just renamed),
+            and base is not None  # and it has a base table,
+            and Path(base._path()).is_system_path  # and the base table is hidden,
+            and len(self.get_view_ids(base._id, for_update=True)) == 0  # and the base table has no other dependents,
+        ):
+            # then drop the base table as well (possibly recursively).
+            _logger.debug(f'Dropping hidden base table {base._path()!r} of dropped replica {tbl._path()!r}.')
+            self._drop_tbl(base, force=False, is_replace=False)
 
     @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
