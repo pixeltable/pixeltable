@@ -14,7 +14,6 @@ import psycopg
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
-
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
