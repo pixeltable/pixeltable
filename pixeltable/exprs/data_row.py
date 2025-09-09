@@ -4,9 +4,9 @@ import datetime
 import io
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
-from dataclasses import dataclass
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -23,6 +23,7 @@ class CellMd:
     """
     Content of the cellmd column.
     """
+
     errortype: str | None = None
     errormsg: str | None = None
     embedded_object_file_urls: list[str] | None = None
