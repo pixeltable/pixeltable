@@ -153,6 +153,7 @@ dev = [
     "mcp>=1.9.4",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
+    "lancedb>=0.20",
 ]
 test = [
     "pytest>=8.4",
