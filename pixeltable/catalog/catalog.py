@@ -1229,19 +1229,24 @@ class Catalog:
         """
         Drop the table (and recursively its views, if force == True).
 
+        `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for hidden (system) table.
+
         Locking protocol:
         - X-lock base before X-locking any view
         - deadlock-free wrt to TableVersion.insert() (insert propagation also proceeds top-down)
         - X-locks parent dir prior to calling TableVersion.drop(): prevent concurrent creation of another SchemaObject
           in the same directory with the same name (which could lead to duplicate names if we get aborted)
         """
+        is_pure_snapshot: bool
         if isinstance(tbl, TableVersionPath):
             tvp = tbl
             tbl_id = tvp.tbl_id
             tbl = None
+            is_pure_snapshot = False
         else:
             tvp = tbl._tbl_version_path
             tbl_id = tbl._id
+            is_pure_snapshot = tbl._tbl_version is None
 
         if tbl is not None:
             self._acquire_dir_xlock(dir_id=tbl._dir_id)
@@ -1297,12 +1302,12 @@ class Catalog:
             assert result.rowcount == 1, result.rowcount
 
         if do_drop:
-            if tvp.tbl_version is not None:
+            if not is_pure_snapshot:
                 # invalidate the TableVersion instance when we're done so that existing references to it can find out it
                 # has been dropped
                 self._modified_tvs.add(tvp.tbl_version)
             tv = tvp.tbl_version.get() if tvp.tbl_version is not None else None
-            if tvp.tbl_version is not None:
+            if not is_pure_snapshot:
                 # drop the store table before deleting the Table record
                 tv = tvp.tbl_version.get()
                 tv.drop()
@@ -1327,9 +1332,10 @@ class Catalog:
             and tvp.base is not None  # and it has a base table,
         ):
             base_tbl = self.get_table_by_id(tvp.base.tbl_id)
+            base_tbl_path = None if base_tbl is None else Path.parse(base_tbl._path(), allow_system_path=True)
             if (
-                (base_tbl is None or Path(base_tbl._path()).is_system_path)  # and the base table is hidden,
-                and len(self.get_view_ids(tvp.base.tbl_id, for_update=True)) == 0  # and the base table has no other dependents,
+                (base_tbl_path is None or base_tbl_path.is_system_path)  # and the base table is hidden,
+                and len(self.get_view_ids(tvp.base.tbl_id, for_update=True)) == 0  # and has no other dependents,
             ):
                 # then drop the base table as well (possibly recursively).
                 _logger.debug(f'Dropping hidden base table {tvp.base.tbl_id} of dropped replica {tbl_id}.')
@@ -1533,7 +1539,7 @@ class Catalog:
         if has_pending_ops:
             raise PendingTableOpsError(tbl_id)
 
-        q = (
+        q: sql.Executable = (
             sql.select(schema.Table, schema.TableSchemaVersion)
             .join(schema.TableSchemaVersion)
             .where(schema.Table.id == schema.TableSchemaVersion.tbl_id)
@@ -1810,18 +1816,18 @@ class Catalog:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
                 assert version_md.schema_version == schema_version_md.schema_version
-            if session.query(schema.TableVersion).filter(
-                schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version
-            ).count() > 0:
+            if (
+                session.query(schema.TableVersion)
+                .filter(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
+                .count()
+                > 0
+            ):
                 # This table version already exists; update it. (This typically happens when setting the is_hidden
                 # flag of an existing TableVersion from True to False.)
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
-                    .where(
-                        schema.TableVersion.tbl_id == tbl_id,
-                        schema.TableVersion.version == version_md.version,
-                    )
+                    .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
                 )
                 assert result.rowcount == 1, result.rowcount
             else:
