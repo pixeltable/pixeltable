@@ -18,6 +18,7 @@ from pixeltable.iterators import ComponentIterator
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
+    import polars as pl
 
     RowData = list[dict[str, Any]]
     TableDataSource = Union[
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
         Sequence[pydantic.BaseModel],  # list of Pydantic models
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
+        pl.DataFrame,  # polars DataFrame
         datasets.Dataset,
         datasets.DatasetDict,  # Huggingface datasets
     ]
