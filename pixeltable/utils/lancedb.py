@@ -16,7 +16,7 @@ _logger = logging.getLogger('pixeltable')
 def export_lancedb(
     table_or_df: pxt.Table | pxt.DataFrame,
     db_uri: Path,
-    table_name: str = 'pixeltable_export',
+    table_name: str,
     batch_size_bytes: int = 128 * 2**20,
     if_exists: Literal['error', 'overwrite', 'append'] = 'error',
 ) -> None:
@@ -27,6 +27,7 @@ def export_lancedb(
     `RecordBatches`, the size of which can be controlled with the `batch_size_bytes` parameter.
 
     __Requirements:__
+
     - `pip install lancedb`
 
     Args:
@@ -40,7 +41,6 @@ def export_lancedb(
             - `'overwrite'`: overwrite the existing table
             - `'append'`: append to the existing table
     """
-    Env.get().require_package('pyarrow', [13])
     Env.get().require_package('lancedb')
 
     import lancedb  # type: ignore[import-untyped]
