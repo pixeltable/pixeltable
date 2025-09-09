@@ -6,6 +6,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
+from dataclasses import dataclass
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -15,6 +16,16 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, env
 from pixeltable.utils.media_store import MediaStore, TempStore
+
+
+@dataclass
+class CellMd:
+    """
+    Content of the cellmd column.
+    """
+    errortype: str | None = None
+    errormsg: str | None = None
+    embedded_object_file_urls: list[str] | None = None
 
 
 class DataRow:
@@ -39,26 +50,14 @@ class DataRow:
     - DocumentType: local path if available, otherwise url
     """
 
+    # expr evaluation state; indexed by slot idx
+
     vals: np.ndarray  # of object
     has_val: np.ndarray  # of bool
     excs: np.ndarray  # of object
-
-    # If `may_have_exc` is False, then we guarantee that no slot has an exception set. This is used to optimize
-    # exception handling under normal operation.
-    _may_have_exc: bool
-
-    # expr evaluation state; indexed by slot idx
     missing_slots: np.ndarray  # of bool; number of missing dependencies
     missing_dependents: np.ndarray  # of int16; number of missing dependents
     is_scheduled: np.ndarray  # of bool; True if this slot is scheduled for evaluation
-
-    # control structures that are shared across all DataRows in a batch
-    img_slot_idxs: list[int]
-    media_slot_idxs: list[int]
-    array_slot_idxs: list[int]
-
-    # the primary key of a store row is a sequence of ints (the number is different for table vs view)
-    pk: Optional[tuple[int, ...]]
 
     # file_urls:
     # - stored url of file for media in vals[i]
@@ -71,49 +70,67 @@ class DataRow:
     # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
     file_paths: np.ndarray  # of str
 
+    # If `may_have_exc` is False, then we guarantee that no slot has an exception set. This is used to optimize
+    # exception handling under normal operation.
+    _may_have_exc: bool
+
+    # the primary key of a store row is a sequence of ints (the number is different for table vs view)
+    pk: Optional[tuple[int, ...]]
     # for nested rows (ie, those produced by JsonMapperDispatcher)
     parent_row: Optional[DataRow]
     parent_slot_idx: Optional[int]
 
+    # data for output columns; indexed by column id
+    cell_vals: list[Any]
+    cell_md: list[CellMd | None]
+
+    # control structures that are shared across all DataRows in a batch
+    img_slot_idxs: list[int]
+    media_slot_idxs: list[int]
+    array_slot_idxs: list[int]
+
     def __init__(
         self,
-        size: int,
+        num_slots: int,
+        num_output_cols: int,
         img_slot_idxs: list[int],
         media_slot_idxs: list[int],
         array_slot_idxs: list[int],
         parent_row: Optional[DataRow] = None,
         parent_slot_idx: Optional[int] = None,
     ):
+        self.init(num_slots, num_output_cols)
+        self.parent_row = parent_row
+        self.parent_slot_idx = parent_slot_idx
         self.img_slot_idxs = img_slot_idxs
         self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
-        self.init(size)
-        self.parent_row = parent_row
-        self.parent_slot_idx = parent_slot_idx
 
-    def init(self, num_slots: int) -> None:
+    def init(self, num_slots: int, num_output_cols: int) -> None:
         self.vals = np.full(num_slots, None, dtype=object)
         self.has_val = np.zeros(num_slots, dtype=bool)
         self.excs = np.full(num_slots, None, dtype=object)
-        self._may_have_exc = False
         self.missing_slots = np.zeros(num_slots, dtype=bool)
         self.missing_dependents = np.zeros(num_slots, dtype=np.int16)
         self.is_scheduled = np.zeros(num_slots, dtype=bool)
-        self.pk = None
         self.file_urls = np.full(num_slots, None, dtype=object)
         self.file_paths = np.full(num_slots, None, dtype=object)
+        self._may_have_exc = False
+        self.cell_vals = [None] * num_output_cols
+        self.cell_md = [None] * num_output_cols
+        self.pk = None
         self.parent_row = None
         self.parent_slot_idx = None
 
-    def clear(self, idxs: Optional[np.ndarray] = None) -> None:
-        if idxs is not None:
-            self.has_val[idxs] = False
-            self.vals[idxs] = None
-            self.excs[idxs] = None
-            self.file_urls[idxs] = None
-            self.file_paths[idxs] = None
+    def clear(self, slot_idxs: Optional[np.ndarray] = None) -> None:
+        if slot_idxs is not None:
+            self.has_val[slot_idxs] = False
+            self.vals[slot_idxs] = None
+            self.excs[slot_idxs] = None
+            self.file_urls[slot_idxs] = None
+            self.file_paths[slot_idxs] = None
         else:
-            self.init(len(self.vals))
+            self.init(len(self.vals), len(self.cell_vals))
 
     def set_file_path(self, idx: int, path: str) -> None:
         """Augment an existing url with a local file path"""
