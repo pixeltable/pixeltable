@@ -8,6 +8,7 @@ from typing import Literal
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog import Catalog
+from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
@@ -39,14 +40,15 @@ def export_lancedb(
             - `'overwrite'`: overwrite the existing table
             - `'append'`: append to the existing table
     """
-    try:
-        import lancedb  # type: ignore[import-untyped]
-    except ImportError as e:
-        raise excs.Error(f"export_lancedb(): requires 'lancedb' and 'pyarrow' packages: {e}") from None
-    if if_exists not in ('error', 'overwrite', 'append'):
-        raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']")
+    Env.get().require_package('pyarrow', [13])
+    Env.get().require_package('lancedb')
+
+    import lancedb  # type: ignore[import-untyped]
 
     from pixeltable.utils.arrow import to_arrow_schema, to_record_batches
+
+    if if_exists not in ('error', 'overwrite', 'append'):
+        raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']")
 
     df: pxt.DataFrame
     if isinstance(table_or_df, pxt.catalog.Table):
