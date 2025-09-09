@@ -4,6 +4,7 @@ import math
 import os
 import random
 import re
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
 
@@ -2852,13 +2853,9 @@ class TestTable:
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_coco_dataset()
 
-        try:
-            import torch
-
+        if find_spec('torch') is not None:
             with pytest.raises(pxt.Error, match=unknown_tbl_msg):
                 _ = t.to_pytorch_dataset()
-        except ImportError:
-            pass  # torch not installed in this test environment
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.revert()
