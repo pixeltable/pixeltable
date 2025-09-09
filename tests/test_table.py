@@ -2851,8 +2851,14 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_coco_dataset()
-        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
-            _ = t.to_pytorch_dataset()
+
+        try:
+            import torch
+
+            with pytest.raises(pxt.Error, match=unknown_tbl_msg):
+                _ = t.to_pytorch_dataset()
+        except ImportError:
+            pass  # torch not installed in this test environment
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.revert()
