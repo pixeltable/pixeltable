@@ -1690,43 +1690,35 @@ class Table(SchemaObject):
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._get_schema().keys())
 
-    _REPORT_SCHEMA: ClassVar[dict[str, ts.ColumnType]] = {
-        'version': ts.IntType(),
-        'created_at': ts.TimestampType(),
-        'user': ts.StringType(nullable=True),
-        'note': ts.StringType(),
-        'inserts': ts.IntType(nullable=True),
-        'updates': ts.IntType(nullable=True),
-        'deletes': ts.IntType(nullable=True),
-        'errors': ts.IntType(nullable=True),
-        'computed': ts.IntType(),
-        'schema_change': ts.StringType(),
-    }
+    def get_versions(self, n: Optional[int] = None) -> list[VersionMetadata]:
+        """
+        Returns information about versions of this table, most recent first.
 
-    def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
-        """Returns rows of information about the versions of this table, most recent first.
+        `get_versions()` is intended for programmatic access to version metadata; for human-readable
+        output, use [`history()`][pixeltable.Table.history()] instead.
 
         Args:
-            n: a limit to the number of versions listed
-
-        Examples:
-            Report history:
-
-            >>> tbl.history()
-
-            Report only the most recent 5 changes to the table:
-
-            >>> tbl.history(n=5)
+            n: if specified, will return at most `n` versions
 
         Returns:
-            A list of information about each version, ordered from most recent to oldest version.
+            A list of [VersionMetadata][pxt.VersionMetadata] dictionaries, one per version retrieved, most recent
+            first.
+
+        Examples:
+            Retrieve metadata about all versions of the table `tbl`:
+
+            >>> tbl.get_versions()
+
+            Retrieve metadata about the most recent 5 versions of the table `tbl`:
+
+            >>> tbl.get_versions(n=5)
         """
         from pixeltable.catalog import Catalog
 
         if n is None:
             n = 1_000_000_000
         if not isinstance(n, int) or n < 1:
-            raise excs.Error(f'Invalid value for n: {n}')
+            raise excs.Error(f'Invalid value for `n`: {n}')
 
         # Retrieve the table history components from the catalog
         tbl_id = self._id
@@ -1744,10 +1736,10 @@ class Table(SchemaObject):
         else:
             over_count = 0
 
-        report_lines: list[list[Any]] = []
+        metadata_dicts: list[VersionMetadata] = []
         for vers_md in vers_list[0 : len(vers_list) - over_count]:
             version = vers_md.version_md.version
-            schema_change = md_dict.get(version, '')
+            schema_change = md_dict.get(version, None)
             update_status = vers_md.version_md.update_status
             if update_status is None:
                 update_status = UpdateStatus()
@@ -1755,21 +1747,48 @@ class Table(SchemaObject):
             if change_type == '':
                 change_type = 'data'
             rcs = update_status.row_count_stats + update_status.cascade_row_count_stats
-            report_line = [
-                version,
-                datetime.datetime.fromtimestamp(vers_md.version_md.created_at),
-                vers_md.version_md.user,
-                change_type,
-                rcs.ins_rows,
-                rcs.upd_rows,
-                rcs.del_rows,
-                rcs.num_excs,
-                rcs.computed_values,
-                schema_change,
-            ]
-            report_lines.append(report_line)
+            metadata_dicts.append(
+                VersionMetadata(
+                    version=version,
+                    created_at=datetime.datetime.fromtimestamp(vers_md.version_md.created_at),
+                    user=vers_md.version_md.user,
+                    change_type=change_type,
+                    inserts=rcs.ins_rows,
+                    updates=rcs.upd_rows,
+                    deletes=rcs.del_rows,
+                    errors=rcs.num_excs,
+                    computed=rcs.computed_values,
+                    schema_change=schema_change,
+                )
+            )
 
-        return pxt.dataframe.DataFrameResultSet(report_lines, self._REPORT_SCHEMA)
+        return metadata_dicts
+
+    def history(self, n: Optional[int] = None) -> pd.DataFrame:
+        """
+        Returns a human-readable report about versions of this table.
+
+        `history()` is intended for human-readable output of version metadata; for programmatic access,
+        use [`get_versions()`][pixeltable.Table.get_versions()] instead.
+
+        Args:
+            n: if specified, will return at most `n` versions
+
+        Returns:
+            A report with information about each version, one per row, most recent first.
+
+        Examples:
+            Report all versions of the table:
+
+            >>> tbl.history()
+
+            Report only the most recent 5 changes to the table:
+
+            >>> tbl.history(n=5)
+        """
+        versions = self.get_versions(n)
+        assert len(versions) > 0
+        return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
 
     def __check_mutable(self, op_descr: str) -> None:
         if self._tbl_version_path.is_snapshot():
@@ -1845,3 +1864,28 @@ class TableMetadata(TypedDict):
     """The media validation policy for this table."""
     base: Optional[str]
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
+
+
+class VersionMetadata(TypedDict):
+    """Metadata for a specific version of a Pixeltable table."""
+
+    """The version number."""
+    version: int
+    """The timestamp when this version was created."""
+    created_at: datetime.datetime
+    """The user who created this version, if defined."""
+    user: str | None
+    """The type of table transformation that this version represents (`'data'` or `'schema'`)."""
+    change_type: Literal['data', 'schema']
+    """The number of rows inserted in this version."""
+    inserts: int
+    """The number of rows updated in this version."""
+    updates: int
+    """The number of rows deleted in this version."""
+    deletes: int
+    """The number of errors encountered during this version."""
+    errors: int
+    """The number of computed values calculated in this version."""
+    computed: int
+    """A description of the schema change that occurred in this version, if any."""
+    schema_change: str | None
