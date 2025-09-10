@@ -4,7 +4,6 @@ from .audio import AudioSplitter
 from .base import ComponentIterator
 from .document import DocumentSplitter
 from .image import TileIterator
-from .pdf_page_extractor import PdfPageExtractor
 from .string import StringSplitter
 from .video import FrameIterator
 

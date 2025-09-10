@@ -8,6 +8,11 @@ from PIL import Image
 
 from pixeltable.iterators.document import DocumentSplitter
 
+try:
+    from IPython.display import display
+except ImportError:
+    display = print  # fallback: just print if not in notebook
+
 #
 # pytest -v tests/test_pdf_page_images.py
 #
@@ -47,7 +52,7 @@ class TestPdfPageImages:
                 page_image_format="png",
             )
 
-            for chunk in itertools.islice(splitter, 3):
+            for idx, chunk in enumerate(itertools.islice(splitter, 3), start=1):
                 assert "page" in chunk
                 assert "text" in chunk
                 assert isinstance(chunk["text"], str)
@@ -62,3 +67,10 @@ class TestPdfPageImages:
                     chunk["image"].save(img_io, format="PNG")
                     reopened = Image.open(io.BytesIO(img_io.getvalue()))
                     assert reopened.size == chunk["image"].size
+
+                    # --- NEW: show image in widget ---
+                    display(f"PDF: {os.path.basename(doc_path)}, page {chunk['page']}")
+                    display(chunk["image"])
+
+                if idx >= 3:
+                    break
