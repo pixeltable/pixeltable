@@ -11,6 +11,7 @@ import PIL.Image
 
 import pixeltable.type_system as ts
 from pixeltable import exprs
+from pixeltable.utils.media_store import MediaStore
 
 from .data_row_batch import DataRowBatch
 
@@ -40,8 +41,7 @@ class CellMaterializationNode(ExecNode):
         self.output_col_info = [
             col_info for col_info in row_builder.table_columns if col_info.col.col_type.is_json_type()
         ]
-        self.embedded_obj_urls = []
-        self.bytes_buffer = io.BytesIO()
+        self._create_new_url()
 
     def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:
@@ -72,18 +72,18 @@ class CellMaterializationNode(ExecNode):
         if isinstance(element, dict):
             return {k: self._rewrite_json(v) for k, v in element.items()}
         if isinstance(element, np.ndarray):
-            output_url, begin, end = self._write_ndarray(element)
+            url_idx, begin, end = self._write_ndarray(element)
             return {
                 '__pxttype__': ts.ColumnType.Type.ARRAY.name,
-                '__pxturl__': output_url,
+                '__pxturlidx__': url_idx,
                 '__pxtbegin__': begin,
                 '__pxtend__': end,
             }
         if isinstance(element, PIL.Image.Image):
-            output_url, begin, end = self._write_image(element)
+            url_idx, begin, end = self._write_image(element)
             return {
                 '__pxttype__': ts.ColumnType.Type.IMAGE.name,
-                '__pxturl__': output_url,
+                '__pxturlidx__': url_idx,
                 '__pxtbegin__': begin,
                 '__pxtend__': end,
             }
@@ -97,7 +97,7 @@ class CellMaterializationNode(ExecNode):
         end = self.bytes_buffer.tell()
         return url_idx, begin, end
 
-    def _write_image(self, element: PIL.Image.Image) -> tuple[Path, int, int]:
+    def _write_image(self, element: PIL.Image.Image) -> tuple[int, int, int]:
         """Write a PIL image to bytes_buffer and return: index into embedded_obj_urls, start offset, end offset"""
         url_idx = len(self.embedded_obj_urls) - 1
         begin = self.bytes_buffer.tell()
@@ -105,7 +105,15 @@ class CellMaterializationNode(ExecNode):
         element.save(self.bytes_buffer, format=format)
         end = self.bytes_buffer.tell()
         return url_idx, begin, end
+
+    def _create_new_url(self) -> None:
+        url = MediaStore.get()._prepare_media_path_raw(self.row_builder.tbl.id, 0, self.row_builder.tbl.version)
+        self.embedded_obj_urls.append(url)
+        self.bytes_buffer = io.BytesIO()
+
     def _flush_buffer(self) -> None:
         if self.bytes_buffer.tell() >= self.MIN_FILE_SIZE:
-            self.bytes_buffer.flush()
-            self.embedded_obj_urls.append(self.bytes_buffer.name)
+            self.bytes_buffer.seek(0)
+            with open(self.embedded_obj_urls[-1], 'wb') as f:
+                f.write(self.bytes_buffer.getbuffer())
+            self._create_new_url()
