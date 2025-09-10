@@ -1,0 +1,15 @@
+    def test_vision_limit(self, reset_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import vision
+
+        t = pxt.create_table('test_tbl', {'video': pxt.Video})
+        from pixeltable.iterators import FrameIterator
+
+        frames = pxt.create_view('frames', t, iterator=FrameIterator.create(video=t.video, fps=2))
+        frames.add_computed_column(
+            response=vision(prompt="What's in this image?", image=frames.frame, model='gpt-4o-mini')
+        )
+        video_filepaths = get_video_files()
+        status = t.insert({'video': p} for p in video_filepaths)
+        print(status)
