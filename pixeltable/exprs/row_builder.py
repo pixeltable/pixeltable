@@ -86,6 +86,7 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
+    json_slot_idxs: list[int]  # Indices of JSON slots
     stored_img_cols: list[exprs.ColumnSlotIdx]
     stored_media_cols: list[exprs.ColumnSlotIdx]
 
@@ -246,6 +247,7 @@ class RowBuilder:
             e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
+        self.json_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_json_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
@@ -474,11 +476,7 @@ class RowBuilder:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                if col.col_type.is_media_type():
-                    if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
-                        # we have yet to store this image
-                        data_row.flush_img(slot_idx, col)
-                    data_row.move_tmp_media_file(slot_idx, col)
+                data_row.flush_media(slot_idx, col)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
@@ -504,4 +502,6 @@ class RowBuilder:
 
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""
-        return exprs.DataRow(self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+        return exprs.DataRow(
+            self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs, self.json_slot_idxs
+        )
