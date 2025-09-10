@@ -1,13 +1,12 @@
 import io
-import itertools
 import os
+import itertools
 from typing import List
 
 import pytest
 from PIL import Image
 
 from pixeltable.iterators import PdfPageExtractor
-
 
 def find_pdfs(path: str, limit: int = 50, recursive: bool = True) -> List[str]:
     """Find PDF files in a directory up to a certain limit."""
@@ -29,7 +28,7 @@ def find_pdfs(path: str, limit: int = 50, recursive: bool = True) -> List[str]:
 
 
 class TestPdfPageExtractor:
-    @pytest.mark.parametrize('limit', [2])  # Only test a few PDFs to keep runtime low
+    @pytest.mark.parametrize('limit', 2)  # Only test a few PDFs to keep runtime low
     def test_pdf_page_extraction(self, limit: int) -> None:
         pdfs = find_pdfs('tests/data/documents', limit=limit)
         assert len(pdfs) > 0, 'No PDF files found for testing.'
@@ -57,6 +56,5 @@ class TestPdfPageExtractor:
 
                 reopened_img = Image.open(io.BytesIO(img_bytes))
                 assert reopened_img.size == chunk['image'].size
-                break  # Only test the first page to keep the test fast
 
             extractor.close()

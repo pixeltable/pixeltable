@@ -13,3 +13,4 @@ local
 site
 target
 .DS_Store
+Makefile.MK
