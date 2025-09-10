@@ -54,7 +54,7 @@ class DocumentSection:
 
     text: Optional[str]
     metadata: Optional[DocumentSectionMetadata]
-
+    image: 'Optional[PIL.Image.Image]' = None   # optionally holds the page as image
 
 def _parse_separators(separators: str) -> list[Separator]:
     ret = []
@@ -115,6 +115,10 @@ class DocumentSplitter(ComponentIterator):
         html_skip_tags: Optional[list[str]] = None,
         tiktoken_encoding: Optional[str] = 'cl100k_base',
         tiktoken_target_model: Optional[str] = None,
+        # (PDF-processing-only)
+        include_page_image: bool = False,
+        page_image_dpi: int = 300,
+        page_image_format: str = 'png',
     ):
         """Init method for `DocumentSplitter` class.
 
@@ -133,7 +137,7 @@ class DocumentSplitter(ComponentIterator):
         self._doc_handle = get_document_handle(document)
         assert self._doc_handle is not None
         # calling the output_schema method to validate the input arguments
-        self.output_schema(separators=separators, metadata=metadata, limit=limit, overlap=overlap)
+        self.output_schema(separators=separators, metadata=metadata, limit=limit, overlap=overlap, include_page_image=include_page_image)
         self._separators = _parse_separators(separators)
         self._metadata_fields = _parse_metadata(metadata)
         if self._doc_handle.bs_doc is not None:
@@ -149,6 +153,10 @@ class DocumentSplitter(ComponentIterator):
         self._overlap = 0 if overlap is None else overlap
         self._tiktoken_encoding = tiktoken_encoding
         self._tiktoken_target_model = tiktoken_target_model
+
+        self._include_page_image = include_page_image
+        self._page_image_dpi = page_image_dpi
+        self._page_image_format = page_image_format
 
         # set up processing pipeline
         if self._doc_handle.format == DocumentType.DocumentFormat.HTML:
@@ -172,6 +180,8 @@ class DocumentSplitter(ComponentIterator):
             self._sections = self._token_chunks(self._sections)
         if Separator.CHAR_LIMIT in self._separators:
             self._sections = self._char_chunks(self._sections)
+
+
 
     @classmethod
     def input_schema(cls) -> dict[str, ColumnType]:
@@ -219,6 +229,10 @@ class DocumentSplitter(ComponentIterator):
         if Separator.TOKEN_LIMIT in separators:
             Env.get().require_package('tiktoken')
 
+        if kwargs.get('include_page_image'):
+            from pixeltable.type_system import ImageType
+            schema['image'] = ImageType(nullable=True)   # pdf → PIL image; others stay None    
+
         return schema, []
 
     def __next__(self) -> dict[str, Any]:
@@ -238,8 +252,12 @@ class DocumentSplitter(ComponentIterator):
                     result[md_field.name.lower()] = section.metadata.page
                 elif md_field == ChunkMetadata.BOUNDING_BOX:
                     result[md_field.name.lower()] = section.metadata.bounding_box
-            return result
 
+            if getattr(self, '_include_page_image', False):
+                result['image'] = section.image
+            
+            return result
+        
     def _html_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections reflecting the html-specific separators"""
         import bs4
@@ -360,6 +378,7 @@ class DocumentSplitter(ComponentIterator):
             yield from process_element(el)
         yield from emit()
 
+    ''' 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections reflecting the pdf-specific separators"""
         import fitz  # type: ignore[import-untyped]
@@ -401,6 +420,54 @@ class DocumentSplitter(ComponentIterator):
 
         if accumulated_text and not emit_on_page:
             yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata())
+    ''' 
+   
+    def _pdf_sections(self) -> Iterator[DocumentSection]:
+        import ftfy
+        import fitz  # pymupdf
+        import PIL.Image, io
+
+        doc: fitz.Document = self._doc_handle.pdf_doc
+        assert doc is not None
+
+        emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
+        emit_on_page = Separator.PAGE in self._separators or emit_on_paragraph
+
+        accumulated_text: list[str] = []
+
+        def _add_cleaned(raw: str) -> None:
+            fixed = ftfy.fix_text(raw)
+            if fixed:
+                accumulated_text.append(fixed)
+
+        def _emit_text() -> str:
+            txt = ''.join(accumulated_text)
+            accumulated_text.clear()
+            return txt
+
+        for page_idx, page in enumerate(doc.pages()):
+            # render once per page if requested
+            page_image = None
+            if self._include_page_image:
+                pix = page.get_pixmap(dpi=self._page_image_dpi)  # ← single render
+                page_image = PIL.Image.open(io.BytesIO(pix.tobytes(self._page_image_format)))
+
+            for block in page.get_text('blocks'):
+                x1, y1, x2, y2, text, *_ = block
+                _add_cleaned(text)
+                if accumulated_text and emit_on_paragraph:
+                    bbox = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
+                    md = DocumentSectionMetadata(page=page_idx, bounding_box=bbox)
+                    yield DocumentSection(text=_emit_text(), metadata=md, image=page_image)
+
+            if accumulated_text and emit_on_page and not emit_on_paragraph:
+                md = DocumentSectionMetadata(page=page_idx)
+                yield DocumentSection(text=_emit_text(), metadata=md, image=page_image)
+
+        if accumulated_text and not emit_on_page:
+            yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata(), image=None)
+
+
 
     def _txt_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections for text files.
