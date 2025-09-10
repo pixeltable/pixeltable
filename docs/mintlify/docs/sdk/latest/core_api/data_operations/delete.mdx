@@ -1,0 +1,310 @@
+---
+title: "table.delete"
+description: "table.delete() - Remove rows from tables with conditional filtering"
+---
+
+<Badge text="Destructive" color="red" size="small" />
+
+<Callout type="warning">
+  **🚨 Destructive Operation**  
+  This operation permanently removes data from the table. Deleted rows cannot be recovered.
+</Callout>
+
+## Function Signature
+
+```python
+table.delete(where: Optional[Expr] = None) -> UpdateStatus
+```
+
+## Description
+
+The `delete` method permanently removes rows from a table based on optional filtering conditions. Unlike `drop_table` which removes the entire table structure, `delete` removes only the data rows while preserving the table schema and computed columns.
+
+This operation is irreversible and should be used with caution, especially when operating on production data.
+
+## Parameters
+
+<ParamField path="where" type="Optional[Expr]" default="None">
+  Boolean expression to filter which rows to delete. If not specified, **ALL rows in the table are deleted**.
+  Use table column references to build conditions (e.g., `table.column == value`).
+  
+  <Warning>If `where` is `None`, all rows in the table will be deleted!</Warning>
+</ParamField>
+
+## Returns
+
+<ResponseField name="UpdateStatus" type="UpdateStatus">
+  Object containing information about the delete operation, including number of rows deleted and operation statistics.
+</ResponseField>
+
+## Examples
+
+### Conditional Row Deletion
+
+```python
+import pixeltable as pxt
+
+# Get table handle
+tbl = pxt.get_table('user_logs')
+
+# Delete rows based on condition
+status = tbl.delete(tbl.log_date < '2024-01-01')
+print(f"Deleted {status.num_rows} old log entries")
+
+# Delete with complex conditions
+status = tbl.delete(
+    (tbl.status == 'inactive') & (tbl.last_login < '2023-01-01')
+)
+print(f"Removed {status.num_rows} inactive users")
+```
+
+### Range-Based Deletion
+
+```python
+# Delete rows within a date range
+status = tbl.delete(
+    (tbl.created_date >= '2024-01-01') & 
+    (tbl.created_date < '2024-02-01')
+)
+
+# Delete based on numerical ranges
+status = tbl.delete(tbl.score < 10)
+
+# Delete null or invalid data
+status = tbl.delete(tbl.email.is_null() | (tbl.email == ''))
+```
+
+### Bulk Data Cleanup
+
+```python
+# Clean up test data
+test_table = pxt.get_table('test_results')
+
+# Delete failed test runs
+failed_status = test_table.delete(test_table.status == 'failed')
+
+# Delete old temporary data
+temp_status = test_table.delete(
+    test_table.category == 'temp'
+)
+
+print(f"Cleanup complete: {failed_status.num_rows + temp_status.num_rows} rows removed")
+```
+
+### Safe Deletion Patterns
+
+```python
+def safe_delete(table, condition, dry_run=True):
+    """Safely delete rows with confirmation and dry-run capability."""
+    
+    # First, count what would be deleted
+    to_delete_count = table.where(condition).count()
+    total_count = table.count()
+    
+    print(f"Table currently has {total_count} rows")
+    print(f"Would delete {to_delete_count} rows ({to_delete_count/total_count*100:.1f}%)")
+    
+    if dry_run:
+        print("DRY RUN - No rows actually deleted")
+        return None
+    
+    # Confirm for large deletions
+    if to_delete_count > 1000:
+        confirm = input(f"Delete {to_delete_count} rows? (type 'DELETE' to confirm): ")
+        if confirm != 'DELETE':
+            print("Deletion cancelled")
+            return None
+    
+    # Perform deletion
+    status = table.delete(condition)
+    print(f"Successfully deleted {status.num_rows} rows")
+    
+    return status
+
+# Usage - always start with dry run
+safe_delete(tbl, tbl.created_date < '2023-01-01', dry_run=True)
+
+# Then execute for real
+# safe_delete(tbl, tbl.created_date < '2023-01-01', dry_run=False)
+```
+
+### Complete Table Truncation
+
+```python
+# Delete ALL rows (use with extreme caution!)
+def truncate_table(table, confirm_text=None):
+    """Delete all rows from a table."""
+    
+    row_count = table.count()
+    
+    if confirm_text != f"DELETE ALL {row_count} ROWS":
+        print(f"To confirm, call with: confirm_text='DELETE ALL {row_count} ROWS'")
+        return None
+    
+    status = table.delete()  # No where clause = delete everything
+    print(f"Truncated table: {status.num_rows} rows deleted")
+    
+    return status
+
+# Must explicitly confirm
+# truncate_table(tbl, confirm_text="DELETE ALL 5000 ROWS")
+```
+
+### Cascading Effects with Computed Columns
+
+```python
+# Table with computed columns
+media_table = pxt.get_table('media_files')
+
+# Delete source rows - computed columns automatically handled
+status = media_table.delete(media_table.file_exists == False)
+
+# Check impact on dependent views
+related_views = pxt.list_views()  # Hypothetical function
+print(f"Deletion may affect {len(related_views)} dependent views")
+```
+
+### Batch Deletion with Progress Tracking
+
+```python
+def batch_delete_with_progress(table, condition, batch_size=1000):
+    """Delete rows in batches to avoid memory issues."""
+    
+    total_deleted = 0
+    batch_num = 1
+    
+    while True:
+        # Delete a batch
+        status = table.delete(condition)
+        
+        if status.num_rows == 0:
+            break  # No more rows to delete
+        
+        total_deleted += status.num_rows
+        print(f"Batch {batch_num}: deleted {status.num_rows} rows")
+        batch_num += 1
+        
+        # Safety check to prevent infinite loops
+        if batch_num > 100:
+            print("Stopping after 100 batches for safety")
+            break
+    
+    print(f"Total deleted: {total_deleted} rows across {batch_num-1} batches")
+    return total_deleted
+
+# Usage for large deletions
+batch_delete_with_progress(
+    large_table, 
+    large_table.processing_status == 'obsolete'
+)
+```
+
+### Archive Before Delete Pattern
+
+```python
+def archive_and_delete(source_table, archive_table, condition):
+    """Archive rows before deleting them."""
+    
+    # Get rows to be deleted
+    rows_to_archive = source_table.where(condition).select().collect()
+    
+    if len(rows_to_archive) == 0:
+        print("No rows to archive/delete")
+        return
+    
+    # Insert into archive table
+    archive_status = archive_table.insert(rows_to_archive)
+    print(f"Archived {archive_status.num_rows} rows")
+    
+    # Delete from source table
+    delete_status = source_table.delete(condition)
+    print(f"Deleted {delete_status.num_rows} rows from source")
+    
+    # Verify counts match
+    if archive_status.num_rows == delete_status.num_rows:
+        print("✅ Archive and delete counts match")
+    else:
+        print("⚠️  Archive and delete counts don't match!")
+
+# Usage
+archive_table = pxt.get_table('archived_logs')
+main_table = pxt.get_table('active_logs')
+
+archive_and_delete(
+    main_table, 
+    archive_table,
+    main_table.created_date < '2024-01-01'
+)
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in various error conditions:
+  - Invalid WHERE clause expressions
+  - Permission denied for deletion operations  
+  - Table is read-only (views or snapshots)
+  - Constraint violations during deletion
+  - Database integrity errors
+</ResponseField>
+
+## Related Functions
+
+- [`insert()`](./insert) - Add new rows to tables
+- [`update()`](./update) - Modify existing rows  
+- [`select()`](./select) - Query table data
+- [`where()`](./where) - Filter rows with conditions
+- [`drop_table()`](../table_management/drop_table) - Remove entire table
+
+## Best Practices
+
+### Always Use WHERE Clauses
+
+```python
+# ❌ DANGEROUS - Deletes all rows
+# tbl.delete()
+
+# ✅ SAFE - Always specify conditions
+tbl.delete(tbl.status == 'to_delete')
+```
+
+### Test Conditions First
+
+```python
+# Always test your WHERE clause first
+affected_rows = tbl.where(tbl.score < 0).count()
+print(f"Will delete {affected_rows} rows")
+
+# Then perform the deletion
+if affected_rows > 0:
+    status = tbl.delete(tbl.score < 0)
+```
+
+### Backup Before Large Deletions
+
+```python
+# Create backup before major deletions
+backup_table = pxt.create_table(
+    'backup_users_2025_01_20',
+    source=tbl.select().collect()
+)
+
+# Now safe to delete
+status = tbl.delete(tbl.last_activity < '2023-01-01')
+```
+
+### Monitor Performance
+
+```python
+import time
+
+start_time = time.time()
+status = tbl.delete(tbl.category == 'obsolete')
+duration = time.time() - start_time
+
+print(f"Deleted {status.num_rows} rows in {duration:.2f} seconds")
+```
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*
