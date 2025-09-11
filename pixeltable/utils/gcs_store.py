@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-@env.register_client('gs')
+@env.register_client('gcs_store')
 def _() -> Any:
     return GCSStore.create_client()
 
@@ -46,7 +46,7 @@ class GCSStore(ObjectStoreBase):
 
     def client(self) -> Any:
         """Return the GCS client."""
-        return env.Env.get().get_client('gs')
+        return env.Env.get().get_client('gcs_store')
 
     @property
     def bucket_name(self) -> str:
