@@ -16,6 +16,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrameResultSet
+from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.media_store import TempStore
 from tests.conftest import clean_db
@@ -268,14 +269,14 @@ class TestPackager:
 
         self.__do_round_trip(snapshot)
 
-        # Double-check that the iterator view and its base table have the correct number of rows
+        # Double-check that the snapshot and its base table have the correct number of rows
         snapshot_replica = pxt.get_table('new_replica')
         assert snapshot_replica._snapshot_only
         assert snapshot_replica.count() == snapshot_row_count
-        v_replica = snapshot_replica.get_base_table()
-        assert v_replica.count() == snapshot_row_count
-        t_replica = v_replica.get_base_table()
-        assert t_replica.count() == 2
+        # We can't query the base table directly via snapshot_replica.get_base_table(), because it doesn't exist as a
+        # visible catalog object (it's hidden in _system). But we can manually construct the DataFrame and check that.
+        t_replica_df = pxt.DataFrame(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
+        assert t_replica_df.count() == 2
 
     def test_multi_view_round_trip_1(self, reset_db: None) -> None:
         """
@@ -428,6 +429,28 @@ class TestPackager:
         for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
 
+    def test_interleaved_non_snapshots(self, reset_db: None) -> None:
+        """
+        Test the case where two versions of a non-snapshot table are packaged out of order.
+        """
+        t = pxt.create_table('tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(512))
+
+        t_bundle = self.__package_table(t)
+
+        v = pxt.create_view('view', t.where(t.int_col % 3 == 0))
+        t.insert({'int_col': i} for i in range(512, 1024))
+
+        v_bundle = self.__package_table(v)
+
+        # v_bundle is missing some of the rows that were present in t_bundle, but has some new ones as well.
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(v_bundle, 'view_replica')
+        self.__restore_and_check_table(t_bundle, 'tbl_replica')
+
     def test_multi_view_non_snapshot_round_trip(self, reset_db: None) -> None:
         """
         A similar test, this one involving multiple versions of a table that is not a snapshot,
@@ -456,14 +479,12 @@ class TestPackager:
         clean_db()
         reload_catalog()
 
-        # Restore the odd-numbered bundles (directly packaged table versions). This needs to be done in order
-        # currently, because we don't have a way to get a handle to an older version of a table.
-        # TODO: Randomize the order once we have such a feature.
-        for n in (1, 3, 7, 9):
-            self.__restore_and_check_table(bundles[n], 'replica')
-
-        for n in (4, 0, 8, 10, 6):
-            self.__restore_and_check_table(bundles[n], f'replica_{n}')
+        for n in (4, 1, 0, 3, 8, 10, 7, 9, 6):
+            # The non-snapshot bundles all refer to the same table UUID, so we use the consistent name 'replica' for
+            # all of them. The snapshot bundles refer to distinct schema objects, so we use distinct names for them.
+            # The non-snapshot bundles are traversed in temporal order; the snapshot bundles are randomized.
+            name = 'replica' if n % 2 != 0 else f'replica_{n}'
+            self.__restore_and_check_table(bundles[n], name)
 
     def test_replica_ops(self, reset_db: None, clip_embed: pxt.Function) -> None:
         t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
@@ -491,29 +512,29 @@ class TestPackager:
         t = pxt.get_table('tbl_replica')
         v = pxt.get_table('view_replica')
 
-        for s, name, kind in ((t, 'tbl_replica', 'table-replica'), (v, 'view_replica', 'view-replica')):
-            display_str = f'{kind} {name!r}'
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a {kind}.'):
+        for s, name in ((t, 'tbl_replica'), (v, 'view_replica')):
+            display_str = f'replica {name!r}'
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot insert into a replica.'):
                 s.insert({'icol': 10, 'scol': 'string 10'})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot delete from a replica.'):
                 s.delete()
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
                 s.add_column(new_col=pxt.Bool)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
                 s.add_columns({'new_col': pxt.Bool})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add columns to a replica.'):
                 s.add_computed_column(new_col=(t.icol + 1))
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop columns from a replica.'):
                 s.drop_column('scol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot add an index to a replica.'):
                 s.add_embedding_index('icol', embedding=clip_embed)
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot drop an index from a replica.'):
                 s.drop_embedding_index(column='icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot update a replica.'):
                 s.update({'icol': 11})
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot recompute columns of a replica.'):
                 s.recompute_columns('icol')
-            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a {kind}.'):
+            with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a replica.'):
                 s.revert()
 
             # TODO: Align these DataFrame error messages with Table error messages
@@ -521,3 +542,114 @@ class TestPackager:
                 s.where(s.icol < 5).update({'icol': 100})
             with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
                 s.where(s.icol < 5).delete()
+
+    def test_drop_replica(self, reset_db: None) -> None:
+        """
+        Test dropping a replica table.
+        """
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        t.insert([{'c1': i} for i in range(100)])
+        t_bundle = self.__package_table(t)
+
+        v = pxt.create_view('view', t)
+        v_bundle = self.__package_table(v)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(t_bundle, 'replica_tbl')
+        assert pxt.list_tables() == ['replica_tbl']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+        pxt.drop_table('replica_tbl')
+        assert pxt.list_tables() == []
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+
+        clean_db()
+        reload_catalog()
+
+        # Now try with both a table and a view
+
+        # Restoring the view should materialize the base table as a hidden table
+        self.__restore_and_check_table(v_bundle, 'replica_view')
+        assert pxt.list_tables() == ['replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 1
+
+        # Restoring the table should rename it to a visible table
+        self.__restore_and_check_table(t_bundle, 'replica_tbl')
+        assert sorted(pxt.list_tables()) == ['replica_tbl', 'replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+        self.__check_table(v_bundle, 'replica_view')  # Check the view again
+
+        # Now drop the table; this should revert it to a hidden table
+        pxt.drop_table('replica_tbl')
+        assert pxt.list_tables() == ['replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 1
+
+        # Now drop the view; this should delete it
+        pxt.drop_table('replica_view')
+        assert pxt.list_tables() == []
+        # this should also have resulted in the base table being deleted
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+
+        # Try again, this time deleting the view first.
+        # We do all the checks again with a full restore cycle, so that we also check that multiple
+        # create/delete roundtrips on the same replicas succeed without leaving cruft around.
+        self.__restore_and_check_table(v_bundle, 'replica_view')
+        assert pxt.list_tables() == ['replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 1
+        self.__restore_and_check_table(t_bundle, 'replica_tbl')
+        assert sorted(pxt.list_tables()) == ['replica_tbl', 'replica_view']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+        self.__check_table(v_bundle, 'replica_view')  # Check the view again
+
+        # Now drop the view; this should delete it
+        pxt.drop_table('replica_view')
+        # this should NOT have resulted in the base table being deleted, since it's now a visible table
+        assert pxt.list_tables() == ['replica_tbl']
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+
+        # Now drop the table; this should delete it
+        pxt.drop_table('replica_tbl')
+        assert pxt.list_tables() == []
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
+
+    def test_deep_view_hierarchy(self, reset_db: None) -> None:
+        """
+        Test dropping various replica tables.
+        """
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        tbls: list[pxt.Table] = [t]
+        bundles: list[TestPackager.BundleInfo] = [self.__package_table(t)]
+        for i in range(10):
+            t.insert([{'c1': i} for i in range(i * 10, (i + 1) * 10)])
+            v = pxt.create_view(f'view_{i}', tbls[i])
+            tbls.append(v)
+            bundles.append(self.__package_table(v))
+
+        assert len(tbls) == 11
+        assert len(bundles) == 11
+
+        clean_db()
+        reload_catalog()
+
+        # Restore a few intermediate views
+        for i in (7, 5, 2, 10):
+            self.__restore_and_check_table(bundles[i], f'replica_{i}')
+
+        assert pxt.list_tables() == [f'replica_{i}' for i in (2, 5, 7, 10)]  # 4 visible tables
+        assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 7  # 7 hidden tables
+
+        # Now drop the visible tables one by one.
+        tables = [7, 5, 2, 10]
+        for i in (5, 10, 2, 7):
+            print(f'Dropping replica_{i}')
+            pxt.drop_table(f'replica_{i}')
+            tables.remove(i)
+            assert sorted(pxt.list_tables()) == sorted(f'replica_{j}' for j in tables)
+            # The total number of tables remaining should be equal to 1 + max(tables); any tables beyond this no longer
+            # have dependents and should have been purged. Of these, len(tables) are visible, so the rest are hidden.
+            expected_hidden_tables = 0 if len(tables) == 0 else 1 + max(tables) - len(tables)
+            assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == expected_hidden_tables
+            for j in tables:
+                # Re-check all tables that are still present
+                self.__check_table(bundles[j], f'replica_{j}')

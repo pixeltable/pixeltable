@@ -356,8 +356,10 @@ class TableVersion:
         cat = pxt.catalog.Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
         # TableVersion instance before.
-        assert tbl_version.effective_version is not None
-        assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
+        # Actually this isn't true, because we might be re-creating a dropped replica.
+        # TODO: Understand why old TableVersions are kept around even for a dropped table.
+        # assert tbl_version.effective_version is not None
+        # assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()

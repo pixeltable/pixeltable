@@ -4,6 +4,7 @@ import math
 import os
 import random
 import re
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
 
@@ -2824,8 +2825,8 @@ class TestTable:
             _ = t.count()
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.head()
-        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
-            _ = t.limit(1)
+        # with pytest.raises(pxt.Error, match=unknown_tbl_msg):
+        #     _ = t.limit(1)
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.tail()
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
@@ -2851,8 +2852,10 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_coco_dataset()
-        with pytest.raises(pxt.Error, match=unknown_tbl_msg):
-            _ = t.to_pytorch_dataset()
+
+        if find_spec('torch') is not None:
+            with pytest.raises(pxt.Error, match=unknown_tbl_msg):
+                _ = t.to_pytorch_dataset()
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.revert()

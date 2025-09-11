@@ -111,5 +111,5 @@ class TestReplica:
         r51 = pxt.get_table('replica_s51')
 
         with cat.begin_xact(for_write=False):
-            assert len(r51._get_base_tables()) == 4
-            assert len(r61._get_base_tables()) == 6
+            assert r51._tbl_version_path.path_len() == 5
+            assert r61._tbl_version_path.path_len() == 6
