@@ -5,6 +5,7 @@ import os
 import random
 import shutil
 import subprocess
+import sysconfig
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -26,6 +27,15 @@ from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 
 TESTS_DIR = Path(os.path.dirname(__file__))
+
+
+def runs_linux_with_gpu() -> bool:
+    try:
+        import torch
+
+        return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
+    except ImportError:
+        return False
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -510,6 +520,11 @@ def skip_test_if_no_client(client_name: str) -> None:
         _ = Env.get().get_client(client_name)
     except pxt.Error as exc:
         pytest.skip(str(exc))
+
+
+def skip_test_if_no_pxt_credentials() -> None:
+    if not Env.get().pxt_api_key:
+        pytest.skip('No Pixeltable API key is configured.')
 
 
 def skip_test_if_no_aws_credentials() -> None:

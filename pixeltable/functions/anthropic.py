@@ -41,9 +41,9 @@ def _anthropic_client() -> 'anthropic.AsyncAnthropic':
 def _get_header_info(
     headers: httpx.Headers,
 ) -> tuple[
-    Optional[tuple[int, int, datetime.datetime]],
-    Optional[tuple[int, int, datetime.datetime]],
-    Optional[tuple[int, int, datetime.datetime]],
+    tuple[int, int, datetime.datetime] | None,
+    tuple[int, int, datetime.datetime] | None,
+    tuple[int, int, datetime.datetime] | None,
 ]:
     """Extract rate limit info from Anthropic API response headers."""
     requests_limit_str = headers.get('anthropic-ratelimit-requests-limit')
@@ -54,7 +54,9 @@ def _get_header_info(
     requests_reset = (
         datetime.datetime.fromisoformat(requests_reset_str.replace('Z', '+00:00')) if requests_reset_str else None
     )
-    requests_info = (requests_limit, requests_remaining, requests_reset) if requests_reset else None
+    requests_info = (
+        (requests_limit, requests_remaining, requests_reset) if requests_reset and requests_remaining else None
+    )
 
     input_tokens_limit_str = headers.get('anthropic-ratelimit-input-tokens-limit')
     input_tokens_limit = int(input_tokens_limit_str) if input_tokens_limit_str is not None else None
@@ -66,7 +68,11 @@ def _get_header_info(
         if input_tokens_reset_str
         else None
     )
-    input_tokens_info = (input_tokens_limit, input_tokens_remaining, input_tokens_reset) if input_tokens_reset else None
+    input_tokens_info = (
+        (input_tokens_limit, input_tokens_remaining, input_tokens_reset)
+        if input_tokens_reset and input_tokens_remaining
+        else None
+    )
 
     output_tokens_limit_str = headers.get('anthropic-ratelimit-output-tokens-limit')
     output_tokens_limit = int(output_tokens_limit_str) if output_tokens_limit_str is not None else None
@@ -79,8 +85,13 @@ def _get_header_info(
         else None
     )
     output_tokens_info = (
-        (output_tokens_limit, output_tokens_remaining, output_tokens_reset) if output_tokens_reset else None
+        (output_tokens_limit, output_tokens_remaining, output_tokens_reset)
+        if output_tokens_reset and output_tokens_remaining
+        else None
     )
+
+    if requests_info is None or input_tokens_info is None or output_tokens_info is None:
+        _logger.debug(f'get_header_info(): incomplete rate limit info: {headers}')
 
     return requests_info, input_tokens_info, output_tokens_info
 
