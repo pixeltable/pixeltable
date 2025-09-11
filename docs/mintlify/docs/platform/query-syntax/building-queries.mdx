@@ -1,12 +1,7 @@
 ---
 title: 'Building Queries'
 description: 'Learn how to query and transform data in Pixeltable using where() and select()'
-icon: 'filter'
 ---
-
-<Info>
-Learn more about queries and expressions with this [in-depth guide](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb).
-</Info>
 
 ## What are Queries?
 
@@ -48,7 +43,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
         movies.budget >= 200.0
     ).collect()
     ```
-    
+
   | title | year | budget |
   |-----------|------|---------|
   | Titanic | 1997 | 200.0 |
@@ -60,7 +55,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
     ```python
     # Get titles and release years
     movies.select(
-        movies.title, 
+        movies.title,
         movies.year
     ).collect()
     ```
@@ -72,7 +67,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
     | Titanic | 1997 |
     | Avengers: Endgame | 2019 |
     | Inside Out 2 | 2024 |
-    
+
   </Tab>
 
   <Tab title="Column Naming">
@@ -92,7 +87,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
     | Titanic | 2.0 |
     | Avengers: Endgame | 3.56 |
     | Inside Out 2 | 2.0 |
-    
+
   </Tab>
 </Tabs>
 
@@ -122,7 +117,7 @@ Use `&` (AND), `|` (OR), and `~` (NOT) for complex conditions:
 # AND operation
 movies.where((movies.year >= 2000) & (movies.budget >= 200.0)).collect()
 
-# OR operation  
+# OR operation
 movies.where((movies.year < 2000) | (movies.budget < 100.0)).collect()
 
 # NOT operation
@@ -130,7 +125,7 @@ movies.where(~movies.title.contains('Park')).collect()
 
 # Complex combinations
 movies.where(
-    ((movies.year > 2010) & (movies.budget > 100)) | 
+    ((movies.year > 2010) & (movies.budget > 100)) |
     (movies.title.contains('Classic'))
 ).collect()
 ```
@@ -199,7 +194,7 @@ Sort results using `order_by()`:
 # Single column sorting
 movies.order_by(movies.budget, asc=False).collect()  # Highest budget first
 
-# Multiple column sorting  
+# Multiple column sorting
 movies.order_by([movies.year, movies.budget], asc=[True, False]).collect()
 
 # Expression-based sorting
@@ -359,4 +354,3 @@ invalid = movies.where(
     (movies.title == None)
 ).collect()
 ```
-

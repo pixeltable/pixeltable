@@ -1,9 +1,6 @@
 ---
 title: "Computed Columns"
-description: "Automatic data transformations and AI-powered workflows that update incrementally"
 ---
-
-# Computed Columns
 
 Computed columns are Pixeltable's most powerful feature - they automatically execute transformations, AI models, and custom functions on your data. Unlike traditional database computed columns, Pixeltable's computed columns are **persistent**, **versioned**, and **automatically updated** when new data arrives.
 
@@ -91,7 +88,7 @@ pop_table.add_computed_column(
 
 # Step 3: Categorize growth (depends on percentage)
 pop_table.add_computed_column(
-    growth_category='high' if pop_table.growth_rate > 2.0 else 
+    growth_category='high' if pop_table.growth_rate > 2.0 else
                    ('moderate' if pop_table.growth_rate > 0.5 else 'low')
 )
 ```
@@ -140,7 +137,7 @@ images.add_computed_column(
         images.original_image
         .resize((224, 224))
         .convert('RGB')
-        .normalize(mean=[0.485, 0.456, 0.406], 
+        .normalize(mean=[0.485, 0.456, 0.406],
                   std=[0.229, 0.224, 0.225])
     )
 )
@@ -193,7 +190,7 @@ content.add_computed_column(
     summary=openai.chat_completions(
         model='gpt-4o-mini',
         messages=[{
-            'role': 'user', 
+            'role': 'user',
             'content': f'Summarize this article: {content.body}'
         }]
     )
@@ -278,7 +275,7 @@ def extract_domain(email: str) -> str:
     """Extract domain from email address"""
     return email.split('@')[1] if '@' in email else None
 
-@pxt.udf  
+@pxt.udf
 def calculate_bmi(weight_kg: float, height_m: float) -> float:
     """Calculate Body Mass Index"""
     return weight_kg / (height_m ** 2)
@@ -327,11 +324,11 @@ def sentiment_score(text: str) -> float:
     # Placeholder - implement with your sentiment model
     positive_words = ['good', 'great', 'excellent', 'amazing']
     negative_words = ['bad', 'terrible', 'awful', 'horrible']
-    
+
     words = text.lower().split()
     pos_count = sum(1 for word in words if word in positive_words)
     neg_count = sum(1 for word in words if word in negative_words)
-    
+
     total = pos_count + neg_count
     return (pos_count - neg_count) / total if total > 0 else 0.0
 
@@ -458,10 +455,10 @@ data.add_computed_column(
 products.add_computed_column(
     # Descriptive names
     price_with_tax=products.base_price * 1.08,
-    
+
     # Logical dependencies
     profit_margin=(products.selling_price - products.cost_price) / products.selling_price,
-    
+
     # Reusable intermediate results
     formatted_name=products.brand + ' ' + products.model
 )
@@ -470,10 +467,10 @@ products.add_computed_column(
 products.add_computed_column(
     # Vague names
     calc1=products.price * 1.08,
-    
+
     # Overly complex single expressions
     complex=(products.a + products.b) / (products.c - products.d) * products.e,
-    
+
     # Non-deterministic functions
     random_id=generate_random_uuid()  # Will change on recomputation!
 )

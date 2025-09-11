@@ -1,7 +1,6 @@
 ---
 title: 'Views'
 description: 'Learn how to create and use virtual derived tables in Pixeltable through views'
-icon: 'table-list'
 ---
 
 # When to Use Views
@@ -101,10 +100,10 @@ print(chunks.collect())
     ```python
     # Basic filtering on view
     chunks.where(chunks.text.contains('specific topic')).collect()
-    
+
     # Select specific columns
     chunks.select(chunks.text, chunks.pos).collect()
-    
+
     # Order results
     chunks.order_by(chunks.pos).limit(5).collect()
     ```

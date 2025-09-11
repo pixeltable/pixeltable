@@ -3,7 +3,7 @@ title: 'Quick Start'
 description: 'A hands-on tour of Pixeltable features in 20 steps'
 ---
 
-We'll quickstartbuild walksanthatanalyzesEadweardMuybridge'shorsegalloping sequence building public domain images that bridge photography and motion pictures Each step introduces a new Pixeltable concept.
+We'll build an applications that analyzes Eadweard Muybridge's horse galloping sequence building public domain images that bridge photography and motion pictures Each step introduces a new Pixeltable concept.
 
 ## OverviewPrerequisites
 
@@ -57,14 +57,14 @@ base_url = "https://upload.wikimedia.org/wikipedia/commons"
 
 data = [
     {
-        'frame_number': 1, 
+        'frame_number': 1,
         'image': f'{base_url}/7/73/The_Horse_in_Motion.jpg',
         'timestamp': 0.0,
         'description': 'Horse with all four hooves off ground'
     },
     {
         'frame_number': 2,
-        'image': f'{base_url}/0/07/The_Horse_in_Motion-anim.gif', 
+        'image': f'{base_url}/0/07/The_Horse_in_Motion-anim.gif',
         'timestamp': 0.042,  # ~24fps equivalent
         'description': 'Mid-gallop extension'
     },
@@ -125,7 +125,7 @@ def analyze_brightness(img: pxt.Image) -> float:
     """Calculate average brightness of an image"""
     import numpy as np
     from PIL import Image
-    
+
     # Convert to grayscale and calculate mean
     gray = img.convert('L')
     return np.array(gray).mean() / 255.0
@@ -333,14 +333,14 @@ horses = pxt.create_table('quickstart.horses', schema)
 base_url = "https://upload.wikimedia.org/wikipedia/commons"
 data = [
     {
-        'frame_number': 1, 
+        'frame_number': 1,
         'image': f'{base_url}/7/73/The_Horse_in_Motion.jpg',
         'timestamp': 0.0,
         'description': 'Horse with all four hooves off ground'
     },
     {
         'frame_number': 2,
-        'image': f'{base_url}/0/07/The_Horse_in_Motion-anim.gif', 
+        'image': f'{base_url}/0/07/The_Horse_in_Motion-anim.gif',
         'timestamp': 0.042,
         'description': 'Mid-gallop extension'
     },

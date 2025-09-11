@@ -1,7 +1,6 @@
 ---
 title: 'Sampling Data'
 description: 'Learn how to create representative samples from your data for analysis, testing, and machine learning.'
-icon: 'ruler'
 ---
 
 ## What is Sampling?
@@ -95,8 +94,8 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     ```python
     # Sample 2 countries from each continent
     stratified_sample = pop_data.sample(
-        n_per_stratum=2, 
-        stratify_by=[pop_data.continent], 
+        n_per_stratum=2,
+        stratify_by=[pop_data.continent],
         seed=42
     )
     stratified_sample.collect()
@@ -108,8 +107,8 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     ```python
     # Sample a total of 20 countries, stratified by continent
     proportional_sample = pop_data.sample(
-        n=20, 
-        stratify_by=[pop_data.continent], 
+        n=20,
+        stratify_by=[pop_data.continent],
         seed=42
     )
     proportional_sample.collect()
@@ -121,8 +120,8 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     ```python
     # Sample 10% of countries from each continent
     fractional_stratified = pop_data.sample(
-        fraction=0.1, 
-        stratify_by=[pop_data.continent], 
+        fraction=0.1,
+        stratify_by=[pop_data.continent],
         seed=42
     )
     fractional_stratified.collect()
@@ -143,7 +142,7 @@ The `sample()` operation has specific rules about how it can be used in a query 
     asian_countries_sample = pop_data.where(
         pop_data.continent == 'Asia'
     ).sample(n=5, seed=42)
-    
+
     asian_countries_sample.collect()
     ```
   </Card>

@@ -68,8 +68,7 @@
                 "pages": [
                   "docs/platform/tables-and-schemas/schemas",
                   "docs/platform/tables-and-schemas/tables",
-                  "docs/platform/tables-and-schemas/computed-columns",
-                  "docs/platform/tables-and-schemas/computed-columns-two"
+                  "docs/platform/tables-and-schemas/computed-columns"
                 ]
               },
               {
@@ -90,7 +89,6 @@
                 "group": "Views and Snapshots",
                 "pages": [
                   "docs/platform/views-and-snapshots/views",
-                  "docs/platform/views-and-snapshots/views-and-snapshots",
                   "docs/platform/views-and-snapshots/time-travel",
                   "docs/platform/views-and-snapshots/iterators",
                   "docs/platform/views-and-snapshots/iterator-views"
@@ -113,9 +111,9 @@
                 "group": "Fundamentals",
                 "pages": [
                   "docs/notebooks/pixeltable-basics",
+                  "docs/notebooks/fundamentals/tables-and-data-operations",
                   "docs/notebooks/fundamentals/computed-columns",
-                  "docs/notebooks/fundamentals/queries-and-expressions",
-                  "docs/notebooks/fundamentals/tables-and-data-operations"
+                  "docs/notebooks/fundamentals/queries-and-expressions"
                 ]
               },
               {
