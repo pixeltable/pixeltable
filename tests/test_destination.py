@@ -8,7 +8,6 @@ from uuid import UUID
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 
@@ -31,7 +30,7 @@ class TestDestination:
     USE_AZURE_DEST = 'az'
 
     @staticmethod
-    def dest2(n: int, dest_id: int | str) -> tuple[Path | str | None, str | None]:
+    def create_destination_by_number(n: int, dest_id: str) -> tuple[Path | str | None, str | None]:
         """Return the destination directory for test images"""
         if dest_id == 'fs':
             base_path = Config.get().home / 'test_dest'
@@ -57,7 +56,7 @@ class TestDestination:
     def get_valid_dest(cls, n: int, dest_id: str, backup_dest: str) -> str:
         """If the specified destination is not valid (no credentials), use the backup destination"""
         try:
-            _, dest = cls.dest2(n, dest_id)
+            _, dest = cls.create_destination_by_number(n, dest_id)
             if ObjectOps.validate_destination(dest, ''):
                 return dest
             return backup_dest
@@ -86,27 +85,27 @@ class TestDestination:
         valid_dest = 'tests/data/'
 
         # Basic tests of the destination parameter: types and store / computed
-        with pytest.raises(excs.Error, match='must be a string or path'):
+        with pytest.raises(pxt.Error, match='must be a string or path'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination=27)
 
-        with pytest.raises(excs.Error, match='only applies to stored computed columns'):
+        with pytest.raises(pxt.Error, match='only applies to stored computed columns'):
             t.add_computed_column(img_rot=t.img.rotate(90), stored=False, destination=valid_dest)
 
-        with pytest.raises(excs.Error, match='only applies to stored computed columns'):
+        with pytest.raises(pxt.Error, match='only applies to stored computed columns'):
             _ = pxt.create_table('test_dest_bad', schema={'img': {'type': pxt.Image, 'destination': f'{valid_dest}'}})
 
         # Test destination with a non-existent directory
-        with pytest.raises(excs.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match='does not exist'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='non_existent_dir/img_rot')
 
         # Test destination with a file path instead of a directory
-        with pytest.raises(excs.Error, match='must be a directory, not a file'):
+        with pytest.raises(pxt.Error, match='must be a directory, not a file'):
             t.add_computed_column(
                 img_rot=t.img.rotate(90), destination='tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
             )
 
         # Test with invalid scheme
-        with pytest.raises(excs.Error, match='must be a valid reference to a supported'):
+        with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
     def parse_object_addr(self, s: str, consider_object: bool) -> bool:
@@ -119,19 +118,15 @@ class TestDestination:
             print(f'Error: {e!r}')
             return False
 
-    def parse_object_addr_two_ways(self, s: str) -> bool:
-        r = self.parse_object_addr(s, False)
-        assert r
-        r &= self.parse_object_addr(s, True)
-        assert r
-        return r
+    def check_parse(self, s: str) -> None:
+        assert self.parse_object_addr(s, False)
+        assert self.parse_object_addr(s, True)
 
     def test_dest_parser(self, reset_db: None) -> None:
         a_name = 'acct-name'
         o_name = 'obj-name'
         p_name1 = 'path-name'
         p_name2 = 'path-name/path2-name'
-        r = True
         for s in [
             's3://container',
             f'wasb://container@{a_name}.blob.core.windows.net',
@@ -141,34 +136,32 @@ class TestDestination:
             'file://dir1/dir2/dir3',
             'dir1/dir2/dir3',
         ]:
-            r &= self.parse_object_addr_two_ways(s)
-            r &= self.parse_object_addr_two_ways(s + '/')
-            r &= self.parse_object_addr_two_ways(s + '/' + p_name1)
-            r &= self.parse_object_addr_two_ways(s + '/' + p_name1 + '/')
-            r &= self.parse_object_addr_two_ways(s + '/' + p_name2)
-            r &= self.parse_object_addr_two_ways(s + '/' + p_name2 + '/')
-            r &= self.parse_object_addr_two_ways(s + '/' + o_name)
-            r &= self.parse_object_addr_two_ways(s + '/' + p_name2 + '/' + o_name)
+            self.check_parse(s)
+            self.check_parse(s + '/')
+            self.check_parse(s + '/' + p_name1)
+            self.check_parse(s + '/' + p_name1 + '/')
+            self.check_parse(s + '/' + p_name2)
+            self.check_parse(s + '/' + p_name2 + '/')
+            self.check_parse(s + '/' + o_name)
+            self.check_parse(s + '/' + p_name2 + '/' + o_name)
 
-        r &= self.parse_object_addr(
+        assert self.parse_object_addr(
             'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg', True
         )
 
-        r &= self.parse_object_addr('file://dir1/dir2/dir3', False)
-        r &= self.parse_object_addr(f'file://dir1/dir2/dir3/{o_name}', True)
-        r &= self.parse_object_addr(f'dir2/dir3/{o_name}', True)
-
-        assert r
+        assert self.parse_object_addr('file://dir1/dir2/dir3', False)
+        assert self.parse_object_addr(f'file://dir1/dir2/dir3/{o_name}', True)
+        assert self.parse_object_addr(f'dir2/dir3/{o_name}', True)
 
     @pytest.mark.parametrize('dest_id', ['fs', 'gs', 's3', 'r2', 'az'])
     def test_dest_local_2(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two local destinations"""
-        if not self.validate_dest(self.dest2(1, dest_id)[1]):
+        if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
             pytest.skip(f'Destination {dest_id} not installed or not reachable')
 
         # Create two valid local file Paths for images
-        valid_dest_1, dest1_uri = self.dest2(1, dest_id)
-        valid_dest_2, dest2_uri = self.dest2(2, dest_id)
+        valid_dest_1, dest1_uri = self.create_destination_by_number(1, dest_id)
+        valid_dest_2, create_destination_by_number_uri = self.create_destination_by_number(2, dest_id)
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
@@ -189,18 +182,18 @@ class TestDestination:
         assert n == 2
         assert n == self.count(None, t._id)
         assert n == self.count(dest1_uri, t._id)
-        assert n == self.count(dest2_uri, t._id)
+        assert n == self.count(create_destination_by_number_uri, t._id)
 
         n = 1
         assert n == self.count(None, t._id, 2)
         assert n == self.count(dest1_uri, t._id, 3)
-        assert n == self.count(dest2_uri, t._id, 4)
+        assert n == self.count(create_destination_by_number_uri, t._id, 4)
 
         version = 5
         n = 1
         assert n == self.count(None, t._id, version)
         assert n == self.count(dest1_uri, t._id, version)
-        assert n == self.count(dest2_uri, t._id, version)
+        assert n == self.count(create_destination_by_number_uri, t._id, version)
 
         # Test that we can list objects in the destination
         olist = ObjectOps.list_uris(dest1_uri, n_max=10)
@@ -215,24 +208,26 @@ class TestDestination:
 
         assert self.count(None, save_id) == 0
         assert self.count(dest1_uri, save_id) == 0
-        assert self.count(dest2_uri, save_id) == 0
+        assert self.count(create_destination_by_number_uri, save_id) == 0
 
     @pytest.mark.parametrize('dest_id', ['fs', 'gs', 's3', 'r2', 'az'])
     def test_dest_local_two_copy(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
-        if not self.validate_dest(self.dest2(1, dest_id)[1]):
+        if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
             pytest.skip(f'Destination {dest_id} not installed or not reachable')
 
         # Create two valid local file Paths for images
-        valid_dest_1, dest1_uri = self.dest2(1, dest_id)
-        valid_dest_2, dest2_uri = self.dest2(2, dest_id)
+        valid_dest_1, dest1_uri = self.create_destination_by_number(1, dest_id)
+        valid_dest_2, create_destination_by_number_uri = self.create_destination_by_number(2, dest_id)
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
         t.add_computed_column(img_rot2=t.img.rotate(90), destination=valid_dest_1)
         t.add_computed_column(img_rot3=t.img.rotate(90), destination=valid_dest_2)
-        t.add_computed_column(img_rot4=t.img.rotate(90), destination=dest2_uri)  # Try to copy twice to the same dest
+        t.add_computed_column(
+            img_rot4=t.img.rotate(90), destination=create_destination_by_number_uri
+        )  # Try to copy twice to the same dest
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -250,13 +245,13 @@ class TestDestination:
         # as a duplicate, so it is double copied to the destination.
         # When new rows are INSERTED, the results and destinations for img_rot3 and img_rot4 are identified
         # as duplicates, so they are not double copied to the destination.
-        assert len(r) + 1 == self.count(dest2_uri, t._id)
+        assert len(r) + 1 == self.count(create_destination_by_number_uri, t._id)
 
     def test_dest_local_copy(self, reset_db: None) -> None:
         """Test destination attempting to copy a local file to another destination"""
 
         # Create valid local file Paths and URIs for images
-        valid_dest_1, dest1_uri = self.dest2(1, self.USE_LOCAL_DEST)
+        valid_dest_1, dest1_uri = self.create_destination_by_number(1, self.USE_LOCAL_DEST)
 
         # The intent of this test is to copy the same image to two different destinations
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
@@ -282,16 +277,16 @@ class TestDestination:
     def test_dest_all(self, reset_db: None) -> None:
         """Test destination with all available storage targets"""
         n = 1
-        _, lc_uri = self.dest2(n, self.USE_LOCAL_DEST)
+        _, lc_uri = self.create_destination_by_number(n, self.USE_LOCAL_DEST)
         c2_uri = self.get_valid_dest(n, self.USE_GS_DEST, lc_uri)
         c3_uri = self.get_valid_dest(n, self.USE_S3_DEST, lc_uri)
         c4_uri = self.get_valid_dest(n, self.USE_R2_DEST, lc_uri)
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
-        t.add_computed_column(**{'img_rot_1': t.img.rotate(90)}, destination=lc_uri)
-        t.add_computed_column(**{'img_rot_2': t.img.rotate(180)}, destination=c2_uri)
-        t.add_computed_column(**{'img_rot_3': t.img.rotate(270)}, destination=c3_uri)
-        t.add_computed_column(**{'img_rot_4': t.img.rotate(360)}, destination=c4_uri)
+        t.add_computed_column(img_rot_1=t.img.rotate(90), destination=lc_uri)
+        t.add_computed_column(img_rot_2=t.img.rotate(180), destination=c2_uri)
+        t.add_computed_column(img_rot_3=t.img.rotate(270), destination=c3_uri)
+        t.add_computed_column(img_rot_4=t.img.rotate(360), destination=c4_uri)
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
 
         tbl_id = t._id
