@@ -38,7 +38,7 @@ class GCSStore(ObjectStoreBase):
     soa: StorageObjectAddress
 
     def __init__(self, soa: StorageObjectAddress):
-        assert soa.storage_target == StorageTarget.GS, f'Expected storage_target "gs", got {soa.storage_target}'
+        assert soa.storage_target == StorageTarget.GCS_STORE, f'Expected storage_target "gs", got {soa.storage_target}'
         self.soa = soa
         self.__base_uri = soa.prefix_free_uri + soa.prefix
         self.__bucket_name = soa.container

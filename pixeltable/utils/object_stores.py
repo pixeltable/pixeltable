@@ -19,12 +19,12 @@ if TYPE_CHECKING:
 class StorageTarget(enum.Enum):
     """Enumeration of storage kinds."""
 
-    OS = 'os'  # Local file system
-    S3 = 's3'  # Amazon S3
-    R2 = 'r2'  # Cloudflare R2
-    GS = 'gs'  # Google Cloud Storage
-    AZ = 'az'  # Azure Blob Storage
-    HTTP = 'http'  # HTTP/HTTPS
+    LOCAL_STORE = 'os'  # Local file system
+    S3_STORE = 's3'  # Amazon S3
+    R2_STORE = 'r2'  # Cloudflare R2
+    GCS_STORE = 'gs'  # Google Cloud Storage
+    AZURE_STORE = 'az'  # Azure Blob Storage
+    HTTP_STORE = 'http'  # HTTP/HTTPS
 
     def __str__(self) -> str:
         return self.value
@@ -59,12 +59,12 @@ class StorageObjectAddress(NamedTuple):
     @property
     def has_valid_storage_target(self) -> bool:
         return self.storage_target in [
-            StorageTarget.OS,
-            StorageTarget.S3,
-            StorageTarget.R2,
-            StorageTarget.GS,
-            StorageTarget.AZ,
-            StorageTarget.HTTP,
+            StorageTarget.LOCAL_STORE,
+            StorageTarget.S3_STORE,
+            StorageTarget.R2_STORE,
+            StorageTarget.GCS_STORE,
+            StorageTarget.AZURE_STORE,
+            StorageTarget.HTTP_STORE,
         ]
 
     @property
@@ -90,7 +90,7 @@ class StorageObjectAddress(NamedTuple):
 
     @property
     def to_path(self) -> Path:
-        assert self.storage_target == StorageTarget.OS
+        assert self.storage_target == StorageTarget.LOCAL_STORE
         assert self.prefix
         path_str = urllib.parse.unquote(urllib.request.url2pathname(self.prefix))
         return Path(path_str)
@@ -183,12 +183,12 @@ class ObjectPath:
 
         # len(parsed.scheme) == 1 handles Windows drive letters like C:\
         if scheme == 'file' or len(scheme) == 1:
-            storage_target = StorageTarget.OS
+            storage_target = StorageTarget.LOCAL_STORE
             scheme = 'file'
             key = parsed.path
 
         elif scheme in ('s3', 'gs'):
-            storage_target = StorageTarget.S3 if scheme == 's3' else StorageTarget.GS
+            storage_target = StorageTarget.S3_STORE if scheme == 's3' else StorageTarget.GCS_STORE
             container = parsed.netloc
             key = parsed.path.lstrip('/')
 
@@ -196,7 +196,7 @@ class ObjectPath:
             # Azure-specific URI schemes
             # wasb[s]://container@account.blob.core.windows.net/<optional prefix>/<optional object>
             # abfs[s]://container@account.dfs.core.windows.net/<optional prefix>/<optional object>
-            storage_target = StorageTarget.AZ
+            storage_target = StorageTarget.AZURE_STORE
             container_and_account = parsed.netloc
             if '@' in container_and_account:
                 container, account_host = container_and_account.split('@', 1)
@@ -213,12 +213,12 @@ class ObjectPath:
             # and possibly others
             key = parsed.path
             if 'cloudflare' in parsed.netloc:
-                storage_target = StorageTarget.R2
+                storage_target = StorageTarget.R2_STORE
             elif 'windows' in parsed.netloc:
-                storage_target = StorageTarget.AZ
+                storage_target = StorageTarget.AZURE_STORE
             else:
-                storage_target = StorageTarget.HTTP
-            if storage_target in [StorageTarget.S3, StorageTarget.AZ, StorageTarget.R2]:
+                storage_target = StorageTarget.HTTP_STORE
+            if storage_target in [StorageTarget.S3_STORE, StorageTarget.AZURE_STORE, StorageTarget.R2_STORE]:
                 account_name = parsed.netloc.split('.', 1)[0]
                 account_extension = parsed.netloc.split('.', 1)[1]
                 path_parts = key.lstrip('/').split('/', 1)
@@ -353,15 +353,15 @@ class ObjectOps:
             if dest is None
             else ObjectPath.parse_object_storage_addr(dest, may_contain_object_name=may_contain_object_name)
         )
-        if soa.storage_target == StorageTarget.OS:
+        if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
-        if soa.storage_target == StorageTarget.S3 and soa.scheme == 's3':
+        if soa.storage_target == StorageTarget.S3_STORE and soa.scheme == 's3':
             return S3Store(soa)
-        if soa.storage_target == StorageTarget.R2:
+        if soa.storage_target == StorageTarget.R2_STORE:
             return S3Store(soa)
-        if soa.storage_target == StorageTarget.GS and soa.scheme == 'gs':
+        if soa.storage_target == StorageTarget.GCS_STORE and soa.scheme == 'gs':
             return GCSStore(soa)
-        if soa.storage_target == StorageTarget.HTTP and soa.is_http_readable:
+        if soa.storage_target == StorageTarget.HTTP_STORE and soa.is_http_readable:
             return HTTPStore(soa)
         error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
         raise excs.Error(

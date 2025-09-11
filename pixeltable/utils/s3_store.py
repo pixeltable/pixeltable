@@ -59,23 +59,23 @@ class S3Store(ObjectStoreBase):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
-        assert self.soa.storage_target in {StorageTarget.R2, StorageTarget.S3}, (
+        assert self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.S3_STORE}, (
             f'Expected storage_target "s3" or "r2", got {self.soa.storage_target}'
         )
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def client(self) -> Any:
         """Return the S3 client."""
-        if self.soa.storage_target == StorageTarget.R2:
+        if self.soa.storage_target == StorageTarget.R2_STORE:
             return env.Env.get().get_client('r2')
-        if self.soa.storage_target == StorageTarget.S3:
+        if self.soa.storage_target == StorageTarget.S3_STORE:
             return env.Env.get().get_client('s3')
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     def get_resource(self) -> Any:
-        if self.soa.storage_target == StorageTarget.R2:
+        if self.soa.storage_target == StorageTarget.R2_STORE:
             return env.Env.get().get_client('r2_resource')
-        if self.soa.storage_target == StorageTarget.S3:
+        if self.soa.storage_target == StorageTarget.S3_STORE:
             return env.Env.get().get_client('s3_resource')
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
@@ -138,7 +138,7 @@ class S3Store(ObjectStoreBase):
         new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
-        if self.soa.storage_target == StorageTarget.R2:
+        if self.soa.storage_target == StorageTarget.R2_STORE:
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
