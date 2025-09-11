@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Callable, Literal
 
 import pytest
 
@@ -21,6 +21,7 @@ class TestHistory:
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
     def test_history(self, variant: Literal['get_versions', 'history'], reset_db: None) -> None:
+        fn: Callable[[pxt.Table, int | None], Any]
         if variant == 'get_versions':
             fn = pxt.Table.get_versions
         else:
@@ -46,11 +47,13 @@ class TestHistory:
         v = pxt.create_view('view_of_test', t, comment='view of test table')
         r = fn(v)
         print(r)
-        view_created_at = r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]
+        view_created_at = (
+            r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]  # type: ignore[call-overload]
+        )
         # created_at should be recent
         assert view_created_at > datetime.now() - timedelta(seconds=30)
         assert view_created_at < datetime.now()
-        inserts = r[0]['inserts'] if variant == 'get_versions' else r['inserts'][0]
+        inserts = r[0]['inserts'] if variant == 'get_versions' else r['inserts'][0]  # type: ignore[call-overload]
         assert inserts > 0
         assert len(r) == 1
 

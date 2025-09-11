@@ -1,7 +1,17 @@
 # ruff: noqa: F401
 
 from .__version__ import __version__, __version_tuple__
-from .catalog import Column, ColumnMetadata, IndexMetadata, InsertableTable, Table, TableMetadata, UpdateStatus, VersionMetadata, View
+from .catalog import (
+    Column,
+    ColumnMetadata,
+    IndexMetadata,
+    InsertableTable,
+    Table,
+    TableMetadata,
+    UpdateStatus,
+    VersionMetadata,
+    View,
+)
 from .dataframe import DataFrame
 from .exceptions import Error, ExprEvalError, PixeltableWarning
 from .func import Aggregator, Function, Tool, ToolChoice, Tools, expr_udf, mcp_udfs, query, retrieval_udf, uda, udf

@@ -7,7 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, TypedDict, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from uuid import UUID
@@ -1695,14 +1695,14 @@ class Table(SchemaObject):
         Returns information about versions of this table, most recent first.
 
         `get_versions()` is intended for programmatic access to version metadata; for human-readable
-        output, use [`history()`][pixeltable.Table.history()] instead.
+        output, use [`history()`][pixeltable.Table.history] instead.
 
         Args:
             n: if specified, will return at most `n` versions
 
         Returns:
-            A list of [VersionMetadata][pxt.VersionMetadata] dictionaries, one per version retrieved, most recent
-            first.
+            A list of [VersionMetadata][pixeltable.VersionMetadata] dictionaries, one per version retrieved, most
+            recent first.
 
         Examples:
             Retrieve metadata about all versions of the table `tbl`:
@@ -1743,9 +1743,7 @@ class Table(SchemaObject):
             update_status = vers_md.version_md.update_status
             if update_status is None:
                 update_status = UpdateStatus()
-            change_type = 'schema' if schema_change != '' else ''
-            if change_type == '':
-                change_type = 'data'
+            change_type: Literal['schema', 'data'] = 'schema' if schema_change != '' else 'data'
             rcs = update_status.row_count_stats + update_status.cascade_row_count_stats
             metadata_dicts.append(
                 VersionMetadata(
@@ -1769,7 +1767,7 @@ class Table(SchemaObject):
         Returns a human-readable report about versions of this table.
 
         `history()` is intended for human-readable output of version metadata; for programmatic access,
-        use [`get_versions()`][pixeltable.Table.get_versions()] instead.
+        use [`get_versions()`][pixeltable.Table.get_versions] instead.
 
         Args:
             n: if specified, will return at most `n` versions
