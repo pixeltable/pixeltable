@@ -1091,6 +1091,8 @@ class Catalog:
         # Finally, it's possible that the table already exists in the catalog, but as an anonymous system table that
         # was hidden the last time we checked (and that just became visible when the replica was imported). In this
         # case, we need to make the existing table visible by moving it to the specified path.
+        # We need to do this at the end, since `existing_path` needs to first have a visible table version in
+        # order to be instantiated as a schema object.
         existing = self.get_table_by_id(tbl_id)
         if existing is not None:
             existing_path = Path.parse(existing._path(), allow_system_path=True)
@@ -1816,26 +1818,29 @@ class Catalog:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
                 assert version_md.schema_version == schema_version_md.schema_version
-            if (
+            tv_rows = (
                 session.query(schema.TableVersion)
                 .filter(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
-                .count()
-                > 0
-            ):
-                # This table version already exists; update it. (This typically happens when setting the is_hidden
-                # flag of an existing TableVersion from True to False.)
+                .all()
+            )
+            if len(tv_rows) == 0:
+                # It's a new table version; insert a new record in the DB for it.
+                tbl_version_record = schema.TableVersion(
+                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
+                )
+                session.add(tbl_version_record)
+            else:
+                # This table version already exists; update it.
+                assert len(tv_rows) == 1  # must be unique
+                tv = tv_rows[0]
+                # Validate that the only field that can change is 'is_hidden'.
+                assert tv.md == dataclasses.asdict(dataclasses.replace(version_md, is_hidden=tv.md['is_hidden']))
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
                     .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
                 )
                 assert result.rowcount == 1, result.rowcount
-            else:
-                # It's a new table version; insert a new record in the DB for it.
-                tbl_version_record = schema.TableVersion(
-                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
-                )
-                session.add(tbl_version_record)
 
         # Construct and insert a new schema version record if requested.
         if schema_version_md is not None:

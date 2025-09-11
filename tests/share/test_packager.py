@@ -443,7 +443,7 @@ class TestPackager:
 
         v_bundle = self.__package_table(v)
 
-        # v_bundle has more rows, but fewer columns.
+        # v_bundle is missing some of the rows that were present in t_bundle, but has some new ones as well.
 
         clean_db()
         reload_catalog()
@@ -480,7 +480,8 @@ class TestPackager:
         reload_catalog()
 
         for n in (4, 1, 0, 3, 8, 10, 7, 9, 6):
-            # We need to use a consistent name for the non-snapshot bundles, and distinct names for the snapshots.
+            # The non-snapshot bundles all refer to the same table UUID, so we use the consistent name 'replica' for
+            # all of them. The snapshot bundles refer to distinct schema objects, so we use distinct names for them.
             # The non-snapshot bundles are traversed in temporal order; the snapshot bundles are randomized.
             name = 'replica' if n % 2 != 0 else f'replica_{n}'
             self.__restore_and_check_table(bundles[n], name)
