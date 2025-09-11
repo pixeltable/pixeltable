@@ -1,0 +1,3 @@
+# VersionMetadata
+
+## ::: pixeltable.VersionMetadata

@@ -8,7 +8,7 @@ from .insertable_table import InsertableTable
 from .named_function import NamedFunction
 from .path import Path
 from .schema_object import SchemaObject
-from .table import ColumnMetadata, IndexMetadata, Table, TableMetadata
+from .table import ColumnMetadata, IndexMetadata, Table, TableMetadata, VersionMetadata
 from .table_version import TableVersion
 from .table_version_handle import ColumnHandle, TableVersionHandle
 from .table_version_path import TableVersionPath
