@@ -1,0 +1,179 @@
+---
+title: 'Production Guide'
+description: 'Managing Pixeltable in Production Environments'
+---
+
+Pixeltable provides powerful primitives for building AI applications, but moving from development to production requires careful consideration of infrastructure, schema management, deployment, and maintenance. This guide outlines best practices for running Pixeltable reliably and safely in production.
+
+## 1. Setting Up Production Infrastructure
+
+**Separate Schema Definition and Application Code:**
+
+- **Schema/Infrastructure Code (`setup_pixeltable.py`):** Define your Pixeltable directories, tables, views, computed columns, and indexes in dedicated setup scripts. This script acts as your "Infrastructure as Code" for Pixeltable entities.
+    - Use version control (e.g., Git) to manage changes to this setup script.
+    - Run this script during initial deployment and potentially as part of controlled migration processes when the schema needs to change.
+- **Application Code (`endpoint.py`, `functions.py`):** Your application logic (e.g., API endpoints, business logic) should assume the Pixeltable infrastructure exists. It interacts with tables and views primarily using `pxt.get_table()` and `@pxt.udf`.
+- **Error Handling:** Application code must gracefully handle cases where expected tables/views might be missing, indicating an incomplete or incorrect setup.
+
+**[Optional] Configuration Management (`config.py`):**
+
+- Externalize configuration details like model IDs, API keys, thresholds, and potentially database connection strings (if using alternative backends).
+- Use environment variables (e.g., via `.env` files and libraries like `python-dotenv`) or a proper secrets management system to inject sensitive information like API keys. **Do not** hardcode secrets in your setup or application code.
+
+**Underlying Storage:**
+
+- Pixeltable manages metadata, but media files (docs, images, videos, audio) are stored by reference. Ensure the storage location (local disk, network file share, cloud storage like S3/GCS/Azure Blob) is reliable, scalable, and backed up according to your production requirements.
+
+```python
+# setup.py - Infrastructure definition (Simplified Example)
+import pixeltable as pxt
+import config  # Import centralized config
+
+# Ensure main directory exists
+pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
+
+# Define core table safely
+try:
+    pxt.create_table(
+        f'{config.APP_NAMESPACE}.documents',
+        {
+            'document': pxt.Document,
+            'metadata': pxt.Json,
+            'timestamp': pxt.Timestamp
+        },
+        if_exists='ignore'  # CRITICAL for production safety
+    )
+    print(f"Table '{config.APP_NAMESPACE}.documents' created or already exists.")
+except Exception as e:
+    print(f"Error setting up table 'documents': {e}")
+    # Add more robust error handling/logging
+
+# Define computed columns, views, indexes similarly...
+
+# ---
+
+# app.py - Application logic (Simplified Example)
+import pixeltable as pxt
+import config
+
+# Connect to existing table; fail gracefully if not set up
+try:
+    docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+    if docs_table is None:
+        raise RuntimeError(
+            f"Pixeltable table '{config.APP_NAMESPACE}.documents' not found. "
+            "Ensure infrastructure setup script has run successfully."
+        )
+except Exception as e:
+    # Log error and potentially exit or disable features
+    print(f"Critical error connecting to Pixeltable infrastructure: {e}")
+    # sys.exit(1) or similar
+
+# Application endpoints and logic using docs_table...
+
+```
+
+## 2. Managing Schema Evolution Safely
+
+Schema changes are inevitable. Pixeltable provides mechanisms, but production changes require a careful process.
+
+- **Adding Columns:** Generally safe using `table.add_column(new_col=pxt.SomeType)`. New columns default to `nullable=True`, minimizing disruption to existing rows and read operations.
+- **Adding Computed Columns:** Adding *new* computed columns (e.g., `table.add_computed_column(...)`) is typically safe and non-disruptive; computation happens incrementally for new/updated data.
+- **Modifying Computed Columns:** Using `if_exists='replace'` when defining/adding computed columns is useful in development but potentially costly in production, as it triggers recomputation for the entire column. Plan for the performance impact or use alternative strategies (e.g., add a new column with the updated logic, migrate, then drop the old one).
+- **Dropping Columns/Tables/Views:** Use extreme caution. Ensure no application code or downstream dependency relies on the entity being dropped. Consider a deprecation period.
+- **Using `if_exists='ignore'`:** Always use this when defining tables, views, or adding indexes in your setup scripts to prevent accidental data loss or errors during re-runs.
+- **Version Control:** Treat your `setup_pixeltable.py` script as critical infrastructure code under Git. Use branches for developing schema changes.
+- **Rollbacks:** Pixeltable's `table.revert()` can undo the *last* schema operation, useful for quick fixes. For complex rollbacks, rely on version control (reverting the setup script change) and potentially manual cleanup or data migration scripts.
+
+```python
+# Example: Safely adding a new computed column in a migration script
+import pixeltable as pxt
+import config
+# ... (import necessary functions like embedding models)
+
+try:
+    docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+    if docs_table and 'embedding' not in docs_table.column_names():
+        print("Adding 'embedding' computed column...")
+        docs_table.add_computed_column(
+            embedding=some_embedding_function(docs_table.document),
+            if_exists='ignore' # Safe: won't error if run again
+        )
+        print("'embedding' column added.")
+    else:
+        print("'embedding' column already exists or table not found.")
+except Exception as e:
+    print(f"Error adding computed column: {e}")
+
+```
+
+## 3. Organizing Your Codebase
+
+Maintainability is key in production.
+
+- **Namespaces:** Use Pixeltable <a href="https://docs.pixeltable.com/docs/datastore/directories" target="_blank" rel="noopener">directories</a> like namespaces (e.g., `agents`, `myapp_prod`, `myapp_staging`) to logically group related tables and views.
+- **Modular Functions:** Keep User-Defined Functions (UDFs) in separate Python modules (`functions.py`) and import them into your setup script. This improves testability and organization.
+- **Centralized Config:** Use a dedicated module (`config.py`) for constants, model IDs, API endpoints, etc.
+- **Naming Conventions:** Adopt consistent naming for tables, views, columns, and functions (e.g., `snake_case`).
+
+## 4. Monitoring and Performance
+
+- **Application Logging:** Implement standard Python logging within your UDFs (`functions.py`) and application code (`endpoint.py`) to track execution flow, errors, and performance metrics (e.g., API call durations).
+- **Pixeltable Status/Errors:** Monitor logs and status information provided by Pixeltable (consult documentation for specific mechanisms) to detect issues with computation, indexing, or connections.
+- **Resource Monitoring:** Track system resources (CPU, RAM, Disk I/O, Network) on the machine(s) running Pixeltable and its associated processes (especially for compute-intensive UDFs or model inference).
+- **Performance Bottlenecks:** Identify and optimize slow UDFs. Ensure efficient data loading. Be mindful of external API rate limits called within UDFs. Use <a href="https://docs.pixeltable.com/docs/datastore/embedding-index" target="_blank" rel="noopener">embedding indexes</a> appropriately for semantic search.
+
+## 5. Backup and Recovery
+
+- **Pixeltable Metadata:** Understand how Pixeltable stores its metadata (e.g., table definitions, computed column logic). Implement regular backups of this metadata store according to standard database backup practices if it relies on one, or filesystem backups if stored locally. Check Pixeltable documentation for recommended procedures.
+- **Media File Storage:** Independently back up the actual media files stored in your chosen backend (local disk, S3, GCS, etc.) using standard backup tools for that storage system. Pixeltable only stores references.
+- **Recovery Plan:** Have a documented plan for restoring both Pixeltable metadata and media file references in case of failure.
+
+## 6. Dependency Management
+
+- **Virtual Environments:** Always use Python virtual environments (`venv`, `conda`) to isolate project dependencies.
+- **Pinned Dependencies:** Maintain a `requirements.txt` file with pinned versions (`package==X.Y.Z`) for all dependencies, including `pixeltable` itself, to ensure reproducible builds.
+- **Containerization:** Consider using Docker to containerize your Pixeltable setup process and your application, bundling specific versions of Python, Pixeltable, and other libraries for consistent deployment across environments.
+
+## 7. Deployment Patterns & Environments
+
+- **Web Applications (FastAPI, Flask):** Typically, run `setup_pixeltable.py` once during deployment or as a migration step. The web server processes connect to the existing Pixeltable instance.
+- **Batch Processing:** Schedule your Pixeltable scripts (for ingestion or computation) using tools like `cron`, Airflow, or cloud-native schedulers.
+- **Environments (Dev/Staging/Prod):**
+    - **Logical Separation:** Use Pixeltable directories (e.g., `dev_myapp`, `staging_myapp`, `prod_myapp`) within a single Pixeltable instance for simple separation.
+    - **Physical Separation:** For stronger isolation, run separate Pixeltable instances (potentially with separate databases/storage) for each environment. Manage connections using different configuration files or environment variables.
+
+## 8. Testing Changes
+
+- **Staging Environment:** Maintain a staging environment that closely mirrors production. Test all schema changes, UDF updates, and application code changes here *before* deploying to production.
+- **Test Data:** Use a representative subset of anonymized or generated data for testing in staging.
+- **Test Scope:** Verify schema migrations run correctly. Test UDF logic with edge cases. Perform basic performance testing to catch regressions. Test rollback procedures.
+
+```python
+# Example: Setting up a temporary test environment
+# (Use cautiously - 'replace' deletes existing data in that dir)
+import pixeltable as pxt
+
+TEST_NAMESPACE = 'temp_test_myapp'
+
+try:
+    print(f"Creating clean test environment: {TEST_NAMESPACE}")
+    pxt.create_dir(TEST_NAMESPACE, if_exists='replace')
+
+    # Now, run your setup script logic targeting the TEST_NAMESPACE
+    # import setup_module
+    # setup_module.run_setup(namespace=TEST_NAMESPACE)
+
+    # Load test data into tables within TEST_NAMESPACE...
+
+    # Perform tests...
+
+finally:
+    # Clean up the test environment (optional)
+    # print(f"Dropping test environment: {TEST_NAMESPACE}")
+    # pxt.drop_dir(TEST_NAMESPACE, force=True)
+    pass
+
+```
+
+**Final Note:** While `pxt.drop_dir(..., force=True)` is common in development examples and tutorials for a clean start, **avoid it in production setup scripts** unless you have a very specific, controlled reason and robust backups. Accidental data loss is a significant risk. Use `if_exists='ignore'` for safety during creation steps.

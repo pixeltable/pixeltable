@@ -21,6 +21,41 @@
               "docs/overview/installation",
               "docs/overview/configuration",
               "docs/overview/building-pixeltable-with-llms",
+              "docs/overview/production-deployment",
+              {
+                "group": "Sample Application Walkthroughs",
+                "pages": [
+                  "docs/overview/sample-app-introduction",
+                  "docs/examples/examples/interactive-demos",
+                  "docs/examples/examples/sample-apps",
+                  {
+                    "group": "Chatbot",
+                    "pages": [
+                      "docs/examples/examples/chat/multimodal",
+                      "docs/examples/examples/chat/memory",
+                      "docs/examples/examples/chat/tools",
+                      "docs/examples/examples/chat/evals"
+                    ]
+                  },
+                  {
+                    "group": "Computer Vision",
+                    "pages": [
+                      "docs/examples/examples/vision/label-studio",
+                      "docs/examples/examples/vision/voxel51"
+                    ]
+                  },
+                  {
+                    "group": "Semantic Search",
+                    "pages": [
+                      "docs/examples/examples/search/audio",
+                      "docs/examples/examples/search/images",
+                      "docs/examples/examples/search/PDF",
+                      "docs/examples/examples/search/website",
+                      "docs/examples/examples/search/video"
+                    ]
+                  }
+                ]
+              },
               "docs/overview/understanding-pixeltable"
             ]
           },
@@ -166,39 +201,6 @@
                   "docs/libraries/pixelagent",
                   "docs/libraries/mcp",
                   "docs/libraries/yolox"
-                ]
-              },
-              {
-                "group": "Explore",
-                "pages": [
-                  "docs/examples/examples/interactive-demos",
-                  "docs/examples/examples/sample-apps"
-                ]
-              },
-              {
-                "group": "Chatbot",
-                "pages": [
-                  "docs/examples/examples/chat/multimodal",
-                  "docs/examples/examples/chat/memory",
-                  "docs/examples/examples/chat/tools",
-                  "docs/examples/examples/chat/evals"
-                ]
-              },
-              {
-                "group": "Computer Vision",
-                "pages": [
-                  "docs/examples/examples/vision/label-studio",
-                  "docs/examples/examples/vision/voxel51"
-                ]
-              },
-              {
-                "group": "Semantic Search",
-                "pages": [
-                  "docs/examples/examples/search/audio",
-                  "docs/examples/examples/search/images",
-                  "docs/examples/examples/search/PDF",
-                  "docs/examples/examples/search/website",
-                  "docs/examples/examples/search/video"
                 ]
               }
             ]
