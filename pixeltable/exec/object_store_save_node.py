@@ -216,7 +216,7 @@ class ObjectStoreSaveNode(ExecNode):
             if (
                 soa is not None
                 and soa.storage_target == StorageTarget.OS
-                and LocalStore.from_soa(soa).resolve_url(url) is not None
+                and LocalStore(soa).resolve_url(url) is not None
             ):
                 # A local non-default destination was specified, and the url already points there
                 continue

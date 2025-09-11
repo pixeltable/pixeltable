@@ -354,7 +354,7 @@ class ObjectOps:
             else ObjectPath.parse_object_storage_addr(dest, may_contain_object_name=may_contain_object_name)
         )
         if soa.storage_target == StorageTarget.OS:
-            return LocalStore.from_soa(soa)
+            return LocalStore(soa)
         if soa.storage_target == StorageTarget.S3 and soa.scheme == 's3':
             return S3Store(soa)
         if soa.storage_target == StorageTarget.R2:

@@ -37,11 +37,14 @@ class LocalStore(ObjectStoreBase):
 
     soa: Optional[StorageObjectAddress]
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, location: Path | StorageObjectAddress):
         """Initialize a LocalStore with a base directory."""
-        assert isinstance(base_dir, Path), 'Base directory must be a Path instance.'
-        self.__base_dir = base_dir
-        self.soa = None
+        if isinstance(location, Path):
+            self.__base_dir = location
+            self.soa = None
+        else:
+            self.__base_dir = location.to_path
+            self.soa = location
 
     def validate(self, error_col_name: str) -> str:
         """Convert a Column destination parameter to a URI, else raise errors."""
@@ -81,13 +84,6 @@ class LocalStore(ObjectStoreBase):
 
         path_str = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
         return Path(path_str)
-
-    @classmethod
-    def from_soa(cls, soa: StorageObjectAddress) -> LocalStore:
-        """Return an instance for the specified base URI. The destination is sourced from Env if None."""
-        r = LocalStore(soa.to_path)
-        r.soa = soa
-        return r
 
     @classmethod
     def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: Optional[str]) -> Path:
