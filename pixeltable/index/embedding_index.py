@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import logging
 from typing import Any, ClassVar, Optional
 
 import numpy as np
@@ -138,6 +139,8 @@ class EmbeddingIndex(IndexBase):
 
     def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Create the index on the index value column"""
+        """
+        AH TODO move this into dbms?
         idx = sql.Index(
             index_name,
             index_value_col.sa_col,
@@ -147,6 +150,13 @@ class EmbeddingIndex(IndexBase):
         )
         conn = Env.get().conn
         idx.create(bind=conn)
+        """
+
+        # Create index using raw SQL for CockroachDB
+        create_index_sql = sql.text(f"""CREATE VECTOR INDEX {index_name} ON {index_value_col.sa_col.table.name} ({index_value_col.sa_col.name})""")
+        conn = Env.get().conn
+        conn.execute(create_index_sql)
+
 
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Drop the index on the index value column"""

@@ -76,7 +76,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
-    os.environ['PIXELTABLE_DB_CONNECT_STR'] = 'cockroachdb://ahadke:oEAD4hwx92qJ95Ak3lpSPQ@pixeltable-dev-7769.j77.aws-us-west-2.cockroachlabs.cloud:26257/pxtcockroach?sslmode=verify-full'
+    ## DEV os.environ['PIXELTABLE_DB_CONNECT_STR'] = 'cockroachdb://ahadke:oEAD4hwx92qJ95Ak3lpSPQ@pixeltable-dev-7769.j77.aws-us-west-2.cockroachlabs.cloud:26257/pxtcockroach?sslmode=verify-full'
+    ## PROD
+    os.environ['PIXELTABLE_DB_CONNECT_STR'] = 'cockroachdb://ahadke:knlxZ0EZNoeYBJE7RQdODw@pixeltable-prod-14345.j77.aws-us-east-1.cockroachlabs.cloud:26257/pxtcockroach?sslmode=verify-full'
 
     for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA', 'FIFTYONE_DATABASE_DIR'):
         print(f'{var:21} = {os.environ[var]}')
