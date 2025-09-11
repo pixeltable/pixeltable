@@ -34,6 +34,7 @@ class GCSStore(ObjectStoreBase):
     # prefix path within the bucket, either empty or ending with a slash
     __prefix_name: str
 
+    # The parsed form of the given destination address
     soa: StorageObjectAddress
 
     def __init__(self, soa: StorageObjectAddress):
@@ -71,7 +72,9 @@ class GCSStore(ObjectStoreBase):
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
-            bucket.reload()  # This will raise an exception if the bucket doesn't exist
+            blobs = bucket.list_blobs(max_results=1)
+            # This will raise an exception if the destination doesn't exist or cannot be listed
+            _ = list(blobs)  # Force evaluation to check access
             return self.__base_uri
         except (NotFound, Forbidden, GoogleAPIError) as e:
             self.handle_gcs_error(e, self.bucket_name, f'validate bucket {error_col_name}')
@@ -278,10 +281,17 @@ class GCSStore(ObjectStoreBase):
         from google.cloud import storage  # type: ignore[attr-defined]
 
         try:
-            # Try to create client with default credentials
+            # Create a client with default credentials
+            # Note that if the default credentials have expired, gcloud will still create a client,
+            # which will report the expiry error when it is used.
+            # To create and use an anonymous client, expired credentials must be removed.
+            # For application default credentials, delete the file in ~/.config/gcloud/, or
+            #   gcloud auth application-default revoke
+            # OR
+            # For service account keys, you must delete the downloaded key file.
             client = storage.Client()
             return client
         except Exception:
-            # If no credentials are available, create anonymous client for public buckets
+            # If no credentials are found, create an anonymous client which can be used for public buckets.
             client = storage.Client.create_anonymous_client()
             return client

@@ -349,6 +349,15 @@ class TestDestination:
             pytest.skip('S3 support not installed or destination not reachable')
         self.dest_public_read_only(self.S3_PUBLIC_BUCKET, self.S3_PUBLIC_OBJECT)
 
+    GS_PUBLIC_BUCKET = 'gs://hdrplusdata/'
+    GS_PUBLIC_OBJECT = '20171106_subset/gallery_20171023/c483_20150901_105412_265.jpg'
+
+    def test_dest_public_gs(self, reset_db: None) -> None:
+        """Test Google Cloud Storage interfaces on public bucket / object"""
+        if not self.validate_dest(self.GS_PUBLIC_BUCKET):
+            pytest.skip('GS support not installed or destination not reachable')
+        self.dest_public_read_only(self.GS_PUBLIC_BUCKET, self.GS_PUBLIC_OBJECT)
+
     AZ_PUBLIC_BUCKET = 'https://azureopendatastorage.blob.core.windows.net/mnist/'
     AZ_PUBLIC_OBJECT = 'train-images-idx3-ubyte.gz'
 
