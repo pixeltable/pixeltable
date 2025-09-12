@@ -40,13 +40,13 @@ class TestDestination:
             dest_uri = dest_path.resolve().as_uri()
             return dest_path, dest_uri
         if dest_id == 'gcs_store':
-            gs_uri = f'gs://pixeltable/my_folder/img_rot{n}'
+            gs_uri = f'gs://pxt-test/ci_test/img_rot{n}'
             return gs_uri, gs_uri
         elif dest_id == 's3':
-            s3_uri = f's3://jimpeterson-test/img_rot{n}'
+            s3_uri = f's3://pxt-test/ci_test/img_rot{n}'
             return s3_uri, s3_uri
         elif dest_id == 'r2':
-            r2_uri = f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/jimpeterson-testr2/images/img_rot{n}'
+            r2_uri = f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
             return r2_uri, r2_uri
         elif dest_id == 'az':
             return None, None
