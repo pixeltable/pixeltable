@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 from uuid import UUID
 
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -344,9 +344,7 @@ class ObjectOps:
     @classmethod
     def get_store(cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None) -> Any:
         from pixeltable.env import Env
-        from pixeltable.utils.gcs_store import GCSStore
         from pixeltable.utils.local_store import LocalStore
-        from pixeltable.utils.s3_store import S3Store
 
         soa = (
             Env.get().object_soa
@@ -356,10 +354,19 @@ class ObjectOps:
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
         if soa.storage_target == StorageTarget.S3_STORE and soa.scheme == 's3':
+            env.Env.get().require_package('boto3')
+            from pixeltable.utils.s3_store import S3Store
+
             return S3Store(soa)
         if soa.storage_target == StorageTarget.R2_STORE:
+            env.Env.get().require_package('boto3')
+            from pixeltable.utils.s3_store import S3Store
+
             return S3Store(soa)
         if soa.storage_target == StorageTarget.GCS_STORE and soa.scheme == 'gs':
+            env.Env.get().require_package('google.cloud.storage')
+            from pixeltable.utils.gcs_store import GCSStore
+
             return GCSStore(soa)
         if soa.storage_target == StorageTarget.HTTP_STORE and soa.is_http_readable:
             return HTTPStore(soa)

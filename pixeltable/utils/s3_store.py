@@ -5,6 +5,10 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
+import boto3
+import botocore
+from botocore.exceptions import ClientError
+
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
@@ -96,9 +100,6 @@ class S3Store(ObjectStoreBase):
         Returns:
             bool: True if the S3 URI exists and is accessible, False otherwise.
         """
-        env.Env.get().require_package('boto3')
-        from botocore.exceptions import ClientError
-
         try:
             self.client().head_bucket(Bucket=self.bucket_name)
             return self.__base_uri
@@ -123,8 +124,6 @@ class S3Store(ObjectStoreBase):
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
-        from botocore.exceptions import ClientError
-
         try:
             self.client().download_file(Bucket=self.bucket_name, Key=self.prefix + src_path, Filename=str(dest_path))
         except ClientError as e:
@@ -133,8 +132,6 @@ class S3Store(ObjectStoreBase):
 
     def copy_local_file(self, col: 'Column', src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
-        from botocore.exceptions import ClientError
-
         new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
@@ -159,10 +156,7 @@ class S3Store(ObjectStoreBase):
         Returns:
             Tuple of (iterator over S3 objects matching the criteria, bucket object)
         """
-        from botocore.exceptions import ClientError
-
         # Use ObjectPath to construct the prefix for this table
-
         table_prefix = ObjectPath.table_prefix(tbl_id)
         prefix = f'{self.prefix}{table_prefix}/'
 
@@ -219,8 +213,6 @@ class S3Store(ObjectStoreBase):
         Returns:
             Number of objects deleted
         """
-        from botocore.exceptions import ClientError
-
         assert tbl_id is not None
 
         # Use shared method to get filtered objects and bucket
@@ -257,8 +249,6 @@ class S3Store(ObjectStoreBase):
         Each returned object includes the full set of prefixes.
         if return_uri is True, full URI's are returned; otherwise, just the object keys.
         """
-        from botocore.exceptions import ClientError
-
         p = self.soa.prefix_free_uri if return_uri else ''
 
         s3_client = self.client()
@@ -297,8 +287,6 @@ class S3Store(ObjectStoreBase):
     @classmethod
     def get_boto_session(cls, profile_name: Optional[str] = None) -> Any:
         """Create a boto session using the defined profile"""
-        import boto3
-
         if profile_name:
             try:
                 session = boto3.Session(profile_name=profile_name)
@@ -309,9 +297,6 @@ class S3Store(ObjectStoreBase):
 
     @classmethod
     def get_boto_client(cls, profile_name: Optional[str] = None) -> Any:
-        import boto3
-        import botocore
-
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
             'connect_timeout': 15,

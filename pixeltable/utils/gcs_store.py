@@ -7,6 +7,10 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
+from google.api_core.exceptions import GoogleAPIError
+from google.cloud import storage  # type: ignore[attr-defined]
+from google.cloud.exceptions import Forbidden, NotFound
+
 from pixeltable import env, exceptions as excs
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
@@ -65,10 +69,6 @@ class GCSStore(ObjectStoreBase):
         Returns:
             str: The base URI if the GCS bucket exists and is accessible, None otherwise.
         """
-        env.Env.get().require_package('google.cloud.storage')
-        from google.api_core.exceptions import GoogleAPIError
-        from google.cloud.exceptions import Forbidden, NotFound
-
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
@@ -97,8 +97,6 @@ class GCSStore(ObjectStoreBase):
 
     def copy_local_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
-        from google.api_core.exceptions import GoogleAPIError
-
         new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         blob_name = parsed.path.lstrip('/')
@@ -116,8 +114,6 @@ class GCSStore(ObjectStoreBase):
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe"""
-        from google.api_core.exceptions import GoogleAPIError
-
         try:
             client = self.client()
             bucket = client.bucket(self.bucket_name)
@@ -164,8 +160,6 @@ class GCSStore(ObjectStoreBase):
         Returns:
             Number of objects matching the criteria
         """
-        from google.api_core.exceptions import GoogleAPIError
-
         assert tbl_id is not None
 
         try:
@@ -191,8 +185,6 @@ class GCSStore(ObjectStoreBase):
         Returns:
             Number of objects deleted
         """
-        from google.api_core.exceptions import GoogleAPIError
-
         assert tbl_id is not None
         total_deleted = 0
 
@@ -233,8 +225,6 @@ class GCSStore(ObjectStoreBase):
         Each returned object includes the full set of prefixes.
         if return_uri is True, full URI's are returned; otherwise, just the object keys.
         """
-        from google.api_core.exceptions import GoogleAPIError
-
         p = self.soa.prefix_free_uri if return_uri else ''
         gcs_client = self.client()
         r: list[str] = []
@@ -256,9 +246,6 @@ class GCSStore(ObjectStoreBase):
     @classmethod
     def handle_gcs_error(cls, e: Exception, bucket_name: str, operation: str = '', *, ignore_404: bool = False) -> None:
         """Handle GCS-specific errors and convert them to appropriate exceptions"""
-        from google.api_core.exceptions import GoogleAPIError
-        from google.cloud.exceptions import Forbidden, NotFound
-
         if isinstance(e, NotFound):
             if ignore_404:
                 return
@@ -278,8 +265,6 @@ class GCSStore(ObjectStoreBase):
 
     @classmethod
     def create_client(cls) -> Any:
-        from google.cloud import storage  # type: ignore[attr-defined]
-
         try:
             # Create a client with default credentials
             # Note that if the default credentials have expired, gcloud will still create a client,
