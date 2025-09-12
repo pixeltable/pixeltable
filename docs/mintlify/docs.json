@@ -26,32 +26,32 @@
                 "group": "Sample Application Walkthroughs",
                 "pages": [
                   "docs/developers/sample-app-introduction",
-                  "docs/examples/examples/interactive-demos",
-                  "docs/examples/examples/sample-apps",
+                  "docs/developers/interactive-demos",
+                  "docs/developers/sample-apps",
                   {
                     "group": "Chatbot",
                     "pages": [
-                      "docs/examples/examples/chat/multimodal",
-                      "docs/examples/examples/chat/memory",
-                      "docs/examples/examples/chat/tools",
-                      "docs/examples/examples/chat/evals"
+                      "docs/developers/chat/multimodal",
+                      "docs/developers/chat/memory",
+                      "docs/developers/chat/tools",
+                      "docs/developers/chat/evals"
                     ]
                   },
                   {
                     "group": "Computer Vision",
                     "pages": [
-                      "docs/examples/examples/vision/label-studio",
-                      "docs/examples/examples/vision/voxel51"
+                      "docs/developers/vision/label-studio",
+                      "docs/developers/vision/voxel51"
                     ]
                   },
                   {
                     "group": "Semantic Search",
                     "pages": [
-                      "docs/examples/examples/search/audio",
-                      "docs/examples/examples/search/images",
-                      "docs/examples/examples/search/PDF",
-                      "docs/examples/examples/search/website",
-                      "docs/examples/examples/search/video"
+                      "docs/developers/search/audio",
+                      "docs/developers/search/images",
+                      "docs/developers/search/PDF",
+                      "docs/developers/search/website",
+                      "docs/developers/search/video"
                     ]
                   }
                 ]
@@ -104,7 +104,7 @@
             ]
           },
           {
-            "group": "Notebook & Tutorials",
+            "group": "Notebooks and Tutorials",
             "pages": [
               "docs/notebooks/notebook-intro",
               {
