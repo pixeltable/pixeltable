@@ -1,0 +1,3 @@
+pixeltable>=0.4.12
+pytubefix>=9.1.1
+click>=8.0.0
