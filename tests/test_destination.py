@@ -218,16 +218,14 @@ class TestDestination:
 
         # Create two valid local file Paths for images
         valid_dest_1, dest1_uri = self.create_destination_by_number(1, dest_id)
-        valid_dest_2, create_destination_by_number_uri = self.create_destination_by_number(2, dest_id)
+        valid_dest_2, dest2_uri = self.create_destination_by_number(2, dest_id)
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
         t.add_computed_column(img_rot2=t.img.rotate(90), destination=valid_dest_1)
         t.add_computed_column(img_rot3=t.img.rotate(90), destination=valid_dest_2)
-        t.add_computed_column(
-            img_rot4=t.img.rotate(90), destination=create_destination_by_number_uri
-        )  # Try to copy twice to the same dest
+        t.add_computed_column(img_rot4=t.img.rotate(90), destination=valid_dest_2)  # Try to copy twice to the same dest
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -245,7 +243,7 @@ class TestDestination:
         # as a duplicate, so it is double copied to the destination.
         # When new rows are INSERTED, the results and destinations for img_rot3 and img_rot4 are identified
         # as duplicates, so they are not double copied to the destination.
-        assert len(r) + 1 == self.count(create_destination_by_number_uri, t._id)
+        assert len(r) + 1 == self.count(dest2_uri, t._id)
 
     def test_dest_local_copy(self, reset_db: None) -> None:
         """Test destination attempting to copy a local file to another destination"""
@@ -292,15 +290,17 @@ class TestDestination:
         tbl_id = t._id
         assert t.count() == 2
         target_count: dict[str, int] = defaultdict(int)
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
-            target_count[t_uri] += 2
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
-            assert self.count(t_uri, tbl_id) == target_count[t_uri]
-
+        print(f'Using destinations:\n  {lc_uri}\n  {c2_uri}\n  {c3_uri}\n  {c4_uri}')
         r_dest = t.select(
             t.img.fileurl, t.img_rot_1.fileurl, t.img_rot_2.fileurl, t.img_rot_3.fileurl, t.img_rot_4.fileurl
         ).collect()
         print(r_dest)
+        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
+            print(f'Count for {t_uri}: {self.count(t_uri, tbl_id)}')
+            target_count[t_uri] += 2
+        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
+            assert self.count(t_uri, tbl_id) == target_count[t_uri], f'Count mismatch for {t_uri}'
+
         for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
             olist = ObjectOps.list_uris(t_uri, n_max=20)
             print('list of files in the destination')
