@@ -48,6 +48,9 @@ class TestDestination:
         elif dest_id == 'r2':
             r2_uri = f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
             return r2_uri, r2_uri
+        elif dest_id == 'r2_bad':
+            r2_uri = f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
+            return r2_uri, r2_uri
         elif dest_id == 'az':
             return None, None
         raise AssertionError(f'Invalid dest_id: {dest_id}')
@@ -107,6 +110,10 @@ class TestDestination:
         # Test with invalid scheme
         with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
+
+        # Test with a destination that is not reachable
+        r2_bad_dest = self.create_destination_by_number(1, 'r2_bad')[1]
+        assert not self.validate_dest(r2_bad_dest)
 
     def parse_object_addr(self, s: str, consider_object: bool) -> bool:
         print(f'Parsing: {s}')

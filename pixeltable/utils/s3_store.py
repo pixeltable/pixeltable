@@ -1,9 +1,10 @@
 import logging
 import re
+import threading
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Optional
 
 import boto3
 import botocore
@@ -20,27 +21,39 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+client_lock = threading.Lock()
+
+
+class R2ClientDict(NamedTuple):
+    """Container for actual R2 access objects (clients, resources)
+    Thread-safe, protected by the module lock 'client_lock'"""
+
+    profile: Optional[str]  # profile used to find credentials
+    clients: dict[str, Any]  # Dictionary of URI to client object attached to the URI
+
 
 @env.register_client('r2')
 def _() -> Any:
-    profile_name = Config.get().get_string_value('r2_profile') or 'r2_profile'
-    return S3Store.get_boto_client(profile_name=profile_name)
+    profile_name = Config.get().get_string_value('r2_profile')
+    return R2ClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('r2_resource')
 def _() -> Any:
-    profile_name = Config.get().get_string_value('r2_profile') or 'r2_profile'
-    return S3Store.create_boto_resource(profile_name=profile_name)
+    profile_name = Config.get().get_string_value('r2_profile')
+    return R2ClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('s3')
 def _() -> Any:
-    return S3Store.get_boto_client()
+    profile_name = Config.get().get_string_value('s3_profile')
+    return S3Store.get_boto_client(profile_name=profile_name)
 
 
 @env.register_client('s3_resource')
 def _() -> Any:
-    return S3Store.create_boto_resource()
+    profile_name = Config.get().get_string_value('s3_profile')
+    return S3Store.create_boto_resource(profile_name=profile_name)
 
 
 class S3Store(ObjectStoreBase):
@@ -69,16 +82,30 @@ class S3Store(ObjectStoreBase):
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def client(self) -> Any:
-        """Return the S3 client."""
+        """Return a client to access the store."""
         if self.soa.storage_target == StorageTarget.R2_STORE:
-            return env.Env.get().get_client('r2')
+            cd = env.Env.get().get_client('r2')
+            with client_lock:
+                if self.soa.container_free_uri not in cd.clients:
+                    cd.clients[self.soa.container_free_uri] = S3Store.get_boto_client(
+                        profile_name=cd.profile,
+                        extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
+                    )
+                return cd.clients[self.soa.container_free_uri]
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return env.Env.get().get_client('s3')
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
     def get_resource(self) -> Any:
         if self.soa.storage_target == StorageTarget.R2_STORE:
-            return env.Env.get().get_client('r2_resource')
+            cd = env.Env.get().get_client('r2_resource')
+            with client_lock:
+                if self.soa.container_free_uri not in cd.clients:
+                    cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
+                        profile_name=cd.profile,
+                        extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
+                    )
+                return cd.clients[self.soa.container_free_uri]
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return env.Env.get().get_client('s3_resource')
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
@@ -289,14 +316,35 @@ class S3Store(ObjectStoreBase):
         """Create a boto session using the defined profile"""
         if profile_name:
             try:
+                print(f'Creating boto session with profile {profile_name}')
                 session = boto3.Session(profile_name=profile_name)
                 return session
             except Exception as e:
+                print(f'Error occurred while creating boto session with profile {profile_name}: {e}')
                 _logger.info(f'Error occurred while creating boto session: {e}, fallback to default profile')
         return boto3.Session()
 
     @classmethod
-    def get_boto_client(cls, profile_name: Optional[str] = None) -> Any:
+    def wtf(cls, session: Any) -> None:
+        print(f'------------------------------------------------ Boto session info: {session}')
+        # Get the config from session
+        try:
+            config = session._session.get_scoped_config()
+        except Exception as e:
+            print(f'Error occurred while getting scoped config: {e}')
+            return
+        # Check for endpoint_url in config
+        if 'endpoint_url' in config:
+            endpoint_url = config['endpoint_url']
+            print(f'Endpoint URL from config: {endpoint_url}')
+
+        # For service-specific endpoints
+        if 's3' in config and 'endpoint_url' in config['s3']:
+            s3_endpoint = config['s3']['endpoint_url']
+            print(f'S3 Endpoint URL: {s3_endpoint}')
+
+    @classmethod
+    def get_boto_client(cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
             'connect_timeout': 15,
@@ -305,10 +353,11 @@ class S3Store(ObjectStoreBase):
         }
 
         session = cls.get_boto_session(profile_name)
+        cls.wtf(session)
 
         try:
             config = botocore.config.Config(**config_args)
-            return session.client('s3', config=config)  # credentials are available
+            return session.client('s3', config=config, **(extra_args or {}))  # credentials are available
         except Exception as e:
             _logger.info(f'Error occurred while creating S3 client: {e}, fallback to unsigned mode')
             # No credentials available, use unsigned mode
@@ -317,6 +366,8 @@ class S3Store(ObjectStoreBase):
             return boto3.client('s3', config=config)
 
     @classmethod
-    def create_boto_resource(cls, profile_name: Optional[str] = None) -> Any:
+    def create_boto_resource(
+        cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None
+    ) -> Any:
         # Create a session using the defined profile
-        return cls.get_boto_session(profile_name).resource('s3')
+        return cls.get_boto_session(profile_name).resource('s3', **(extra_args or {}))

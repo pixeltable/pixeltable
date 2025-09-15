@@ -2,7 +2,6 @@
 
 # Replacee existing ~/.aws config and credentials files with values needed to access an R2 storage destination.
 # Values are copied from the three environment variables:
-# R2_ENDPOINT_URL
 # R2_ACCESS_KEY_ID
 # R2_SECRET_ACCESS_KEY
 # so that the r2_profile can be used when setting up boto3, via the python code:
@@ -15,13 +14,9 @@ mkdir -p ~/.aws
 rm -rf ~/.aws/config
 rm -rf ~/.aws/credentials
 
-# Add the default and r2_profiles to AWS config
+# Add default and r2_profile to AWS config
 cat > ~/.aws/config << EOF
 [default]
-
-[profile r2_profile]
-endpoint_url = ${R2_ENDPOINT_URL}
-region = auto
 EOF
 
 # Add the r2_profile credentials to AWS credentials

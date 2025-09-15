@@ -99,7 +99,13 @@ class Config:
         free_disk_space_bytes = shutil.disk_usage(config_path.parent).free
         # Default cache size is 1/5 of free disk space
         file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
-        return {'pixeltable': {'file_cache_size_g': round(file_cache_size_g, 1), 'hide_warnings': False}}
+        return {
+            'pixeltable': {
+                'file_cache_size_g': round(file_cache_size_g, 1),
+                'hide_warnings': False,
+                'r2_profile': 'r2_profile',
+            }
+        }
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
         override_var = f'{section}.{key}'
