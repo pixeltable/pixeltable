@@ -4,7 +4,6 @@ import io
 import logging
 from pathlib import Path
 from typing import Any, AsyncIterator
-from copy import copy
 
 import numpy as np
 import PIL.Image
@@ -14,11 +13,9 @@ from pixeltable import exprs
 from pixeltable.utils.media_store import MediaStore
 
 from .data_row_batch import DataRowBatch
+from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
-
-
-from .exec_node import ExecNode
 
 
 class CellMaterializationNode(ExecNode):
@@ -48,15 +45,15 @@ class CellMaterializationNode(ExecNode):
         async for batch in self.input:
             for row in batch:
                 for col, slot_idx in self.output_col_info:
-                    row.cell_has_val[col.id] = True
                     if row.has_exc(slot_idx):
+                        row.cell_vals[col.id] = None
                         exc = row.get_exc(slot_idx)
-                        row.cell_md[slot_idx] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
+                        row.cell_md[col.qualified_id] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
                     else:
                         val = row[slot_idx]
                         if self._has_embedded_objs(val):
                             row.cell_vals[col.id] = self._rewrite_json(val)
-                            row.cell_md[slot_idx] = exprs.CellMd(
+                            row.cell_md[col.qualified_id] = exprs.CellMd(
                                 embedded_object_file_urls=[str(url) for url in self.embedded_obj_urls]
                             )
                             # discard all completed urls

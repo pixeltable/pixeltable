@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import sys
 import time
-import dataclasses
 from typing import Any, Iterable, NamedTuple, Optional, Sequence
 from uuid import UUID
 
@@ -466,11 +466,13 @@ class RowBuilder:
         num_excs = 0
         table_row: list[Any] = list(pk)
         for col, slot_idx in self.table_columns:
-            if data_row.cell_has_val[col.id]:
+            if col.id in data_row.cell_vals:
                 table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
                     table_row.append(
-                        dataclasses.asdict(data_row.cell_md[slot_idx]) if data_row.cell_md[slot_idx] is not None else None
+                        dataclasses.asdict(data_row.cell_md[col.qualified_id])
+                        if data_row.cell_md[col.qualified_id] is not None
+                        else None
                     )
                 if data_row.has_exc(slot_idx):
                     num_excs += 1

@@ -75,6 +75,7 @@ class SqlNode(ExecNode):
 
     tbl: Optional[catalog.TableVersionPath]
     select_list: exprs.ExprSet
+    cell_md_cols: list[catalog.Column]  # columns for which we also need to set DataRow.cell_md
     set_pk: bool
     num_pk_cols: int
     py_filter: Optional[exprs.Expr]  # a predicate that can only be run in Python
@@ -95,6 +96,7 @@ class SqlNode(ExecNode):
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
         sql_elements: exprs.SqlElementCache,
+        cell_md_cols: list[catalog.Column] | None = None,
         set_pk: bool = False,
     ):
         """
@@ -108,6 +110,12 @@ class SqlNode(ExecNode):
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
+        if cell_md_cols is not None:
+            assert tbl is not None
+            assert all(c.stores_cellmd for c in cell_md_cols)
+            self.cell_md_cols = cell_md_cols
+        else:
+            self.cell_md_cols = []
         self.select_list = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
@@ -145,20 +153,26 @@ class SqlNode(ExecNode):
             if tv is not None:
                 assert tv.is_validated
 
-    def _create_pk_cols(self) -> list[sql.Column]:
-        """Create a list of pk columns"""
-        # we need to retrieve the pk columns
+    def _select_pk_cols(self) -> list[sql.Column]:
         if self.set_pk:
+            # we need to retrieve the pk columns
             assert self.tbl is not None
             assert self.tbl.tbl_version.get().is_validated
             return self.tbl.tbl_version.get().store_tbl.pk_columns()
         return []
 
+    def _select_cell_md_cols(self) -> list[sql.Column]:
+        assert self.tbl is not None
+        assert self.tbl.tbl_version.get().is_validated
+        return [c.sa_cellmd_col for c in self.cell_md_cols]
+
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
-        sql_select_list = [self.sql_elements.get(e) for e in self.select_list] + self._create_pk_cols()
+        sql_select_list = (
+            [self.sql_elements.get(e) for e in self.select_list] + self._select_cell_md_cols() + self._select_pk_cols()
+        )
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
@@ -326,6 +340,10 @@ class SqlNode(ExecNode):
             # populate output_row
             if self.num_pk_cols > 0:
                 output_row.set_pk(tuple(sql_row[-self.num_pk_cols :]))
+            # populate DataRow.cell_md, where requested
+            for i, col in enumerate(self.cell_md_cols[::-1]):
+                _ = -i - self.num_pk_cols - 1
+                output_row.cell_md[col.qualified_id] = sql_row[-i - self.num_pk_cols - 1]
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.select_list):
                 slot_idx = e.slot_idx
@@ -383,6 +401,7 @@ class SqlScanNode(SqlNode):
         tbl: catalog.TableVersionPath,
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
+        cell_md_cols: list[catalog.Column] | None = None,
         set_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ):
@@ -393,7 +412,7 @@ class SqlScanNode(SqlNode):
             exact_version_only: tables for which we only want to see rows created at the current version
         """
         sql_elements = exprs.SqlElementCache()
-        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=set_pk)
+        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=set_pk, cell_md_cols=cell_md_cols)
         # create Select stmt
         if exact_version_only is None:
             exact_version_only = []
@@ -422,6 +441,7 @@ class SqlLookupNode(SqlNode):
         select_list: Iterable[exprs.Expr],
         sa_key_cols: list[sql.Column],
         key_vals: list[tuple],
+        cell_md_cols: list[catalog.Column] | None = None,
     ):
         """
         Args:
@@ -430,7 +450,7 @@ class SqlLookupNode(SqlNode):
             key_vals: list of key values to look up
         """
         sql_elements = exprs.SqlElementCache()
-        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=True)
+        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=True, cell_md_cols=cell_md_cols)
         # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
         self.where_clause_element = sql.tuple_(*sa_key_cols).in_(key_vals)
 
