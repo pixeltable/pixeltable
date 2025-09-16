@@ -393,6 +393,8 @@ class Planner:
             plan = exec.ExprEvalNode(
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
+        if any(c.col_type.is_json_type() for c in stored_cols):
+            plan = exec.CellMaterializationNode(row_builder, plan)
 
         plan.set_ctx(
             exec.ExecContext(

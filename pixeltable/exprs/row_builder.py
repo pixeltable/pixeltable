@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import time
-from dataclasses import dataclass
+import dataclasses
 from typing import Any, Iterable, NamedTuple, Optional, Sequence
 from uuid import UUID
 
@@ -86,10 +86,11 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
+    json_slot_idxs: list[int]  # Indices of json slots
     stored_img_cols: list[exprs.ColumnSlotIdx]
     stored_media_cols: list[exprs.ColumnSlotIdx]
 
-    @dataclass
+    @dataclasses.dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
 
@@ -246,6 +247,7 @@ class RowBuilder:
             e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
+        self.json_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_json_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
@@ -464,6 +466,18 @@ class RowBuilder:
         num_excs = 0
         table_row: list[Any] = list(pk)
         for col, slot_idx in self.table_columns:
+            if data_row.cell_has_val[col.id]:
+                table_row.append(data_row.cell_vals[col.id])
+                if col.stores_cellmd:
+                    table_row.append(
+                        dataclasses.asdict(data_row.cell_md[slot_idx]) if data_row.cell_md[slot_idx] is not None else None
+                    )
+                if data_row.has_exc(slot_idx):
+                    num_excs += 1
+                    if cols_with_excs is not None:
+                        cols_with_excs.add(col.id)
+                continue
+
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
@@ -504,4 +518,11 @@ class RowBuilder:
 
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""
-        return exprs.DataRow(self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+        return exprs.DataRow(
+            num_slots=self.num_materialized,
+            num_output_cols=len(self.table_columns),
+            img_slot_idxs=self.img_slot_idxs,
+            media_slot_idxs=self.media_slot_idxs,
+            array_slot_idxs=self.array_slot_idxs,
+            json_slot_idxs=self.json_slot_idxs,
+        )

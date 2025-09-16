@@ -83,12 +83,15 @@ class DataRow:
 
     # data for output columns; indexed by column id
     cell_vals: list[Any]
-    cell_md: list[CellMd | None]
+    cell_has_val: np.ndarray  # of bool
+    #cell_md: list[CellMd | None]
+    cell_md: np.ndarray  # of CellMd | None
 
     # control structures that are shared across all DataRows in a batch
     img_slot_idxs: list[int]
     media_slot_idxs: list[int]
     array_slot_idxs: list[int]
+    json_slot_idxs: list[int]
 
     def __init__(
         self,
@@ -97,6 +100,7 @@ class DataRow:
         img_slot_idxs: list[int],
         media_slot_idxs: list[int],
         array_slot_idxs: list[int],
+        json_slot_idxs: list[int],
         parent_row: Optional[DataRow] = None,
         parent_slot_idx: Optional[int] = None,
     ):
@@ -106,6 +110,7 @@ class DataRow:
         self.img_slot_idxs = img_slot_idxs
         self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
+        self.json_slot_idxs = json_slot_idxs
 
     def init(self, num_slots: int, num_output_cols: int) -> None:
         self.vals = np.full(num_slots, None, dtype=object)
@@ -118,7 +123,9 @@ class DataRow:
         self.file_paths = np.full(num_slots, None, dtype=object)
         self._may_have_exc = False
         self.cell_vals = [None] * num_output_cols
-        self.cell_md = [None] * num_output_cols
+        self.cell_has_val = np.zeros(num_output_cols, dtype=bool)
+        self.cell_md = np.full(num_slots, None, dtype=object)
+        #self.cell_md = [None] * num_output_cols
         self.pk = None
         self.parent_row = None
         self.parent_slot_idx = None
@@ -271,6 +278,8 @@ class DataRow:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
+        elif idx in self.json_slot_idxs:
+            self.vals[idx] = self.reconstruct_json(val)
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
@@ -298,6 +307,65 @@ class DataRow:
             # we already have a file for this image, nothing left to do
             pass
         self.vals[index] = None
+
+    def reconstruct_json(cls, element: Any) -> Any:
+        """
+        Recursively reconstructs a JSON structure that may contain references to image or array
+        data stored in a binary file.
+        """
+        url = cls.__find_pxturl(element)
+        if url is None:
+            return element
+        parsed = urllib.parse.urlparse(url)
+        assert parsed.scheme == 'file'
+        path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        with open(path, 'rb') as fp:
+            return cls.__reconstruct_json(element, fp)
+
+    @classmethod
+    def __find_pxturl(cls, element: Any) -> Optional[str]:
+        if isinstance(element, list):
+            for v in element:
+                url = cls.__find_pxturl(v)
+                if url is not None:
+                    return url
+
+        if isinstance(element, dict):
+            if '__pxturl__' in element:
+                return element['__pxturl__']
+            for v in element.values():
+                url = cls.__find_pxturl(v)
+                if url is not None:
+                    return url
+
+        return None
+
+    @classmethod
+    def __reconstruct_json(cls, element: Any, fp: io.BufferedReader) -> Any:
+        if isinstance(element, list):
+            return [cls.__reconstruct_json(v, fp) for v in element]
+        if isinstance(element, dict):
+            if '__pxttype__' in element:
+                begin = element['__pxtbegin__']
+                end = element['__pxtend__']
+                assert isinstance(begin, int)
+                assert isinstance(end, int)
+                fp.seek(begin)
+                assert fp.tell() == begin
+                if element['__pxttype__'] == ts.ColumnType.Type.ARRAY.name:
+                    arr = np.load(fp, allow_pickle=False)
+                    assert fp.tell() == end
+                    return arr
+                else:
+                    assert element['__pxttype__'] == ts.ColumnType.Type.IMAGE.name
+                    bytesio = io.BytesIO(fp.read(end - begin))
+                    img = PIL.Image.open(bytesio)
+                    img.load()
+                    assert fp.tell() == end, f'{fp.tell()} != {end} / {begin}'
+                    return img
+            else:
+                return {k: cls.__reconstruct_json(v, fp) for k, v in element.items()}
+        return element
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
         """If a media url refers to data in a temporary file, move the data to a MediaStore"""

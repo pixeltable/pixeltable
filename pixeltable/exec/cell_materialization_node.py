@@ -32,7 +32,7 @@ class CellMaterializationNode(ExecNode):
 
     # execution state
     embedded_obj_urls: list[Path]
-    bytes_buffer: io.BytesIO
+    embedded_obj_buffer: io.BytesIO
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
 
@@ -41,22 +41,31 @@ class CellMaterializationNode(ExecNode):
         self.output_col_info = [
             col_info for col_info in row_builder.table_columns if col_info.col.col_type.is_json_type()
         ]
-        self._create_new_url()
+        self.embedded_obj_urls = []
+        self._reset_buffer()
 
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:
             for row in batch:
                 for col, slot_idx in self.output_col_info:
-                    val = row[slot_idx]
-                    if self._has_embedded_objs(val):
-                        row.cell_vals[slot_idx] = self._rewrite_json(val)
-                        if row.cell_md[slot_idx] is None:
-                            row.cell_md[slot_idx] = exprs.CellMd()
-                        row.cell_md[slot_idx].embedded_object_file_urls = copy(self.embedded_obj_urls)
-                        # discard all completed urls
-                        self.embedded_obj_urls = self.embedded_obj_urls[-1:]
+                    row.cell_has_val[col.id] = True
+                    if row.has_exc(slot_idx):
+                        exc = row.get_exc(slot_idx)
+                        row.cell_md[slot_idx] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
+                    else:
+                        val = row[slot_idx]
+                        if self._has_embedded_objs(val):
+                            row.cell_vals[col.id] = self._rewrite_json(val)
+                            row.cell_md[slot_idx] = exprs.CellMd(
+                                embedded_object_file_urls=[str(url) for url in self.embedded_obj_urls]
+                            )
+                            # discard all completed urls
+                            self.embedded_obj_urls = self.embedded_obj_urls[-1:]
+                        else:
+                            row.cell_vals[col.id] = val
 
             yield batch
+        self._flush_buffer(force=True)
 
     def _has_embedded_objs(self, element: Any) -> bool:
         if isinstance(element, list):
@@ -66,7 +75,7 @@ class CellMaterializationNode(ExecNode):
         return isinstance(element, (np.ndarray, PIL.Image.Image))
 
     def _rewrite_json(self, element: Any) -> Any:
-        """Recursively rewrites a JSON structure by exporting any arrays or images to a binary file."""
+        """Recursively rewrites a JSON structure by writing any arrays or images to self.bytes_buffer."""
         if isinstance(element, list):
             return [self._rewrite_json(v) for v in element]
         if isinstance(element, dict):
@@ -92,28 +101,28 @@ class CellMaterializationNode(ExecNode):
     def _write_ndarray(self, element: np.ndarray) -> tuple[int, int, int]:
         """Write an ndarray to bytes_buffer and return: index into embedded_obj_urls, start offset, end offset"""
         url_idx = len(self.embedded_obj_urls) - 1
-        begin = self.bytes_buffer.tell()
-        np.save(self.bytes_buffer, element, allow_pickle=False)
-        end = self.bytes_buffer.tell()
+        begin = self.embedded_obj_buffer.tell()
+        np.save(self.embedded_obj_buffer, element, allow_pickle=False)
+        end = self.embedded_obj_buffer.tell()
         return url_idx, begin, end
 
     def _write_image(self, element: PIL.Image.Image) -> tuple[int, int, int]:
         """Write a PIL image to bytes_buffer and return: index into embedded_obj_urls, start offset, end offset"""
         url_idx = len(self.embedded_obj_urls) - 1
-        begin = self.bytes_buffer.tell()
+        begin = self.embedded_obj_buffer.tell()
         format = 'webp' if element.has_transparency_data else 'jpeg'
-        element.save(self.bytes_buffer, format=format)
-        end = self.bytes_buffer.tell()
+        element.save(self.embedded_obj_buffer, format=format)
+        end = self.embedded_obj_buffer.tell()
         return url_idx, begin, end
 
-    def _create_new_url(self) -> None:
+    def _reset_buffer(self) -> None:
         url = MediaStore.get()._prepare_media_path_raw(self.row_builder.tbl.id, 0, self.row_builder.tbl.version)
         self.embedded_obj_urls.append(url)
-        self.bytes_buffer = io.BytesIO()
+        self.embedded_obj_buffer = io.BytesIO()
 
-    def _flush_buffer(self) -> None:
-        if self.bytes_buffer.tell() >= self.MIN_FILE_SIZE:
-            self.bytes_buffer.seek(0)
+    def _flush_buffer(self, force: bool = False) -> None:
+        if self.embedded_obj_buffer.tell() >= self.MIN_FILE_SIZE or force:
+            self.embedded_obj_buffer.seek(0)
             with open(self.embedded_obj_urls[-1], 'wb') as f:
-                f.write(self.bytes_buffer.getbuffer())
-            self._create_new_url()
+                f.write(self.embedded_obj_buffer.getbuffer())
+            self._reset_buffer()

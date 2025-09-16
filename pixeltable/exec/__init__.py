@@ -2,6 +2,7 @@
 
 from .aggregation_node import AggregationNode
 from .cache_prefetch_node import CachePrefetchNode
+from .cell_materialization_node import CellMaterializationNode
 from .component_iteration_node import ComponentIterationNode
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
