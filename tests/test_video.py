@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -577,6 +578,9 @@ class TestVideo:
                 's', t, iterator=VideoSplitter.create(video=t.video, segment_duration=1, min_segment_duration=2)
             )
 
+    @pytest.mark.skipif(
+        os.environ.get('PXTTEST_CI_OS') == 'ubuntu-x64-t4', reason='Fonts not available on t4 CI instances'
+    )
     def test_overlay_text(self, reset_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))

@@ -542,9 +542,14 @@ def drop_table(
         assert isinstance(table, str)
         tbl_path = table
 
-    path_obj = catalog.Path.parse(tbl_path)
-    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    if tbl_path.startswith('pxt://'):
+        # Remote table
+        share.delete_replica(tbl_path)
+    else:
+        # Local table
+        path_obj = catalog.Path.parse(tbl_path)
+        if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+        Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':

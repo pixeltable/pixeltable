@@ -323,7 +323,9 @@ class View(Table):
             else:
                 base_descr = f'{base._path()}:{effective_version}'
                 bases_descrs.append(f'{base_descr!r}')
-        result.append(f' (of {", ".join(bases_descrs)})')
+        if len(bases_descrs) > 0:
+            # bases_descrs can be empty in the case of a table-replica
+            result.append(f' (of {", ".join(bases_descrs)})')
 
         if self._tbl_version_path.tbl_version.get().predicate is not None:
             result.append(f'\nWhere: {self._tbl_version_path.tbl_version.get().predicate!s}')

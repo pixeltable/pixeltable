@@ -605,12 +605,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> str:
-        if self._pxt_api_key is None:
-            raise excs.Error(
-                'No API key is configured. Set the PIXELTABLE_API_KEY environment variable, or add an entry to '
-                'config.toml as described here:\nhttps://pixeltable.github.io/pixeltable/config/'
-            )
+    def pxt_api_key(self) -> Optional[str]:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
@@ -748,6 +743,7 @@ class Env:
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
+        self.__register_package('lancedb')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         is_installed: bool

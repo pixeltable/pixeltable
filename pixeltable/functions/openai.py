@@ -113,7 +113,7 @@ def _parse_header_duration(duration_str: str) -> datetime.timedelta:
 
 def _get_header_info(
     headers: httpx.Headers,
-) -> tuple[Optional[tuple[int, int, datetime.datetime]], Optional[tuple[int, int, datetime.datetime]]]:
+) -> tuple[tuple[int, int, datetime.datetime] | None, tuple[int, int, datetime.datetime] | None]:
     now = datetime.datetime.now(tz=datetime.timezone.utc)
 
     requests_limit_str = headers.get('x-ratelimit-limit-requests')
@@ -122,7 +122,7 @@ def _get_header_info(
     requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
     requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
     requests_reset_ts = now + _parse_header_duration(requests_reset_str)
-    requests_info = (requests_limit, requests_remaining, requests_reset_ts)
+    requests_info = (requests_limit, requests_remaining, requests_reset_ts) if requests_remaining is not None else None
 
     tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
     tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
@@ -130,7 +130,10 @@ def _get_header_info(
     tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
     tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
     tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
-    tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
+    tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts) if tokens_remaining is not None else None
+
+    if requests_info is None or tokens_info is None:
+        _logger.debug(f'get_header_info(): incomplete rate limit info: {headers}')
 
     return requests_info, tokens_info
 
