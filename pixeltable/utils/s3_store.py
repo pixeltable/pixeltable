@@ -325,25 +325,6 @@ class S3Store(ObjectStoreBase):
         return boto3.Session()
 
     @classmethod
-    def wtf(cls, session: Any) -> None:
-        print(f'------------------------------------------------ Boto session info: {session}')
-        # Get the config from session
-        try:
-            config = session._session.get_scoped_config()
-        except Exception as e:
-            print(f'Error occurred while getting scoped config: {e}')
-            return
-        # Check for endpoint_url in config
-        if 'endpoint_url' in config:
-            endpoint_url = config['endpoint_url']
-            print(f'Endpoint URL from config: {endpoint_url}')
-
-        # For service-specific endpoints
-        if 's3' in config and 'endpoint_url' in config['s3']:
-            s3_endpoint = config['s3']['endpoint_url']
-            print(f'S3 Endpoint URL: {s3_endpoint}')
-
-    @classmethod
     def get_boto_client(cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
@@ -353,9 +334,10 @@ class S3Store(ObjectStoreBase):
         }
 
         session = cls.get_boto_session(profile_name)
-        cls.wtf(session)
 
         try:
+            # Check if credentials are available
+            boto3.Session().get_credentials().get_frozen_credentials()
             config = botocore.config.Config(**config_args)
             return session.client('s3', config=config, **(extra_args or {}))  # credentials are available
         except Exception as e:
@@ -363,6 +345,7 @@ class S3Store(ObjectStoreBase):
             # No credentials available, use unsigned mode
             config_args = config_args.copy()
             config_args['signature_version'] = botocore.UNSIGNED
+            config = botocore.config.Config(**config_args)
             return boto3.client('s3', config=config)
 
     @classmethod
