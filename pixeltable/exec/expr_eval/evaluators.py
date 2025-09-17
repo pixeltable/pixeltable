@@ -308,10 +308,10 @@ class JsonMapperDispatcher(Evaluator):
             nested_rows = [
                 exprs.DataRow(
                     num_slots=self.nested_exec_ctx.row_builder.num_materialized,
-                    num_output_cols=0,
                     img_slot_idxs=[],
                     media_slot_idxs=[],
                     array_slot_idxs=[],
+                    json_slot_idxs=[],
                     parent_row=row,
                     parent_slot_idx=self.e.slot_idx,
                 )

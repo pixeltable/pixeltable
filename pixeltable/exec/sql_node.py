@@ -338,12 +338,15 @@ class SqlNode(ExecNode):
             output_row = output_batch.add_row(output_row)
 
             # populate output_row
+
             if self.num_pk_cols > 0:
                 output_row.set_pk(tuple(sql_row[-self.num_pk_cols :]))
+
             # populate DataRow.cell_md, where requested
             for i, col in enumerate(self.cell_md_cols[::-1]):
-                _ = -i - self.num_pk_cols - 1
-                output_row.cell_md[col.qualified_id] = sql_row[-i - self.num_pk_cols - 1]
+                cell_md = exprs.CellMd(**sql_row[-i - self.num_pk_cols - 1])
+                output_row.cell_md[col.qualified_id] = cell_md
+
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.select_list):
                 slot_idx = e.slot_idx

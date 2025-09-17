@@ -39,7 +39,7 @@ class JsonPath(Expr):
 
     def __repr__(self) -> str:
         # else 'R': the anchor is RELATIVE_PATH_ROOT
-        anchor_str = str(self._anchor) if self._anchor is not None else 'R'
+        anchor_str = str(self.anchor) if self.anchor is not None else 'R'
         if len(self.path_elements) == 0:
             return anchor_str
         return f'{anchor_str}{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}'
@@ -66,7 +66,7 @@ class JsonPath(Expr):
         return cls(anchor, path_elements, d['scope_idx'])
 
     @property
-    def _anchor(self) -> Optional[Expr]:
+    def anchor(self) -> Optional[Expr]:
         return None if len(self.components) == 0 else self.components[0]
 
     def set_anchor(self, anchor: Expr) -> None:
@@ -74,7 +74,7 @@ class JsonPath(Expr):
         self.components = [anchor]
 
     def is_relative_path(self) -> bool:
-        return self._anchor is None
+        return self.anchor is None
 
     def _has_relative_path(self) -> bool:
         return self.is_relative_path() or super()._has_relative_path()
@@ -84,7 +84,7 @@ class JsonPath(Expr):
             # TODO: take scope_idx into account
             self.set_anchor(mapper.scope_anchor)
         else:
-            self._anchor._bind_rel_paths(mapper)
+            self.anchor._bind_rel_paths(mapper)
 
     def __call__(self, *args: object, **kwargs: object) -> 'JsonPath':
         """
@@ -98,15 +98,15 @@ class JsonPath(Expr):
 
     def __getattr__(self, name: str) -> 'JsonPath':
         assert isinstance(name, str)
-        return JsonPath(self._anchor, [*self.path_elements, name])
+        return JsonPath(self.anchor, [*self.path_elements, name])
 
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, (int, slice, str)):
-            return JsonPath(self._anchor, [*self.path_elements, index])
+            return JsonPath(self.anchor, [*self.path_elements, index])
         raise excs.Error(f'Invalid json list index: {index}')
 
     def default_column_name(self) -> Optional[str]:
-        anchor_name = self._anchor.default_column_name() if self._anchor is not None else ''
+        anchor_name = self.anchor.default_column_name() if self.anchor is not None else ''
         ret_name = f'{anchor_name}.{self._json_path()}'
 
         def cleanup_char(s: str) -> str:
@@ -159,8 +159,8 @@ class JsonPath(Expr):
         return ''.join(result)
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        assert self._anchor is not None, self
-        val = data_row[self._anchor.slot_idx]
+        assert self.anchor is not None, self
+        val = data_row[self.anchor.slot_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
         data_row[self.slot_idx] = val

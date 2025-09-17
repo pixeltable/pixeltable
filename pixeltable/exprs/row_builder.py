@@ -469,11 +469,18 @@ class RowBuilder:
             if col.id in data_row.cell_vals:
                 table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
-                    table_row.append(
-                        dataclasses.asdict(data_row.cell_md[col.qualified_id])
-                        if data_row.cell_md[col.qualified_id] is not None
-                        else None
-                    )
+                    if data_row.cell_md[col.qualified_id] is None:
+                        table_row.append(None)
+                    else:
+                        # dict_factory: we want to minimize the size of the stored dict
+                        md = dataclasses.asdict(
+                            data_row.cell_md[col.qualified_id],
+                            dict_factory=lambda d: {k: v for (k, v) in d if v is not None},
+                        )
+                        if len(md) == 0:
+                            table_row.append(None)
+                        else:
+                            table_row.append(md)
                 if data_row.has_exc(slot_idx):
                     num_excs += 1
                     if cols_with_excs is not None:
@@ -522,7 +529,6 @@ class RowBuilder:
         """Creates a new DataRow with the current row_builder's configuration."""
         return exprs.DataRow(
             num_slots=self.num_materialized,
-            num_output_cols=len(self.table_columns),
             img_slot_idxs=self.img_slot_idxs,
             media_slot_idxs=self.media_slot_idxs,
             array_slot_idxs=self.array_slot_idxs,

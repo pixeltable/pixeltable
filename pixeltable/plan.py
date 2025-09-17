@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Optional, Sequence
+from typing import Any, Iterable, Literal, Optional, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -915,8 +915,19 @@ class Planner:
                     traverse_matches=False,
                 )
             )
+            json_col_refs = exprs.Expr.list_subexprs(
+                tbl_scan_exprs,
+                expr_class=exprs.ColumnRef,
+                filter=lambda e: cast(exprs.ColumnRef, e).col.stores_cellmd,
+                traverse_matches=False,
+            )
             plan = exec.SqlScanNode(
-                tbl, row_builder, select_list=tbl_scan_exprs, set_pk=with_pk, exact_version_only=exact_version_only
+                tbl,
+                row_builder,
+                select_list=tbl_scan_exprs,
+                set_pk=with_pk,
+                cell_md_cols=[c.col for c in json_col_refs],
+                exact_version_only=exact_version_only,
             )
             tbl_scan_plans.append(plan)
 
@@ -948,6 +959,24 @@ class Planner:
             )
 
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
+
+        # we need to do json reconstruction if we're referencing a json-typed column anywhere
+        if exprs.Expr.list_contains(
+            analyzer.all_exprs,
+            expr_class=exprs.ColumnRef,
+            filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_json_type(),
+        ):
+            # what to reconstruct:
+            # - all JsonPath exprs that reference a json column
+            # - all refs of json-typed columns, except for those that are part of a JsonPath expr
+            json_paths = exprs.Expr.list_subexprs(
+                analyzer.all_exprs,
+                expr_class=exprs.JsonPath,
+                filter=lambda e: not e.is_relative_path() and isinstance(e.anchor(), exprs.ColumnRef),
+                traverse_matches=False,
+            )
+            json_expr_info = {e.slot_idx: e.anchor().col.qualified_id for e in json_paths}
+            plan = exec.JsonReconstructionNode(json_expr_info, row_builder, input=plan)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
