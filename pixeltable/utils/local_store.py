@@ -250,6 +250,12 @@ class LocalStore(ObjectStoreBase):
                 r.append(Path(root, file).as_uri() if return_uri else os.path.join(root, file))
         return r
 
+    def clear(self) -> None:
+        """Clear all files from the store."""
+        if self.__base_dir.exists():
+            shutil.rmtree(self.__base_dir)
+            self.__base_dir.mkdir()
+
 
 class TempStore:
     """
@@ -299,3 +305,8 @@ class TempStore:
         if tbl_id is not None:
             return LocalStore(cls._tmp_dir())._prepare_path_raw(tbl_id, 0, 0, extension)
         return cls._tmp_dir() / f'{uuid.uuid4()}{extension}'
+
+    @classmethod
+    def clear(cls) -> None:
+        """Clear all files from the temporary store."""
+        LocalStore(cls._tmp_dir()).clear()

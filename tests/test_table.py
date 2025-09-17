@@ -1,15 +1,18 @@
 import datetime
+import enum
 import math
 import os
 import random
 import re
 from pathlib import Path
-from typing import Any, Optional, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
 
 import av
 import numpy as np
 import pandas as pd
 import PIL
+import PIL.Image
+import pydantic
 import pytest
 from jsonschema.exceptions import ValidationError
 
@@ -535,6 +538,269 @@ class TestTable:
 
         t1.insert(df1)
         assert len(t1.collect()) == 2 * len(df1.collect())
+
+    def test_insert_pydantic_scalars(self, reset_db: None) -> None:
+        schema = {
+            's': pxt.Required[pxt.String],
+            'opt_s': pxt.String,
+            'i': pxt.Required[pxt.Int],
+            'f': pxt.Required[pxt.Float],
+            'b': pxt.Required[pxt.Bool],
+            't': pxt.Required[pxt.Timestamp],
+            'r': pxt.Required[pxt.String],
+            'en': pxt.Required[pxt.Int],
+        }
+        t = pxt.create_table('test_pydantic_basic', schema)
+        t.add_computed_column(c1=t.i + 1)
+
+        # TODO: remove this line
+
+        # pydantic model matches schema exactly
+        class E1(enum.Enum):
+            A = 1
+            B = 2
+
+        class TestModel1(pydantic.BaseModel):
+            s: str
+            i: int
+            f: float
+            b: bool
+            t: datetime.datetime
+            r: Literal['abc', 'def']
+            en: E1
+            opt_s: str | None = None
+
+        now = datetime.datetime.now()
+        rows1 = [
+            TestModel1(
+                s=f'str_{i}',
+                i=i,
+                f=i * 1.0,
+                b=i % 2 == 0,
+                t=now + datetime.timedelta(hours=i),
+                r='abc' if i % 2 == 0 else 'def',
+                en=E1.A if i % 2 == 0 else E1.B,
+                opt_s=f'opt_{i}' if i % 2 == 0 else None,
+            )
+            for i in range(100)
+        ]
+
+        status = t.insert(rows1)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 50
+
+        # optional fields are accepted if present in the input
+        class TestModel2(pydantic.BaseModel):
+            s: str | None = None
+            i: int | None = None
+            f: float | None = None
+            b: bool | None = None
+            t: datetime.datetime | None = None
+            r: Literal['abc', 'def'] | None = None
+            en: E1 | None = None
+
+        rows2 = [TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A) for i in range(100)]
+
+        status = t.insert(rows2)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        assert t.where(t.i < 50).count() == 100
+
+        # missing required keys in input
+        with pytest.raises(pxt.Error, match="Missing required column 's'"):
+            rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
+            _ = t.insert(rows3)
+
+        # mixed models
+        with pytest.raises(pxt.Error, match="Expected 'TestModel1' instance, got 'TestModel2'"):
+            _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
+
+    def test_pydantic_errors(self, reset_db: None) -> None:
+        # value provided for computed column
+        with pytest.raises(pxt.Error, match="has fields for computed columns: 'c1'"):
+            t = pxt.create_table('bad1', {'i': pxt.Int})
+            t.add_computed_column(c1=t.i + 1)
+
+            class BadModel1(pydantic.BaseModel):
+                i: int
+                c1: int
+
+            _ = t.insert([BadModel1(i=0, c1=1)])
+
+        # wrong enum value type
+        with pytest.raises(pxt.Error, match=r"incompatible type \(E1\) for column 'en' \(String\)"):
+            t = pxt.create_table('bad2', {'i': pxt.Int, 'en': pxt.Required[pxt.String]})
+
+            class E1(enum.Enum):
+                A = 1
+                B = 2
+
+            class BadModel2(pydantic.BaseModel):
+                i: int
+                en: E1
+
+            _ = t.insert([BadModel2(i=0, en=E1.A)])
+
+        # wrong Literal type
+        with pytest.raises(pxt.Error, match=r"incompatible type \(Literal\) for column 'r' \(String\)"):
+            t = pxt.create_table('bad7', {'i': pxt.Int, 'r': pxt.Required[pxt.String]})
+
+            class BadModel3(pydantic.BaseModel):
+                i: int
+                r: Literal[1, 2, 3]
+
+            _ = t.insert([BadModel3(i=0, r=1)])
+
+        # missing required field in model
+        with pytest.raises(pxt.Error, match="is missing required columns: 's'"):
+            t = pxt.create_table('bad3', {'i': pxt.Int, 's': pxt.Required[pxt.String]})
+
+            class BadModel4(pydantic.BaseModel):
+                i: int
+
+            _ = t.insert([BadModel4(i=0)])
+
+        # missing required field in model instance
+        with pytest.raises(pxt.Error, match="Missing required column 's' in row 0"):
+            t = pxt.create_table('bad6', {'i': pxt.Int, 's': pxt.Required[pxt.String]})
+
+            class BadModel5(pydantic.BaseModel):
+                i: int
+                s: str | None = None
+
+            _ = t.insert([BadModel5(i=0)])
+
+        # incompatible field type
+        with pytest.raises(pxt.Error, match=r"has incompatible type \(str\) for column 'i' \(Int\)"):
+            t = pxt.create_table('bad4', {'i': pxt.Required[pxt.Int]})
+
+            class BadModel6(pydantic.BaseModel):
+                i: str
+
+            _ = t.insert([BadModel6(i='0')])
+
+        # bad field type
+        with pytest.raises(pxt.Error, match="cannot infer Pixeltable type for column 's'"):
+            t = pxt.create_table('bad5', {'s': pxt.String})
+
+            class BadModel7(pydantic.BaseModel):
+                s: set[int]
+
+            _ = t.insert([BadModel7(s={1, 2, 3})])
+
+        # no matching fields
+        with pytest.raises(pxt.Error, match='has no fields that map to columns'):
+            t = pxt.create_table('errors', {'s': pxt.String}, if_exists='replace')
+
+            class BadModel8(pydantic.BaseModel):
+                t: str
+
+            _ = t.insert([BadModel8(t='0')])
+
+    def test_insert_nested_pydantic(self, reset_db: None) -> None:
+        schema = {'s': pxt.Required[pxt.String], 'j': pxt.Required[pxt.Json]}
+        t = pxt.create_table('test_nested_pydantic', schema)
+
+        class N(pydantic.BaseModel):
+            n: int
+
+        class M1(pydantic.BaseModel):
+            s: str
+            i: int
+            h: Literal['abc', 'def']
+            u: int | str
+            r: list[int]
+            t: tuple[int, str]
+            d: dict[str, int]
+            n: N
+
+        class M2(pydantic.BaseModel):
+            s: str
+            j: M1
+
+        rows = [
+            M2(
+                s=f'str_{i}',
+                j=M1(
+                    s=f'str_{i}',
+                    i=i,
+                    h='abc' if i % 2 == 0 else 'def',
+                    u=i if i % 2 == 0 else f'str_{i}',
+                    r=[i, i + 1],
+                    t=(i, f'str_{i}'),
+                    d={'a': i},
+                    n=N(n=i),
+                ),
+            )
+            for i in range(100)
+        ]
+
+        status = t.insert(rows)
+        assert status.num_rows == 100
+        assert status.num_excs == 0
+        rs = t.select(t.s, i=t.j.i).collect()
+        assert rs['s'] == [f'str_{i}' for i in rs['i']]
+
+        # nested model with field that's not json-convertible
+        with pytest.raises(pxt.Error, match="field 'j' with nested model 'N2', which is not JSON-convertible"):
+
+            class N2(pydantic.BaseModel):
+                s: str
+                i: int
+                c: PIL.Image.Image
+
+                class Config:
+                    arbitrary_types_allowed = True
+
+            class BadModel1(pydantic.BaseModel):
+                s: str
+                j: N2
+
+            _ = t.insert([BadModel1(s='str_0', j=N2(s='str_0', i=0, c=PIL.Image.new('RGB', (100, 100))))])
+
+        # nested model with field that's not json-convertible
+        with pytest.raises(pxt.Error, match="field 'j' with nested model 'N4', which is not JSON-convertible"):
+
+            class N3(pydantic.BaseModel):
+                s: set[int]
+
+            class N4(pydantic.BaseModel):
+                s: str
+                n: N3
+
+            class BadModel2(pydantic.BaseModel):
+                s: str
+                j: N4
+
+            _ = t.insert([BadModel2(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
+
+    def test_pydantic_media(self, reset_db: None) -> None:
+        schema = {'img': pxt.Required[pxt.Image]}
+        t = pxt.create_table('test_pydantic_media', schema)
+
+        class M1(pydantic.BaseModel):
+            img: str
+
+        rows1 = [M1(img=f) for f in get_image_files()[:10]]
+        status = t.insert(rows1)
+        assert status.num_rows == 10
+        assert status.num_excs == 0
+
+        class M2(pydantic.BaseModel):
+            img: Path
+
+        rows2 = [M2(img=Path(f)) for f in get_image_files()[:10]]
+        status = t.insert(rows2)
+        assert status.num_rows == 10
+        assert status.num_excs == 0
+
+        with pytest.raises(pxt.Error, match="Column 'img' requires a 'str' or 'Path' field in 'M3', but it is 'int'"):
+
+            class M3(pydantic.BaseModel):
+                img: int
+
+            _ = t.insert([M3(img=1)])
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
@@ -1195,9 +1461,8 @@ class TestTable:
         assert status.num_excs == 0
 
         # empty input
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Cannot insert an empty sequence'):
             t.insert([])
-        assert 'Unsupported data source type' in str(exc_info.value)
 
         # missing column
         with pytest.raises(pxt.Error) as exc_info:
@@ -2075,29 +2340,47 @@ class TestTable:
         v = pxt.create_view('recompute_view', base=t.where(t.i < 20), additional_columns={'i3': t.i2 + 1})
         validate_update_status(t.insert({'i': i, 's': str(i)} for i in range(100)), expected_rows=100 + 20)
 
+        def validate(i1_incr: int, i2_incr: int, t_interval: tuple[int, int] = (0, 100)) -> None:
+            result = t.where((t.i >= t_interval[0]) & (t.i < t_interval[1])).select(t.i1, t.i2).order_by(t.i).collect()
+            t_i_range = range(t_interval[0], t_interval[1])
+            assert result['i1'] == [i + i1_incr for i in t_i_range], 'i1'
+            assert result['i2'] == [2 * (i + i2_incr) for i in t_i_range], 'i2'
+            result = v.where((v.i >= t_interval[0]) & (v.i < t_interval[1])).select(v.i3).order_by(v.i).collect()
+            v_i_range = range(t_interval[0], min(t_interval[1], 20))
+            assert result['i3'] == [2 * (i + i2_incr) + 1 for i in v_i_range], 'i3'
+
         # recompute without propagation
         TestTable.recompute_udf_increment = 1
         status = t.recompute_columns(t.i1, cascade=False)
         assert status.num_rows == 100
         assert set(status.updated_cols) == {'recompute_test.i1'}
-        result = t.select(t.i1, t.i2).order_by(t.i).collect()
-        assert result['i1'] == [i + 1 for i in range(100)]
-        assert result['i2'] == [2 * i for i in range(100)]
-        result = v.select(v.i3).order_by(v.i).collect()
-        assert result['i3'] == [2 * i + 1 for i in range(20)]
+        validate(1, 0)
+
+        # recompute without propagation, with predicate
+        TestTable.recompute_udf_increment = 0
+        status = t.recompute_columns(t.i1, where=t.i < 10, cascade=False)
+        assert status.num_rows == 10
+        assert set(status.updated_cols) == {'recompute_test.i1'}
+        validate(0, 0, t_interval=(0, 10))
+        validate(1, 0, t_interval=(11, 100))
 
         # recompute with propagation, via a ColumnRef
         TestTable.recompute_udf_increment = 1
         status = t.i1.recompute()
         assert status.num_rows == 100 + 20
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
-        result = t.select(t.i1, t.i2).order_by(t.i).collect()
-        assert result['i1'] == [i + 1 for i in range(100)]
-        assert result['i2'] == [2 * (i + 1) for i in range(100)]
-        result = v.select(v.i3).order_by(v.i).collect()
-        assert result['i3'] == [2 * (i + 1) + 1 for i in range(20)]
+        validate(1, 1)
+
+        # recompute with propagation and predicate, via a DataFrame
+        TestTable.recompute_udf_increment = 0
+        status = t.where(t.i < 10).recompute_columns(t.i1, cascade=True)
+        assert status.num_rows == 10 + 10
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        validate(0, 0, t_interval=(0, 10))
+        validate(1, 1, t_interval=(11, 100))
 
         # recompute multiple columns
+        TestTable.recompute_udf_increment = 1
         status = t.recompute_columns('i1', t.s1)
         assert status.num_rows == 100 + 20
         assert set(status.updated_cols) == {
@@ -2106,11 +2389,7 @@ class TestTable:
             'recompute_test.s1',
             'recompute_view.i3',
         }
-        result = t.select(t.i1, t.i2).order_by(t.i).collect()
-        assert result['i1'] == [i + 1 for i in range(100)]
-        assert result['i2'] == [2 * (i + 1) for i in range(100)]
-        result = v.select(v.i3).order_by(v.i).collect()
-        assert result['i3'] == [2 * (i + 1) + 1 for i in range(20)]
+        validate(1, 1)
 
         # add some errors
         TestTable.recompute_udf_increment = 0
@@ -2129,8 +2408,12 @@ class TestTable:
 
         # recompute errors
         TestTable.recompute_udf_error_val = None
+        status = t.recompute_columns(t.i1, where=t.i < 10, errors_only=True)
+        assert status.num_rows == 1 + 1
+        assert status.num_excs == 0
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         status = t.recompute_columns(t.i1, errors_only=True)
-        assert status.num_rows == 10 + 2
+        assert status.num_rows == 9 + 1
         assert status.num_excs == 0
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
 
@@ -2149,6 +2432,9 @@ class TestTable:
             v.recompute_columns(v.i1)
         with pytest.raises(pxt.Error, match='Cannot recompute column of a base'):
             v.i1.recompute()
+        with pytest.raises(pxt.Error, match="not bound by table 'recompute_test'"):
+            y = pxt.create_table('other_table', {'i': pxt.Int})
+            t.recompute_columns('i1', where=y.i == 0)
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
@@ -2595,3 +2881,44 @@ class TestTable:
                 assert np.array_equal(a1, a2)
 
         reload_tester.run_reload_test()
+
+    def test_drop_column_in_view_predicate(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})
+        v2 = pxt.create_view('view2', v1.where((t.c1 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int})
+        v3 = pxt.create_view(
+            'view3', v2.where(((v1.vc1 + v2.vc2) - (t.c1 + t.c2)) % 5 == 0), additional_columns={'vc3': pxt.Int}
+        )
+        _ = pxt.create_view('view4', v3.where((t.c2 / v3.vc3) < 19), additional_columns={'vc4': pxt.Int})
+
+        with pytest.raises(pxt.Error, match='Cannot drop column `c1` because the following views depend on it') as e:
+            t.drop_column('c1')
+
+        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
+        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
+
+        with pytest.raises(pxt.Error, match='Cannot drop column `c2` because the following views depend on it') as e:
+            t.drop_column('c2')
+
+        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
+        assert 'view: view4, predicate: c2 / vc3 < 19' in str(e.value).lower()
+
+        with pytest.raises(pxt.Error, match='Cannot drop column `vc1` because the following views depend on it') as e:
+            v1.drop_column('vc1')
+
+        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
+
+    def test_drop_last_column(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+        # drop the first column
+        t.drop_column('c1')
+        # drop an unknown column
+        with pytest.raises(pxt.Error, match="Column 'c3' unknown"):
+            t.drop_column('c3')
+        # drop the last column
+        with pytest.raises(
+            pxt.Error, match='Cannot drop column `c2` because it is the last remaining column in this table'
+        ):
+            t.drop_column('c2')

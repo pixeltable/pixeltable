@@ -11,6 +11,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import threading
 import types
@@ -27,6 +28,7 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -83,6 +85,7 @@ class Env:
     _file_cache_size_g: float
     _pxt_api_key: Optional[str]
     _stdout_handler: logging.StreamHandler
+    _default_video_encoder: str | None
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
@@ -106,10 +109,14 @@ class Env:
             cls._instance._clean_up()
         cls._instance = None
         env = Env()
-        env._set_up(reinit_db=reinit_db)
-        env._upgrade_metadata()
-        cls._instance = env
-        cls.__initializing = False
+        try:
+            env._set_up(reinit_db=reinit_db)
+            env._upgrade_metadata()
+            cls._instance = env
+        finally:
+            # Reset the initializing flag, even if setup fails.
+            # This prevents the environment from being left in a broken state.
+            cls.__initializing = False
 
     def __init__(self) -> None:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
@@ -130,6 +137,7 @@ class Env:
         self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
+        self._default_video_encoder = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -504,14 +512,24 @@ class Env:
         assert self._db_url is not None
         assert self._db_name is not None
 
+    @retry(
+        stop=stop_after_attempt(3),  # Stop after 3 attempts
+        wait=wait_exponential_jitter(initial=0.2, max=1.0, jitter=0.2),  # Exponential backoff with jitter
+    )
     def _init_metadata(self) -> None:
         """
         Create pixeltable metadata tables and system metadata.
         This is an idempotent operation.
+
+        Retry logic handles race conditions when multiple Pixeltable processes
+        attempt to initialize metadata tables simultaneously. The first process may succeed
+        in creating tables while others encounter database constraints (e.g., "table already exists").
+        Exponential backoff with jitter reduces contention between competing processes.
         """
         assert self._sa_engine is not None
         from pixeltable import metadata
 
+        self._logger.debug('Creating pixeltable metadata')
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
@@ -591,12 +609,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> str:
-        if self._pxt_api_key is None:
-            raise excs.Error(
-                'No API key is configured. Set the PIXELTABLE_API_KEY environment variable, or add an entry to '
-                'config.toml as described here:\nhttps://pixeltable.github.io/pixeltable/config/'
-            )
+    def pxt_api_key(self) -> Optional[str]:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
@@ -672,6 +685,41 @@ class Env:
         self._start_web_server()
         self.__register_packages()
 
+    @property
+    def default_video_encoder(self) -> str | None:
+        if self._default_video_encoder is None:
+            self._default_video_encoder = self._determine_default_video_encoder()
+        return self._default_video_encoder
+
+    def _determine_default_video_encoder(self) -> str | None:
+        """
+        Returns the first available encoder from a list of candidates.
+
+        TODO:
+        - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
+        - allow user override via a config option 'video_encoder'
+        """
+        # look for available encoders, in this order
+        candidates = [
+            'libx264',  # GPL, best quality
+            'libopenh264',  # BSD
+        ]
+
+        try:
+            # Get list of available encoders
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+
+            if result.returncode == 0:
+                available_encoders = result.stdout
+                for encoder in candidates:
+                    # ffmpeg -encoders output format: " V..... encoder_name  description"
+                    if f' {encoder} ' in available_encoders:
+                        _logger.debug(f'Using H.264 encoder: {encoder}')
+                        return encoder
+        except Exception:
+            pass
+        return None
+
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
         self.__register_package('anthropic')
@@ -707,6 +755,7 @@ class Env:
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
+        self.__register_package('lancedb')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         is_installed: bool

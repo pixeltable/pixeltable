@@ -458,6 +458,7 @@ class TestDataFrame:
         PIL.Image.open(opurl_img)
 
     def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
+        # TODO: also capture recompute_columns()
         t = test_tbl
         old: list[int] = t.select(t.c3).collect()['c3']
 
@@ -687,7 +688,7 @@ class TestDataFrame:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
 
-        from pixeltable.ext.functions.yolox import yolo_to_coco, yolox
+        from pixeltable.functions.yolox import yolo_to_coco, yolox
 
         base_t = pxt.create_table('videos', {'video': ts.VideoType()})
         view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))

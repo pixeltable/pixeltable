@@ -3,9 +3,13 @@ import glob
 import json
 import os
 import random
+import shutil
+import subprocess
+import sysconfig
 from pathlib import Path
 from typing import Any, Callable, Optional
 from unittest import TestCase
+from uuid import uuid4
 
 import more_itertools
 import numpy as np
@@ -22,6 +26,15 @@ from pixeltable.utils import sha256sum
 from pixeltable.utils.object_stores import ObjectOps
 
 TESTS_DIR = Path(os.path.dirname(__file__))
+
+
+def runs_linux_with_gpu() -> bool:
+    try:
+        import torch
+
+        return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
+    except ImportError:
+        return False
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -300,6 +313,29 @@ def get_test_video_files() -> list[str]:
     return glob_result
 
 
+def generate_test_video(
+    tmp_path: Path,
+    duration: float = 1.0,
+    size: str = '640x360',
+    fps: int = 25,
+    has_audio: bool = True,
+    pix_fmt: str = 'yuv420p',
+) -> str:
+    """Create test video with specific properties using ffmpeg and return its path"""
+    cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
+    if has_audio:
+        cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
+    if Env.get().default_video_encoder is not None:
+        cmd.extend(['-c:v', Env.get().default_video_encoder])
+    cmd.extend(['-pix_fmt', pix_fmt])
+    if has_audio:
+        cmd.extend(['-c:a', 'aac'])
+    output_path = tmp_path / f'{uuid4()}.mp4'
+    cmd.extend(['-y', str(output_path)])
+    subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
+
+
 __IMAGE_FILES: list[str] = []
 __IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
 
@@ -456,11 +492,22 @@ def skip_test_if_not_installed(*packages: str) -> None:
             pytest.skip(f'Package `{package}` is not installed.')
 
 
+def skip_test_if_not_in_path(*binaries: str) -> None:
+    for binary in binaries:
+        if shutil.which(binary) is None:
+            pytest.skip(f'Binary `{binary}` is not in PATH.')
+
+
 def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
     except pxt.Error as exc:
         pytest.skip(str(exc))
+
+
+def skip_test_if_no_pxt_credentials() -> None:
+    if not Env.get().pxt_api_key:
+        pytest.skip('No Pixeltable API key is configured.')
 
 
 def skip_test_if_no_aws_credentials() -> None:

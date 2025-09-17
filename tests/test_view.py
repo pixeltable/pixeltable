@@ -1126,3 +1126,51 @@ class TestView:
         assert t.where(t.computed_0 == None).count() == 1
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
+
+    def test_drop_base_column(self, reset_db: None) -> None:
+        t = self.create_tbl()
+        # create view with computed columns
+        schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
+        v1 = pxt.create_view('test_view1', t, additional_columns=schema)
+        v2 = pxt.create_view('test_view2', v1)
+
+        # Drop base table column using column ref
+        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'c3'"):
+            v1.drop_column(v1.c3)
+        # Drop using column name
+        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'c6'"):
+            v2.drop_column('c6')
+        with pytest.raises(pxt.Error, match=r"Cannot drop base table column 'v1'"):
+            v2.drop_column(v2.v1)
+        # drop view's own column - allowed
+        v1.drop_column(v1.v2)
+
+    def test_rename_base_column(self, reset_db: None) -> None:
+        t = self.create_tbl()
+        schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
+        v1 = pxt.create_view('test_view1', t, additional_columns=schema)
+        v2 = pxt.create_view('test_view2', v1)
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'c3'"):
+            v1.rename_column('c3', 'new_c3')
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'v1'"):
+            v2.rename_column('v1', 'new_v1')
+
+        # should work
+        v1.rename_column('v1', 'new_v1')
+
+    def test_update_base_column(self, reset_db: None) -> None:
+        t = self.create_tbl()
+        v1 = pxt.create_view('test_view1', t, additional_columns={'v1': pxt.Int})
+        v2 = pxt.create_view('test_view2', v1, additional_columns={'v2': pxt.Int})
+
+        with pytest.raises(pxt.Error, match=r"Column 'c3' is a base table column and cannot be updated"):
+            v1.update({'c3': 100, 'v1': 100})
+
+        with pytest.raises(pxt.Error, match=r"Column 'v1' is a base table column and cannot be updated"):
+            v2.update({'v1': 100, 'v2': 100})
+
+        # Should work
+        v1.update({'v1': 101})
+        v2.update({'v2': 102})

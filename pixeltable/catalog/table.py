@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import builtins
+import datetime
 import json
 import logging
 from keyword import iskeyword as is_python_keyword
@@ -9,7 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-import datetime
 from uuid import UUID
 
 import pandas as pd
@@ -185,16 +185,14 @@ class Table(SchemaObject):
 
         return op()
 
-    def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
+    def _get_views(self, *, recursive: bool = True, mutable_only: bool = False) -> list['Table']:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
         views = [cat.get_table_by_id(id) for id in view_ids]
-        if not include_snapshots:
-            views = [t for t in views if not t._tbl_version_path.is_snapshot()]
+        if mutable_only:
+            views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(
-                t for view in views for t in view._get_views(recursive=True, include_snapshots=include_snapshots)
-            )
+            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
@@ -852,21 +850,25 @@ class Table(SchemaObject):
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
             if isinstance(column, str):
-                col = self._tbl_version_path.get_column(column, include_bases=False)
+                col = self._tbl_version_path.get_column(column)
                 if col is None:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
                         raise excs.Error(f'Column {column!r} unknown')
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
+                if col.tbl.id != self._tbl_version_path.tbl_id:
+                    raise excs.Error(f'Cannot drop base table column {col.name!r}')
                 col = self._tbl_version.get().cols_by_name[column]
             else:
-                exists = self._tbl_version_path.has_column(column.col, include_bases=False)
+                exists = self._tbl_version_path.has_column(column.col)
                 if not exists:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
                         raise excs.Error(f'Unknown column: {column.col.qualified_name}')
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 col = column.col
+                if col.tbl.id != self._tbl_version_path.tbl_id:
+                    raise excs.Error(f'Cannot drop base table column {col.name!r}')
 
             dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
@@ -875,13 +877,32 @@ class Table(SchemaObject):
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
-            _ = self._get_views(recursive=True, include_snapshots=False)
+            views = self._get_views(recursive=True, mutable_only=True)
+
+            # See if any view predicates depend on this column
+            dependent_views = []
+            for view in views:
+                if view._tbl_version is not None:
+                    predicate = view._tbl_version.get().predicate
+                    if predicate is not None:
+                        for predicate_col in exprs.Expr.get_refd_column_ids(predicate.as_dict()):
+                            if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
+                                dependent_views.append((view, predicate))
+
+            if len(dependent_views) > 0:
+                dependent_views_str = '\n'.join(
+                    f'view: {view._path()}, predicate: {predicate!s}' for view, predicate in dependent_views
+                )
+                raise excs.Error(
+                    f'Cannot drop column `{col.name}` because the following views depend on it:\n{dependent_views_str}'
+                )
+
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
             col_handle = col.handle
             dependent_stores = [
                 (view, store)
-                for view in (self, *self._get_views(recursive=True, include_snapshots=False))
+                for view in (self, *views)
                 for store in view._tbl_version.get().external_stores.values()
                 if col_handle in store.get_local_columns()
             ]
@@ -893,6 +914,12 @@ class Table(SchemaObject):
                 raise excs.Error(
                     f'Cannot drop column `{col.name}` because the following external stores depend on it:\n'
                     f'{", ".join(dependent_store_names)}'
+                )
+            all_columns = self.columns()
+            if len(all_columns) == 1 and col.name == all_columns[0]:
+                raise excs.Error(
+                    f'Cannot drop column `{col.name}` because it is the last remaining column in this table.'
+                    f' Tables must have at least one column.'
                 )
 
             self._tbl_version.get().drop_column(col)
@@ -1124,11 +1151,11 @@ class Table(SchemaObject):
         """Resolve a column parameter to a Column object"""
         col: Column = None
         if isinstance(column, str):
-            col = self._tbl_version_path.get_column(column, include_bases=True)
+            col = self._tbl_version_path.get_column(column)
             if col is None:
                 raise excs.Error(f'Column {column!r} unknown')
         elif isinstance(column, ColumnRef):
-            exists = self._tbl_version_path.has_column(column.col, include_bases=True)
+            exists = self._tbl_version_path.has_column(column.col)
             if not exists:
                 raise excs.Error(f'Unknown column: {column.col.qualified_name}')
             col = column.col
@@ -1345,6 +1372,15 @@ class Table(SchemaObject):
             Insert rows from a CSV file:
 
             >>> tbl.insert(source='path/to/file.csv')
+
+            Insert Pydantic model instances into a table with two `pxt.Int` columns `a` and `b`:
+
+            >>> class MyModel(pydantic.BaseModel):
+            ...     a: int
+            ...     b: int
+            ...
+            ... models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
+            ... tbl.insert(models)
         """
         raise NotImplementedError
 
@@ -1458,12 +1494,17 @@ class Table(SchemaObject):
             return result
 
     def recompute_columns(
-        self, *columns: str | ColumnRef, errors_only: bool = False, cascade: bool = True
+        self,
+        *columns: str | ColumnRef,
+        where: 'exprs.Expr' | None = None,
+        errors_only: bool = False,
+        cascade: bool = True,
     ) -> UpdateStatus:
         """Recompute the values in one or more computed columns of this table.
 
         Args:
             columns: The names or references of the computed columns to recompute.
+            where: A predicate to filter rows to recompute.
             errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
                 `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
             cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
@@ -1478,6 +1519,10 @@ class Table(SchemaObject):
             it:
 
             >>> tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
+
+            Recompute column `c1` and its dependents, but only for rows with `c2` == 0:
+
+            >>> tbl.recompute_columns('c1', where=tbl.c2 == 0)
 
             Recompute column `c1` and its dependents, but only for rows that have errors in it:
 
@@ -1499,14 +1544,14 @@ class Table(SchemaObject):
                 col_name: str
                 col: Column
                 if isinstance(column, str):
-                    col = self._tbl_version_path.get_column(column, include_bases=True)
+                    col = self._tbl_version_path.get_column(column)
                     if col is None:
                         raise excs.Error(f'Unknown column: {column!r}')
                     col_name = column
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col
-                    if not self._tbl_version_path.has_column(col, include_bases=True):
+                    if not self._tbl_version_path.has_column(col):
                         raise excs.Error(f'Unknown column: {col.name!r}')
                     col_name = col.name
                 if not col.is_computed:
@@ -1515,7 +1560,12 @@ class Table(SchemaObject):
                     raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
                 col_names.append(col_name)
 
-            result = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
+            if where is not None and not where.is_bound_by([self._tbl_version_path]):
+                raise excs.Error(f"'where' ({where}) not bound by {self._display_str()}")
+
+            result = self._tbl_version.get().recompute_columns(
+                col_names, where=where, errors_only=errors_only, cascade=cascade
+            )
             FileCache.get().emit_eviction_warnings()
             return result
 

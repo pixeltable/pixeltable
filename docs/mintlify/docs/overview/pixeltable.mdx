@@ -58,13 +58,13 @@ The below steps will get you started in 1 minute. Learn more by looking at this 
     # It will automatically compute its value for all rows
     t.select(t.profit).head()
     ```
-    </CodeGroup> 
+    </CodeGroup>
 
   <Info>
   All data and computed results are automatically stored and versioned.
   </Info>
   </Step>
-  
+
   <Step title="Add Processing (Step 2)" icon="sparkles">
     Add [LLMs](/docs/integrations/frameworks#cloud-llm-providers), [computer vision](/docs/examples/vision/yolox), [embeddings indices](docs/datastore/embedding-index), and build your first [multimodal app](/docs/examples/chat/multimodal).
       <CodeGroup>
@@ -114,7 +114,7 @@ The below steps will get you started in 1 minute. Learn more by looking at this 
     )
         ```
         ```python computer vision
-    from pixeltable.ext.functions.yolox import yolox
+    from pixeltable.functions.yolox import yolox
 
     # compute object detections using the `yolox_tiny` model
     frames_view.add_computed_column(detect_yolox_tiny=yolox(
@@ -126,13 +126,13 @@ The below steps will get you started in 1 minute. Learn more by looking at this 
         frames_view.frame,
         frames_view.detect_yolox_tiny
     ).show(3)
-    ``` 
+    ```
     </CodeGroup>
   <Info>
   Pixeltable orchestrates model execution, ensuring results are stored, indexed, and accessible through the same query interface.
   </Info>
   </Step>
-  
+
   <Step title="Scale Up (Step 3)" icon="chart-mixed">
     Handle [production data](/docs/datastore/bringing-data) volumes, and deploy your application.
       <CodeGroup>
@@ -172,7 +172,7 @@ The below steps will get you started in 1 minute. Learn more by looking at this 
     class AnalysisRequest(BaseModel):
         document: str
         metadata: dict = {}
-    
+
     @app.post("/analyze")
     async def analyze_document(request: AnalysisRequest):
         try:
@@ -182,14 +182,14 @@ The below steps will get you started in 1 minute. Learn more by looking at this 
                 'metadata': request.metadata,
                 'timestamp': datetime.now()
             }])
-            
+
             # Get analysis results using computed columns
             result = analysis.select(
                 analysis.embeddings,
                 analysis.summary,
                 analysis.sentiment
             ).tail(1)
-            
+
             return {
                 "status": "success",
                 "results": result.to_dict('records')[0]
@@ -207,8 +207,8 @@ Handle images, video, audio, numbers, array and text seamlessly in one interface
 ## Popular Use Cases
 
 <CardGroup cols={2}>
-<Card 
-  title="Enterprise Chat Systems" 
+<Card
+  title="Enterprise Chat Systems"
   icon="message"
   href="/docs/examples/chat/multimodal"
 >
@@ -225,8 +225,8 @@ Handle images, video, audio, numbers, array and text seamlessly in one interface
   </CardGroup>
 </Card>
 
-<Card 
-  title="Visual Understanding" 
+<Card
+  title="Visual Understanding"
   icon="camera"
   href="https://huggingface.co/spaces/Pixeltable/object-detection-in-videos-with-yolox"
 >
@@ -243,8 +243,8 @@ Handle images, video, audio, numbers, array and text seamlessly in one interface
   </CardGroup>
 </Card>
 
-<Card 
-  title="Document Intelligence" 
+<Card
+  title="Document Intelligence"
   icon="file-lines"
   href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb"
 >
@@ -261,8 +261,8 @@ Handle images, video, audio, numbers, array and text seamlessly in one interface
   </CardGroup>
 </Card>
 
-<Card 
-  title="Vertical AI Products" 
+<Card
+  title="Vertical AI Products"
   icon="code"
   href="https://huggingface.co/spaces/Pixeltable/Prompt-Engineering-and-LLM-Studio"
 >
@@ -283,23 +283,23 @@ Handle images, video, audio, numbers, array and text seamlessly in one interface
 ## Next Steps
 
 <CardGroup cols={3}>
-  <Card 
-    title="Code Examples" 
-    icon="code" 
+  <Card
+    title="Code Examples"
+    icon="code"
     href="/docs/fundamentals/sample-apps"
   >
     Working implementations and reference architecture
   </Card>
-  <Card 
-    title="Developer Community" 
-    icon="discord" 
+  <Card
+    title="Developer Community"
+    icon="discord"
     href="https://discord.gg/QPyqFYx2UN"
   >
     Technical discussions and implementation support
   </Card>
-  <Card 
-    title="Source Repository" 
-    icon="github" 
+  <Card
+    title="Source Repository"
+    icon="github"
     href="https://github.com/pixeltable/pixeltable"
   >
     Explore the codebase and contribute
