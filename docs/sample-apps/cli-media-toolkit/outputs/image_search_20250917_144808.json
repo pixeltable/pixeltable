@@ -1,0 +1,7 @@
+{
+  "query": "dog",
+  "query_type": "text",
+  "timestamp": "2025-09-17T14:48:08.191900",
+  "threshold": 0.2,
+  "results": []
+}
