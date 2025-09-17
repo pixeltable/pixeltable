@@ -168,6 +168,7 @@ KNOWN_CONFIG_OPTIONS = {
         'verbosity': 'Verbosity level for console output',
         'api_key': 'API key for Pixeltable cloud',
         'r2_profile': 'AWS config profile name used to access R2 storage',
+        's3_profile': 'AWS config profile name used to access S3 storage',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'bedrock': {'api_key': 'AWS Bedrock API key'},
