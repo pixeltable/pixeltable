@@ -22,6 +22,7 @@ class JsonPath(Expr):
     scope_idx: for relative paths, index of referenced JsonMapper
     (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
     """
+
     def __init__(
         self, anchor: Optional[Expr], path_elements: Optional[list[str | int | slice]] = None, scope_idx: int = 0
     ) -> None:
