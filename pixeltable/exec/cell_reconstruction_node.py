@@ -4,19 +4,20 @@ import io
 import logging
 from typing import Any, AsyncIterator
 
-import PIL.Image
 import numpy as np
+import PIL.Image
 
 import pixeltable.type_system as ts
 from pixeltable import exprs
 from pixeltable.catalog import QColumnId
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
 
 
-class JsonReconstructionNode(ExecNode):
+class CellReconstructionNode(ExecNode):
     """ """
 
     json_expr_info: dict[int, QColumnId]
@@ -70,7 +71,7 @@ class JsonReconstructionNode(ExecNode):
                 assert isinstance(end, int)
                 path = file_paths[url_idx]
                 if path not in self.file_handles:
-                    self.file_handles[path] = open(path, 'rb')
+                    self.file_handles[path] = open(path, 'rb')  # noqa: SIM115
                 fp = self.file_handles[path]
 
                 fp.seek(begin)

@@ -967,16 +967,23 @@ class Planner:
             filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_json_type(),
         ):
             # what to reconstruct:
-            # - all JsonPath exprs that reference a json column
-            # - all refs of json-typed columns, except for those that are part of a JsonPath expr
-            json_paths = exprs.Expr.list_subexprs(
-                analyzer.all_exprs,
-                expr_class=exprs.JsonPath,
-                filter=lambda e: not e.is_relative_path() and isinstance(e.anchor(), exprs.ColumnRef),
-                traverse_matches=False,
+            # 1) all JsonPath exprs that reference a json column
+            # 2) all json-typed ColumnRefs, except for those that are part of 1)
+            def filter(e: exprs.Expr) -> bool:
+                if isinstance(e, exprs.JsonPath):
+                    return not e.is_relative_path() and isinstance(e.anchor(), exprs.ColumnRef)
+                return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
+
+            reconstruct_exprs = list(
+                exprs.Expr.list_subexprs(analyzer.all_exprs, filter=filter, traverse_matches=False)
             )
-            json_expr_info = {e.slot_idx: e.anchor().col.qualified_id for e in json_paths}
-            plan = exec.JsonReconstructionNode(json_expr_info, row_builder, input=plan)
+            json_expr_info = {
+                e.slot_idx: e.anchor().col.qualified_id for e in reconstruct_exprs if isinstance(e, exprs.JsonPath)
+            }
+            json_expr_info.update(
+                {e.slot_idx: e.col.qualified_id for e in reconstruct_exprs if isinstance(e, exprs.ColumnRef)}
+            )
+            plan = exec.CellReconstructionNode(json_expr_info, row_builder, input=plan)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
