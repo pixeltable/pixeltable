@@ -9,7 +9,7 @@ from .pandas import import_csv, import_excel, import_pandas
 from .parquet import export_parquet, import_parquet
 
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
-__removed_symbols = {'globals', 'hf_datasets', 'pandas', 'parquet', 'datarows', 'lancedb'}
+__removed_symbols = {'globals', 'hf_datasets', 'pandas', 'parquet', 'datarows', 'lancedb', 'polars'}
 __all__ = sorted(__default_dir - __removed_symbols)
 
 

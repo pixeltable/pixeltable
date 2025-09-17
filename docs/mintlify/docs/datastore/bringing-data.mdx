@@ -18,6 +18,7 @@ Pixeltable supports importing from a variety of data sources:
 - Parquet files (`.parquet`, `.pq`, `.parq`)
 - JSON files (`.json`)
 - Pandas DataFrames
+- Polars DataFrames
 - Pixeltable DataFrames
 - Hugging Face datasets
 - Row data structures or Iterators
@@ -38,7 +39,15 @@ df = pd.DataFrame({
     'col1': [1, 2, 3],
     'col2': ['a', 'b', 'c']
 })
-table = pxt.create_table('from_df', source=df)
+table = pxt.create_table('from_pandas_df', source=df)
+
+# Create from polars DataFrame
+import polars as pl
+df = pl.DataFrame({
+    'col1': [1, 2, 3],
+    'col2': ['a', 'b', 'c']
+})
+table = pxt.create_table('from_polars_df', source=df)
 ```
 
 You can also provide schema overrides for more control:
@@ -69,6 +78,13 @@ table.insert('https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/
 df = pd.DataFrame({
     'col1': [4, 5, 6],
     'col2': ['d', 'e', 'f']
+})
+table.insert(df)
+
+# Insert from polars DataFrame
+df = pl.DataFrame({
+    'col1': [7, 8, 9],
+    'col2': ['g', 'h', 'i']
 })
 table.insert(df)
 ```
@@ -470,6 +486,78 @@ table.insert(df)
   </Accordion>
 </AccordionGroup>
 
+## Polars DataFrame Integration
+
+Polars offers high-performance DataFrame operations with Rust-powered columnar processing. Pixeltable provides full support for Polars DataFrames with the same API patterns as Pandas.
+
+### Performance Benefits
+
+```python
+# Polars is often 2-5x faster than Pandas for large datasets
+import polars as pl
+import pixeltable as pxt
+
+# Fast CSV reading
+df = pl.read_csv('large_file.csv')  # Often 2-5x faster than pandas
+table = pxt.create_table('my_table', source=df)
+
+# Memory efficient processing
+df = pl.read_parquet('data.parquet')  # Columnar format, lower memory usage
+table = pxt.create_table('my_table', source=df)
+```
+
+### Type Mapping Reference
+
+| Polars Type | Pixeltable Type | Notes |
+|-------------|----------------|--------|
+| `pl.Int8/16/32/64` | `pxt.Int` | All integer types unified |
+| `pl.UInt8/16/32/64` | `pxt.Int` | Unsigned integers supported |
+| `pl.Float32/64` | `pxt.Float` | Floating point numbers |
+| `pl.Boolean` | `pxt.Bool` | Boolean values |
+| `pl.Utf8/String` | `pxt.String` | Text data |
+| `pl.Date` | `pxt.Date` | Date only (no time) |
+| `pl.Datetime` | `pxt.Timestamp` | Date and time with timezone handling |
+| `pl.List` | `pxt.Array` or `pxt.Json` | Arrays for numeric, JSON for complex |
+| `pl.Struct` | `pxt.Json` | Nested structures |
+| `pl.Categorical` | `pxt.String` | Categorical → String conversion |
+
+### Complex Data Types
+
+```python
+# Polars handles complex nested data elegantly
+complex_df = pl.DataFrame({
+    'id': [1, 2],
+    'metadata': [{'type': 'A', 'score': 0.9}, {'type': 'B', 'score': 0.7}],
+    'embeddings': [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+    'tags': [['python', 'ml'], ['data', 'analytics']]
+})
+
+# Automatically maps to appropriate Pixeltable types:
+# - metadata: JsonType (preserves structure)
+# - embeddings: ArrayType with shape inference  
+# - tags: JsonType (variable length arrays)
+table = pxt.create_table('complex_data', source=complex_df)
+```
+
+### Advanced Features
+
+```python
+# Schema overrides work the same way
+table = pxt.create_table(
+    'images_table', 
+    source=df,
+    schema_overrides={'image_url': pxt.Image}
+)
+
+# Primary keys
+table = pxt.create_table(
+    'users_table',
+    source=df,
+    primary_key=['id', 'email']
+)
+
+```
+
 ## Key Points
 
 - All media types (Image, Video, Audio, Document) support local files, URLs, and cloud storage paths
@@ -479,6 +567,6 @@ table.insert(df)
 - Import functions support schema overrides to ensure correct type assignment
 - Use batch inserts for better performance when adding multiple rows
 - Cloud storage paths (s3://) require appropriate credentials to be configured
-- Tables can be created directly from CSV, Excel, Parquet files, and pandas DataFrames using the `source` parameter
+- Tables can be created directly from CSV, Excel, Parquet files, pandas DataFrames, and polars DataFrames using the `source` parameter
 - Existing tables can import data directly from external sources using the `insert` method
 - Schema inference is automatic when importing from external sources, with optional schema overrides
