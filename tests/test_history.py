@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+import datetime
 from typing import Any, Callable, Literal
 
 import pytest
 
 import pixeltable as pxt
+from tests.utils import assert_version_metadata_eq
 
 
 class TestHistory:
@@ -51,8 +52,8 @@ class TestHistory:
             r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]  # type: ignore[call-overload]
         )
         # created_at should be recent
-        assert view_created_at > datetime.now() - timedelta(seconds=30)
-        assert view_created_at < datetime.now()
+        assert view_created_at > datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=30)
+        assert view_created_at < datetime.datetime.now(tz=datetime.timezone.utc)
         inserts = r[0]['inserts'] if variant == 'get_versions' else r['inserts'][0]  # type: ignore[call-overload]
         assert inserts > 0
         assert len(r) == 1
@@ -123,3 +124,165 @@ class TestHistory:
         r = fn(s)
         print(r)
         assert len(r) == 1
+
+        expected = [
+            {
+                'version': 13,
+                'user': None,
+                'change_type': 'schema',
+                'inserts': 0,
+                'updates': 2,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 4,
+                'schema_change': 'Deleted: c4',
+            },
+            {
+                'version': 12,
+                'user': None,
+                'change_type': 'schema',
+                'inserts': 0,
+                'updates': 2,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 4,
+                'schema_change': "Renamed: 'c2' to 'c2_renamed'",
+            },
+            {
+                'version': 11,
+                'user': None,
+                'change_type': 'data',
+                'inserts': 0,
+                'updates': 2,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 4,
+                'schema_change': None,
+            },
+            {
+                'version': 10,
+                'user': None,
+                'change_type': 'data',
+                'inserts': 0,
+                'updates': 0,
+                'deletes': 4,
+                'errors': 0,
+                'computed': 0,
+                'schema_change': None,
+            },
+            {
+                'version': 9,
+                'user': None,
+                'change_type': 'data',
+                'inserts': 4,
+                'updates': 0,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 12,
+                'schema_change': None,
+            },
+            {
+                'version': 8,
+                'user': None,
+                'change_type': 'data',
+                'inserts': 4,
+                'updates': 0,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 12,
+                'schema_change': None,
+            },
+            {
+                'version': 7,
+                'user': None,
+                'change_type': 'data',
+                'inserts': 4,
+                'updates': 0,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 12,
+                'schema_change': None,
+            },
+            {
+                'version': 6,
+                'user': None,
+                'change_type': 'schema',
+                'inserts': 0,
+                'updates': 3,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 9,
+                'schema_change': 'Added: c6, c7, c8',
+            },
+            {
+                'version': 5,
+                'user': None,
+                'change_type': 'schema',
+                'inserts': 0,
+                'updates': 3,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 6,
+                'schema_change': 'Added: c5',
+            },
+            {
+                'version': 4,
+                'user': None,
+                'change_type': 'schema',
+                'inserts': 0,
+                'updates': 3,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 6,
+                'schema_change': 'Added: c4',
+            },
+            {
+                'version': 3,
+                'user': None,
+                'change_type': 'schema',
+                'inserts': 0,
+                'updates': 3,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 6,
+                'schema_change': 'Added: c3',
+            },
+            {
+                'version': 2,
+                'user': None,
+                'change_type': 'data',
+                'inserts': 1,
+                'updates': 0,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 1,
+                'schema_change': None,
+            },
+            {
+                'version': 1,
+                'user': None,
+                'change_type': 'data',
+                'inserts': 2,
+                'updates': 0,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 2,
+                'schema_change': None,
+            },
+            {
+                'version': 0,
+                'user': None,
+                'change_type': 'schema',
+                'inserts': 0,
+                'updates': 0,
+                'deletes': 0,
+                'errors': 0,
+                'computed': 0,
+                'schema_change': 'Initial Version',
+            },
+        ]
+
+        actual = t.get_versions()
+        assert len(actual) == len(expected)
+        for i in range(len(expected)):
+            assert_version_metadata_eq(expected[i], actual[i])
