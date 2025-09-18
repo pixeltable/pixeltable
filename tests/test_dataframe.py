@@ -458,6 +458,7 @@ class TestDataFrame:
         PIL.Image.open(opurl_img)
 
     def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
+        # TODO: also capture recompute_columns()
         t = test_tbl
         old: list[int] = t.select(t.c3).collect()['c3']
 

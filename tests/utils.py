@@ -5,6 +5,7 @@ import os
 import random
 import shutil
 import subprocess
+import sysconfig
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -26,6 +27,15 @@ from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 
 TESTS_DIR = Path(os.path.dirname(__file__))
+
+
+def runs_linux_with_gpu() -> bool:
+    try:
+        import torch
+
+        return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
+    except ImportError:
+        return False
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -488,6 +498,22 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
     tc.assertDictEqual(expected, trimmed_actual)
 
 
+def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMetadata) -> None:
+    """
+    Assert that version metadata (user-facing metadata as returned by `tbl.get_versions()`) matches the expected dict.
+    `created_at` will be checked to be less than 1 minute ago; the other fields will be checked for exact
+    equality.
+    """
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    actual_created_at: datetime.datetime = actual['created_at']
+    assert (now - actual_created_at).total_seconds() <= 60
+
+    trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
+
+
 def strip_lines(s: str) -> str:
     lines = s.split('\n')
     return '\n'.join(line.strip() for line in lines)
@@ -510,6 +536,11 @@ def skip_test_if_no_client(client_name: str) -> None:
         _ = Env.get().get_client(client_name)
     except pxt.Error as exc:
         pytest.skip(str(exc))
+
+
+def skip_test_if_no_pxt_credentials() -> None:
+    if not Env.get().pxt_api_key:
+        pytest.skip('No Pixeltable API key is configured.')
 
 
 def skip_test_if_no_aws_credentials() -> None:

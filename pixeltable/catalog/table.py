@@ -7,9 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Optional, TypedDict, overload
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, overload
 from uuid import UUID
 
 import pandas as pd
@@ -17,6 +15,13 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable.catalog.table_metadata import (
+    ColumnMetadata,
+    EmbeddingIndexParams,
+    IndexMetadata,
+    TableMetadata,
+    VersionMetadata,
+)
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
 
@@ -36,6 +41,9 @@ from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .update_status import UpdateStatus
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -95,7 +103,7 @@ class Table(SchemaObject):
 
         return op()
 
-    def _get_metadata(self) -> 'TableMetadata':
+    def _get_metadata(self) -> TableMetadata:
         columns = self._tbl_version_path.columns()
         column_info: dict[str, ColumnMetadata] = {}
         for col in columns:
@@ -1478,12 +1486,17 @@ class Table(SchemaObject):
             return result
 
     def recompute_columns(
-        self, *columns: str | ColumnRef, errors_only: bool = False, cascade: bool = True
+        self,
+        *columns: str | ColumnRef,
+        where: 'exprs.Expr' | None = None,
+        errors_only: bool = False,
+        cascade: bool = True,
     ) -> UpdateStatus:
         """Recompute the values in one or more computed columns of this table.
 
         Args:
             columns: The names or references of the computed columns to recompute.
+            where: A predicate to filter rows to recompute.
             errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
                 `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
             cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
@@ -1498,6 +1511,10 @@ class Table(SchemaObject):
             it:
 
             >>> tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
+
+            Recompute column `c1` and its dependents, but only for rows with `c2` == 0:
+
+            >>> tbl.recompute_columns('c1', where=tbl.c2 == 0)
 
             Recompute column `c1` and its dependents, but only for rows that have errors in it:
 
@@ -1535,7 +1552,12 @@ class Table(SchemaObject):
                     raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
                 col_names.append(col_name)
 
-            result = self._tbl_version.get().recompute_columns(col_names, errors_only=errors_only, cascade=cascade)
+            if where is not None and not where.is_bound_by([self._tbl_version_path]):
+                raise excs.Error(f"'where' ({where}) not bound by {self._display_str()}")
+
+            result = self._tbl_version.get().recompute_columns(
+                col_names, where=where, errors_only=errors_only, cascade=cascade
+            )
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1676,43 +1698,35 @@ class Table(SchemaObject):
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._get_schema().keys())
 
-    _REPORT_SCHEMA: ClassVar[dict[str, ts.ColumnType]] = {
-        'version': ts.IntType(),
-        'created_at': ts.TimestampType(),
-        'user': ts.StringType(nullable=True),
-        'note': ts.StringType(),
-        'inserts': ts.IntType(nullable=True),
-        'updates': ts.IntType(nullable=True),
-        'deletes': ts.IntType(nullable=True),
-        'errors': ts.IntType(nullable=True),
-        'computed': ts.IntType(),
-        'schema_change': ts.StringType(),
-    }
+    def get_versions(self, n: Optional[int] = None) -> list[VersionMetadata]:
+        """
+        Returns information about versions of this table, most recent first.
 
-    def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
-        """Returns rows of information about the versions of this table, most recent first.
+        `get_versions()` is intended for programmatic access to version metadata; for human-readable
+        output, use [`history()`][pixeltable.Table.history] instead.
 
         Args:
-            n: a limit to the number of versions listed
-
-        Examples:
-            Report history:
-
-            >>> tbl.history()
-
-            Report only the most recent 5 changes to the table:
-
-            >>> tbl.history(n=5)
+            n: if specified, will return at most `n` versions
 
         Returns:
-            A list of information about each version, ordered from most recent to oldest version.
+            A list of [VersionMetadata][pixeltable.VersionMetadata] dictionaries, one per version retrieved, most
+            recent first.
+
+        Examples:
+            Retrieve metadata about all versions of the table `tbl`:
+
+            >>> tbl.get_versions()
+
+            Retrieve metadata about the most recent 5 versions of the table `tbl`:
+
+            >>> tbl.get_versions(n=5)
         """
         from pixeltable.catalog import Catalog
 
         if n is None:
             n = 1_000_000_000
         if not isinstance(n, int) or n < 1:
-            raise excs.Error(f'Invalid value for n: {n}')
+            raise excs.Error(f'Invalid value for `n`: {n}')
 
         # Retrieve the table history components from the catalog
         tbl_id = self._id
@@ -1730,104 +1744,60 @@ class Table(SchemaObject):
         else:
             over_count = 0
 
-        report_lines: list[list[Any]] = []
+        metadata_dicts: list[VersionMetadata] = []
         for vers_md in vers_list[0 : len(vers_list) - over_count]:
             version = vers_md.version_md.version
-            schema_change = md_dict.get(version, '')
+            schema_change = md_dict.get(version, None)
             update_status = vers_md.version_md.update_status
             if update_status is None:
                 update_status = UpdateStatus()
-            change_type = 'schema' if schema_change != '' else ''
-            if change_type == '':
-                change_type = 'data'
+            change_type: Literal['schema', 'data'] = 'schema' if schema_change is not None else 'data'
             rcs = update_status.row_count_stats + update_status.cascade_row_count_stats
-            report_line = [
-                version,
-                datetime.datetime.fromtimestamp(vers_md.version_md.created_at),
-                vers_md.version_md.user,
-                change_type,
-                rcs.ins_rows,
-                rcs.upd_rows,
-                rcs.del_rows,
-                rcs.num_excs,
-                rcs.computed_values,
-                schema_change,
-            ]
-            report_lines.append(report_line)
+            metadata_dicts.append(
+                VersionMetadata(
+                    version=version,
+                    created_at=datetime.datetime.fromtimestamp(vers_md.version_md.created_at, tz=datetime.timezone.utc),
+                    user=vers_md.version_md.user,
+                    change_type=change_type,
+                    inserts=rcs.ins_rows,
+                    updates=rcs.upd_rows,
+                    deletes=rcs.del_rows,
+                    errors=rcs.num_excs,
+                    computed=rcs.computed_values,
+                    schema_change=schema_change,
+                )
+            )
 
-        return pxt.dataframe.DataFrameResultSet(report_lines, self._REPORT_SCHEMA)
+        return metadata_dicts
+
+    def history(self, n: Optional[int] = None) -> pd.DataFrame:
+        """
+        Returns a human-readable report about versions of this table.
+
+        `history()` is intended for human-readable output of version metadata; for programmatic access,
+        use [`get_versions()`][pixeltable.Table.get_versions] instead.
+
+        Args:
+            n: if specified, will return at most `n` versions
+
+        Returns:
+            A report with information about each version, one per row, most recent first.
+
+        Examples:
+            Report all versions of the table:
+
+            >>> tbl.history()
+
+            Report only the most recent 5 changes to the table:
+
+            >>> tbl.history(n=5)
+        """
+        versions = self.get_versions(n)
+        assert len(versions) > 0
+        return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
 
     def __check_mutable(self, op_descr: str) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
         if self._tbl_version_path.is_replica():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')
-
-
-class ColumnMetadata(TypedDict):
-    """Metadata for a column of a Pixeltable table."""
-
-    name: str
-    """The name of the column."""
-    type_: str
-    """The type specifier of the column."""
-    version_added: int
-    """The table version when this column was added."""
-    is_stored: bool
-    """`True` if this is a stored column; `False` if it is dynamically computed."""
-    is_primary_key: bool
-    """`True` if this column is part of the table's primary key."""
-    media_validation: Optional[Literal['on_read', 'on_write']]
-    """The media validation policy for this column."""
-    computed_with: Optional[str]
-    """Expression used to compute this column; `None` if this is not a computed column."""
-
-
-class IndexMetadata(TypedDict):
-    """Metadata for a column of a Pixeltable table."""
-
-    name: str
-    """The name of the index."""
-    columns: list[str]
-    """The table columns that are indexed."""
-    index_type: Literal['embedding']
-    """The type of index (currently only `'embedding'` is supported, but others will be added in the future)."""
-    parameters: EmbeddingIndexParams
-
-
-class EmbeddingIndexParams(TypedDict):
-    metric: Literal['cosine', 'ip', 'l2']
-    """Index metric."""
-    embeddings: list[str]
-    """List of embeddings defined for this index."""
-
-
-class TableMetadata(TypedDict):
-    """Metadata for a Pixeltable table."""
-
-    name: str
-    """The name of the table (ex: `'my_table'`)."""
-    path: str
-    """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
-    columns: dict[str, ColumnMetadata]
-    """Column metadata for all of the visible columns of the table."""
-    indices: dict[str, IndexMetadata]
-    """Index metadata for all of the indices of the table."""
-    is_replica: bool
-    """`True` if this table is a replica of another (shared) table."""
-    is_view: bool
-    """`True` if this table is a view."""
-    is_snapshot: bool
-    """`True` if this table is a snapshot."""
-    version: int
-    """The current version of the table."""
-    version_created: datetime.datetime
-    """The timestamp when this table version was created."""
-    schema_version: int
-    """The current schema version of the table."""
-    comment: Optional[str]
-    """User-provided table comment, if one exists."""
-    media_validation: Literal['on_read', 'on_write']
-    """The media validation policy for this table."""
-    base: Optional[str]
-    """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""

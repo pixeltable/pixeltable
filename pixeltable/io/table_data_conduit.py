@@ -469,12 +469,12 @@ class ParquetTableDataConduit(TableDataConduit):
         return t
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        from pixeltable.utils.arrow import ar_infer_schema
+        from pixeltable.utils.arrow import to_pxt_schema
 
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
-            self.src_schema = ar_infer_schema(self.pq_ds.schema, self.src_schema_overrides, self.src_pk)
+            self.src_schema = to_pxt_schema(self.pq_ds.schema, self.src_schema_overrides, self.src_pk)
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
                 self.src_schema, self.src_pk, self.src_schema_overrides
             )

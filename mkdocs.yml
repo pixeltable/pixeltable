@@ -37,6 +37,7 @@ nav:
     - Table: pixeltable/table.md
     - TableMetadata: pixeltable/table-metadata.md
     - UpdateStatus: pixeltable/update-status.md
+    - VersionMetadata: pixeltable/version-metadata.md
   - Built-in Functions and Operators:
     - audio: pixeltable/functions/audio.md
     - date: pixeltable/functions/date.md

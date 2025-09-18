@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, NamedTuple, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Optional, Union
 
 import pandas as pd
 import pydantic
@@ -24,9 +24,8 @@ if TYPE_CHECKING:
         str,
         os.PathLike,
         Path,  # OS paths, filenames, URLs
-        Iterator[dict[str, Any]],  # iterator producing dictionaries of values
-        RowData,  # list of dictionaries
-        Sequence[pydantic.BaseModel],  # list of Pydantic models
+        Iterable[dict[str, Any]],  # dictionaries of values
+        Iterable[pydantic.BaseModel],  # Pydantic model instances
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
         datasets.Dataset,
@@ -542,9 +541,14 @@ def drop_table(
         assert isinstance(table, str)
         tbl_path = table
 
-    path_obj = catalog.Path.parse(tbl_path)
-    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    if tbl_path.startswith('pxt://'):
+        # Remote table
+        share.delete_replica(tbl_path)
+    else:
+        # Local table
+        path_obj = catalog.Path.parse(tbl_path)
+        if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+        Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
