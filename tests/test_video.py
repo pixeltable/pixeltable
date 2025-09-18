@@ -315,15 +315,18 @@ class TestVideo:
         assert df['clip_5_10_duration'].between(5.0, 6.0).all()
         assert df['clip_0_5_duration'].between(5.0, 6.0).all()
 
+        # requesting a time range past the end of the video returns None
+        # TODO: This short test should occur after the inserts below, however,
+        # we are unable to filter on duration if media are stored in an object store. PXT-
+
+        duration = t.video.get_metadata().streams[0].duration_seconds
+        result_df = t.where(duration != None).select(clip=t.video.clip(start_time=1000.0)).collect().to_pandas()
+        assert result_df['clip'].isnull().all(), result_df['clip']
+
         # insert generated clips into video_t to verify that they are valid videos
         t.insert({'video': row['clip_5_10']} for row in result)
         t.insert({'video': row['clip_0_5']} for row in result)
         t.insert({'video': row['clip_10_end']} for row in result)
-
-        # requesting a time range past the end of the video returns None
-        duration = t.video.get_metadata().streams[0].duration_seconds
-        result_df = t.where(duration != None).select(clip=t.video.clip(start_time=1000.0)).collect().to_pandas()
-        assert result_df['clip'].isnull().all(), result_df['clip']
 
         with pytest.raises(pxt.Error, match='start_time must be non-negative'):
             _ = t.select(invalid_clip=t.video.clip(start_time=-1.0)).collect()

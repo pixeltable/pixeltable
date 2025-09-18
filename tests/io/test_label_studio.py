@@ -13,6 +13,7 @@ import requests.exceptions
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import InsertableTable
+from pixeltable.env import Env
 from pixeltable.functions.string import format
 
 from ..utils import (
@@ -27,6 +28,13 @@ from ..utils import (
 )
 
 _logger = logging.getLogger('pixeltable')
+
+
+def skip_ls_test_on_conditions() -> None:
+    """Skip a label_studio test if prerequisites not present"""
+    skip_test_if_not_installed('label_studio_sdk')
+    if not Env.get().has_media_dir:
+        pytest.skip('Media destination is not a local file system')
 
 
 @pytest.mark.skipif(platform.system() == 'Windows', reason='Label Studio tests do not currently run on Windows')
@@ -95,7 +103,8 @@ class TestLabelStudio:
 
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_project(self, ls_image_table: pxt.InsertableTable) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
+        skip_ls_test_on_conditions()
+
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_image_table
@@ -166,7 +175,7 @@ class TestLabelStudio:
     def test_label_studio_sync_images(
         self, ls_image_table: pxt.InsertableTable, media_import_method: Literal['post', 'file', 'url'], sync_col: str
     ) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
+        skip_ls_test_on_conditions()
         self.__test_label_studio_sync(ls_image_table, self.test_config_image, media_import_method, sync_col, 'image')
 
     # TODO(aaron-siegel): 'file' is not working for videos or audio yet.
@@ -175,7 +184,7 @@ class TestLabelStudio:
     def test_label_studio_sync_videos(
         self, ls_video_table: pxt.InsertableTable, media_import_method: Literal['post', 'file', 'url']
     ) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
+        skip_ls_test_on_conditions()
         self.__test_label_studio_sync(ls_video_table, self.test_config_video, media_import_method, 'video_col', 'video')
 
     @pytest.mark.xdist_group('label_studio')
@@ -183,7 +192,7 @@ class TestLabelStudio:
     def test_label_studio_sync_audio(
         self, ls_audio_table: pxt.InsertableTable, media_import_method: Literal['post', 'file', 'url']
     ) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
+        skip_ls_test_on_conditions()
         self.__test_label_studio_sync(ls_audio_table, self.test_config_audio, media_import_method, 'audio_col', 'audio')
 
     @classmethod
@@ -288,8 +297,8 @@ class TestLabelStudio:
 
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
         skip_test_if_not_installed('transformers')
+        skip_ls_test_on_conditions()
         from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
         from pixeltable.io.label_studio import LabelStudioProject
 
@@ -330,7 +339,7 @@ class TestLabelStudio:
 
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_to_base_table(self, ls_image_table: pxt.InsertableTable) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
+        skip_ls_test_on_conditions()
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_image_table
@@ -368,7 +377,7 @@ class TestLabelStudio:
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_complex(self, ls_video_table: pxt.InsertableTable) -> None:
         # Test a more complex label studio project, with multiple images and other fields
-        skip_test_if_not_installed('label_studio_sdk')
+        skip_ls_test_on_conditions()
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_video_table
@@ -418,7 +427,7 @@ class TestLabelStudio:
 
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
+        skip_ls_test_on_conditions()
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_image_table
@@ -443,7 +452,7 @@ class TestLabelStudio:
 
 @pytest.fixture(scope='function')
 def ls_image_table(init_ls: None, reset_db: None) -> pxt.Table:
-    skip_test_if_not_installed('label_studio_sdk')
+    skip_ls_test_on_conditions()
     t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'image_col': pxt.Image})
     t.add_computed_column(rot_image_col=t.image_col.rotate(180), stored=False)
     # 30 rows, a mix of URLs and locally stored image files
@@ -455,7 +464,7 @@ def ls_image_table(init_ls: None, reset_db: None) -> pxt.Table:
 
 @pytest.fixture(scope='function')
 def ls_video_table(init_ls: None, reset_db: None) -> pxt.Table:
-    skip_test_if_not_installed('label_studio_sdk')
+    skip_ls_test_on_conditions()
     t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'video_col': pxt.Video})
     local_video = next(video for video in get_video_files() if video.endswith('bangkok_half_res.mp4'))
     videos = [
@@ -471,7 +480,7 @@ def ls_video_table(init_ls: None, reset_db: None) -> pxt.Table:
 
 @pytest.fixture(scope='function')
 def ls_audio_table(init_ls: None, reset_db: None) -> pxt.Table:
-    skip_test_if_not_installed('label_studio_sdk')
+    skip_ls_test_on_conditions()
     t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'audio_col': pxt.Audio})
     audio = get_audio_files()
     status = t.insert({'id': n, 'audio_col': audio} for n, audio in enumerate(audio))
@@ -481,7 +490,7 @@ def ls_audio_table(init_ls: None, reset_db: None) -> pxt.Table:
 
 @pytest.fixture(scope='session')
 def init_ls(init_env: None) -> Iterator[None]:
-    skip_test_if_not_installed('label_studio_sdk')
+    skip_ls_test_on_conditions()
     ls_version = '1.19.0'
     ls_port = 31713
     ls_url = f'http://localhost:{ls_port}/'
