@@ -43,13 +43,13 @@ class LocalStore(ObjectStoreBase):
             self.__base_dir = location
             self.soa = None
         else:
+            assert isinstance(location, StorageObjectAddress)
             self.__base_dir = location.to_path
             self.soa = location
 
     def validate(self, error_col_name: str) -> str:
         """Convert a Column destination parameter to a URI, else raise errors."""
-        path_str = self.soa.to_path
-        dest_path = Path(path_str)
+        dest_path = self.__base_dir
 
         # Check if path exists and validate it's a directory
         if not dest_path.exists():
@@ -82,7 +82,12 @@ class LocalStore(ObjectStoreBase):
         if parsed.scheme.lower() != 'file':
             return None
 
-        path_str = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
+        pth = parsed.path
+        if parsed.netloc:
+            # This is a UNC path, ie, file://host/share/path/to/file
+            pth = f'//{parsed.netloc}{pth}'
+
+        path_str = urllib.parse.unquote(urllib.request.url2pathname(pth))
         return Path(path_str)
 
     @classmethod

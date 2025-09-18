@@ -43,6 +43,7 @@ class StorageObjectAddress(NamedTuple):
     key: str = ''  # Key parsed from the source (prefix + object_name)
     prefix: str = ''  # Prefix (within the bucket) parsed from the source
     object_name: str = ''  # Object name parsed from the source (if requested and applicable)
+    path: Optional[Path] = None
 
     @property
     def has_object(self) -> bool:
@@ -91,15 +92,12 @@ class StorageObjectAddress(NamedTuple):
     @property
     def to_path(self) -> Path:
         assert self.storage_target == StorageTarget.LOCAL_STORE
-        assert self.prefix
-        path_str = urllib.parse.unquote(urllib.request.url2pathname(self.prefix))
-        return Path(path_str)
+        assert self.path is not None
+        return self.path
 
     def __str__(self) -> str:
         """A debug aid to override default str representation. Not to be used for any purpose."""
-        return (
-            f'{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
-        )
+        return f'{self.storage_target}..{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
 
     def __repr__(self) -> str:
         """A debug aid to override default repr representation. Not to be used for any purpose."""
@@ -172,20 +170,28 @@ class ObjectPath:
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
         """
         parsed = urllib.parse.urlparse(src_addr)
-
+        scheme = parsed.scheme.lower()
         account_name = ''
         account_extension = ''
         container = ''
         key = ''
+        path = None
 
-        # If no scheme, treat as local file path; this will be further validated before use
-        scheme = 'file' if not parsed.scheme else parsed.scheme.lower()
-
-        # len(parsed.scheme) == 1 handles Windows drive letters like C:\
-        if scheme == 'file' or len(scheme) == 1:
+        # len(parsed.scheme) == 1 occurs for Windows drive letters like C:\
+        if not parsed.scheme or len(parsed.scheme) == 1:
+            # If no scheme, treat as local file path; this will be further validated before use
             storage_target = StorageTarget.LOCAL_STORE
             scheme = 'file'
-            key = parsed.path
+            path = Path(src_addr)
+
+        elif scheme == 'file':
+            storage_target = StorageTarget.LOCAL_STORE
+            pth = parsed.path
+            if parsed.netloc:
+                # This is a UNC path, ie, file://host/share/path/to/file
+                pth = f'\\\\{parsed.netloc}{pth}'
+            path = Path(urllib.parse.unquote(urllib.request.url2pathname(pth)))
+            key = str(parsed.path).lstrip('/')
 
         elif scheme in ('s3', 'gs'):
             storage_target = StorageTarget.S3_STORE if scheme == 's3' else StorageTarget.GCS_STORE
@@ -230,7 +236,7 @@ class ObjectPath:
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
-        r = StorageObjectAddress(storage_target, scheme, account_name, account_extension, container, key)
+        r = StorageObjectAddress(storage_target, scheme, account_name, account_extension, container, key, '', '', path)
         assert r.has_valid_storage_target
         return r
 

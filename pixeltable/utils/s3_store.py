@@ -316,12 +316,11 @@ class S3Store(ObjectStoreBase):
         """Create a boto session using the defined profile"""
         if profile_name:
             try:
-                print(f'Creating boto session with profile {profile_name}')
+                _logger.info(f'Creating boto session with profile {profile_name}')
                 session = boto3.Session(profile_name=profile_name)
                 return session
             except Exception as e:
-                print(f'Error occurred while creating boto session with profile {profile_name}: {e}')
-                _logger.info(f'Error occurred while creating boto session: {e}, fallback to default profile')
+                _logger.info(f'Error occurred while creating boto session with profile {profile_name}: {e}')
         return boto3.Session()
 
     @classmethod
@@ -337,7 +336,7 @@ class S3Store(ObjectStoreBase):
 
         try:
             # Check if credentials are available
-            boto3.Session().get_credentials().get_frozen_credentials()
+            session.get_credentials().get_frozen_credentials()
             config = botocore.config.Config(**config_args)
             return session.client('s3', config=config, **(extra_args or {}))  # credentials are available
         except Exception as e:
