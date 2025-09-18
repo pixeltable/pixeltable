@@ -115,10 +115,12 @@ class ObjectPath:
     def table_prefix(cls, tbl_id: UUID) -> str:
         """Construct a unique unix-style prefix for objects in a table (without leading/trailing slashes)."""
         assert isinstance(tbl_id, uuid.UUID)
-        return f'{tbl_id.hex}'
+        return tbl_id.hex
 
     @classmethod
-    def prefix_raw(cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> tuple[str, str]:
+    def create_prefix_raw(
+        cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
+    ) -> tuple[str, str]:
         """Construct a unique unix-style prefix and filename for a persisted file.
         The results are derived from table, col, and version specs.
         Returns:

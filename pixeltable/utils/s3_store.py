@@ -47,7 +47,7 @@ def _() -> Any:
 @env.register_client('s3')
 def _() -> Any:
     profile_name = Config.get().get_string_value('s3_profile')
-    return S3Store.get_boto_client(profile_name=profile_name)
+    return S3Store.create_boto_client(profile_name=profile_name)
 
 
 @env.register_client('s3_resource')
@@ -87,7 +87,7 @@ class S3Store(ObjectStoreBase):
             cd = env.Env.get().get_client('r2')
             with client_lock:
                 if self.soa.container_free_uri not in cd.clients:
-                    cd.clients[self.soa.container_free_uri] = S3Store.get_boto_client(
+                    cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
                         profile_name=cd.profile,
                         extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
                     )
@@ -138,7 +138,7 @@ class S3Store(ObjectStoreBase):
         """
         Construct a new, unique URI for a persisted media file.
         """
-        prefix, filename = ObjectPath.prefix_raw(tbl_id, col_id, tbl_version, ext)
+        prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_id, tbl_version, ext)
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
@@ -312,7 +312,7 @@ class S3Store(ObjectStoreBase):
             raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_code} - {error_message}')
 
     @classmethod
-    def get_boto_session(cls, profile_name: Optional[str] = None) -> Any:
+    def create_boto_session(cls, profile_name: Optional[str] = None) -> Any:
         """Create a boto session using the defined profile"""
         if profile_name:
             try:
@@ -324,7 +324,7 @@ class S3Store(ObjectStoreBase):
         return boto3.Session()
 
     @classmethod
-    def get_boto_client(cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
+    def create_boto_client(cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
             'connect_timeout': 15,
@@ -332,7 +332,7 @@ class S3Store(ObjectStoreBase):
             'retries': {'max_attempts': 3, 'mode': 'adaptive'},
         }
 
-        session = cls.get_boto_session(profile_name)
+        session = cls.create_boto_session(profile_name)
 
         try:
             # Check if credentials are available
@@ -352,4 +352,4 @@ class S3Store(ObjectStoreBase):
         cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None
     ) -> Any:
         # Create a session using the defined profile
-        return cls.get_boto_session(profile_name).resource('s3', **(extra_args or {}))
+        return cls.create_boto_session(profile_name).resource('s3', **(extra_args or {}))

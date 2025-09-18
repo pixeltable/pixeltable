@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Optional
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import storage  # type: ignore[attr-defined]
 from google.cloud.exceptions import Forbidden, NotFound
+from google.cloud.storage.client import Client  # type: ignore[import-untyped]
 
 from pixeltable import env, exceptions as excs
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
@@ -21,8 +22,25 @@ _logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('gcs_store')
-def _() -> Any:
-    return GCSStore.create_client()
+def _() -> 'Client':
+    """Create and return a GCS client, using default credentials if available,
+    otherwise creating an anonymous client for public buckets.
+    """
+    try:
+        # Create a client with default credentials
+        # Note that if the default credentials have expired, gcloud will still create a client,
+        # which will report the expiry error when it is used.
+        # To create and use an anonymous client, expired credentials must be removed.
+        # For application default credentials, delete the file in ~/.config/gcloud/, or
+        #   gcloud auth application-default revoke
+        # OR
+        # For service account keys, you must delete the downloaded key file.
+        client = storage.Client()
+        return client
+    except Exception:
+        # If no credentials are found, create an anonymous client which can be used for public buckets.
+        client = storage.Client.create_anonymous_client()
+        return client
 
 
 class GCSStore(ObjectStoreBase):
@@ -48,7 +66,8 @@ class GCSStore(ObjectStoreBase):
         self.__bucket_name = soa.container
         self.__prefix_name = soa.prefix
 
-    def client(self) -> Any:
+    @classmethod
+    def client(cls) -> 'Client':
         """Return the GCS client."""
         return env.Env.get().get_client('gcs_store')
 
@@ -84,7 +103,7 @@ class GCSStore(ObjectStoreBase):
         """
         Construct a new, unique URI for a persisted media file.
         """
-        prefix, filename = ObjectPath.prefix_raw(tbl_id, col_id, tbl_version, ext)
+        prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_id, tbl_version, ext)
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
@@ -262,21 +281,3 @@ class GCSStore(ObjectStoreBase):
         else:
             # Generic error handling
             raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}')
-
-    @classmethod
-    def create_client(cls) -> Any:
-        try:
-            # Create a client with default credentials
-            # Note that if the default credentials have expired, gcloud will still create a client,
-            # which will report the expiry error when it is used.
-            # To create and use an anonymous client, expired credentials must be removed.
-            # For application default credentials, delete the file in ~/.config/gcloud/, or
-            #   gcloud auth application-default revoke
-            # OR
-            # For service account keys, you must delete the downloaded key file.
-            client = storage.Client()
-            return client
-        except Exception:
-            # If no credentials are found, create an anonymous client which can be used for public buckets.
-            client = storage.Client.create_anonymous_client()
-            return client

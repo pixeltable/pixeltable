@@ -619,7 +619,7 @@ class Env:
         Args:
             - name: The name of the client
         """
-        # Return the existing client if itsy has already been constructed
+        # Return the existing client if it has already been constructed
         with _registered_clients_lock:
             cl = _registered_clients[name]
             if cl.client_obj is not None:

@@ -14,7 +14,7 @@ mkdir -p ~/.aws
 rm -rf ~/.aws/config
 rm -rf ~/.aws/credentials
 
-# Add default and r2_profile to AWS config
+# Add default to AWS config
 cat > ~/.aws/config << EOF
 [default]
 EOF

@@ -67,7 +67,7 @@ class LocalStore(ObjectStoreBase):
             absolute_path = dest_path.resolve()
             return absolute_path.as_uri()
         except (OSError, ValueError) as e:
-            raise excs.Error(f'{error_col_name}`destination` must be a valid path. Error: {str(e)!r}') from None
+            raise excs.Error(f'{error_col_name}`destination` must be a valid path. Error: {e}') from None
 
     @staticmethod
     def file_url_to_path(url: str) -> Optional[Path]:
@@ -117,7 +117,7 @@ class LocalStore(ObjectStoreBase):
         Construct a new, unique Path name in the __base_dir for a persisted file.
         Create the parent directory for the new Path if it does not already exist.
         """
-        prefix, filename = ObjectPath.prefix_raw(tbl_id, col_id, tbl_version, ext)
+        prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_id, tbl_version, ext)
         parent = self.__base_dir / Path(prefix)
         parent.mkdir(parents=True, exist_ok=True)
         return parent / filename
