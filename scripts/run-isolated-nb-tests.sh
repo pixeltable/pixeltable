@@ -20,7 +20,6 @@ export PIXELTABLE_DB="isolatednbtests"
 
 "$SCRIPT_DIR/prepare-nb-tests.sh" docs/notebooks
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
-rm -f "$TEST_PATH"/rag-demo.ipynb  # failing in CI for unknown reasons
 
 FAILURES=0
 ITER=0
@@ -47,9 +46,9 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Deactivating conda environment ..."
     conda deactivate
     echo "Removing conda environment ..."
-    conda remove --name $NB_CONDA_ENV --all
+    conda remove -y --name $NB_CONDA_ENV --all
     echo "Done!"
-    (( ITER++ ))
+    (( ITER++ )) || true
 done
 
 if [[ "$FAILURES" > 0 ]]; then

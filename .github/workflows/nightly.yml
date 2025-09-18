@@ -166,6 +166,6 @@ jobs:
       - name: Print debugging info
         if: ${{ always() }}
         run: |
-          conda activate nb-test-env
+          conda activate nb-test-env-0
           conda info
           pip list
