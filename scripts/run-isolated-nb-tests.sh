@@ -22,10 +22,9 @@ export PIXELTABLE_DB="isolatednbtests"
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 
 FAILURES=0
-ITER=0
 
 for nb in "$TEST_PATH"/*.ipynb; do
-    NB_CONDA_ENV=nb-test-env-$ITER
+    NB_CONDA_ENV=nb-test-env
     echo "Testing notebook: $nb"
     echo "Creating conda environment $NB_CONDA_ENV ..."
     conda create -y --name $NB_CONDA_ENV python="$PY_VERSION"
@@ -35,8 +34,6 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Installing pytest ..."
     pip install -qU pip
     pip install -q pytest nbmake
-    echo "Installing pixeltable ..."
-    pip install -q pixeltable
     echo "Running notebook $nb ..."
     pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ )) || true
     echo "Cleaning $PIXELTABLE_DB postgres DB ..."
@@ -48,7 +45,6 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Removing conda environment ..."
     conda remove -y --name $NB_CONDA_ENV --all
     echo "Done!"
-    (( ITER++ )) || true
 done
 
 if [[ "$FAILURES" > 0 ]]; then
