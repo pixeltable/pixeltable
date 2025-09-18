@@ -26,7 +26,7 @@ class CellMd:
 
     errortype: str | None = None
     errormsg: str | None = None
-    embedded_object_file_urls: list[str] | None = None
+    embedded_object_urls: list[str] | None = None
 
 
 class DataRow:
