@@ -128,7 +128,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04]
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.10", "3.12"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -163,9 +163,3 @@ jobs:
           use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
-      - name: Print debugging info
-        if: ${{ always() }}
-        run: |
-          conda activate nb-test-env
-          conda info
-          pip list
