@@ -1,0 +1,426 @@
+---
+title: "pxt.udf"
+description: "@pxt.udf - The magic decorator that transforms Python functions into Pixeltable powerhouses"
+---
+
+<Badge text="Core UDF System" color="blue" size="small" />
+
+## Function Signature
+
+```python
+@pxt.udf
+def your_function(param1: Type1, param2: Type2, ...) -> ReturnType:
+    # Your custom logic here
+    return result
+```
+
+## Description
+
+The `@pxt.udf` decorator is **Aaron's masterpiece** - the heart of Pixeltable's extensibility system that transforms ordinary Python functions into first-class database functions. This is where Pixeltable stops being "just a database" and becomes a **fully programmable AI computation engine**.
+
+UDFs (User-Defined Functions) enable you to:
+- **Bring any Python logic** directly into your data pipeline
+- **Leverage the entire Python ecosystem** within your tables
+- **Create reusable, versionable computation** that scales with your data
+- **Build custom AI workflows** that integrate seamlessly with Pixeltable's incremental computation
+- **Bridge external APIs** and services into your data processing
+
+## Parameters
+
+<ParamField path="func" type="Callable" required>
+  The Python function to convert into a Pixeltable UDF. Must have proper type hints for all parameters and return values.
+</ParamField>
+
+<ParamField path="return_type" type="type" default="inferred">
+  Override the return type if automatic inference fails. Useful for complex return types or generic containers.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="None">
+  Enable batch processing for performance optimization. When set, the function receives lists of inputs instead of individual values.
+</ParamField>
+
+<ParamField path="is_method" type="bool" default="False">
+  Set to True if the decorated function is a class method requiring instance binding.
+</ParamField>
+
+## Returns
+
+<ResponseField name="function" type="CallableFunction">
+  A Pixeltable function object that can be used in computed columns, queries, and expressions. The function maintains the original signature while gaining database integration capabilities.
+</ResponseField>
+
+## Examples
+
+### Basic UDF Creation
+
+```python
+import pixeltable as pxt
+
+# Simple transformation UDF
+@pxt.udf
+def normalize_text(text: str) -> str:
+    """Clean and normalize text data"""
+    return text.lower().strip().replace('  ', ' ')
+
+# Create table and use UDF
+table = pxt.create_table('documents', {'content': pxt.String})
+table.insert([{'content': '  Hello World  '}])
+
+# Add computed column using UDF
+table.add_computed_column(
+    normalized=normalize_text(table.content)
+)
+
+# Query results
+results = table.select(table.content, table.normalized).collect()
+# Results: [{'content': '  Hello World  ', 'normalized': 'hello world'}]
+```
+
+### Advanced AI Processing UDF
+
+```python
+from PIL import Image
+import numpy as np
+
+@pxt.udf
+def extract_dominant_colors(image: Image.Image, num_colors: int = 3) -> list[str]:
+    """Extract dominant colors from an image using K-means clustering"""
+    from sklearn.cluster import KMeans
+    import webcolors
+    
+    # Convert image to RGB array
+    img_array = np.array(image.convert('RGB'))
+    pixels = img_array.reshape(-1, 3)
+    
+    # Apply K-means clustering
+    kmeans = KMeans(n_clusters=num_colors, random_state=42)
+    kmeans.fit(pixels)
+    
+    # Convert cluster centers to hex colors
+    colors = []
+    for center in kmeans.cluster_centers_:
+        try:
+            # Try to get closest named color
+            closest_name = webcolors.rgb_to_name(tuple(center.astype(int)))
+            colors.append(closest_name)
+        except ValueError:
+            # Fall back to hex representation
+            hex_color = '#{:02x}{:02x}{:02x}'.format(*center.astype(int))
+            colors.append(hex_color)
+    
+    return colors
+
+# Use in image processing pipeline
+images = pxt.create_table('photos', {'image': pxt.Image})
+images.add_computed_column(
+    dominant_colors=extract_dominant_colors(images.image, num_colors=5)
+)
+```
+
+### Batch Processing UDF
+
+```python
+@pxt.udf(batch_size=100)
+def batch_sentiment_analysis(texts: list[str]) -> list[float]:
+    """Analyze sentiment for multiple texts efficiently"""
+    from transformers import pipeline
+    
+    # Initialize model once for the batch
+    classifier = pipeline('sentiment-analysis', 
+                         model='cardiffnlp/twitter-roberta-base-sentiment-latest')
+    
+    # Process entire batch
+    results = classifier(texts)
+    
+    # Convert to confidence scores
+    scores = []
+    for result in results:
+        if result['label'] == 'LABEL_2':  # Positive
+            scores.append(result['score'])
+        elif result['label'] == 'LABEL_0':  # Negative
+            scores.append(-result['score'])
+        else:  # Neutral
+            scores.append(0.0)
+    
+    return scores
+
+# Apply to large text dataset
+reviews = pxt.create_table('reviews', {'text': pxt.String})
+reviews.add_computed_column(
+    sentiment_score=batch_sentiment_analysis(reviews.text)
+)
+```
+
+### External API Integration UDF
+
+```python
+import requests
+import json
+
+@pxt.udf
+def geocode_address(address: str) -> dict:
+    """Convert address to geographic coordinates using external API"""
+    try:
+        # Use a geocoding service (replace with your API key)
+        response = requests.get(
+            'https://api.opencagedata.com/geocode/v1/json',
+            params={
+                'q': address,
+                'key': 'YOUR_API_KEY',
+                'limit': 1
+            },
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data['results']:
+                geometry = data['results'][0]['geometry']
+                return {
+                    'latitude': geometry['lat'],
+                    'longitude': geometry['lng'],
+                    'confidence': data['results'][0]['confidence'],
+                    'status': 'success'
+                }
+        
+        return {'status': 'failed', 'error': 'No results found'}
+        
+    except Exception as e:
+        return {'status': 'error', 'error': str(e)}
+
+# Use for location-based analysis
+locations = pxt.create_table('addresses', {'address': pxt.String})
+locations.add_computed_column(
+    coordinates=geocode_address(locations.address)
+)
+```
+
+### Multi-Modal Processing UDF
+
+```python
+@pxt.udf
+def analyze_image_text_content(image: Image.Image, text: str) -> dict:
+    """Combine image and text analysis for rich content understanding"""
+    import openai
+    from io import BytesIO
+    import base64
+    
+    # Convert image to base64 for API
+    buffer = BytesIO()
+    image.save(buffer, format='PNG')
+    image_b64 = base64.b64encode(buffer.getvalue()).decode()
+    
+    # Call multimodal AI model
+    response = openai.ChatCompletion.create(
+        model="gpt-4-vision-preview",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"Analyze this image and text: {text}"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_b64}"}
+                    }
+                ]
+            }
+        ],
+        max_tokens=300
+    )
+    
+    return {
+        'analysis': response.choices[0].message.content,
+        'text_length': len(text),
+        'image_size': image.size,
+        'processing_timestamp': datetime.now().isoformat()
+    }
+
+# Apply to multimodal dataset
+content = pxt.create_table('content', {
+    'image': pxt.Image,
+    'description': pxt.String
+})
+
+content.add_computed_column(
+    multimodal_analysis=analyze_image_text_content(
+        content.image, 
+        content.description
+    )
+)
+```
+
+## Advanced Features
+
+### Error Handling in UDFs
+
+```python
+@pxt.udf
+def safe_division(numerator: float, denominator: float) -> dict:
+    """Division with comprehensive error handling"""
+    try:
+        if denominator == 0:
+            return {'result': None, 'error': 'Division by zero', 'status': 'error'}
+        
+        result = numerator / denominator
+        
+        if math.isnan(result) or math.isinf(result):
+            return {'result': None, 'error': 'Invalid mathematical result', 'status': 'error'}
+        
+        return {'result': result, 'error': None, 'status': 'success'}
+        
+    except Exception as e:
+        return {'result': None, 'error': str(e), 'status': 'exception'}
+```
+
+### Type-Safe UDFs with Complex Returns
+
+```python
+from typing import Optional, List, Dict, Any
+
+@pxt.udf
+def complex_analysis(data: dict) -> dict:
+    """Complex data analysis with structured output"""
+    return {
+        'metrics': {
+            'mean': np.mean(data.get('values', [])),
+            'std': np.std(data.get('values', [])),
+            'count': len(data.get('values', []))
+        },
+        'categories': list(set(data.get('categories', []))),
+        'metadata': {
+            'processed_at': datetime.now().isoformat(),
+            'version': '1.0',
+            'algorithm': 'standard_analysis'
+        }
+    }
+```
+
+## Performance Optimization
+
+### Batching Strategy
+
+```python
+# ❌ Inefficient: Process one at a time
+@pxt.udf
+def slow_embedding(text: str) -> list[float]:
+    model = SentenceTransformer('all-MiniLM-L6-v2')  # Loaded for each call!
+    return model.encode([text])[0].tolist()
+
+# ✅ Efficient: Process in batches
+@pxt.udf(batch_size=50)
+def fast_embedding(texts: list[str]) -> list[list[float]]:
+    model = SentenceTransformer('all-MiniLM-L6-v2')  # Loaded once per batch
+    embeddings = model.encode(texts)
+    return [emb.tolist() for emb in embeddings]
+```
+
+### Resource Management
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def get_model():
+    """Cache expensive model loading"""
+    return transformers.pipeline('text-classification')
+
+@pxt.udf
+def cached_classification(text: str) -> dict:
+    """Use cached model for better performance"""
+    model = get_model()
+    result = model(text)
+    return result[0]
+```
+
+## Integration Patterns
+
+### MCP Tool Integration
+
+```python
+# Convert MCP tools to UDFs seamlessly
+weather_udf = pxt.mcp_tool_to_udf(weather_tool)
+
+# Use like any other UDF
+locations.add_computed_column(
+    weather_data=weather_udf(locations.city, locations.country)
+)
+```
+
+### Chaining UDFs
+
+```python
+# Create processing pipeline with UDF composition
+content.add_computed_column(
+    step1=normalize_text(content.raw_text)
+)
+content.add_computed_column(
+    step2=extract_keywords(content.step1)
+)
+content.add_computed_column(
+    final_result=analyze_sentiment(content.step1, content.step2)
+)
+```
+
+## Debugging UDFs
+
+```python
+@pxt.udf
+def debug_udf(input_data: str) -> dict:
+    """UDF with comprehensive debugging information"""
+    import traceback
+    import sys
+    
+    debug_info = {
+        'input': input_data,
+        'python_version': sys.version,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    try:
+        # Your processing logic
+        result = process_data(input_data)
+        debug_info['result'] = result
+        debug_info['status'] = 'success'
+        
+    except Exception as e:
+        debug_info['error'] = str(e)
+        debug_info['traceback'] = traceback.format_exc()
+        debug_info['status'] = 'error'
+    
+    return debug_info
+```
+
+## Best Practices
+
+### 🎯 Design Principles
+
+1. **Type Everything**: Always use type hints for parameters and return values
+2. **Handle Errors Gracefully**: Return structured error information instead of raising exceptions
+3. **Optimize for Batching**: Use `batch_size` parameter for expensive operations
+4. **Cache Resources**: Use `@lru_cache` for expensive model loading
+5. **Document Thoroughly**: Include comprehensive docstrings with examples
+
+### ⚡ Performance Tips
+
+- **Batch Similar Operations**: Group API calls, model inference, and I/O operations
+- **Lazy Load Models**: Initialize expensive resources only when needed
+- **Use Appropriate Data Types**: Return structured data as dicts instead of complex objects
+- **Consider Memory Usage**: Be mindful of memory consumption in batch operations
+
+### 🛡️ Security Considerations
+
+- **Validate Inputs**: Always validate and sanitize input parameters
+- **Handle Secrets Safely**: Use environment variables for API keys
+- **Limit External Calls**: Implement timeouts and retry logic
+- **Resource Limits**: Be mindful of computation and memory limits
+
+## Related Functions
+
+- [**pxt.expr_udf**](./expr_udf) - Expression-based UDFs for simple transformations
+- [**pxt.mcp_tool_to_udf**](./mcp_tool_to_udf) - Convert MCP tools to UDFs
+- [**Table.add_computed_column**](../../core_api/column_operations/add_computed_column) - Use UDFs in computed columns
+- [**Function Registry**](./register_function) - Advanced function registration
+
+---
+
+*The database stopped being a storage layer the day it learned to think. UDFs are where code becomes data and data becomes intelligence.*

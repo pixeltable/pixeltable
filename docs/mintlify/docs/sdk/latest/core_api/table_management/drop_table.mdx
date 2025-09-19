@@ -1,0 +1,197 @@
+---
+title: "pxt.drop_table"
+description: "pxt.drop_table() - Remove tables, views, or snapshots with safety controls"
+---
+
+<Badge text="Destructive" color="red" size="small" />
+
+<Callout type="warning">
+  **🚨 Destructive Operation**  
+  This operation permanently deletes data. Use with caution and consider backups for important tables.
+</Callout>
+
+## Function Signature
+
+```python
+pxt.drop_table(
+    table: Union[str, Table],
+    force: bool = False,
+    if_not_exists: str = 'error'
+) -> None
+```
+
+## Description
+
+Removes a table, view, or snapshot from your Pixeltable environment. This operation is **irreversible** and will permanently delete all data stored in the specified table.
+
+The function provides safety mechanisms through the `force` and `if_not_exists` parameters to help prevent accidental data loss and handle edge cases gracefully.
+
+## Parameters
+
+<ParamField path="table" type="Union[str, Table]" required>
+  The table to be removed. Can be specified as:
+  - **String**: Fully qualified table name (e.g., `'my_table'` or `'my_dir.my_table'`)
+  - **Table object**: A handle returned from `get_table()` or `create_table()`
+</ParamField>
+
+<ParamField path="force" type="bool" default="False">
+  Controls behavior when the table has dependencies (views or snapshots).
+  
+  - `False` (default): Raises an error if the table has any dependent views or snapshots
+  - `True`: Removes the table **and all its dependencies** (views, sub-views, snapshots)
+  
+  <Warning>Using `force=True` will delete ALL dependent objects without individual confirmation.</Warning>
+</ParamField>
+
+<ParamField path="if_not_exists" type="str" default="'error'">
+  Determines behavior when the specified table doesn't exist.
+  
+  - `'error'` (default): Raises an error if the table doesn't exist
+  - `'ignore'`: Silently succeeds, making the operation idempotent
+</ParamField>
+
+## Returns
+
+<ResponseField name="None" type="None">
+  This function doesn't return a value. Success is indicated by the absence of an exception.
+</ResponseField>
+
+## Examples
+
+### Basic Table Deletion
+
+```python
+import pixeltable as pxt
+
+# Drop a table by name
+pxt.drop_table('my_table')
+
+# Drop a table in a subdirectory
+pxt.drop_table('analytics.user_data')
+```
+
+### Using Table Handles
+
+```python
+# Get a table handle first, then drop it
+table = pxt.get_table('my_table')
+pxt.drop_table(table)
+
+# This pattern is useful when you want to confirm the table exists first
+```
+
+### Safe Deletion with Error Handling
+
+```python
+# Drop table only if it exists (won't error if missing)
+pxt.drop_table('experimental_table', if_not_exists='ignore')
+
+# Perfect for cleanup scripts or idempotent operations
+try:
+    pxt.drop_table('temp_analysis', if_not_exists='ignore')
+    print("✅ Cleanup completed successfully")
+except Exception as e:
+    print(f"❌ Unexpected error during cleanup: {e}")
+```
+
+### Force Deletion with Dependencies
+
+```python
+# Drop table and ALL its dependencies
+# ⚠️ This will remove views, snapshots, and sub-views too!
+pxt.drop_table('main_table', force=True)
+
+# Safer approach: List dependencies first
+try:
+    pxt.drop_table('main_table')  # Try without force first
+except Exception as e:
+    if "has dependents" in str(e):
+        print("Table has dependencies. Use force=True to delete all.")
+        # Optionally list dependencies here before forcing
+        # pxt.drop_table('main_table', force=True)
+    else:
+        raise
+```
+
+### Batch Operations
+
+```python
+# Clean up multiple tables safely
+tables_to_cleanup = ['temp_table1', 'temp_table2', 'old_analysis']
+
+for table_name in tables_to_cleanup:
+    try:
+        pxt.drop_table(table_name, if_not_exists='ignore')
+        print(f"✅ Removed {table_name}")
+    except Exception as e:
+        print(f"❌ Failed to remove {table_name}: {e}")
+```
+
+## Raises
+
+<ResponseField name="Error" type="Exception">
+  Raised in the following situations:
+  - Invalid table name or path format
+  - Table doesn't exist (when `if_not_exists='error'`)
+  - Path exists but is not a table object
+  - Table has dependencies and `force=False`
+  - Insufficient permissions to delete the table
+</ResponseField>
+
+## Best Practices
+
+### Safety First
+```python
+# Always verify what you're deleting
+table_info = pxt.list_tables()
+print("Tables to delete:", [t for t in table_info if 'temp' in t])
+
+# Use if_not_exists='ignore' for idempotent scripts
+pxt.drop_table('temp_table', if_not_exists='ignore')
+```
+
+### Check Dependencies
+```python
+# Before using force=True, understand what you're deleting
+try:
+    pxt.drop_table('important_table')
+except Exception as e:
+    if "has dependents" in str(e):
+        print("⚠️  Table has dependencies!")
+        print("Consider dropping views individually first")
+        # List views/snapshots here if needed
+```
+
+### Logging for Auditing
+```python
+import logging
+
+def safe_drop_table(table_name, **kwargs):
+    """Drop table with comprehensive logging"""
+    logging.info(f"Attempting to drop table: {table_name}")
+    try:
+        pxt.drop_table(table_name, **kwargs)
+        logging.info(f"✅ Successfully dropped table: {table_name}")
+    except Exception as e:
+        logging.error(f"❌ Failed to drop table {table_name}: {e}")
+        raise
+```
+
+## Related Functions
+
+- [`create_table()`](./create_table) - Create new tables
+- [`get_table()`](./get_table) - Retrieve table handles
+- [`list_tables()`](./list_tables) - List all available tables
+- [`insert()`](../data_operations/insert) - Add data to tables
+
+## Migration Notes
+
+When upgrading between Pixeltable versions, table schemas may change. Always:
+
+1. **Backup important data** before major version upgrades
+2. **Test drop operations** on non-critical tables first
+3. **Use `if_not_exists='ignore'`** in migration scripts for idempotency
+
+---
+
+*Generated from Pixeltable semantic database - Last updated: 2025-01-20*

@@ -1,0 +1,236 @@
+---
+title: "import_huggingface_dataset"
+description: "import_huggingface_dataset(table_path, dataset, **kwargs) - Import Hugging Face datasets directly into Pixeltable"
+---
+
+<Badge text="ML/AI" color="orange" size="small" />
+
+## Function Signature
+
+```python
+import_huggingface_dataset(table_path, dataset, schema_overrides=None, primary_key=None, **kwargs)
+```
+
+## Description
+
+Create a new base table from a Hugging Face dataset or dataset dictionary with multiple splits. This function provides seamless integration with the vast ecosystem of Hugging Face datasets, allowing you to import popular ML datasets directly into Pixeltable for further processing and analysis.
+
+Supports both individual datasets and dataset dictionaries containing multiple splits (train/test/validation).
+
+## Parameters
+
+<ParamField path="table_path" type="str" required>
+  Path to the table where the dataset will be imported.
+</ParamField>
+
+<ParamField path="dataset" type="datasets.Dataset | datasets.DatasetDict" required>
+  Hugging Face Dataset or DatasetDict to insert into the table. Must be loaded using the `datasets` library.
+</ParamField>
+
+<ParamField path="schema_overrides" type="dict" default="None">
+  Optional type overrides for columns. For each (name, type) pair, the column with the specified name will be given the specified type instead of being inferred from the dataset.
+</ParamField>
+
+<ParamField path="primary_key" type="str | list[str]" default="None">
+  The primary key of the table. See [`create_table()`](/docs/sdk/latest/core_api/table_management/create_table) for details.
+</ParamField>
+
+<ParamField path="column_name_for_split" type="str" default="None">
+  **Required for DatasetDict**: Column name to contain split information (train/test/validation). If None, no split information will be stored.
+</ParamField>
+
+<ParamField path="**kwargs" type="dict" default="{}">
+  Additional arguments to pass to `create_table()`.
+</ParamField>
+
+## Returns
+
+<ResponseField name="table" type="Table">
+  A handle to the newly created Pixeltable Table containing the imported dataset.
+</ResponseField>
+
+## Examples
+
+### Import a Single Dataset
+
+```python
+import pixeltable as pxt
+import datasets
+
+# Load a Hugging Face dataset
+dataset = datasets.load_dataset('imdb', split='train')
+
+# Import into Pixeltable
+table = pxt.import_huggingface_dataset(
+    table_path='imdb_reviews',
+    dataset=dataset
+)
+
+# Use the imported data
+print(f"Imported {len(table)} reviews")
+results = table.select(table.text, table.label).limit(5)
+```
+
+### Import Dataset with Multiple Splits
+
+```python
+# Load dataset with train/test splits
+dataset_dict = datasets.load_dataset('imdb')
+
+# Import with split information
+table = pxt.import_huggingface_dataset(
+    table_path='imdb_full',
+    dataset=dataset_dict,
+    column_name_for_split='split'
+)
+
+# Query specific splits
+train_data = table.where(table.split == 'train')
+test_data = table.where(table.split == 'test')
+```
+
+### Custom Schema Overrides
+
+```python
+# Load image dataset
+dataset = datasets.load_dataset('cifar10', split='train')
+
+# Override schema types
+table = pxt.import_huggingface_dataset(
+    table_path='cifar10_images',
+    dataset=dataset,
+    schema_overrides={
+        'img': pxt.Image,  # Ensure images are properly typed
+        'label': pxt.Int   # Ensure labels are integers
+    }
+)
+```
+
+### Multimodal Dataset Import
+
+```python
+# Import a multimodal dataset
+dataset = datasets.load_dataset('nlvr2', split='train')
+
+table = pxt.import_huggingface_dataset(
+    table_path='nlvr2_multimodal',
+    dataset=dataset,
+    schema_overrides={
+        'image': pxt.Image,
+        'sentence': pxt.String,
+        'label': pxt.Bool
+    }
+)
+
+# Add AI processing
+table.add_computed_column(
+    image_embedding=pxt.functions.clip(table.image, model_id='openai/clip-vit-base-patch32')
+)
+table.add_computed_column(
+    text_embedding=pxt.functions.clip(table.sentence, model_id='openai/clip-vit-base-patch32')
+)
+```
+
+### Popular Dataset Examples
+
+```python
+# Text classification
+imdb = datasets.load_dataset('imdb', split='train')
+imdb_table = pxt.import_huggingface_dataset('movie_reviews', imdb)
+
+# Image classification  
+cifar = datasets.load_dataset('cifar10', split='train')
+cifar_table = pxt.import_huggingface_dataset('cifar_images', cifar)
+
+# Question answering
+squad = datasets.load_dataset('squad', split='train')
+squad_table = pxt.import_huggingface_dataset('qa_pairs', squad)
+
+# Audio processing
+librispeech = datasets.load_dataset('librispeech_asr', 'clean', split='train.100')
+audio_table = pxt.import_huggingface_dataset('speech_data', librispeech)
+```
+
+## Popular Datasets
+
+| Dataset | Type | Use Case | Example Code |
+|---------|------|----------|--------------|
+| `imdb` | Text | Sentiment analysis | `datasets.load_dataset('imdb')` |
+| `cifar10` | Images | Image classification | `datasets.load_dataset('cifar10')` |
+| `squad` | Text | Question answering | `datasets.load_dataset('squad')` |
+| `common_voice` | Audio | Speech recognition | `datasets.load_dataset('common_voice')` |
+| `coco` | Multimodal | Object detection | `datasets.load_dataset('coco')` |
+
+## Requirements
+
+Install the required dependencies:
+
+```bash
+pip install datasets
+```
+
+## Schema Inference
+
+Pixeltable automatically infers column types from Hugging Face datasets:
+
+- **Text fields** → `pxt.String`
+- **Numeric fields** → `pxt.Int`, `pxt.Float`
+- **Boolean fields** → `pxt.Bool`
+- **Image fields** → `pxt.Image` (with schema overrides)
+- **Audio fields** → `pxt.Audio` (with schema overrides)
+
+## Best Practices
+
+1. **Use schema overrides** for media types (images, audio) to ensure proper Pixeltable typing
+2. **Include split information** when working with dataset dictionaries
+3. **Set appropriate primary keys** for your use case
+4. **Consider data size** - large datasets may take time to import
+5. **Add computed columns** immediately after import for AI processing
+
+## Error Handling
+
+```python
+try:
+    table = pxt.import_huggingface_dataset(
+        table_path='my_dataset',
+        dataset=dataset,
+        schema_overrides={'image': pxt.Image}
+    )
+    print(f"Successfully imported {len(table)} rows")
+except Exception as e:
+    print(f"Import failed: {e}")
+```
+
+## Integration with AI Workflows
+
+```python
+# Import dataset
+table = pxt.import_huggingface_dataset('vision_data', image_dataset)
+
+# Add AI processing pipeline
+table.add_computed_column(
+    embeddings=pxt.functions.clip(table.image, model_id='openai/clip-vit-base-patch32')
+)
+table.add_computed_column(
+    objects=pxt.functions.yolox(table.image, model_id='yolox_m', threshold=0.7)
+)
+
+# Create searchable index
+table.add_embedding_index('embeddings')
+
+# Query with AI
+similar_images = table.order_by(
+    table.embeddings.similarity("a dog playing in the park"),
+    asc=False
+).limit(10)
+```
+
+## Related Functions
+
+- [`create_table`](/docs/sdk/latest/core_api/table_management/create_table) - Create tables manually
+- [`clip`](/docs/sdk/latest/ml/embeddings/clip) - Add embeddings to imported data
+- [`add_computed_column`](/docs/sdk/latest/core_api/column_operations/add_computed_column) - Process imported data with AI
+
+---
+
+*This documentation was automatically generated from the Pixeltable codebase. For the most up-to-date information, please refer to the official Pixeltable documentation.*
