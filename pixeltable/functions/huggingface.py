@@ -456,10 +456,7 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
     return {'image': {'width': image.width, 'height': image.height}, 'annotations': annotations}
 
 
-# Now refactor all the new functions to follow sentence_transformer pattern exactly
-
-
-@pxt.udf(batch_size=8)
+@pxt.udf(batch_size=1)
 def text_generation(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> Batch[str]:
     """
     Generates text using a pretrained language model. `model_id` should be a reference to a pretrained
@@ -520,7 +517,7 @@ def text_generation(text: Batch[str], *, model_id: str, model_kwargs: Optional[d
 def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> Batch[list[dict[str, Any]]]:
     """
     Classifies text using a pretrained classification model. `model_id` should be a reference to a pretrained
-    [text classification model](https://huggingface.co/docs/transformers/en/tasks/sequence_classification)
+    [text classification model](https://huggingface.co/models?pipeline_tag=text-classification)
     such as BERT, RoBERTa, or DistilBERT.
 
     __Requirements:__
@@ -565,7 +562,10 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
         classification_items = []
         for k in range(top_k_probs.shape[1]):
             classification_items.append(
-                {'label': model.config.id2label[top_k_indices[i, k].item()], 'score': top_k_probs[i, k].item()}
+                {
+                    'label': top_k_indices[i, k].item(),
+                    'label_text': model.config.id2label[top_k_indices[i, k].item()],
+                    'score': top_k_probs[i, k].item()},
             )
         results.append(classification_items)
 
@@ -578,7 +578,7 @@ def image_captioning(
 ) -> Batch[str]:
     """
     Generates captions for images using a pretrained image captioning model. `model_id` should be a reference to a
-    pretrained [image-to-text model](https://huggingface.co/docs/transformers/en/tasks/image_captioning) such as BLIP,
+    pretrained [image-to-text model](https://huggingface.co/models?pipeline_tag=image-to-text) such as BLIP,
     Git, or LLaVA.
 
     __Requirements:__
@@ -608,6 +608,9 @@ def image_captioning(
     import torch
     from transformers import AutoModelForVision2Seq, AutoProcessor
 
+    if model_kwargs is None:
+        model_kwargs = {}
+
     model = _lookup_model(model_id, AutoModelForVision2Seq.from_pretrained, device=device)
     processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
     normalized_images = [normalize_image_mode(img) for img in image]
@@ -621,7 +624,7 @@ def image_captioning(
 
 
 @pxt.udf(batch_size=8)
-def text_summarization(text: Batch[str], *, model_id: str, max_length: int = 150, min_length: int = 30) -> Batch[str]:
+def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]]) -> Batch[str]:
     """
     Summarizes text using a pretrained summarization model. `model_id` should be a reference to a pretrained
     [summarization model](https://huggingface.co/models?pipeline_tag=summarization) such as BART, T5, or Pegasus.
@@ -633,8 +636,7 @@ def text_summarization(text: Batch[str], *, model_id: str, max_length: int = 150
     Args:
         text: The text to summarize.
         model_id: The pretrained model to use for summarization.
-        max_length: Maximum length of the summary.
-        min_length: Minimum length of the summary.
+        model_kwargs: Additional keyword arguments to pass to the model's `generate` method, such as `max_length`.
 
     Returns:
         The generated summary text.
@@ -653,53 +655,32 @@ def text_summarization(text: Batch[str], *, model_id: str, max_length: int = 150
     import torch
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-    # Parameter validation - following best practices pattern
     if max_length <= min_length:
         raise excs.Error(f'max_length ({max_length}) must be greater than min_length ({min_length})')
 
     if min_length < 1:
         raise excs.Error(f'min_length must be at least 1, got {min_length}')
 
-    try:
-        model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
-        tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
-    except Exception as e:
-        raise excs.Error(
-            f'Error loading summarization model {model_id}: {e}\n'
-            f'Try these recommended models instead:\n'
-            f'  - facebook/bart-large-cnn (CNN/DailyMail trained)\n'
-            f'  - t5-small (lightweight)\n'
-            f'  - google/pegasus-xsum (XSum trained)'
-        ) from e
+    model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
+    tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
 
     with torch.no_grad():
-        inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=1024)
+        inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
+        outputs = model.generate(
+            **inputs.to(device),
+            **model_kwargs
+        )
 
-        try:
-            outputs = model.generate(
-                **inputs.to(device),
-                max_length=max_length,
-                min_length=min_length,
-                length_penalty=2.0,
-                num_beams=4,
-                early_stopping=True,
-            )
-        except Exception as e:
-            raise excs.Error(
-                f'Error during text summarization with model {model_id}: {e}\n'
-                f'This may be due to input text being too long or model-specific issues.'
-            ) from e
-
-    summaries = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-    return summaries
+    return tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
 
 @pxt.udf(batch_size=16)
-def named_entity_recognition(
+def token_classification(
     text: Batch[str], *, model_id: str, aggregation_strategy: str = 'simple'
 ) -> Batch[list[dict[str, Any]]]:
     """
-    Extracts named entities from text using a pretrained NER model. `model_id` should be a reference to a pretrained
+    Extracts named entities from text using a pretrained named entity recognition (NER) model.
+    `model_id` should be a reference to a pretrained
     [token classification model](https://huggingface.co/models?pipeline_tag=token-classification) for NER.
 
     __Requirements:__
