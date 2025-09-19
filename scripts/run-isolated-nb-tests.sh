@@ -38,14 +38,6 @@ for nb in "$TEST_PATH"/*.ipynb; do
     pip install -qU pip
     pip install -q pytest nbmake
 
-    # pip install any dependencies directly; nbmake sometimes strangely fails to install them
-    echo "Installing dependencies referenced by notebook:"
-    pip_cmds=$(grep -oE '"%pip install [^"]*' "$nb" | sed 's/^"%//')
-    for cmd in $pip_cmds; do
-        echo "$cmd"
-        eval "$cmd"
-    done
-
     echo "Running notebook $nb ..."
     pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ )) || true
 
