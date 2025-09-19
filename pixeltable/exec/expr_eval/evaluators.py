@@ -311,6 +311,7 @@ class JsonMapperDispatcher(Evaluator):
                     img_slot_idxs=[],
                     media_slot_idxs=[],
                     array_slot_idxs=[],
+                    json_slot_idxs=[],
                     parent_row=row,
                     parent_slot_idx=self.e.slot_idx,
                 )
