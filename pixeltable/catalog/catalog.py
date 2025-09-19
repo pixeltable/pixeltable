@@ -1154,17 +1154,17 @@ class Catalog:
             is_new_tbl_version = True
         else:
             existing_version_md = schema.md_from_dict(schema.TableVersionMd, existing_version_md_row.md)
-            # Validate that the existing metadata are identical to the new metadata, except that their is_hidden
+            # Validate that the existing metadata are identical to the new metadata, except that their is_fragment
             # flags may differ.
-            if dataclasses.replace(existing_version_md, is_hidden=md.version_md.is_hidden) != md.version_md:
+            if dataclasses.replace(existing_version_md, is_fragment=md.version_md.is_fragment) != md.version_md:
                 raise excs.Error(
                     f'The version metadata for the replica {path!r}:{md.version_md.version} is inconsistent with '
                     'the metadata recorded from a prior replica.\n'
                     'This is likely due to data corruption in the replicated table.'
                 )
-            if existing_version_md.is_hidden and not md.version_md.is_hidden:
-                # There's a hidden table version in the DB, but we're importing a visible copy of the same version;
-                # is_hidden flag to False in the DB.
+            if existing_version_md.is_fragment and not md.version_md.is_fragment:
+                # This version exists in the DB as a fragment, but we're importing a complete copy of the same version;
+                # set the is_fragment flag to False in the DB.
                 new_version_md = md.version_md
 
         # Do the same thing for TableSchemaVersion.
@@ -1231,7 +1231,7 @@ class Catalog:
         """
         Drop the table (and recursively its views, if force == True).
 
-        `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for hidden (system) table.
+        `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for a hidden (system) table.
 
         Locking protocol:
         - X-lock base before X-locking any view
@@ -1561,15 +1561,15 @@ class Catalog:
 
         if tbl_md.is_replica and not tbl_md.is_snapshot:
             # If this is a non-snapshot replica, we have to load it as a specific version handle. This is because:
-            # (1) the head version might be a hidden version that isn't user-accessible, and
+            # (1) the head version might be a version fragment that isn't user-accessible, and
             # (2) the cached data in view_md.base_versions is not reliable, since the replicated version does not
             #     necessarily track the head version of the originally shared table.
 
-            # Query for the latest non-hidden table version.
+            # Query for the latest non-fragment table version.
             q = (
                 sql.select(schema.TableVersion.version)
                 .where(schema.TableVersion.tbl_id == tbl_id)
-                .where(schema.TableVersion.md['is_hidden'].astext == 'false')
+                .where(schema.TableVersion.md['is_fragment'].astext == 'false')
                 .order_by(schema.TableVersion.md['version'].cast(sql.Integer).desc())
                 .limit(1)
             )
@@ -1834,8 +1834,8 @@ class Catalog:
                 # This table version already exists; update it.
                 assert len(tv_rows) == 1  # must be unique
                 tv = tv_rows[0]
-                # Validate that the only field that can change is 'is_hidden'.
-                assert tv.md == dataclasses.asdict(dataclasses.replace(version_md, is_hidden=tv.md['is_hidden']))
+                # Validate that the only field that can change is 'is_fragment'.
+                assert tv.md == dataclasses.asdict(dataclasses.replace(version_md, is_fragment=tv.md['is_fragment']))
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
@@ -1913,7 +1913,7 @@ class Catalog:
             # Also, the table version of every proper ancestor is emphemeral; it does not represent a queryable
             # table version (the data might be incomplete, since we have only retrieved one of its views, not
             # the table itself).
-            ancestor_md.version_md.is_hidden = True
+            ancestor_md.version_md.is_fragment = True
 
         return md
 
