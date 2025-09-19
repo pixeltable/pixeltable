@@ -1315,6 +1315,7 @@ class Catalog:
                 tv.drop()
 
             self.delete_tbl_md(tbl_id)
+            tvp.clear_cached_md()
 
         assert (
             is_replica
