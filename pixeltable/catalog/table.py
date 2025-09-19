@@ -1797,7 +1797,7 @@ class Table(SchemaObject):
         return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
 
     def __check_mutable(self, op_descr: str) -> None:
+        if self._tbl_version_path.is_replica():
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a replica.')
         if self._tbl_version_path.is_snapshot():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
-        if self._tbl_version_path.is_replica():
-            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.')

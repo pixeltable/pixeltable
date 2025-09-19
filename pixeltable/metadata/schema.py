@@ -244,6 +244,9 @@ class TableVersionMd:
     schema_version: int
     user: Optional[str] = None  # User that created this version
     update_status: Optional[UpdateStatus] = None  # UpdateStatus of the change that created this version
+    # A version fragment cannot be queried or instantiated via get_table(). A fragment represents a version of a
+    # replica table that has incomplete data, and exists only to provide base table support for a dependent view.
+    is_fragment: bool = False
     additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
@@ -353,6 +356,7 @@ class FullTableMd(NamedTuple):
     def is_pure_snapshot(self) -> bool:
         return (
             self.tbl_md.view_md is not None
+            and self.tbl_md.view_md.is_snapshot
             and self.tbl_md.view_md.predicate is None
             and len(self.schema_version_md.columns) == 0
         )
