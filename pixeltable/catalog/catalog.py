@@ -409,6 +409,11 @@ class Catalog:
                 else:
                     raise
 
+            except KeyboardInterrupt:
+                has_exc = True
+                _logger.debug('Caught KeyboardInterrupt')
+                raise
+
             except:
                 has_exc = True
                 raise
@@ -429,6 +434,9 @@ class Catalog:
                     # stored metadata
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.id, handle.effective_version)
+                    # Clear potentially corrupted cached metadata after error
+                    if tbl is not None:
+                        tbl.clear_cached_md()
                 self._modified_tvs = set()
 
     @property

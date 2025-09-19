@@ -390,6 +390,10 @@ class ExprEvalNode(ExecNode):
         # end the main loop if we had an unhandled exception
         try:
             t.result()
+        except KeyboardInterrupt:
+            # The task was cancelled due to interrupt, ignore it
+            _logger.debug('Task completed with KeyboardInterrupt (user cancellation)')
+            pass
         except asyncio.CancelledError:
             pass
         except Exception as exc:

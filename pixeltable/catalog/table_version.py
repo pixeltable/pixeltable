@@ -18,7 +18,6 @@ from pixeltable import exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
-from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
@@ -595,18 +594,7 @@ class TableVersion:
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self._tbl_md.index_md[idx_id] = idx_md
         self.idxs_by_name[idx_name] = idx_info
-        try:
-            idx.create_index(self._store_idx_name(idx_id), val_col)
-        finally:
-
-            def cleanup_index() -> None:
-                """Delete the newly added in-memory index structure"""
-                del self.idxs_by_name[idx_name]
-                del self._tbl_md.index_md[idx_id]
-                self.next_idx_id = idx_id
-
-            # Run cleanup only if there has been an exception; otherwise, skip cleanup.
-            run_cleanup_on_exception(cleanup_index)
+        idx.create_index(self._store_idx_name(idx_id), val_col)
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
         val_col, undo_vol = self._create_index_columns(idx)
@@ -741,21 +729,6 @@ class TableVersion:
                     num_excs += excs_per_col
                 computed_values += plan.ctx.num_computed_exprs * row_count
             finally:
-                # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
-                def cleanup_on_error() -> None:
-                    """Delete columns that are added as part of current add_columns operation and re-initialize
-                    the sqlalchemy schema"""
-                    self.cols = [col for col in self.cols if col not in cols_to_add]
-                    for col in cols_to_add:
-                        # remove columns that we already added
-                        if col.id in self.cols_by_id:
-                            del self.cols_by_id[col.id]
-                        if col.name is not None and col.name in self.cols_by_name:
-                            del self.cols_by_name[col.name]
-                    self.store_tbl.create_sa_tbl()
-
-                # Run cleanup only if there has been an exception; otherwise, skip cleanup.
-                run_cleanup_on_exception(cleanup_on_error)
                 plan.close()
 
         pxt.catalog.Catalog.get().record_column_dependencies(self)
