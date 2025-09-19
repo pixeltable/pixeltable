@@ -54,6 +54,9 @@ for nb in "$TEST_PATH"/*.ipynb; do
     PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
     "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB;"
 
+    echo "Cleaning Hugging Face cache ..."
+    rm -rf ~/.cache/huggingface
+
     echo "Deactivating conda environment ..."
     conda deactivate
 
