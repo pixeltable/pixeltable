@@ -9,7 +9,7 @@ import puremagic
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import exprs
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 
 class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):

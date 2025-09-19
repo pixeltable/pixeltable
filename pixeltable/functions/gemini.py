@@ -15,7 +15,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
     from google import genai

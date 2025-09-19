@@ -14,7 +14,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 import pixeltable.utils.av as av_utils
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 from .base import ComponentIterator
 

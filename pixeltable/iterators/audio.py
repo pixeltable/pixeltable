@@ -6,7 +6,7 @@ from typing import Any, ClassVar, Optional
 import av
 
 from pixeltable import exceptions as excs, type_system as ts
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 from .base import ComponentIterator
 

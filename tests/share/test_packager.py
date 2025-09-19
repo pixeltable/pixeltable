@@ -17,7 +17,7 @@ import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.share.packager import TablePackager, TableRestorer
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 from tests.conftest import clean_db
 
 from ..utils import (
