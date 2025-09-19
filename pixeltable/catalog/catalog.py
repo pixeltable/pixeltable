@@ -1091,7 +1091,7 @@ class Catalog:
         # Finally, it's possible that the table already exists in the catalog, but as an anonymous system table that
         # was hidden the last time we checked (and that just became visible when the replica was imported). In this
         # case, we need to make the existing table visible by moving it to the specified path.
-        # We need to do this at the end, since `existing_path` needs to first have a visible table version in
+        # We need to do this at the end, since `existing_path` needs to first have a non-fragment table version in
         # order to be instantiated as a schema object.
         existing = self.get_table_by_id(tbl_id)
         if existing is not None:

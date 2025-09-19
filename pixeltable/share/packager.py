@@ -362,7 +362,7 @@ class TableRestorer:
         for md in tbl_md:
             md.tbl_md.is_replica = True
 
-        assert not tbl_md[0].version_md.is_fragment  # Top-level table must be visible
+        assert not tbl_md[0].version_md.is_fragment  # Top-level table cannot be a version fragment
 
         cat = catalog.Catalog.get()
 
