@@ -46,6 +46,9 @@ class LabelStudioProject(Project):
     """
     An [`ExternalStore`][pixeltable.io.ExternalStore] that represents a Label Studio project, providing functionality
     for synchronizing between a Pixeltable table and a Label Studio project.
+
+    The constructor will NOT create a new Label Studio project; it is also used when loading
+    metadata for existing projects.
     """
 
     project_id: int  # Label Studio project ID
@@ -60,10 +63,6 @@ class LabelStudioProject(Project):
         col_mapping: dict[ColumnHandle, str],
         stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
     ):
-        """
-        The constructor will NOT create a new Label Studio project; it is also used when loading
-        metadata for existing projects.
-        """
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project = None

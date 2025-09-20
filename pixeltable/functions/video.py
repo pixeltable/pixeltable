@@ -49,6 +49,10 @@ class make_video(pxt.Aggregator):
     """
     Aggregator that creates a video from a sequence of images, using the default video encoder and yuv420p pixel format.
 
+    Follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video
+
+    TODO: provide parameters for video_encoder and pix_fmt
+
     Args:
         fps: Frames per second for the output video.
 
@@ -98,11 +102,6 @@ class make_video(pxt.Aggregator):
     fps: int
 
     def __init__(self, fps: int = 25):
-        """
-        Follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video
-
-        TODO: provide parameters for video_encoder and pix_fmt
-        """
         self.container = None
         self.stream = None
         self.fps = fps

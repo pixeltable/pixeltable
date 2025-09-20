@@ -1081,9 +1081,7 @@ class ImageType(ColumnType):
         mode: Optional[str] = None,
         nullable: bool = False,
     ):
-        """
-        TODO: does it make sense to specify only width or height?
-        """
+        # TODO: does it make sense to specify only width or height?
         super().__init__(self.Type.IMAGE, nullable=nullable)
         assert not (width is not None and size is not None)
         assert not (height is not None and size is not None)

@@ -30,13 +30,14 @@ class MediaStore:
     Media file names are a composite of: table id, column id, tbl_version, new uuid:
     the table id/column id/tbl_version are redundant but useful for identifying all files for a table
     or all files created for a particular version of a table
+
+    Initialize a MediaStore with a base directory.
     """
 
     pattern = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
     __base_dir: Path
 
     def __init__(self, base_dir: Path):
-        """Initialize a MediaStore with a base directory."""
         assert isinstance(base_dir, Path), 'Base directory must be a Path instance.'
         self.__base_dir = base_dir
 
