@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import io
-import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -34,7 +34,7 @@ class CellMaterializationNode(ExecNode):
 
     # execution state
     embedded_obj_files: list[Path]
-    embedded_obj_buffer: io.BytesIO
+    buffered_writer: io.BufferedWriter
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
     MAX_DB_ARRAY_SIZE = 512  # max size of array stored in table column; in bytes
@@ -69,6 +69,7 @@ class CellMaterializationNode(ExecNode):
                             )
                         else:
                             row.cell_vals[col.id] = val
+                            row.cell_md[col.qualified_id] = None
 
                     else:
                         assert col.col_type.is_array_type()
@@ -78,22 +79,37 @@ class CellMaterializationNode(ExecNode):
                         if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
                             # this is a vector column (ie, used for a vector index): provide the array itself
                             row.cell_vals[col.id] = val
+                            row.cell_md[col.qualified_id] = None
                         elif val.nbytes <= self.MAX_DB_ARRAY_SIZE:
                             # this array is small enough to store in the db column (type: binary) directly
                             buffer = io.BytesIO()
                             np.save(buffer, val, allow_pickle=False)
                             row.cell_vals[col.id] = buffer.getvalue()
+                            row.cell_md[col.qualified_id] = None
                         else:
-                            # append this array to the buffer and store its location in the cell
-                            begin = self.embedded_obj_buffer.tell()
-                            np.save(self.embedded_obj_buffer, val, allow_pickle=False)
-                            end = self.embedded_obj_buffer.tell()
-                            location_dict = {'url': self.embedded_obj_files[-1].as_uri(), 'begin': begin, 'end': end}
-                            # we need to store location_dict in the array table column, which has type binary:
-                            # we binary-encode the serialized dict, with a magic prefix to make sure it's
-                            # distinguishable from a serialized numpy array.
-                            row.cell_vals[col.id] = b'\x01' + json.dumps(location_dict).encode('utf-8')
+                            # append this array to the buffer and store its location in the cell md
+                            ar: np.ndarray
+                            if np.issubdtype(val.dtype, np.bool_):
+                                # for bool arrays, store as packed bits, otherwise it's 1 byte per bit
+                                ar = np.packbits(val)
+                            else:
+                                ar = val
+                            start = self.buffered_writer.tell()
+                            np.save(self.buffered_writer, ar, allow_pickle=False)
+                            end = self.buffered_writer.tell()
+                            row.cell_vals[col.id] = None
+                            cell_md = exprs.CellMd(
+                                embedded_object_urls=[self.embedded_obj_files[-1].as_uri()],
+                                array_start=start,
+                                array_end=end,
+                            )
+                            if np.issubdtype(val.dtype, np.bool_):
+                                cell_md.array_is_bool = True
+                                cell_md.array_shape = val.shape
+                            row.cell_md[col.qualified_id] = cell_md
                             self._flush_full_buffer()
+
+                        assert row.cell_vals[col.id] is not None or row.cell_md[col.qualified_id] is not None
 
                     # continue with only the last file
                     self.embedded_obj_files = self.embedded_obj_files[-1:]
@@ -132,34 +148,36 @@ class CellMaterializationNode(ExecNode):
             }
         return element
 
-    def _write_ndarray(self, element: np.ndarray) -> tuple[int, int, int]:
+    def _write_ndarray(self, ar: np.ndarray) -> tuple[int, int, int]:
         """Write an ndarray to bytes_buffer and return: index into embedded_obj_urls, start offset, end offset"""
         url_idx = len(self.embedded_obj_files) - 1
-        begin = self.embedded_obj_buffer.tell()
-        np.save(self.embedded_obj_buffer, element, allow_pickle=False)
-        end = self.embedded_obj_buffer.tell()
+        begin = self.buffered_writer.tell()
+        np.save(self.buffered_writer, ar, allow_pickle=False)
+        end = self.buffered_writer.tell()
         self._flush_full_buffer()
         return url_idx, begin, end
 
-    def _write_image(self, element: PIL.Image.Image) -> tuple[int, int, int]:
+    def _write_image(self, img: PIL.Image.Image) -> tuple[int, int, int]:
         """Write a PIL image to bytes_buffer and return: index into embedded_obj_urls, start offset, end offset"""
         url_idx = len(self.embedded_obj_files) - 1
-        begin = self.embedded_obj_buffer.tell()
-        format = 'webp' if element.has_transparency_data else 'jpeg'
-        element.save(self.embedded_obj_buffer, format=format)
-        end = self.embedded_obj_buffer.tell()
+        begin = self.buffered_writer.tell()
+        format = 'webp' if img.has_transparency_data else 'jpeg'
+        img.save(self.buffered_writer, format=format)
+        end = self.buffered_writer.tell()
         self._flush_full_buffer()
         return url_idx, begin, end
 
     def _reset_buffer(self) -> None:
         local_path = MediaStore.get()._prepare_media_path_raw(self.row_builder.tbl.id, 0, self.row_builder.tbl.version)
         self.embedded_obj_files.append(local_path)
-        self.embedded_obj_buffer = io.BytesIO()
+        fh = open(local_path, 'wb', buffering=self.MIN_FILE_SIZE * 2)  # noqa: SIM115
+        assert isinstance(fh, io.BufferedWriter)
+        self.buffered_writer = fh
 
     def _flush_full_buffer(self, force: bool = False) -> None:
-        if self.embedded_obj_buffer.tell() < self.MIN_FILE_SIZE and not force:
+        if self.buffered_writer.tell() < self.MIN_FILE_SIZE and not force:
             return
-        self.embedded_obj_buffer.seek(0)
-        with open(self.embedded_obj_files[-1], 'wb') as f:
-            f.write(self.embedded_obj_buffer.getbuffer())
+        self.buffered_writer.flush()
+        os.fsync(self.buffered_writer.fileno())
+        self.buffered_writer.close()
         self._reset_buffer()

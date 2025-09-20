@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import io
-import json
 import logging
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 import numpy as np
@@ -24,7 +24,7 @@ class CellReconstructionNode(ExecNode):
 
     json_expr_info: dict[int, QColumnId]
     array_refs: list[exprs.ColumnRef]
-    file_handles: dict[str, io.BufferedReader]  # key: file path
+    file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
         self,
@@ -52,29 +52,35 @@ class CellReconstructionNode(ExecNode):
                         row[slot_idx] = self._reconstruct_json(row[slot_idx], row.cell_md[q_id].embedded_object_urls)
 
                     for col_ref in self.array_refs:
-                        data = row[col_ref.slot_idx]
-                        if data.startswith(b'\x93NUMPY'):  # npy magic string
-                            row[col_ref.slot_idx] = np.load(io.BytesIO(data), allow_pickle=False)
+                        cell_md = row.cell_md[col_ref.col.qualified_id]
+                        if cell_md is not None and cell_md.array_start is not None:
+                            assert row[col_ref.slot_idx] is None
+                            assert cell_md.array_end is not None
+                            assert cell_md.embedded_object_urls is not None and len(cell_md.embedded_object_urls) == 1
+                            row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
                         else:
-                            assert data.startswith(b'\x01')
-                            row[col_ref.slot_idx] = self._reconstruct_array(data[1:])
+                            if row[col_ref.slot_idx] is None:
+                                pass
+                            assert isinstance(row[col_ref.slot_idx], np.ndarray), type(row[col_ref.slot_idx])
 
                 yield batch
         finally:
             for fp in self.file_handles.values():
                 fp.close()
 
-    def _reconstruct_array(self, data: bytes) -> np.ndarray:
-        location_dict = json.loads(data[1:].decode('utf-8'))
-        local_path = parse_local_file_path(location_dict['url'])
+    def _reconstruct_array(self, cell_md: exprs.CellMd) -> np.ndarray:
+        local_path = parse_local_file_path(cell_md.embedded_object_urls[0])
+        assert local_path is not None
         if local_path not in self.file_handles:
-            self.file_handles[local_path] = open(local_path, 'rb')  # noqa: SIM115
+            self.file_handles[local_path] = open(str(local_path), 'rb')  # noqa: SIM115
         fp = self.file_handles[local_path]
-        fp.seek(location_dict['begin'])
-        assert fp.tell() == location_dict['begin']
-        arr = np.load(fp, allow_pickle=False)
-        assert fp.tell() == location_dict['end']
-        return arr
+        fp.seek(cell_md.array_start)
+        assert fp.tell() == cell_md.array_start
+        ar = np.load(fp, allow_pickle=False)
+        assert fp.tell() == cell_md.array_end
+        if cell_md.array_is_bool:
+            ar = np.unpackbits(ar, count=np.prod(cell_md.array_shape)).reshape(cell_md.array_shape)
+        return ar
 
     def _json_has_embedded_objs(self, element: Any) -> bool:
         if isinstance(element, list):

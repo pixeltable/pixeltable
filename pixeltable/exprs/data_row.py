@@ -22,11 +22,25 @@ from pixeltable.utils.media_store import MediaStore, TempStore
 class CellMd:
     """
     Content of the cellmd column.
+
+    All fields are optional, to minimize storage.
     """
 
     errortype: str | None = None
     errormsg: str | None = None
+
+    # a list of file urls that are used to store embedded images and arrays; only set for json and array columns
+    # for json columns: a list of the urls referenced by index
+    # for array columns: a single url
     embedded_object_urls: list[str] | None = None
+
+    # for array cells that are stored externally, the start and end offsets
+    array_start: int | None = None
+    array_end: int | None = None
+
+    # we store bool arrays as packed bits (uint8 arrays), and need to record the shape to reconstruct the array
+    array_is_bool: bool | None = None
+    array_shape: tuple[int, ...] | None = None
 
 
 class DataRow:
@@ -277,8 +291,6 @@ class DataRow:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
-        # elif idx in self.json_slot_idxs:
-        #     self.vals[idx] = self.reconstruct_json(val)
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
@@ -306,65 +318,6 @@ class DataRow:
             # we already have a file for this image, nothing left to do
             pass
         self.vals[index] = None
-
-    # def reconstruct_json(cls, element: Any) -> Any:
-    #     """
-    #     Recursively reconstructs a JSON structure that may contain references to image or array
-    #     data stored in a binary file.
-    #     """
-    #     url = cls.__find_pxturl(element)
-    #     if url is None:
-    #         return element
-    #     parsed = urllib.parse.urlparse(url)
-    #     assert parsed.scheme == 'file'
-    #     path = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-    #     with open(path, 'rb') as fp:
-    #         return cls.__reconstruct_json(element, fp)
-    #
-    # @classmethod
-    # def __find_pxturl(cls, element: Any) -> Optional[str]:
-    #     if isinstance(element, list):
-    #         for v in element:
-    #             url = cls.__find_pxturl(v)
-    #             if url is not None:
-    #                 return url
-    #
-    #     if isinstance(element, dict):
-    #         if '__pxturl__' in element:
-    #             return element['__pxturl__']
-    #         for v in element.values():
-    #             url = cls.__find_pxturl(v)
-    #             if url is not None:
-    #                 return url
-    #
-    #     return None
-    #
-    # @classmethod
-    # def __reconstruct_json(cls, element: Any, fp: io.BufferedReader) -> Any:
-    #     if isinstance(element, list):
-    #         return [cls.__reconstruct_json(v, fp) for v in element]
-    #     if isinstance(element, dict):
-    #         if '__pxttype__' in element:
-    #             begin = element['__pxtbegin__']
-    #             end = element['__pxtend__']
-    #             assert isinstance(begin, int)
-    #             assert isinstance(end, int)
-    #             fp.seek(begin)
-    #             assert fp.tell() == begin
-    #             if element['__pxttype__'] == ts.ColumnType.Type.ARRAY.name:
-    #                 arr = np.load(fp, allow_pickle=False)
-    #                 assert fp.tell() == end
-    #                 return arr
-    #             else:
-    #                 assert element['__pxttype__'] == ts.ColumnType.Type.IMAGE.name
-    #                 bytesio = io.BytesIO(fp.read(end - begin))
-    #                 img = PIL.Image.open(bytesio)
-    #                 img.load()
-    #                 assert fp.tell() == end, f'{fp.tell()} != {end} / {begin}'
-    #                 return img
-    #         else:
-    #             return {k: cls.__reconstruct_json(v, fp) for k, v in element.items()}
-    #     return element
 
     def move_tmp_media_file(self, index: int, col: catalog.Column) -> None:
         """If a media url refers to data in a temporary file, move the data to a MediaStore"""

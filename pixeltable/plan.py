@@ -6,6 +6,7 @@ from textwrap import dedent
 from typing import Any, Iterable, Literal, Optional, Sequence, cast
 from uuid import UUID
 
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -393,7 +394,7 @@ class Planner:
             plan = exec.ExprEvalNode(
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
-        if any(c.col_type.is_json_type() for c in stored_cols):
+        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
             plan = exec.CellMaterializationNode(row_builder, plan)
 
         plan.set_ctx(
@@ -915,18 +916,29 @@ class Planner:
                     traverse_matches=False,
                 )
             )
+
+            # json and array columns need their cellmd values for reconstruction
             json_col_refs = exprs.Expr.list_subexprs(
                 tbl_scan_exprs,
                 expr_class=exprs.ColumnRef,
                 filter=lambda e: cast(exprs.ColumnRef, e).col.stores_cellmd,
                 traverse_matches=False,
             )
+
+            def is_reconstructable_array(e: exprs.Expr) -> bool:
+                assert isinstance(e, exprs.ColumnRef)
+                return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+
+            array_col_refs = exprs.Expr.list_subexprs(
+                tbl_scan_exprs, expr_class=exprs.ColumnRef, filter=is_reconstructable_array, traverse_matches=False
+            )
+
             plan = exec.SqlScanNode(
                 tbl,
                 row_builder,
                 select_list=tbl_scan_exprs,
                 set_pk=with_pk,
-                cell_md_cols=[c.col for c in json_col_refs],
+                cell_md_cols=[c.col for c in json_col_refs] + [c.col for c in array_col_refs],
                 exact_version_only=exact_version_only,
             )
             tbl_scan_plans.append(plan)
@@ -960,32 +972,33 @@ class Planner:
 
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
 
-        # we need to do json reconstruction if we're referencing a json-typed column anywhere
-        if exprs.Expr.list_contains(
-            analyzer.all_exprs,
-            expr_class=exprs.ColumnRef,
-            filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_json_type(),
-        ):
-            # what to reconstruct:
-            # 1) all JsonPath exprs that reference a json column
-            # 2) all json-typed ColumnRefs, except for those that are part of 1)
-            def json_filter(e: exprs.Expr) -> bool:
-                if isinstance(e, exprs.JsonPath):
-                    return not e.is_relative_path() and isinstance(e.anchor(), exprs.ColumnRef)
-                return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
+        # cell reconstruction is required for
+        # 1) all JsonPath exprs that reference a json column
+        # 2) all json-typed ColumnRefs, except for those that are part of 1)
+        # 3) all array-typed ColumnRefs
 
-            reconstruct_exprs = list(
-                exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False)
-            )
+        def json_filter(e: exprs.Expr) -> bool:
+            if isinstance(e, exprs.JsonPath):
+                return not e.is_relative_path() and isinstance(e.anchor(), exprs.ColumnRef)
+            return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
+
+        json_exprs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False))
+        array_refs = [
+            e
+            for e in analyzer.all_exprs
+            if isinstance(e, exprs.ColumnRef)
+            and e.col.col_type.is_array_type()
+            # we only need to reconstruct non-Vector array columns
+            and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+        ]
+
+        if len(json_exprs) > 0 or len(array_refs) > 0:
             json_expr_info = {
-                e.slot_idx: e.anchor().col.qualified_id for e in reconstruct_exprs if isinstance(e, exprs.JsonPath)
+                e.slot_idx: e.anchor().col.qualified_id for e in json_exprs if isinstance(e, exprs.JsonPath)
             }
             json_expr_info.update(
-                {e.slot_idx: e.col.qualified_id for e in reconstruct_exprs if isinstance(e, exprs.ColumnRef)}
+                {e.slot_idx: e.col.qualified_id for e in json_exprs if isinstance(e, exprs.ColumnRef)}
             )
-            array_refs = [
-                e for e in analyzer.all_exprs if isinstance(e, exprs.ColumnRef) and e.col.col_type.is_array_type()
-            ]
             plan = exec.CellReconstructionNode(json_expr_info, array_refs, row_builder, input=plan)
 
         if analyzer.group_by_clause is not None:

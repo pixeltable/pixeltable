@@ -469,10 +469,12 @@ class RowBuilder:
             if col.id in data_row.cell_vals:
                 table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
+                    if col.qualified_id not in data_row.cell_md:
+                        pass
                     if data_row.cell_md[col.qualified_id] is None:
                         table_row.append(None)
                     else:
-                        # dict_factory: we want to minimize the size of the stored dict
+                        # we want to minimize the size of the stored dict and use dict_factory to remove Nones
                         md = dataclasses.asdict(
                             data_row.cell_md[col.qualified_id],
                             dict_factory=lambda d: {k: v for (k, v) in d if v is not None},

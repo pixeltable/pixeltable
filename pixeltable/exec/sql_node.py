@@ -344,8 +344,10 @@ class SqlNode(ExecNode):
 
             # populate DataRow.cell_md, where requested
             for i, col in enumerate(self.cell_md_cols[::-1]):
-                cell_md = exprs.CellMd(**sql_row[-i - self.num_pk_cols - 1])
-                output_row.cell_md[col.qualified_id] = cell_md
+                cell_md_dict = sql_row[-i - self.num_pk_cols - 1]
+                output_row.cell_md[col.qualified_id] = (
+                    exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
+                )
 
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.select_list):
