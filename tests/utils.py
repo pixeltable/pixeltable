@@ -498,6 +498,22 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
     tc.assertDictEqual(expected, trimmed_actual)
 
 
+def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMetadata) -> None:
+    """
+    Assert that version metadata (user-facing metadata as returned by `tbl.get_versions()`) matches the expected dict.
+    `created_at` will be checked to be less than 1 minute ago; the other fields will be checked for exact
+    equality.
+    """
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    actual_created_at: datetime.datetime = actual['created_at']
+    assert (now - actual_created_at).total_seconds() <= 60
+
+    trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
+
+
 def strip_lines(s: str) -> str:
     lines = s.split('\n')
     return '\n'.join(line.strip() for line in lines)
