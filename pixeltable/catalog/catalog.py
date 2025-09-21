@@ -922,11 +922,11 @@ class Catalog:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-    ) -> Table:
+    ) -> tuple[Table, bool]:
         existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
         if existing is not None:
             assert isinstance(existing, Table)
-            return existing
+            return existing, False
 
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
@@ -942,7 +942,7 @@ class Catalog:
             media_validation=media_validation,
         )
         self._tbls[tbl._id, None] = tbl
-        return tbl
+        return tbl, True
 
     def create_view(
         self,

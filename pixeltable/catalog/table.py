@@ -115,6 +115,7 @@ class Table(SchemaObject):
                 is_primary_key=col.is_pk,
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
+                defined_in=col.tbl.name,
             )
         # Pure snapshots have no indices
         indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}

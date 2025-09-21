@@ -92,6 +92,7 @@ class Env:
     _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
+    verbosity: int
 
     @classmethod
     def get(cls) -> Env:
@@ -389,9 +390,9 @@ class Env:
             warnings.simplefilter('ignore', category=FutureWarning)
 
         # Set verbose level for user visible console messages
-        verbosity = map_level(config.get_int_value('verbosity'))
+        self.verbosity = config.get_int_value('verbosity')
         stdout_handler = ConsoleOutputHandler(stream=stdout)
-        stdout_handler.setLevel(verbosity)
+        stdout_handler.setLevel(map_level(self.verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
         self._console_logger = ConsoleLogger(self._logger)

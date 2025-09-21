@@ -179,7 +179,7 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    table = Catalog.get().create_table(
+    table, was_created = Catalog.get().create_table(
         path_obj,
         schema,
         data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
@@ -189,7 +189,7 @@ def create_table(
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
     )
-    if data_source is not None and not is_direct_df:
+    if was_created and data_source is not None and not is_direct_df:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         table.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 

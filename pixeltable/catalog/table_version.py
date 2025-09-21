@@ -688,48 +688,49 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
+        from pixeltable.plan import Planner
+
         cols_to_add = list(cols)
-        row_count = self.store_tbl.count()
-        for col in cols_to_add:
-            assert col.tbl is self
-            if not col.col_type.nullable and not col.is_computed and row_count > 0:
-                raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
-                )
 
-        computed_values = 0
-        num_excs = 0
-        cols_with_excs: list[Column] = []
-        for col in cols_to_add:
-            assert col.id is not None, 'Column id must be set before adding the column'
-            excs_per_col = 0
-            col.schema_version_add = self.schema_version
-            # add the column to the lookup structures now, rather than after the store changes executed successfully,
-            # because it might be referenced by the next column's value_expr
-            self.cols.append(col)
-            self.cols_by_id[col.id] = col
-            if col.name is not None:
-                self.cols_by_name[col.name] = col
-                col_md, sch_md = col.to_md(len(self.cols_by_name))
-                assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
-                self._tbl_md.column_md[col.id] = col_md
-                self._schema_version_md.columns[col.id] = sch_md
-            else:
-                col_md, _ = col.to_md()
-                self._tbl_md.column_md[col.id] = col_md
+        try:
+            row_count = self.store_tbl.count()
+            for col in cols_to_add:
+                assert col.tbl is self
+                if not col.col_type.nullable and not col.is_computed and row_count > 0:
+                    raise excs.Error(
+                        f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                    )
 
-            if col.is_stored:
-                self.store_tbl.add_column(col)
+            computed_values = 0
+            num_excs = 0
+            cols_with_excs: list[Column] = []
+            for col in cols_to_add:
+                assert col.id is not None, 'Column id must be set before adding the column'
+                excs_per_col = 0
+                col.schema_version_add = self.schema_version
+                # add the column to the lookup structures now, rather than after the store changes executed successfully,
+                # because it might be referenced by the next column's value_expr
+                self.cols.append(col)
+                self.cols_by_id[col.id] = col
+                if col.name is not None:
+                    self.cols_by_name[col.name] = col
+                    col_md, sch_md = col.to_md(len(self.cols_by_name))
+                    assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
+                    self._tbl_md.column_md[col.id] = col_md
+                    self._schema_version_md.columns[col.id] = sch_md
+                else:
+                    col_md, _ = col.to_md()
+                    self._tbl_md.column_md[col.id] = col_md
 
-            if not col.is_computed or not col.is_stored or row_count == 0:
-                continue
+                if col.is_stored:
+                    self.store_tbl.add_column(col)
 
-            # populate the column
-            from pixeltable.plan import Planner
+                if not col.is_computed or not col.is_stored or row_count == 0:
+                    continue
 
-            plan = Planner.create_add_column_plan(self.path, col)
-            plan.ctx.num_rows = row_count
-            try:
+                # populate the column
+                plan = Planner.create_add_column_plan(self.path, col)
+                plan.ctx.num_rows = row_count
                 plan.open()
                 try:
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
@@ -740,37 +741,42 @@ class TableVersion:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
                 computed_values += plan.ctx.num_computed_exprs * row_count
-            finally:
-                # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
-                def cleanup_on_error() -> None:
-                    """Delete columns that are added as part of current add_columns operation and re-initialize
-                    the sqlalchemy schema"""
-                    self.cols = [col for col in self.cols if col not in cols_to_add]
-                    for col in cols_to_add:
-                        # remove columns that we already added
-                        if col.id in self.cols_by_id:
-                            del self.cols_by_id[col.id]
-                        if col.name is not None and col.name in self.cols_by_name:
-                            del self.cols_by_name[col.name]
-                    self.store_tbl.create_sa_tbl()
-
-                # Run cleanup only if there has been an exception; otherwise, skip cleanup.
-                run_cleanup_on_exception(cleanup_on_error)
                 plan.close()
 
-        pxt.catalog.Catalog.get().record_column_dependencies(self)
+            pxt.catalog.Catalog.get().record_column_dependencies(self)
 
-        if print_stats:
-            plan.ctx.profile.print(num_rows=row_count)
+            if print_stats:
+                plan.ctx.profile.print(num_rows=row_count)
 
-        # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(
-            upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
-        )  # add_columns
-        return UpdateStatus(
-            cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
-            row_count_stats=row_counts,
-        )
+            # TODO: what to do about system columns with exceptions?
+            row_counts = RowCountStats(
+                upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
+            )  # add_columns
+            return UpdateStatus(
+                cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
+                row_count_stats=row_counts,
+            )
+
+        finally:
+            # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
+            def cleanup_on_error() -> None:
+                """Delete columns that are added as part of current add_columns operation and re-initialize
+                the sqlalchemy schema"""
+                self.cols = [col for col in self.cols if col not in cols_to_add]
+                for col in cols_to_add:
+                    # remove columns that we already added
+                    if col.id in self.cols_by_id:
+                        del self.cols_by_id[col.id]
+                    if col.name is not None and col.name in self.cols_by_name:
+                        del self.cols_by_name[col.name]
+                    if col.id in self._tbl_md.column_md:
+                        del self._tbl_md.column_md[col.id]
+                    if col.id in self._schema_version_md.columns:
+                        del self._schema_version_md.columns[col.id]
+                self.store_tbl.create_sa_tbl()
+
+            # Run cleanup only if there has been an exception; otherwise, skip cleanup.
+            run_cleanup_on_exception(cleanup_on_error)
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
