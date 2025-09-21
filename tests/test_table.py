@@ -1,13 +1,12 @@
 import datetime
 import enum
-import itertools
 import math
 import os
 import random
 import re
 import time
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
+from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -31,8 +30,10 @@ from pixeltable.utils.media_store import MediaStore
 from .utils import (
     TESTS_DIR,
     ReloadTester,
+    assert_json_eq,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    create_arrays,
     create_table_data,
     get_audio_files,
     get_documents,
@@ -1436,6 +1437,7 @@ class TestTable:
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Image],
             'c8': pxt.Required[pxt.Video],
+            'c9': pxt.Required[pxt.Timestamp],
         }
         tbl_name = 'test1'
         t = pxt.create_table(tbl_name, schema)
@@ -1455,6 +1457,7 @@ class TestTable:
             c6={'key': 'val'},
             c7=get_image_files()[0],
             c8=get_video_files()[0],
+            c9=datetime.datetime.now(tz=datetime.timezone.utc),
         )
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -1482,19 +1485,18 @@ class TestTable:
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
-            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c5', 'c2', 'c2']
+            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c9', 'c2', 'c2', 'c2']
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
             t = pxt.create_table(tbl_name, {col_name: col_type})
-            with pytest.raises(pxt.Error, match=r'expected|not a valid Pixeltable JSON object') as exc_info:
+            with pytest.raises(pxt.Error, match=r'expected|not a valid Pixeltable JSON object'):
                 t.insert({col_name: r[value_col_name]} for r in rows)
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.String})
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Unsupported data source type'):
             t.insert(['1'])  # xtype: ignore[list-item]
-        assert 'Unsupported data source type' in str(exc_info.value)
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
@@ -1544,26 +1546,13 @@ class TestTable:
             assert tup['c1'] == 'this is a python string'
 
     def test_insert_arrays(self, reset_db: None) -> None:
+        """Test storing arrays of various sizes and dtypes."""
         t = pxt.create_table('test', {'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array})
 
-        def array_vals() -> Iterator[np.ndarray]:
-            """
-            Generate arrays of different sizes and dtypes.
-            """
-            sizes = itertools.cycle([(4, 4), (100, 100), (500, 500), (1000, 2000)])
-            dtypes = itertools.cycle([np.int64, np.float32, bool])
-            rng = np.random.default_rng(0)
-            while True:
-                size = next(sizes)
-                dtype = next(dtypes)
-                if dtype is bool:
-                    yield rng.integers(0, 2, size=size, dtype=bool)
-                elif np.issubdtype(dtype, np.integer):
-                    yield rng.integers(0, 100, size=size, dtype=dtype)
-                else:
-                    yield rng.random(size=size, dtype=dtype)
-
-        vals = array_vals()  # about 700MB of data
+        # about 700MB of data
+        vals = create_arrays(
+            sizes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
+        )
         rows = [{'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals)} for _ in range(100)]
         total_bytes = sum(row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes for row in rows)
         start = time.monotonic()
@@ -1574,15 +1563,56 @@ class TestTable:
             f'{total_bytes / (end - start) / 2**20:.2f} MB/s'
         )
         assert status.num_excs == 0
+        tbl_id = t._id
+        assert MediaStore.get().count(tbl_id) > 0
 
-        res = t.head(1000)  # head(): return in insertion order
+        res = t.head(100)  # head(): return in insertion order
         assert all(np.array_equal(row['ar1'], rows[i]['ar1']) for i, row in enumerate(res))
         assert all(np.array_equal(row['ar2'], rows[i]['ar2']) for i, row in enumerate(res))
         assert all(np.array_equal(row['ar3'], rows[i]['ar3']) for i, row in enumerate(res))
 
-        tbl_id = t._id
         pxt.drop_table('test')
         assert MediaStore.get().count(tbl_id) == 0
+
+    def test_insert_embedded_arrays(self, reset_db: None) -> None:
+        """Test storing list with arrays of various sizes and dtypes."""
+        t = pxt.create_table('test', {'list_c': pxt.Json, 'dict_c': pxt.Json})
+
+        array_vals = create_arrays(
+            sizes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, bool]
+        )
+        rng = np.random.default_rng(0)
+        rows = [
+            {
+                'list_c': [next(array_vals) for _ in range(rng.integers(1, 10, endpoint=True, dtype=int))],
+                'dict_c': {str(i): next(array_vals) for i in range(rng.integers(1, 10, endpoint=True, dtype=int))},
+            }
+            for _ in range(10)
+        ]
+        status = t.insert(rows)
+        assert status.num_excs == 0
+        tbl_id = t._id
+        assert MediaStore.get().count(tbl_id) > 0
+
+        res = t.head(10)  # head(): return in insertion order
+        for i, row in enumerate(res):
+            assert_json_eq(row['list_c'], rows[i]['list_c'])
+            assert_json_eq(row['dict_c'], rows[i]['dict_c'])
+
+        pxt.drop_table('test')
+        assert MediaStore.get().count(tbl_id) == 0
+
+        t = pxt.create_table('test', {'id': pxt.Int, 'a1': pxt.Array, 'a2': pxt.Array, 'a3': pxt.Array})
+        t.add_computed_column(l1=[t.a1, t.a2, t.a3])
+        rows = [{'id': i, 'a1': next(array_vals), 'a2': next(array_vals), 'a3': next(array_vals)} for i in range(100)]
+        status = t.insert(rows)
+        assert status.num_excs == 0
+
+        res = t.select(t.l1, l2=[t.a1, t.a2, t.a3]).order_by(t.id).collect()
+        for i, row in enumerate(res):
+            assert_json_eq(row['l1'], row['l2'], context=f'row {i}')
+        tbl_id = t._id
+        assert MediaStore.get().count(tbl_id) > 0
 
     def test_insert_nonstandard_json(self, reset_db: None) -> None:
         """
@@ -1621,8 +1651,7 @@ class TestTable:
             'list_of_arrays': arrays,
         }
         expected = pxt.dataframe.DataFrameResultSet([[expected_val]], t._get_schema())
-
-        #assert_resultset_eq(expected, t.head())
+        assert_resultset_eq(expected, t.head())
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')

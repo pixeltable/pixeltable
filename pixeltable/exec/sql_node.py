@@ -153,7 +153,7 @@ class SqlNode(ExecNode):
             if tv is not None:
                 assert tv.is_validated
 
-    def _select_pk_cols(self) -> list[sql.Column]:
+    def _pk_col_items(self) -> list[sql.Column]:
         if self.set_pk:
             # we need to retrieve the pk columns
             assert self.tbl is not None
@@ -161,9 +161,8 @@ class SqlNode(ExecNode):
             return self.tbl.tbl_version.get().store_tbl.pk_columns()
         return []
 
-    def _select_cell_md_cols(self) -> list[sql.Column]:
-        assert self.tbl is not None
-        assert self.tbl.tbl_version.get().is_validated
+    def _cell_md_col_items(self) -> list[sql.Column]:
+        assert self.tbl is not None or len(self.cell_md_cols) == 0
         return [c.sa_cellmd_col for c in self.cell_md_cols]
 
     def _create_stmt(self) -> sql.Select:
@@ -171,7 +170,7 @@ class SqlNode(ExecNode):
 
         assert self.sql_elements.contains_all(self.select_list)
         sql_select_list = (
-            [self.sql_elements.get(e) for e in self.select_list] + self._select_cell_md_cols() + self._select_pk_cols()
+            [self.sql_elements.get(e) for e in self.select_list] + self._cell_md_col_items() + self._pk_col_items()
         )
         stmt = sql.select(*sql_select_list)
 
@@ -213,8 +212,6 @@ class SqlNode(ExecNode):
             if not keep_pk:
                 self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
             self.cte = self._create_stmt().cte()
-        pk_count = self.num_pk_cols if self.set_pk else 0
-        assert len(self.select_list) + pk_count == len(self.cte.c)
         return self.cte, exprs.ExprDict(zip(self.select_list, self.cte.c))  # skip pk cols
 
     @classmethod

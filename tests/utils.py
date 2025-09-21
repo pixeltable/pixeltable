@@ -1,5 +1,6 @@
 import datetime
 import glob
+import itertools
 import json
 import os
 import random
@@ -8,7 +9,7 @@ import subprocess
 import sysconfig
 import urllib.parse
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 from unittest import TestCase
 from uuid import uuid4
 
@@ -277,6 +278,22 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     return tbl
 
 
+def create_arrays(sizes: list[tuple[int, ...]], dtypes: list[type[np.dtype]]) -> Iterator[np.ndarray]:
+    """Generate random arrays of different sizes and dtypes."""
+    size_iter = itertools.cycle(sizes)
+    dtype_iter = itertools.cycle(dtypes)
+    rng = np.random.default_rng(0)
+    while True:
+        size = next(size_iter)
+        dtype = next(dtype_iter)
+        if dtype is bool:
+            yield rng.integers(0, 2, size=size, dtype=bool)
+        elif np.issubdtype(dtype, np.integer):
+            yield rng.integers(0, 100, size=size, dtype=dtype)
+        else:
+            yield rng.random(size=size, dtype=dtype)
+
+
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
@@ -366,6 +383,11 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
         __IMAGE_FILES = list(more_itertools.roundrobin(*groups))
         __IMAGE_FILES_WITH_BAD_IMAGE = [bad_image, *__IMAGE_FILES]
     return __IMAGE_FILES_WITH_BAD_IMAGE if include_bad_image else __IMAGE_FILES
+
+
+def image_iterator(include_bad_image: bool = False) -> Iterator[PIL.Image.Image]:
+    for f in itertools.cycle(get_image_files(include_bad_image)):
+        yield PIL.Image.open(f)
 
 
 def __image_mode(path: str) -> str:
@@ -460,17 +482,45 @@ def __file_comparer(x: str, y: str) -> bool:
     return sha256sum(x) == sha256sum(y)
 
 
+def __img_comparer(img1: PIL.Image.Image, img2: PIL.Image.Image) -> bool:
+    if img1.mode != img2.mode or img1.size != img2.size:
+        return False
+    diff = PIL.ImageChops.difference(img1, img2)  # type: ignore[attr-defined]
+    return diff.getbbox() is None
+
+
 def __equality_comparer(x: Any, y: Any) -> bool:
+    return x == y
+
+
+def __json_comparer(x: Any, y: Any) -> bool:
+    if type(x) is not type(y):
+        return False
+    if isinstance(x, dict):
+        return set(x.keys()) == set(y.keys()) and all(__json_comparer(x[k], y[k]) for k in x)
+    if isinstance(x, list):
+        return len(x) == len(y) and all(__json_comparer(a, b) for a, b in zip(x, y))
+    if isinstance(x, float):
+        return __float_comparer(x, y)
+    if isinstance(x, np.ndarray):
+        return __array_comparer(x, y)
+    if isinstance(x, PIL.Image.Image):
+        return __img_comparer(x, y)
     return x == y
 
 
 __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.FLOAT: __float_comparer,
     ts.ColumnType.Type.ARRAY: __array_comparer,
+    ts.ColumnType.Type.JSON: __json_comparer,
     ts.ColumnType.Type.VIDEO: __file_comparer,
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,
 }
+
+
+def assert_json_eq(x: Any, y: Any, context: str = '') -> bool:
+    assert __json_comparer(x, y), f'{context}: {x} != {y}'
 
 
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:

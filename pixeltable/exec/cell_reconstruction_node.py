@@ -43,6 +43,8 @@ class CellReconstructionNode(ExecNode):
             async for batch in self.input:
                 for row in batch:
                     for slot_idx, q_id in self.json_expr_info.items():
+                        if q_id not in row.cell_md:
+                            pass
                         if (
                             row.cell_md[q_id] is None
                             or row.cell_md[q_id].embedded_object_urls is None
@@ -59,8 +61,6 @@ class CellReconstructionNode(ExecNode):
                             assert cell_md.embedded_object_urls is not None and len(cell_md.embedded_object_urls) == 1
                             row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
                         else:
-                            if row[col_ref.slot_idx] is None:
-                                pass
                             assert isinstance(row[col_ref.slot_idx], np.ndarray), type(row[col_ref.slot_idx])
 
                 yield batch
@@ -68,18 +68,26 @@ class CellReconstructionNode(ExecNode):
             for fp in self.file_handles.values():
                 fp.close()
 
+    def _load_array(
+        self, fh: io.BufferedReader, start: int, end: int, is_bool_array: bool, shape: tuple[int, ...] | None
+    ) -> np.ndarray:
+        fh.seek(start)
+        ar = np.load(fh, allow_pickle=False)
+        assert fh.tell() == end
+        if is_bool_array:
+            assert shape is not None
+            ar = np.unpackbits(ar, count=np.prod(shape)).reshape(shape).astype(bool)
+        return ar
+
     def _reconstruct_array(self, cell_md: exprs.CellMd) -> np.ndarray:
         local_path = parse_local_file_path(cell_md.embedded_object_urls[0])
         assert local_path is not None
         if local_path not in self.file_handles:
             self.file_handles[local_path] = open(str(local_path), 'rb')  # noqa: SIM115
         fp = self.file_handles[local_path]
-        fp.seek(cell_md.array_start)
-        assert fp.tell() == cell_md.array_start
-        ar = np.load(fp, allow_pickle=False)
-        assert fp.tell() == cell_md.array_end
-        if cell_md.array_is_bool:
-            ar = np.unpackbits(ar, count=np.prod(cell_md.array_shape)).reshape(cell_md.array_shape)
+        ar = self._load_array(
+            fp, cell_md.array_start, cell_md.array_end, bool(cell_md.array_is_bool), cell_md.array_shape
+        )
         return ar
 
     def _json_has_embedded_objs(self, element: Any) -> bool:
@@ -113,9 +121,10 @@ class CellReconstructionNode(ExecNode):
                 fp.seek(begin)
                 assert fp.tell() == begin
                 if element['__pxttype__'] == ts.ColumnType.Type.ARRAY.name:
-                    arr = np.load(fp, allow_pickle=False)
-                    assert fp.tell() == end
-                    return arr
+                    assert '__pxtisboolarray__' in element and '__pxtarrayshape__' in element
+                    is_bool_array, array_shape = element['__pxtisboolarray__'], element['__pxtarrayshape__']
+                    ar = self._load_array(fp, begin, end, is_bool_array, array_shape)
+                    return ar
                 else:
                     assert element['__pxttype__'] == ts.ColumnType.Type.IMAGE.name
                     bytesio = io.BytesIO(fp.read(end - begin))

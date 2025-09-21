@@ -98,13 +98,14 @@ class InlineList(Expr):
     def __init__(self, elements: Iterable):
         exprs = [Expr.from_object(el) for el in elements]
 
-        json_schema = {
-            'type': 'array',
-            'prefixItems': [expr.col_type.to_json_schema() for expr in exprs],
-            'items': False,  # No additional items (fixed length)
-        }
-
-        super().__init__(ts.JsonType(json_schema))
+        # json_schema = {
+        #     'type': 'array',
+        #     'prefixItems': [expr.col_type.to_json_schema() for expr in exprs],
+        #     'items': False,  # No additional items (fixed length)
+        # }
+        #
+        # super().__init__(ts.JsonType(json_schema))
+        super().__init__(ts.JsonType())
         self.components.extend(exprs)
         self.id = self._create_id()
 

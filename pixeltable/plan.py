@@ -979,22 +979,25 @@ class Planner:
 
         def json_filter(e: exprs.Expr) -> bool:
             if isinstance(e, exprs.JsonPath):
-                return not e.is_relative_path() and isinstance(e.anchor(), exprs.ColumnRef)
+                return not e.is_relative_path() and isinstance(e.anchor, exprs.ColumnRef)
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
 
-        json_exprs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False))
-        array_refs = [
-            e
-            for e in analyzer.all_exprs
-            if isinstance(e, exprs.ColumnRef)
-            and e.col.col_type.is_array_type()
-            # we only need to reconstruct non-Vector array columns
-            and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
-        ]
+        def array_filter(e: exprs.Expr) -> bool:
+            assert isinstance(e, exprs.ColumnRef)
+            # Vector-typed array columns are used for vector indexes, and are stored in the db
+            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
 
+        json_exprs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False))
+        array_refs = list(
+            exprs.Expr.list_subexprs(
+                analyzer.all_exprs, expr_class=exprs.ColumnRef, filter=array_filter, traverse_matches=False
+            )
+        )
         if len(json_exprs) > 0 or len(array_refs) > 0:
             json_expr_info = {
-                e.slot_idx: e.anchor().col.qualified_id for e in json_exprs if isinstance(e, exprs.JsonPath)
+                e.slot_idx: cast(catalog.QColumnId, e.anchor.col.qualified_id)
+                for e in json_exprs
+                if isinstance(e, exprs.JsonPath)
             }
             json_expr_info.update(
                 {e.slot_idx: e.col.qualified_id for e in json_exprs if isinstance(e, exprs.ColumnRef)}

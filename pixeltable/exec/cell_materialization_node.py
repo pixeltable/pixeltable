@@ -26,8 +26,22 @@ class CellMaterializationNode(ExecNode):
 
     For now, the scope is limited to populating DataRow.cells_vals for json and array columns.
 
+    Array values:
+    - Arrays < MAX_DB_ARRAY_SIZE are stored inline in the db column
+    - Larger arrays are written to embedded_obj_files
+    - Bool arrays are stored as packed bits (uint8)
+    - cell_md: holds the url of the file, plus start and end offsets, plus bool flag and shape for bool arrays
+      (this allows us to query cell_md to get the total external storage size of an array column)
+
+    Json values:
+    - Inlined images and arrays are written to embedded_obj_files and replaced with a dict containing the object
+      location
+    - Bool arrays are also stored as packed bits; the dict also contains the shape and bool flag
+    - cell_md contains the list of urls for the embedded objects.
+
     TODO:
-    - execute file IO via asyncio Tasks in a thread pool
+    - execute file IO via asyncio Tasks in a thread pool?
+      (we already seem to be getting 90% of hardware's IO throughput)
     """
 
     output_col_info: list[exprs.ColumnSlotIdx]
@@ -60,6 +74,10 @@ class CellMaterializationNode(ExecNode):
                         continue
 
                     val = row[slot_idx]
+                    if val is None:
+                        row.cell_vals[col.id] = None
+                        row.cell_md[col.qualified_id] = None
+                        continue
 
                     if col.col_type.is_json_type():
                         if self._json_has_embedded_objs(val):
@@ -131,12 +149,14 @@ class CellMaterializationNode(ExecNode):
         if isinstance(element, dict):
             return {k: self._rewrite_json(v) for k, v in element.items()}
         if isinstance(element, np.ndarray):
-            url_idx, begin, end = self._write_ndarray(element)
+            url_idx, begin, end, is_bool_array, shape = self._write_ndarray(element)
             return {
                 '__pxttype__': ts.ColumnType.Type.ARRAY.name,
                 '__pxturlidx__': url_idx,
                 '__pxtbegin__': begin,
                 '__pxtend__': end,
+                '__pxtisboolarray__': is_bool_array,
+                '__pxtarrayshape__': shape,
             }
         if isinstance(element, PIL.Image.Image):
             url_idx, begin, end = self._write_image(element)
@@ -148,14 +168,23 @@ class CellMaterializationNode(ExecNode):
             }
         return element
 
-    def _write_ndarray(self, ar: np.ndarray) -> tuple[int, int, int]:
+    def _write_ndarray(self, ar: np.ndarray) -> tuple[int, int, int, bool, tuple[int, ...] | None]:
         """Write an ndarray to bytes_buffer and return: index into embedded_obj_urls, start offset, end offset"""
         url_idx = len(self.embedded_obj_files) - 1
         begin = self.buffered_writer.tell()
+        shape: tuple[int, ...] | None
+        is_bool_array: bool
+        if np.issubdtype(ar.dtype, np.bool_):
+            shape = ar.shape
+            ar = np.packbits(ar)
+            is_bool_array = True
+        else:
+            shape = None
+            is_bool_array = False
         np.save(self.buffered_writer, ar, allow_pickle=False)
         end = self.buffered_writer.tell()
         self._flush_full_buffer()
-        return url_idx, begin, end
+        return url_idx, begin, end, is_bool_array, shape
 
     def _write_image(self, img: PIL.Image.Image) -> tuple[int, int, int]:
         """Write a PIL image to bytes_buffer and return: index into embedded_obj_urls, start offset, end offset"""

@@ -469,8 +469,6 @@ class RowBuilder:
             if col.id in data_row.cell_vals:
                 table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
-                    if col.qualified_id not in data_row.cell_md:
-                        pass
                     if data_row.cell_md[col.qualified_id] is None:
                         table_row.append(None)
                     else:
@@ -479,10 +477,8 @@ class RowBuilder:
                             data_row.cell_md[col.qualified_id],
                             dict_factory=lambda d: {k: v for (k, v) in d if v is not None},
                         )
-                        if len(md) == 0:
-                            table_row.append(None)
-                        else:
-                            table_row.append(md)
+                        assert len(md) > 0
+                        table_row.append(md)
                 if data_row.has_exc(slot_idx):
                     num_excs += 1
                     if cols_with_excs is not None:
