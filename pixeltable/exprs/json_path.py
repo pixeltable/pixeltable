@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+from pathlib import Path
 from typing import Any, Optional
 
 import jmespath
@@ -7,6 +9,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
 
+from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
 from .globals import print_slice
@@ -17,6 +20,8 @@ from .sql_element_cache import SqlElementCache
 
 
 class JsonPath(Expr):
+    file_handles: dict[Path, io.BufferedReader]  # key: file path
+
     def __init__(
         self, anchor: Optional[Expr], path_elements: Optional[list[str | int | slice]] = None, scope_idx: int = 0
     ) -> None:
@@ -36,6 +41,12 @@ class JsonPath(Expr):
         # NOTE: the _create_id() result will change if set_anchor() gets called;
         # this is not a problem, because _create_id() shouldn't be called after init()
         self.id = self._create_id()
+        self.file_handles = {}
+
+    def release(self) -> None:
+        for fh in self.file_handles.values():
+            fh.close()
+        self.file_handles.clear()
 
     def __repr__(self) -> str:
         # else 'R': the anchor is RELATIVE_PATH_ROOT
@@ -158,12 +169,24 @@ class JsonPath(Expr):
                 result.append(f'[{print_slice(element)}]')
         return ''.join(result)
 
-    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+    def eval(self, row: DataRow, row_builder: RowBuilder) -> None:
         assert self.anchor is not None, self
-        val = data_row[self.anchor.slot_idx]
+        val = row[self.anchor.slot_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
-        data_row[self.slot_idx] = val
+        row[self.slot_idx] = val
+        if val is None or self.anchor is None or not isinstance(self.anchor, ColumnRef):
+            return
+
+        from pixeltable.exec.cell_reconstruction_node import json_has_inlined_objs, reconstruct_json
+
+        # the origin of val is a json-typed column, which might stored inlined objects
+        q_id = self.anchor.col.qualified_id
+        cell_md = row.cell_md[q_id]
+        if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(val):
+            # val doesn't contain inlined objects
+            return
+        row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
 
 
 RELATIVE_PATH_ROOT = JsonPath(None)

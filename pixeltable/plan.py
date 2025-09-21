@@ -973,9 +973,8 @@ class Planner:
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
 
         # cell reconstruction is required for
-        # 1) all JsonPath exprs that reference a json column
-        # 2) all json-typed ColumnRefs, except for those that are part of 1)
-        # 3) all array-typed ColumnRefs
+        # 1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
+        # 2) all array-typed ColumnRefs
 
         def json_filter(e: exprs.Expr) -> bool:
             if isinstance(e, exprs.JsonPath):
@@ -987,22 +986,15 @@ class Planner:
             # Vector-typed array columns are used for vector indexes, and are stored in the db
             return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
 
-        json_exprs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False))
+        json_candidates = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False))
+        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
         array_refs = list(
             exprs.Expr.list_subexprs(
                 analyzer.all_exprs, expr_class=exprs.ColumnRef, filter=array_filter, traverse_matches=False
             )
         )
-        if len(json_exprs) > 0 or len(array_refs) > 0:
-            json_expr_info = {
-                e.slot_idx: cast(catalog.QColumnId, e.anchor.col.qualified_id)
-                for e in json_exprs
-                if isinstance(e, exprs.JsonPath)
-            }
-            json_expr_info.update(
-                {e.slot_idx: e.col.qualified_id for e in json_exprs if isinstance(e, exprs.ColumnRef)}
-            )
-            plan = exec.CellReconstructionNode(json_expr_info, array_refs, row_builder, input=plan)
+        if len(json_refs) > 0 or len(array_refs) > 0:
+            plan = exec.CellReconstructionNode(json_refs, array_refs, row_builder, input=plan)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the

@@ -278,7 +278,7 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     return tbl
 
 
-def create_arrays(sizes: list[tuple[int, ...]], dtypes: list[type[np.dtype]]) -> Iterator[np.ndarray]:
+def create_arrays(sizes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]) -> Iterator[np.ndarray]:
     """Generate random arrays of different sizes and dtypes."""
     size_iter = itertools.cycle(sizes)
     dtype_iter = itertools.cycle(dtypes)
@@ -291,7 +291,7 @@ def create_arrays(sizes: list[tuple[int, ...]], dtypes: list[type[np.dtype]]) ->
         elif np.issubdtype(dtype, np.integer):
             yield rng.integers(0, 100, size=size, dtype=dtype)
         else:
-            yield rng.random(size=size, dtype=dtype)
+            yield rng.random(size=size, dtype=dtype)  # type: ignore[arg-type]
 
 
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
@@ -519,7 +519,7 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
 }
 
 
-def assert_json_eq(x: Any, y: Any, context: str = '') -> bool:
+def assert_json_eq(x: Any, y: Any, context: str = '') -> None:
     assert __json_comparer(x, y), f'{context}: {x} != {y}'
 
 

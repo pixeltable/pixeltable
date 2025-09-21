@@ -29,10 +29,10 @@ class CellMd:
     errortype: str | None = None
     errormsg: str | None = None
 
-    # a list of file urls that are used to store embedded images and arrays; only set for json and array columns
-    # for json columns: a list of the urls referenced by index
+    # a list of file urls that are used to store images and arrays; only set for json and array columns
+    # for json columns: a list of all urls referenced in the column value
     # for array columns: a single url
-    embedded_object_urls: list[str] | None = None
+    file_urls: list[str] | None = None
 
     # for array cells that are stored externally, the start and end offsets
     array_start: int | None = None

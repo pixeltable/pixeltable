@@ -1574,12 +1574,12 @@ class TestTable:
         pxt.drop_table('test')
         assert MediaStore.get().count(tbl_id) == 0
 
-    def test_insert_embedded_arrays(self, reset_db: None) -> None:
-        """Test storing list with arrays of various sizes and dtypes."""
+    def test_insert_inlined_arrays(self, reset_db: None) -> None:
+        """Test storing lists and dicts with arrays of various sizes and dtypes."""
         t = pxt.create_table('test', {'list_c': pxt.Json, 'dict_c': pxt.Json})
 
         array_vals = create_arrays(
-            sizes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, bool]
+            sizes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
         rng = np.random.default_rng(0)
         rows = [
@@ -1602,17 +1602,39 @@ class TestTable:
         pxt.drop_table('test')
         assert MediaStore.get().count(tbl_id) == 0
 
-        t = pxt.create_table('test', {'id': pxt.Int, 'a1': pxt.Array, 'a2': pxt.Array, 'a3': pxt.Array})
-        t.add_computed_column(l1=[t.a1, t.a2, t.a3])
-        rows = [{'id': i, 'a1': next(array_vals), 'a2': next(array_vals), 'a3': next(array_vals)} for i in range(100)]
+        # test list construction
+        t = pxt.create_table(
+            'test', {'id': pxt.Int, 'a1': pxt.Array, 'a2': pxt.Array, 'a3': pxt.Array, 'a4': pxt.Array, 'a5': pxt.Array}
+        )
+        t.add_computed_column(l1=[t.a1, t.a2, t.a3, t.a4, t.a5])
+        rows = [
+            {
+                'id': i,
+                'a1': next(array_vals),
+                'a2': next(array_vals),
+                'a3': next(array_vals),
+                'a4': next(array_vals),
+                'a5': next(array_vals),
+            }
+            for i in range(100)
+        ]
         status = t.insert(rows)
         assert status.num_excs == 0
-
-        res = t.select(t.l1, l2=[t.a1, t.a2, t.a3]).order_by(t.id).collect()
-        for i, row in enumerate(res):
-            assert_json_eq(row['l1'], row['l2'], context=f'row {i}')
         tbl_id = t._id
         assert MediaStore.get().count(tbl_id) > 0
+
+        res = t.select(t.l1, l2=[t.a1, t.a2, t.a3, t.a4, t.a5]).order_by(t.id).collect()
+        for i, row in enumerate(res):
+            assert_json_eq(row['l1'], row['l2'], context=f'row {i}')
+
+        # test json path materialization (instead of reconstruction of l1)
+        # TODO: collect runtime information to verify that we're only reconstructing l1[0], not the entire cell
+        res = t.select(t.a1, l_a1=t.l1[0]).order_by(t.id).collect()
+        for i, row in enumerate(res):
+            assert_json_eq(row['a1'], row['l_a1'], context=f'row {i}')
+
+        pxt.drop_table('test')
+        assert MediaStore.get().count(tbl_id) == 0
 
     def test_insert_nonstandard_json(self, reset_db: None) -> None:
         """
