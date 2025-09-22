@@ -124,7 +124,7 @@ class CellReconstructionNode(ExecNode):
                             assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
                             row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
                         else:
-                            assert isinstance(row[col_ref.slot_idx], np.ndarray), type(row[col_ref.slot_idx])
+                            assert row[col_ref.slot_idx] is None or isinstance(row[col_ref.slot_idx], np.ndarray)
 
                 yield batch
         finally:

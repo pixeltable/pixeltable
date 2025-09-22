@@ -579,7 +579,9 @@ class SqlSampleNode(SqlNode):
         assert self.pk_count > 1
         sql_elements = exprs.SqlElementCache(input_col_map)
         assert sql_elements.contains_all(stratify_exprs)
-        super().__init__(input.tbl, row_builder, select_list, sql_elements, set_pk=True)
+        super().__init__(
+            input.tbl, row_builder, select_list, sql_elements, cell_md_cols=input.cell_md_cols, set_pk=True
+        )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause
         assert isinstance(self.sample_clause.seed, int)

@@ -918,19 +918,23 @@ class Planner:
             )
 
             # json and array columns need their cellmd values for reconstruction
-            json_col_refs = exprs.Expr.list_subexprs(
-                tbl_scan_exprs,
-                expr_class=exprs.ColumnRef,
-                filter=lambda e: cast(exprs.ColumnRef, e).col.stores_cellmd,
-                traverse_matches=False,
+            json_col_refs = list(
+                exprs.Expr.list_subexprs(
+                    tbl_scan_exprs,
+                    expr_class=exprs.ColumnRef,
+                    filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_json_type(),
+                    traverse_matches=False,
+                )
             )
 
             def is_reconstructable_array(e: exprs.Expr) -> bool:
                 assert isinstance(e, exprs.ColumnRef)
                 return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
 
-            array_col_refs = exprs.Expr.list_subexprs(
-                tbl_scan_exprs, expr_class=exprs.ColumnRef, filter=is_reconstructable_array, traverse_matches=False
+            array_col_refs = list(
+                exprs.Expr.list_subexprs(
+                    tbl_scan_exprs, expr_class=exprs.ColumnRef, filter=is_reconstructable_array, traverse_matches=False
+                )
             )
 
             plan = exec.SqlScanNode(
@@ -938,7 +942,7 @@ class Planner:
                 row_builder,
                 select_list=tbl_scan_exprs,
                 set_pk=with_pk,
-                cell_md_cols=[c.col for c in json_col_refs] + [c.col for c in array_col_refs],
+                cell_md_cols=[c.col for c in json_col_refs + array_col_refs],
                 exact_version_only=exact_version_only,
             )
             tbl_scan_plans.append(plan)
@@ -974,25 +978,30 @@ class Planner:
 
         # cell reconstruction is required for
         # 1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
-        # 2) all array-typed ColumnRefs
+        #    or as part of a ColumnPropertyRef
+        # 2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
 
         def json_filter(e: exprs.Expr) -> bool:
             if isinstance(e, exprs.JsonPath):
                 return not e.is_relative_path() and isinstance(e.anchor, exprs.ColumnRef)
+            if isinstance(e, exprs.ColumnPropertyRef):
+                return e.col_ref.col.col_type.is_json_type()
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
 
         def array_filter(e: exprs.Expr) -> bool:
-            assert isinstance(e, exprs.ColumnRef)
+            if isinstance(e, exprs.ColumnPropertyRef):
+                return e.col_ref.col.col_type.is_array_type()
+            if not isinstance(e, exprs.ColumnRef):
+                return False
             # Vector-typed array columns are used for vector indexes, and are stored in the db
             return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
 
         json_candidates = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
-        array_refs = list(
-            exprs.Expr.list_subexprs(
-                analyzer.all_exprs, expr_class=exprs.ColumnRef, filter=array_filter, traverse_matches=False
-            )
+        array_candidates = list(
+            exprs.Expr.list_subexprs(analyzer.all_exprs, filter=array_filter, traverse_matches=False)
         )
+        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
         if len(json_refs) > 0 or len(array_refs) > 0:
             plan = exec.CellReconstructionNode(json_refs, array_refs, row_builder, input=plan)
 

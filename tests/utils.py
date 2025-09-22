@@ -278,7 +278,9 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     return tbl
 
 
-def create_arrays(sizes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]) -> Iterator[np.ndarray]:
+def create_arrays(
+    sizes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]
+) -> Iterator[np.ndarray]:
     """Generate random arrays of different sizes and dtypes."""
     size_iter = itertools.cycle(sizes)
     dtype_iter = itertools.cycle(dtypes)
@@ -286,7 +288,7 @@ def create_arrays(sizes: list[tuple[int, ...]], dtypes: list[type[np.integer | n
     while True:
         size = next(size_iter)
         dtype = next(dtype_iter)
-        if dtype is bool:
+        if dtype is np.bool_:
             yield rng.integers(0, 2, size=size, dtype=bool)
         elif np.issubdtype(dtype, np.integer):
             yield rng.integers(0, 100, size=size, dtype=dtype)
