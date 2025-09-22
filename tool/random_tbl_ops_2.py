@@ -113,7 +113,11 @@ class RandomTblOps:
             res = op()
             print(f'[Worker {self.worker_id:02d}] [{op.__name__:20s}]: {res}')
         except pxt.Error as e:
-            print(f'[Worker {self.worker_id:02d}] [{op.__name__:20s}]: ERROR: {e}')
+            errmsg = str(e).replace('\n', ' ')
+            print(f'[Worker {self.worker_id:02d}] [{op.__name__:20s}]: pxt.Error: {errmsg}')
+        except Exception as e:
+            print(f'[Worker {self.worker_id:02d}] [{op.__name__:20s}]: FATAL ERROR: {e.__class__.__qualname__}: {e}')
+            raise
 
     def random_tbl_op(self) -> None:
         r = random.uniform(0, 1)
@@ -131,10 +135,7 @@ class RandomTblOps:
             self.RANDOM_OPS.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
         while True:
-            try:
-                self.random_tbl_op()
-            except pxt.Error as e:
-                print(f'ERROR: {e}')
+            self.random_tbl_op()
             time.sleep(random.uniform(0.1, 0.5))
 
 
@@ -146,6 +147,11 @@ def main() -> None:
 
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
+
+    if worker_id == 0:
+        pxt.init()
+    else:
+        time.sleep(5)
 
     RandomTblOps(worker_id).run()
 

@@ -758,7 +758,8 @@ class TableVersion:
             )
 
         finally:
-            # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
+            # Ensure cleanup occurs if an exception or keyboard interruption happens at any point
+            # (for example, due to a currency failure or an exception in a computed column)
             def cleanup_on_error() -> None:
                 """Delete columns that are added as part of current add_columns operation and re-initialize
                 the sqlalchemy schema"""

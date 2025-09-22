@@ -2,6 +2,8 @@ import logging
 import sys
 from typing import Any, Callable, Optional, TypeVar
 
+import psycopg
+
 R = TypeVar('R')
 
 
@@ -52,6 +54,13 @@ def run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = 
             # Suppress this exception
             logging.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e}')
         raise KeyboardInterrupt from original_exception
+    except psycopg.errors.InFailedSqlTransaction as e:
+        # This can happen "normally" in a current situation where the cleanup function executes SQL. Log this as a
+        # warning rather than an error.
+        # TODO: should we have smarter error handling here, such as retrying or journaling the cleanup operation?
+        logging.warning(f'Cleanup {cleanup_func.__name__!r} failed with exception {e}')
+        if raise_error:
+            raise e
     except Exception as e:
         logging.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e}')
         if raise_error:
