@@ -1,13 +1,15 @@
 # Script that runs an infinite sequence of random directory operations.
 
+import logging
 import os
 import random
 import sys
 import time
+from datetime import datetime
 from typing import Any, Callable
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
+from pixeltable.config import Config
 
 
 class RandomTblOps:
@@ -32,13 +34,27 @@ class RandomTblOps:
 
     RANDOM_OPS: list[tuple[float, Callable]] = []
 
+    logger = logging.getLogger('random_tbl_ops')
+
     worker_id: int
 
     def __init__(self, worker_id: int) -> None:
         self.worker_id = worker_id
+        # logging.basicConfig(filename='random-tbl-ops.log',
+        #                 format='%(message)s',
+        #                 level=logging.INFO)
+        handler = logging.FileHandler(Config.home / 'random-tbl-ops.log')
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(message)s')
+        handler.setFormatter(formatter)
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(handler)
+        self.logger.propagate = False
 
-    def emit(self, s: Any) -> None:
-        print(f'[{self.worker_id}] {time.monotonic()}: {s}')
+    def emit(self, op: Callable, msg: Any) -> None:
+        line = f'[{datetime.now()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}]: {msg}'
+        print(line)
+        self.logger.info(line)
 
     def get_random_tbl(self, allow_view: bool) -> pxt.Table:
         name = random.choice(self.BASE_TABLE_NAMES)
@@ -111,12 +127,13 @@ class RandomTblOps:
     def run_op(self, op: Callable) -> None:
         try:
             res = op()
-            print(f'[Worker {self.worker_id:02d}] [{op.__name__:20s}]: {res}')
+            self.emit(op, res)
         except pxt.Error as e:
             errmsg = str(e).replace('\n', ' ')
-            print(f'[Worker {self.worker_id:02d}] [{op.__name__:20s}]: pxt.Error: {errmsg}')
+            self.emit(op, f'pxt.Error: {errmsg}')
         except Exception as e:
-            print(f'[Worker {self.worker_id:02d}] [{op.__name__:20s}]: FATAL ERROR: {e.__class__.__qualname__}: {e}')
+            errmsg = str(e).replace('\n', ' ')
+            self.emit(op, f'FATAL ERROR: {e.__class__.__qualname__}: {errmsg}')
             raise
 
     def random_tbl_op(self) -> None:
