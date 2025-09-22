@@ -28,6 +28,7 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
@@ -88,7 +89,7 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
-    _current_session: Optional[sql.orm.Session]
+    _current_session: Optional[orm.Session]
     _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
@@ -224,7 +225,7 @@ class Env:
         return self._current_conn
 
     @property
-    def session(self) -> Optional[sql.orm.Session]:
+    def session(self) -> Optional[orm.Session]:
         assert self._current_session is not None
         return self._current_session
 
@@ -258,7 +259,7 @@ class Env:
                 self._current_isolation_level = 'SERIALIZABLE'
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
-                    sql.orm.Session(conn) as session,
+                    orm.Session(conn) as session,
                     conn.begin(),
                 ):
                     self._current_conn = conn
