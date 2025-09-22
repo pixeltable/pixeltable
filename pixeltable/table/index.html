@@ -813,6 +813,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.get_versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_versions
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.group_by" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;group_by
@@ -1048,6 +1057,27 @@
   
   <span class="md-ellipsis">
     UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../version-metadata/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    VersionMetadata
   </span>
   
 
@@ -1890,6 +1920,15 @@
   <a href="#pixeltable.Table.get_metadata" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_metadata
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.get_versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;get_versions
     </span>
   </a>
   
@@ -3273,6 +3312,70 @@ indices or multiple indices.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.Table.get_versions" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">get_versions</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_versions</span><span class="p">(</span><span class="n">n</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">list</span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.table_metadata.VersionMetadata" href="../version-metadata/#pixeltable.VersionMetadata">VersionMetadata</a></span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Returns information about versions of this table, most recent first.</p>
+<p><code>get_versions()</code> is intended for programmatic access to version metadata; for human-readable
+output, use <a class="autorefs autorefs-internal" href="#pixeltable.Table.history"><code>history()</code></a> instead.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>if specified, will return at most <code>n</code> versions</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>list[<a class="autorefs autorefs-internal" title="pixeltable.catalog.table_metadata.VersionMetadata" href="../version-metadata/#pixeltable.VersionMetadata">VersionMetadata</a>]</code>
+          –
+          <div class="doc-md-description">
+            <p>A list of <a class="autorefs autorefs-internal" href="../version-metadata/#pixeltable.VersionMetadata">VersionMetadata</a> dictionaries, one per version retrieved, most</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>list[<a class="autorefs autorefs-internal" title="pixeltable.catalog.table_metadata.VersionMetadata" href="../version-metadata/#pixeltable.VersionMetadata">VersionMetadata</a>]</code>
+          –
+          <div class="doc-md-description">
+            <p>recent first.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Retrieve metadata about all versions of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">get_versions</span><span class="p">()</span>
+</code></pre></div>
+    <p>Retrieve metadata about the most recent 5 versions of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">get_versions</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.Table.group_by" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">group_by</span>
 
@@ -3317,12 +3420,14 @@ indices or multiple indices.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">history</span><span class="p">(</span><span class="n">n</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.dataframe.DataFrameResultSet">DataFrameResultSet</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">history</span><span class="p">(</span><span class="n">n</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-      <p>Returns rows of information about the versions of this table, most recent first.</p>
+      <p>Returns a human-readable report about versions of this table.</p>
+<p><code>history()</code> is intended for human-readable output of version metadata; for programmatic access,
+use <a class="autorefs autorefs-internal" href="#pixeltable.Table.get_versions"><code>get_versions()</code></a> instead.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -3334,31 +3439,31 @@ indices or multiple indices.</p>
 )
           –
           <div class="doc-md-description">
-            <p>a limit to the number of versions listed</p>
+            <p>if specified, will return at most <code>n</code> versions</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pandas.DataFrame">DataFrame</span></code>
+          –
+          <div class="doc-md-description">
+            <p>A report with information about each version, one per row, most recent first.</p>
           </div>
         </li>
     </ul>
 
 
 <p><span class="doc-section-title">Examples:</span></p>
-    <p>Report history:</p>
+    <p>Report all versions of the table:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">history</span><span class="p">()</span>
 </code></pre></div>
     <p>Report only the most recent 5 changes to the table:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">history</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </code></pre></div>
-
-
-<p><span class="doc-section-title">Returns:</span></p>
-    <ul>
-        <li class="doc-section-item field-body">
-              <code><span title="pixeltable.dataframe.DataFrameResultSet">DataFrameResultSet</span></code>
-          –
-          <div class="doc-md-description">
-            <p>A list of information about each version, ordered from most recent to oldest version.</p>
-          </div>
-        </li>
-    </ul>
 
     </div>
 
@@ -3640,7 +3745,10 @@ all sub-views (including views of views, etc.)</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">recompute_columns</span><span class="p">(</span>
-    <span class="o">*</span><span class="n">columns</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">,</span> <span class="n">errors_only</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="o">*</span><span class="n">columns</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pixeltable.exprs.ColumnRef">ColumnRef</span></span><span class="p">,</span>
+    <span class="n">where</span><span class="p">:</span> <span class="s2">&quot;exprs.Expr&quot;</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">errors_only</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
@@ -3659,6 +3767,16 @@ all sub-views (including views of views, etc.)</p>
           –
           <div class="doc-md-description">
             <p>The names or references of the computed columns to recompute.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>where</code></b>
+              (<code>&#39;exprs.Expr&#39; | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>A predicate to filter rows to recompute.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3693,6 +3811,9 @@ depends on them:</p>
     <p>Recompute computed column <code>c1</code> for all rows in this table, but don't recompute other columns that depend on
 it:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">recompute_columns</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">c1</span><span class="p">,</span> <span class="n">tbl</span><span class="o">.</span><span class="n">c2</span><span class="p">,</span> <span class="n">cascade</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+    <p>Recompute column <code>c1</code> and its dependents, but only for rows with <code>c2</code> == 0:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">recompute_columns</span><span class="p">(</span><span class="s1">&#39;c1&#39;</span><span class="p">,</span> <span class="n">where</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">c2</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
 </code></pre></div>
     <p>Recompute column <code>c1</code> and its dependents, but only for rows that have errors in it:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">recompute_columns</span><span class="p">(</span><span class="s1">&#39;c1&#39;</span><span class="p">,</span> <span class="n">errors_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
