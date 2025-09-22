@@ -5,7 +5,7 @@ SCRIPT_DIR=$(dirname "$0")
 export PIXELTABLE_HOME=~/.pixeltable
 
 # Remove old log
-rm random-tbl-ops.log || true
+rm -f "$PIXELTABLE_HOME"/random-tbl-ops.log
 
 # Drop random_tbl_ops DB
 POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))')

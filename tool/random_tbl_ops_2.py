@@ -43,7 +43,7 @@ class RandomTblOps:
         # logging.basicConfig(filename='random-tbl-ops.log',
         #                 format='%(message)s',
         #                 level=logging.INFO)
-        handler = logging.FileHandler(Config.home / 'random-tbl-ops.log')
+        handler = logging.FileHandler(Config.get().home / 'random-tbl-ops.log')
         handler.setLevel(logging.INFO)
         formatter = logging.Formatter('%(message)s')
         handler.setFormatter(formatter)
