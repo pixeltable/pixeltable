@@ -1,0 +1,192 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pixeltable Documentation",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Welcome to Pixeltable",
+            "pages": [
+              "docs/overview/pixeltable",
+              "docs/overview/installation",
+              "docs/overview/configuration",
+              "docs/overview/quick-start",
+              "docs/overview/building-pixeltable-with-llms"
+            ]
+          },
+          {
+            "group": "Multimodal AI Datastore",
+            "pages": [
+              "docs/datastore/tables-and-operations",
+              "docs/datastore/views",
+              "docs/datastore/iterators",
+              "docs/datastore/bringing-data",
+              "docs/datastore/filtering-and-selecting",
+              "docs/datastore/computed-columns",
+              "docs/datastore/vector-database",
+              "docs/datastore/custom-functions",
+              "docs/datastore/sampling"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "docs/tutorials/fundamentals",
+              "docs/tutorials/feature-guide"
+            ]
+          },
+          {
+            "group": "Libraries",
+            "pages": [
+              "docs/libraries/pixelagent",
+              "docs/libraries/mcp",
+              "docs/libraries/yolox"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Explore",
+            "pages": [
+              "docs/examples/use-cases",
+              "docs/examples/interactive-demos",
+              "docs/examples/sample-apps"
+            ]
+          },
+          {
+            "group": "Chatbot",
+            "pages": [
+              "docs/examples/chat/multimodal",
+              "docs/examples/chat/memory",
+              "docs/examples/chat/tools",
+              "docs/examples/chat/evals"
+            ]
+          },
+          {
+            "group": "Computer Vision",
+            "pages": [
+              "docs/examples/vision/label-studio",
+              "docs/examples/vision/voxel51",
+              "docs/examples/vision/yolox"
+            ]
+          },
+          {
+            "group": "Semantic Search",
+            "pages": [
+              "docs/examples/search/audio",
+              "docs/examples/search/images",
+              "docs/examples/search/PDF",
+              "docs/examples/search/website",
+              "docs/examples/search/video"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "href": "https://pixeltable.github.io/pixeltable/"
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Built-in Integrations",
+            "pages": [
+              "docs/integrations/frameworks",
+              "docs/integrations/models"
+            ]
+          },
+          {
+            "group": "Bring Your Own",
+            "pages": [
+              "docs/integrations/embedding-model"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Changelog",
+        "groups": [
+          {
+            "group": "Changelog",
+            "pages": [
+              "docs/changelog/product-updates"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Support",
+        "groups": [
+          {
+            "group": "Support",
+            "pages": [
+              "docs/support/getting-help",
+              "docs/support/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/QPyqFYx2UN"
+      },
+      {
+        "label": "Book a Demo",
+        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+      },
+      {
+        "label": "Hiring",
+        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pixeltable/pixeltable"
+    }
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs..."
+  },
+  "footer": {
+    "socials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}
