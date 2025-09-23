@@ -596,18 +596,15 @@ class TableVersion:
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self._tbl_md.index_md[idx_id] = idx_md
         self.idxs_by_name[idx_name] = idx_info
-        try:
-            idx.create_index(self._store_idx_name(idx_id), val_col)
-        finally:
 
-            def cleanup_index() -> None:
-                """Delete the newly added in-memory index structure"""
-                del self.idxs_by_name[idx_name]
-                del self._tbl_md.index_md[idx_id]
-                self.next_idx_id = idx_id
+        @env.register_rollback_action
+        def _() -> None:
+            # Delete the newly added index metadata and columns
+            del self.idxs_by_name[idx_name]
+            del self._tbl_md.index_md[idx_id]
+            self.next_idx_id = idx_id
 
-            # Run cleanup only if there has been an exception; otherwise, skip cleanup.
-            run_cleanup_on_exception(cleanup_index)
+        idx.create_index(self._store_idx_name(idx_id), val_col)
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
         val_col, undo_vol = self._create_index_columns(idx)

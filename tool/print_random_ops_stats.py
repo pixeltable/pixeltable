@@ -31,7 +31,7 @@ class StatsPrinter:
             op_dict[worker] = 0
         op_dict[worker] += 1
 
-        if message.startswith('pxt.Error'):
+        if 'pxt.Error' in message:
             if operation not in self.num_errors:
                 self.num_errors[operation] = {}
             err_dict = self.num_errors[operation]
@@ -39,7 +39,8 @@ class StatsPrinter:
                 err_dict[worker] = 0
             err_dict[worker] += 1
 
-            message = message.removeprefix('pxt.Error: ')
+            idx = message.index('pxt.Error')
+            message = message[idx:].removeprefix('pxt.Error: ')
             err_note = message[:30]
             if err_note not in self.error_freq:
                 self.error_freq[err_note] = {}
