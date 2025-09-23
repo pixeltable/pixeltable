@@ -20,11 +20,13 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import LocalStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -1567,7 +1569,7 @@ class TestTable:
         )
         assert status.num_excs == 0
         tbl_id = t._id
-        assert MediaStore.get().count(tbl_id) > 0
+        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = t.head(100)  # head(): return in insertion order
         assert all(np.array_equal(row['ar1'], rows[i]['ar1']) for i, row in enumerate(res))
@@ -1577,7 +1579,7 @@ class TestTable:
         assert all(np.array_equal(row['ar5'], rows[i]['ar5']) for i, row in enumerate(res))
 
         pxt.drop_table('test')
-        assert MediaStore.get().count(tbl_id) == 0
+        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_insert_inlined_objects(self, reset_db: None) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
@@ -1618,7 +1620,7 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_excs == 0
         tbl_id = t._id
-        assert MediaStore.get().count(tbl_id) > 0
+        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = t.head(10)  # head(): return in insertion order
         for i, row in enumerate(res):
@@ -1628,7 +1630,7 @@ class TestTable:
             assert_json_eq(row['img_dict'], {'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']})
 
         pxt.drop_table('test')
-        assert MediaStore.get().count(tbl_id) == 0
+        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_nonstandard_json_construction(self, reset_db: None) -> None:
         # test list/dict construction
@@ -1683,7 +1685,7 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_excs == 0
         tbl_id = t._id
-        assert MediaStore.get().count(tbl_id) > 0
+        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         # list construction
         res = t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id).collect()
@@ -1728,7 +1730,7 @@ class TestTable:
             assert_json_eq(row['img2'], row['d_img2'], context=f'row {i}')
 
         pxt.drop_table('test')
-        assert MediaStore.get().count(tbl_id) == 0
+        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')

@@ -13,7 +13,8 @@ import sqlalchemy as sql
 
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.env import Env
+from pixeltable.utils.local_store import LocalStore
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -206,7 +207,9 @@ class CellMaterializationNode(ExecNode):
         return url_idx, start, end
 
     def _reset_buffer(self) -> None:
-        local_path = MediaStore.get()._prepare_media_path_raw(self.row_builder.tbl.id, 0, self.row_builder.tbl.version)
+        local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(
+            self.row_builder.tbl.id, 0, self.row_builder.tbl.version
+        )
         self.inlined_obj_files.append(local_path)
         fh = open(local_path, 'wb', buffering=self.MIN_FILE_SIZE * 2)  # noqa: SIM115
         assert isinstance(fh, io.BufferedWriter)
