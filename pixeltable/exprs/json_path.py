@@ -25,6 +25,7 @@ class JsonPath(Expr):
     scope_idx: for relative paths, index of referenced JsonMapper
     (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
     """
+
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(

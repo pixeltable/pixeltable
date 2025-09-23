@@ -99,9 +99,7 @@ class CellMaterializationNode(ExecNode):
     def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, val: Any) -> None:
         if self._json_has_inlined_objs(val):
             row.cell_vals[col.id] = self._rewrite_json(val)
-            row.cell_md[col.id] = exprs.CellMd(
-                file_urls=[local_path.as_uri() for local_path in self.inlined_obj_files]
-            )
+            row.cell_md[col.id] = exprs.CellMd(file_urls=[local_path.as_uri() for local_path in self.inlined_obj_files])
         else:
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None

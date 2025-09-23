@@ -475,8 +475,7 @@ class RowBuilder:
                     else:
                         # we want to minimize the size of the stored dict and use dict_factory to remove Nones
                         md = dataclasses.asdict(
-                            data_row.cell_md[col.id],
-                            dict_factory=lambda d: {k: v for (k, v) in d if v is not None},
+                            data_row.cell_md[col.id], dict_factory=lambda d: {k: v for (k, v) in d if v is not None}
                         )
                         assert len(md) > 0
                         table_row.append(md)
