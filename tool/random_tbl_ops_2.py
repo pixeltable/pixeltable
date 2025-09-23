@@ -6,7 +6,7 @@ import random
 import sys
 import time
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import pixeltable as pxt
 from pixeltable.config import Config
@@ -56,6 +56,10 @@ class RandomTblOps:
         print(line)
         self.logger.info(line)
 
+    @classmethod
+    def tbl_descr(self, t: pxt.Table) -> str:
+        return f'{t._name!r} ({t._id.hex[:6]}...)'
+
     def get_random_tbl(self, allow_view: bool) -> pxt.Table:
         name = random.choice(self.BASE_TABLE_NAMES)
         # If the table does not already exist, create it and populate with some initial data
@@ -70,71 +74,80 @@ class RandomTblOps:
         view = random.choice(views)
         return pxt.get_table(view)
 
-    def query(self) -> str:
+    def query(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=True)
-        name = t._name
+        num_rows = int(random.uniform(50, 100))
+        yield f'Collect {num_rows} rows from {self.tbl_descr(t)}: '
         res = t.sample(n=50).collect()
-        return f'Queried {len(res)} rows from {name!r}'
+        yield f'Collected {len(res)} rows.'
 
-    def insert_rows(self) -> str:
+    def insert_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
-        name = t._name
         num_rows = int(random.uniform(20, 50))
+        yield f'Insert {num_rows} rows into {self.tbl_descr(t)}: '
         i_start = random.randint(100, 1000000000)
         us = t.insert([{'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(i_start, i_start + num_rows)])
-        return f'Inserted {us.row_count_stats.ins_rows} rows into {name!r} (total now {t.count()})'
+        return f'Inserted {us.row_count_stats.ins_rows} rows (total now {t.count()}).'
 
-    def update_rows(self) -> str:
+    def update_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
-        name = t._name
         p = random.choice(self.PRIMES)
+        yield f'Update rows in {self.tbl_descr(t)} where c0 % {p} == 0: '
         us = t.where(t.c0 % p == 0).update({'c1': t.c1 + 1.9, 'c2': t.c2 + '_u'})
-        return f'Updated {us.row_count_stats.upd_rows} rows in {name!r}'
+        yield f'Updated {us.row_count_stats.upd_rows}.'
 
-    def delete_rows(self) -> str:
+    def delete_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
-        name = t._name
         p = random.choice(self.PRIMES)
+        yield f'Delete rows from {self.tbl_descr(t)} where c0 % {p} == 0: '
         us = t.where(t.c0 % p == 0).delete()
-        return f'Deleted {us.row_count_stats.del_rows} rows from {name!r} (total now {t.count()})'
+        yield f'Deleted {us.row_count_stats.del_rows} rows (total now {t.count()}).'
 
-    def add_data_column(self) -> str:
+    def add_data_column(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=True)
-        name = t._name
         n = int(random.uniform(0, 100))
         cname = f'c{n}'
+        yield f'Add data column {cname!r} to {self.tbl_descr(t)}: '
         t.add_column(**{cname: pxt.String}, if_exists='ignore')
-        return f'Added column {cname!r} to {name!r}'
+        return 'Success.'
 
-    def add_computed_column(self) -> str:
+    def add_computed_column(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=True)
-        name = t._name
         n = int(random.uniform(0, 100))
         cname = f'c{n}'
+        yield f'Add computed column {cname!r} to {self.tbl_descr(t)}: '
         t.add_computed_column(**{cname: t.c0 * random.uniform(1.0, 5.0)}, if_exists='ignore')
-        return f'Added computed column {cname!r} to {name!r}'
+        return 'Success.'
 
-    def drop_column(self) -> None:
+    def drop_column(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=True)
-        name = t._name
+        yield f'Drop a column from {self.tbl_descr(t)}: '
         cnames = list(col_name for col_name, col in t.get_metadata()['columns'].items() if col['defined_in'] == t._name and col_name not in ('c0', 'c1', 'c2'))
         if len(cnames) == 0:
-            return 'No columns to drop'
-        cname = random.choice(cnames)
-        t.drop_column(cname)
-        return f'Dropped column {cname!r} from {name!r}'
+            yield 'No columns to drop.'
+        else:
+            cname = random.choice(cnames)
+            yield f'Column {cname!r}: '
+            t.drop_column(cname)
+            yield 'Success.'
 
     def run_op(self, op: Callable) -> None:
+        msg_parts: list[str] = []
+        fatal: Exception | None = None
         try:
-            res = op()
-            self.emit(op, res)
+            for res in op():
+                msg_parts.append(res)
         except pxt.Error as e:
             errmsg = str(e).replace('\n', ' ')
-            self.emit(op, f'pxt.Error: {errmsg}')
+            msg_parts.append(f'pxt.Error: {errmsg}')
         except Exception as e:
             errmsg = str(e).replace('\n', ' ')
-            self.emit(op, f'FATAL ERROR: {e.__class__.__qualname__}: {errmsg}')
-            raise
+            msg_parts.append(f'FATAL ERROR: {e.__class__.__qualname__}: {errmsg}')
+            fatal = e
+
+        self.emit(op, ''.join(msg_parts))
+        if fatal is not None:
+            raise fatal
 
     def random_tbl_op(self) -> None:
         r = random.uniform(0, 1)
@@ -166,7 +179,9 @@ def main() -> None:
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
 
     if worker_id == 0:
+        t = time.monotonic()
         pxt.init()
+        time.sleep(5 - time.monotonic() + t)  # Sleep until 5 seconds after init
     else:
         time.sleep(5)
 

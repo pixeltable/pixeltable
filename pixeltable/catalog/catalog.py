@@ -391,12 +391,6 @@ class Catalog:
                     tbl_name = tbl.tbl_name()
                     _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
                     raise excs.Error(f'Table was dropped: {tbl_name}') from None
-                elif isinstance(e.orig, psycopg.errors.UndefinedColumn):
-                    # a column got dropped in the middle of the operation
-                    assert tbl is not None
-                    tbl_name = tbl.tbl_name()
-                    _logger.debug(f'Exception: undefined column ({tbl_name}): Caught {type(e.orig)}: {e!r}')
-                    raise excs.Error(f'A column was dropped from {tbl_name!r} during the operation') from None
                 elif isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.InFailedSqlTransaction)) and convert_db_excs:
                     # we still got a serialization error, despite getting x-locks at the beginning
                     msg: str
