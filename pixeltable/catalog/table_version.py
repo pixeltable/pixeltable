@@ -21,20 +21,16 @@ from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
-from .tbl_ops import TableOp
-
-if TYPE_CHECKING:
-    from pixeltable.plan import SampleClause
-
 from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, is_valid_identifier
+from .tbl_ops import TableOp
 from .update_status import RowCountStats, UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
-
-    from .table_version_handle import TableVersionHandle
+    from pixeltable.catalog.table_version_handle import TableVersionHandle
+    from pixeltable.plan import SampleClause
 
 _logger = logging.getLogger('pixeltable')
 
@@ -294,8 +290,13 @@ class TableVersion:
         cat = pxt.catalog.Catalog.get()
 
         tbl_id = UUID(hex=inital_md.tbl_md.tbl_id)
+        assert (tbl_id, None) not in cat._tbl_versions
         tbl_version = cls(tbl_id, inital_md.tbl_md, inital_md.version_md, None, inital_md.schema_version_md, [])
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
+        @env.register_rollback_action
+        def _() -> None:
+            if (tbl_id, None) in cat._tbl_versions:
+                del cat._tbl_versions[tbl_id, None]
         cat._tbl_versions[tbl_id, None] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
@@ -924,9 +925,10 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
-        assert self.is_mutable
-
+        from pixeltable.exprs import SqlElementCache
         from pixeltable.plan import Planner
+
+        assert self.is_mutable
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
@@ -938,7 +940,6 @@ class TableVersion:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
-        from pixeltable.exprs import SqlElementCache
 
         result = self.propagate_update(
             plan,
@@ -965,10 +966,10 @@ class TableVersion:
             batch: one dict per row, each mapping Columns to LiteralExprs representing the new values
             rowids: if not empty, one tuple per row, each containing the rowid values for the corresponding row in batch
         """
+        from pixeltable.plan import Planner
+
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-
-        from pixeltable.plan import Planner
 
         plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
             self.path, batch, rowids, cascade=cascade
@@ -1041,13 +1042,13 @@ class TableVersion:
     def recompute_columns(
         self, col_names: list[str], where: exprs.Expr | None = None, errors_only: bool = False, cascade: bool = True
     ) -> UpdateStatus:
+        from pixeltable.exprs import CompoundPredicate, SqlElementCache
+        from pixeltable.plan import Planner
+
         assert self.is_mutable
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
-
-        from pixeltable.exprs import CompoundPredicate
-        from pixeltable.plan import Planner
 
         target_columns = [self.cols_by_name[name] for name in col_names]
         where_clause: Optional[exprs.Expr] = None
@@ -1063,7 +1064,6 @@ class TableVersion:
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(
             self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
         )
-        from pixeltable.exprs import SqlElementCache
 
         result = self.propagate_update(
             plan,
@@ -1087,6 +1087,10 @@ class TableVersion:
         cascade: bool,
         show_progress: bool = True,
     ) -> UpdateStatus:
+        from pixeltable.catalog import Catalog
+        from pixeltable.plan import Planner
+
+        Catalog.get()._modified_tvs.add(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
@@ -1109,8 +1113,6 @@ class TableVersion:
                 recomputed_cols = [col for col in recomputed_view_cols if col.tbl.id == view.id]
                 plan = None
                 if len(recomputed_cols) > 0:
-                    from pixeltable.plan import Planner
-
                     plan = Planner.create_view_update_plan(view.get().path, recompute_targets=recomputed_cols)
                 status = view.get().propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
@@ -1145,6 +1147,10 @@ class TableVersion:
         self, where: Optional[exprs.Expr], base_versions: list[Optional[int]], timestamp: float
     ) -> UpdateStatus:
         """Delete rows in this table and propagate to views"""
+        from pixeltable.catalog import Catalog
+
+        Catalog.get()._modified_tvs.add(self.handle)
+
         # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         # #print(f'sql_where_clause={str(sql_where_clause) if sql_where_clause is not None else None}')
@@ -1187,7 +1193,7 @@ class TableVersion:
         Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
         and relies on Catalog to reload it
         """
-        from . import Catalog
+        from pixeltable.catalog import Catalog
 
         conn = Env.get().conn
         # make sure we don't have a snapshot referencing this version
@@ -1222,7 +1228,7 @@ class TableVersion:
         # revert schema changes:
         # - undo changes to self._tbl_md and write that back
         # - delete newly-added TableVersion/TableSchemaVersion records
-        Catalog.get()._modified_tvs.add(self)
+        Catalog.get()._modified_tvs.add(self.handle)
         old_version = self.version
         if self.version == self.schema_version:
             # physically delete newly-added columns and remove them from the stored md
@@ -1373,7 +1379,7 @@ class TableVersion:
         return self._schema_version_md.schema_version
 
     def bump_version(self, timestamp: Optional[float] = None, *, bump_schema_version: bool) -> None:
-        from . import Catalog
+        from pixeltable.catalog import Catalog
 
         assert self.effective_version is None
 
@@ -1384,7 +1390,6 @@ class TableVersion:
 
         old_version = self._tbl_md.current_version
         assert self._version_md.version == old_version
-        old_timestamp = self._version_md.created_at
         new_version = old_version + 1
         self._tbl_md.current_version = new_version
         self._version_md.version = new_version
@@ -1394,14 +1399,13 @@ class TableVersion:
             old_schema_version = self._tbl_md.current_schema_version
             assert self._version_md.schema_version == old_schema_version
             assert self._schema_version_md.schema_version == old_schema_version
-            old_preceding_schema_version = self._schema_version_md.preceding_schema_version
             self._tbl_md.current_schema_version = new_version
             self._version_md.schema_version = new_version
-            self._schema_version_md.preceding_schema_version = self._schema_version_md.schema_version
+            self._schema_version_md.preceding_schema_version = old_schema_version
             self._schema_version_md.schema_version = new_version
 
     @property
-    def preceding_schema_version(self) -> int:
+    def preceding_schema_version(self) -> Optional[int]:
         return self._schema_version_md.preceding_schema_version
 
     @property
