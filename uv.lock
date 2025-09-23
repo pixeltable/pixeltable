@@ -1160,6 +1160,18 @@ wheels = [
 ]
 
 [[package]]
+name = "deprecation"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/d3/8ae2869247df154b64c1884d7346d412fed0c49df84db635aab2d1c40e62/deprecation-2.1.0.tar.gz", hash = "sha256:72b3bde64e5d778694b0cf68178aed03d15e15477116add3fb773e581f9518ff", size = 173788, upload-time = "2020-04-20T14:23:38.738Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/c3/253a89ee03fc9b9682f1541728eb66db7db22148cd94f89ab22528cd1e1b/deprecation-2.1.0-py2.py3-none-any.whl", hash = "sha256:a10811591210e1fb0e768a8c25517cabeabcba6f0bf96564f8ff45189f90b14a", size = 11178, upload-time = "2020-04-20T14:23:36.581Z" },
+]
+
+[[package]]
 name = "dill"
 version = "0.3.8"
 source = { registry = "https://pypi.org/simple" }
@@ -1200,6 +1212,15 @@ name = "docopt"
 version = "0.6.2"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf578136ef2cc5dfb50baa1761b68c9da1fb1e4eed343c9/docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491", size = 25901, upload-time = "2014-06-16T11:18:57.406Z" }
+
+[[package]]
+name = "docstring-parser-fork"
+version = "0.0.14"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/bf/27f9cab2f0cd1d17a4420572088bbc19f36d726fbcf165edf226a8926dbc/docstring_parser_fork-0.0.14.tar.gz", hash = "sha256:a2743a63d8d36c09650594f7b4ab5b2758fee8629dcf794d1b221b23179baa5c", size = 34551, upload-time = "2025-09-07T17:27:38.272Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/50/98b146aea0f1cd7531d25f12bea69fa9ce8d1662124f93fb30dc4511b65e/docstring_parser_fork-0.0.14-py3-none-any.whl", hash = "sha256:4c544f234ef2cc2749a3df32b70c437d77888b1099143a1ad5454452c574b9af", size = 43063, upload-time = "2025-09-07T17:27:37.012Z" },
+]
 
 [[package]]
 name = "einops"
@@ -2636,6 +2657,60 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/4b/4590ecfaef3c6b1dc6e33ae6852e412617b43cd9252c5c948d806f27f2e3/label_studio_sdk-1.0.18.tar.gz", hash = "sha256:2d9dceb737a15a88895479b8ae37277d2a0815292bad783544ab4302546e5b0e", size = 219551, upload-time = "2025-06-17T09:31:51.416Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7e/d1/ebccce27b71cbf084bd9188182b81c0c5318190629afd65b580c71b57fd3/label_studio_sdk-1.0.18-py3-none-any.whl", hash = "sha256:321af42fd97df0ceabe2b83bad4ee17e9cdae5db8df9da252c81c89a0474af22", size = 400974, upload-time = "2025-06-17T09:31:49.98Z" },
+]
+
+[[package]]
+name = "lance-namespace"
+version = "0.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lance-namespace-urllib3-client" },
+    { name = "pyarrow" },
+    { name = "pylance" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/07/5e809f1053a53bdbe0a8f461a710bbf7e1b3119e1432a60b46b648d51ba3/lance_namespace-0.0.6.tar.gz", hash = "sha256:3eeeba5f6bb8d01504cda33d86e6c22bd9cefb1f6f3aac1f963d46a9ff09b9a0", size = 11973, upload-time = "2025-08-20T19:28:03.213Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/25/c1/35bb590f9a9421f02b5d4440c975b6852becaad8292b5007994a8d3fe0cd/lance_namespace-0.0.6-py3-none-any.whl", hash = "sha256:fd102aec0ca3672b15cae65f4b9bf15086f7a73cedb7f5c12c47b5b48f9090b4", size = 9050, upload-time = "2025-08-20T19:28:02.535Z" },
+]
+
+[[package]]
+name = "lance-namespace-urllib3-client"
+version = "0.0.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+    { name = "typing-extensions" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/09/727f5749da387a16ffd342339d859073e950ae451f66554bfba8e8adac71/lance_namespace_urllib3_client-0.0.14.tar.gz", hash = "sha256:911c6a3b5c2c98f4239b6d96609cf840e740c3af5482f5fb22096afb9db1dc1c", size = 134488, upload-time = "2025-09-02T03:48:43.108Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/90/ceb58b9a9f3aca0af1c294d71115ee9d44d6d82e0c9dc57d6743574d6358/lance_namespace_urllib3_client-0.0.14-py3-none-any.whl", hash = "sha256:40277cfcf7c9084419c2784e7924b3e316f6fe5b8057f4dc62a49f3b40c2d80c", size = 229639, upload-time = "2025-09-02T03:48:41.975Z" },
+]
+
+[[package]]
+name = "lancedb"
+version = "0.25.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "deprecation" },
+    { name = "lance-namespace" },
+    { name = "numpy" },
+    { name = "overrides" },
+    { name = "packaging" },
+    { name = "pyarrow" },
+    { name = "pydantic" },
+    { name = "tqdm" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/e7/10953deea89b06ae5bc568169d5ae888ff6df314decb92b9b3e453f53f0b/lancedb-0.25.0-cp39-abi3-macosx_10_15_x86_64.whl", hash = "sha256:ae2e80b7b3be3fa4d92fc8d500f47549dd1f8d28ca5092f1c898b92d0cfd4393", size = 34171227, upload-time = "2025-09-04T11:05:31.327Z" },
+    { url = "https://files.pythonhosted.org/packages/55/7f/2874a3709f1b8c487e707e171c9004a9240af3af0fd7a247b9187bb6e0f7/lancedb-0.25.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:a9d67ea9edffa596c6f190151fdd535da8e355a4fd1979c1dc19d540a5665916", size = 31552856, upload-time = "2025-09-04T09:46:50.788Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/e9/faab70ad918576ed3bb7cb936474137ac265ac3026d3e16e30cd4d3daac2/lancedb-0.25.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d8fe20079ed86b1ab75c65dcfc920a9646c835e9c40ef825cadd148c11b0001e", size = 32487962, upload-time = "2025-09-04T08:51:35.358Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/40/5471bc8115f287040b5afdf9d7a20c4685ec16cddb4a7da79e7c1f63914e/lancedb-0.25.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b37bc402d85c83e454d9f2e79480b31acc5904bb159a4fc715032c7560494157", size = 35726794, upload-time = "2025-09-04T08:57:30.554Z" },
+    { url = "https://files.pythonhosted.org/packages/47/5e/aa3d9d2c7a834a9aa539b2b1c731ab860f7e32e2c87b9086ad233ecb13cd/lancedb-0.25.0-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:f9bbc20bd1e64be359ca11c90428c00b0062d26b0291bddf32ab5471a3525c76", size = 32492508, upload-time = "2025-09-04T08:53:54.661Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/37/75f4e3ed7fa00a2cd5d321e8bf13441cdb61a83fbbcd0fa0f1a7241affe1/lancedb-0.25.0-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:1306be9c08e208a5bcb5188275f47f962c2eda96369fad5949a3ddaf592afc6d", size = 35776383, upload-time = "2025-09-04T08:57:18.737Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/af/eb217ea1daab5c28ce4c764d2f672f4e3a5bcd3d4faf7921a8ee28c6cb5b/lancedb-0.25.0-cp39-abi3-win_amd64.whl", hash = "sha256:f66283e5d63c99c2bfbd4eaa134d9a5c5b0145eb26a972648214f8ba87777e24", size = 37826272, upload-time = "2025-09-04T09:15:23.729Z" },
 ]
 
 [[package]]
@@ -4398,6 +4473,7 @@ dev = [
     { name = "groq" },
     { name = "ipykernel" },
     { name = "label-studio-sdk" },
+    { name = "lancedb" },
     { name = "llama-cpp-python", marker = "sys_platform == 'linux'" },
     { name = "mcp" },
     { name = "mistralai" },
@@ -4417,6 +4493,7 @@ dev = [
     { name = "psycopg2-binary" },
     { name = "pyarrow-stubs" },
     { name = "pycocotools" },
+    { name = "pydoclint" },
     { name = "pyiceberg" },
     { name = "replicate" },
     { name = "ruff" },
@@ -4503,6 +4580,7 @@ dev = [
     { name = "groq", specifier = ">=0.26.0" },
     { name = "ipykernel", specifier = ">=6.27.1,<7" },
     { name = "label-studio-sdk", specifier = ">=1.0.18" },
+    { name = "lancedb", specifier = ">=0.20" },
     { name = "llama-cpp-python", marker = "sys_platform == 'linux'", specifier = ">=0.3.16" },
     { name = "mcp", specifier = ">=1.9.4" },
     { name = "mistralai", specifier = ">=1.8.2" },
@@ -4522,6 +4600,7 @@ dev = [
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "pyarrow-stubs", specifier = ">=10.0.1.7,<11" },
     { name = "pycocotools", specifier = ">=2.0.10" },
+    { name = "pydoclint", specifier = ">=0.7" },
     { name = "pyiceberg", specifier = ">=0.6.0" },
     { name = "replicate", specifier = ">=1.0.7,<2" },
     { name = "ruff", specifier = ">=0.9.3,<0.10" },
@@ -5358,6 +5437,20 @@ wheels = [
 ]
 
 [[package]]
+name = "pydoclint"
+version = "0.7.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "docstring-parser-fork" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a5/9a/004c6d139a1ded034d300e46f094b806df7cc37ac8939e0b7eedccf44664/pydoclint-0.7.3.tar.gz", hash = "sha256:3351d5eeb19f8831d992714f71f5ea1175af649503d39b9da0071445a4002138", size = 170392, upload-time = "2025-09-03T00:43:25.865Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/79/8222ae794558d24bbd827631d343ea9f3e54edbf67345128bf799f667d7d/pydoclint-0.7.3-py3-none-any.whl", hash = "sha256:a656b0e863565644670ded19a4b506450364e4f1f5e8ff7705d6ba8bb5a82982", size = 71586, upload-time = "2025-09-03T00:43:24.665Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.17.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5413,6 +5506,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e7/46/bd74733ff231675599650d3e47f361794b22ef3e3770998dda30d3b63726/pyjwt-2.10.1.tar.gz", hash = "sha256:3cc5772eb20009233caf06e9d8a0577824723b44e6648ee0a2aedb6cf9381953", size = 87785, upload-time = "2024-11-28T03:43:29.933Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/61/ad/689f02752eeec26aed679477e80e632ef1b682313be70793d798c1d5fc8f/PyJWT-2.10.1-py3-none-any.whl", hash = "sha256:dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb", size = 22997, upload-time = "2024-11-28T03:43:27.893Z" },
+]
+
+[[package]]
+name = "pylance"
+version = "0.35.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pyarrow" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ff/90/861f792b104ff1517c1329909bb87c34d5d1e27124cebbee420adc5d337e/pylance-0.35.0-cp39-abi3-macosx_10_15_x86_64.whl", hash = "sha256:1f146d17f95d51bd0f5c078608699075aee7aa652884235ebfd7d8e98ca46fc0", size = 41756802, upload-time = "2025-09-04T02:19:29.137Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/f6/f977de22bea4ee003cee788230bd079825dcad0eb21d2c6aa087c78b1005/pylance-0.35.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:a3253c4e9af3f2042cacd6b150e388b1495c1740bb167d4cefd279990bcb409e", size = 38610152, upload-time = "2025-09-04T01:40:26.658Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/78/3beb11987ff6c738f2019b3988eef699c701c853a649f5be46c851190231/pylance-0.35.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:61ab164f42968be2f3d02c3d5abd4ad00e49b697b864b82d7a53966c7346d7bb", size = 40612081, upload-time = "2025-09-04T03:42:05.678Z" },
+    { url = "https://files.pythonhosted.org/packages/47/72/e73e3e10d2900347af5fb6e28adb4f73df660be6564e3afae69ec9cb5dc4/pylance-0.35.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d9004f6a5ea184093f214f6d3a10bb111dad005a9823a923f0c011eae8afe5f6", size = 43980370, upload-time = "2025-09-04T03:44:24.121Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/d6/2746ff616892b08857d03e1df5ae7683daf205fdef7baac4826b224b7bcd/pylance-0.35.0-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:45fc7b70fd9b59fdce081a6b38580bc3b177a71a950af8fa1817803eaa621689", size = 40625139, upload-time = "2025-09-04T03:42:30.869Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/df/69ba0c152767fdd6e4228a2dc37a0d7198329b032b9867d48d91d8b6412f/pylance-0.35.0-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:07196ee0cbc5d5db35ba206524e40d5a4ff0f565ce35bc7d791874aeeee42056", size = 43974061, upload-time = "2025-09-04T03:45:01.26Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/8f/c21469e63da1b49dfd223841567291907d8e467ee9fa0fe6d0875ba998ee/pylance-0.35.0-cp39-abi3-win_amd64.whl", hash = "sha256:24ccee6740166c868158397f73a6c07e6f9a6737b3b1e671bf5cd20e7a7e81f1", size = 44799613, upload-time = "2025-09-04T01:58:57.593Z" },
 ]
 
 [[package]]

@@ -362,12 +362,17 @@ class TableRestorer:
         for md in tbl_md:
             md.tbl_md.is_replica = True
 
+        assert not tbl_md[0].version_md.is_fragment  # Top-level table cannot be a version fragment
+
         cat = catalog.Catalog.get()
 
         with cat.begin_xact(for_write=True):
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
+
+            _logger.debug(f'Now will import data for {len(tbl_md)} table(s):')
+            _logger.debug(repr([md.tbl_md.tbl_id for md in tbl_md[::-1]]))
 
             # Now we need to load data for replica_tbl and its ancestors, except that we skip
             # replica_tbl itself if it's a pure snapshot.

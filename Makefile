@@ -140,6 +140,8 @@ typecheck: install
 docscheck: install
 	@echo 'Running `mkdocs build --strict` ...'
 	@python -W ignore::DeprecationWarning -m mkdocs build --strict
+	@echo 'Running `pydoclint` ...'
+	@pydoclint -q pixeltable tests tool
 
 .PHONY: lint
 lint: install
