@@ -11,28 +11,33 @@ def run_workers(num_workers: int, duration: float, script: str) -> None:
 
     start_time = time.time()
 
-    while time.time() - start_time < duration:
-        # Check if any process has terminated
-        for i, p in enumerate(processes):
-            returncode = p.poll()
-            if returncode is not None:
-                end_time = time.time()
-                is_error = returncode != 0
-                print(
-                    f'Worker {i} exited {"with error" if is_error else ""} (exit code {returncode}). '
-                    f'Terminating all workers after {end_time - start_time:.2f} seconds.'
-                )
-                # Kill all remaining processes
-                for proc in processes:
-                    if proc.poll() is None:  # Still running
-                        proc.kill()
-                time.sleep(2.0)
-                sys.exit(returncode)
+    try:
+        while time.time() - start_time < duration:
+            # Check if any process has terminated
+            for i, p in enumerate(processes):
+                returncode = p.poll()
+                if returncode is not None:
+                    end_time = time.time()
+                    is_error = returncode != 0
+                    print(
+                        f'Worker {i} exited {"with error" if is_error else ""} (exit code {returncode}). '
+                        f'Terminating all workers after {end_time - start_time:.2f} seconds.'
+                    )
+                    # Kill all remaining processes
+                    for proc in processes:
+                        if proc.poll() is None:  # Still running
+                            proc.kill()
+                    time.sleep(2.0)
+                    sys.exit(returncode)
 
-        time.sleep(0.1)  # Small delay to avoid busy waiting
+            time.sleep(0.1)  # Small delay to avoid busy waiting
+
+    except KeyboardInterrupt:
+        print('\n\nReceived KeyboardInterrupt.')
 
     # Duration elapsed, kill all processes
-    print(f'Terminating all workers after {duration} seconds.')
+    elapsed = min(time.time() - start_time, duration)
+    print(f'Terminating all workers after {elapsed:.1f} seconds.')
     for p in processes:
         if p.poll() is None:  # Still running
             p.kill()

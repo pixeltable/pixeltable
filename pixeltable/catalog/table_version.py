@@ -593,13 +593,6 @@ class TableVersion:
         self._tbl_md.index_md[idx_id] = idx_md
         self.idxs_by_name[idx_name] = idx_info
 
-        @env.register_rollback_action
-        def _() -> None:
-            # Delete the newly added index metadata and columns
-            del self.idxs_by_name[idx_name]
-            del self._tbl_md.index_md[idx_id]
-            self.next_idx_id = idx_id
-
         idx.create_index(self._store_idx_name(idx_id), val_col)
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
@@ -693,10 +686,6 @@ class TableVersion:
                     del self.cols_by_id[col.id]
                 if col.name is not None and col.name in self.cols_by_name:
                     del self.cols_by_name[col.name]
-                if col.id in self._tbl_md.column_md:
-                    del self._tbl_md.column_md[col.id]
-                if col.id in self._schema_version_md.columns:
-                    del self._schema_version_md.columns[col.id]
                 self.store_tbl.create_sa_tbl()
 
         row_count = self.store_tbl.count()
@@ -1198,6 +1187,8 @@ class TableVersion:
         Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
         and relies on Catalog to reload it
         """
+        from . import Catalog
+
         conn = Env.get().conn
         # make sure we don't have a snapshot referencing this version
         # (unclear how to express this with sqlalchemy)
@@ -1217,16 +1208,6 @@ class TableVersion:
                 )
             )
 
-        old_tbl_md = copy.deepcopy(self._tbl_md)
-        old_version_md = copy.deepcopy(self._version_md)
-        old_schema_version_md = copy.deepcopy(self._schema_version_md)
-
-        @env.register_rollback_action
-        def _() -> None:
-            self._tbl_md = old_tbl_md
-            self._version_md = old_version_md
-            self._schema_version_md = old_schema_version_md
-
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions
@@ -1241,6 +1222,8 @@ class TableVersion:
         # revert schema changes:
         # - undo changes to self._tbl_md and write that back
         # - delete newly-added TableVersion/TableSchemaVersion records
+        Catalog.get()._modified_tvs.add(self)
+        old_version = self.version
         if self.version == self.schema_version:
             # physically delete newly-added columns and remove them from the stored md
             added_cols = [col for col in self.cols if col.schema_version_add == self.schema_version]
@@ -1304,7 +1287,7 @@ class TableVersion:
         # delete newly-added data
         # Do this at the end, after all DB operations have completed.
         # TODO: The transaction could still fail. Really this should be done via PendingTableOps.
-        MediaStore.get().delete(self.id, tbl_version=old_tbl_md.current_version)
+        MediaStore.get().delete(self.id, tbl_version=old_version)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     def _init_external_stores(self) -> None:
@@ -1390,10 +1373,14 @@ class TableVersion:
         return self._schema_version_md.schema_version
 
     def bump_version(self, timestamp: Optional[float] = None, *, bump_schema_version: bool) -> None:
+        from . import Catalog
+
         assert self.effective_version is None
 
         if timestamp is None:
             timestamp = time.time()
+
+        Catalog.get()._modified_tvs.add(self.handle)
 
         old_version = self._tbl_md.current_version
         assert self._version_md.version == old_version
@@ -1402,12 +1389,6 @@ class TableVersion:
         self._tbl_md.current_version = new_version
         self._version_md.version = new_version
         self._version_md.created_at = timestamp
-
-        @env.register_rollback_action
-        def _() -> None:
-            self._tbl_md.current_version = old_version
-            self._version_md.version = old_version
-            self._version_md.created_at = old_timestamp
 
         if bump_schema_version:
             old_schema_version = self._tbl_md.current_schema_version
@@ -1418,13 +1399,6 @@ class TableVersion:
             self._version_md.schema_version = new_version
             self._schema_version_md.preceding_schema_version = self._schema_version_md.schema_version
             self._schema_version_md.schema_version = new_version
-
-            @env.register_rollback_action
-            def _() -> None:
-                self._tbl_md.current_schema_version = old_schema_version
-                self._version_md.schema_version = old_schema_version
-                self._schema_version_md.preceding_schema_version = old_preceding_schema_version
-                self._schema_version_md.schema_version = old_schema_version
 
     @property
     def preceding_schema_version(self) -> int:

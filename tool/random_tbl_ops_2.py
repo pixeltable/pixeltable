@@ -201,7 +201,10 @@ def main() -> None:
     else:
         time.sleep(5)
 
-    RandomTblOps(worker_id).run()
+    try:
+        RandomTblOps(worker_id).run()
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == '__main__':
