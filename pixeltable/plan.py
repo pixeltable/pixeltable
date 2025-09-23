@@ -942,7 +942,7 @@ class Planner:
                 row_builder,
                 select_list=tbl_scan_exprs,
                 set_pk=with_pk,
-                cell_md_cols=[c.col for c in json_col_refs + array_col_refs],
+                cell_md_col_refs=json_col_refs + array_col_refs,
                 exact_version_only=exact_version_only,
             )
             tbl_scan_plans.append(plan)

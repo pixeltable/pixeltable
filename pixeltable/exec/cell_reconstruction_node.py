@@ -19,6 +19,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 def json_has_inlined_objs(element: Any) -> bool:
+    """Returns True if element contains inlined objects produced by CellMaterializationNode."""
     if isinstance(element, list):
         return any(json_has_inlined_objs(v) for v in element)
     if isinstance(element, dict):
@@ -32,6 +33,7 @@ def json_has_inlined_objs(element: Any) -> bool:
 
 
 def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.BufferedReader]) -> Any:
+    """Recursively reconstructs inlined objects in a json structure."""
     if isinstance(element, list):
         return [reconstruct_json(v, urls, file_handles) for v in element]
     if isinstance(element, dict):
@@ -69,6 +71,7 @@ def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.
 def load_array(
     fh: io.BufferedReader, start: int, end: int, is_bool_array: bool, shape: tuple[int, ...] | None
 ) -> np.ndarray:
+    """Loads an array from a section of a file."""
     fh.seek(start)
     ar = np.load(fh, allow_pickle=False)
     assert fh.tell() == end
@@ -80,7 +83,7 @@ def load_array(
 
 class CellReconstructionNode(ExecNode):
     """
-    Reconstruction of stored json and array cells that might contain references to external files.
+    Reconstruction of stored json and array cells that were produced by CellMaterializationNode.
     """
 
     json_refs: list[exprs.ColumnRef]
@@ -107,7 +110,7 @@ class CellReconstructionNode(ExecNode):
                         val = row[col_ref.slot_idx]
                         if val is None:
                             continue
-                        cell_md = row.cell_md[col_ref.col.qualified_id]
+                        cell_md = row.slot_cellmd.get(col_ref.slot_idx)
                         if (
                             cell_md is None
                             or cell_md.file_urls is None
@@ -117,7 +120,7 @@ class CellReconstructionNode(ExecNode):
                         row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
 
                     for col_ref in self.array_refs:
-                        cell_md = row.cell_md[col_ref.col.qualified_id]
+                        cell_md = row.slot_cellmd.get(col_ref.slot_idx)
                         if cell_md is not None and cell_md.array_start is not None:
                             assert row[col_ref.slot_idx] is None
                             assert cell_md.array_end is not None

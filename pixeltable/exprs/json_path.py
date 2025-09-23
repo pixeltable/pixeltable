@@ -179,16 +179,15 @@ class JsonPath(Expr):
             return
 
         # the origin of val is a json-typed column, which might stored inlined objects
-        q_id = self.anchor.col.qualified_id
-        if q_id not in row.cell_md:
+        if self.anchor.slot_idx not in row.slot_cellmd:
             # we can infer that there aren't any inlined objects because our execution plan doesn't include
             # materializing the cellmd (eg, insert plans)
-            # TODO: have the planner pass that into ExprEvalNode to streamline this path a bit more
+            # TODO: have the planner pass that fact into ExprEvalNode explicitly to streamline this path a bit more
             return
 
         from pixeltable.exec.cell_reconstruction_node import json_has_inlined_objs, reconstruct_json
 
-        cell_md = row.cell_md[q_id]
+        cell_md = row.slot_cellmd[self.anchor.slot_idx]
         if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(val):
             # val doesn't contain inlined objects
             return

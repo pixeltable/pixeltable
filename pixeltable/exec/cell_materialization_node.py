@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL.Image
+import sqlalchemy as sql
 
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs
@@ -41,8 +42,8 @@ class CellMaterializationNode(ExecNode):
 
     TODO:
     - execute file IO via asyncio Tasks in a thread pool?
-      (we already seem to be getting 90% of hardware's IO throughput)
-    - subsume all cell materialization, in particular object store IO
+      (we already seem to be getting 90% of hardware IO throughput)
+    - subsume all cell materialization
     """
 
     output_col_info: list[exprs.ColumnSlotIdx]
@@ -69,15 +70,16 @@ class CellMaterializationNode(ExecNode):
             for row in batch:
                 for col, slot_idx in self.output_col_info:
                     if row.has_exc(slot_idx):
-                        row.cell_vals[col.id] = None
+                        # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
+                        row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
                         exc = row.get_exc(slot_idx)
-                        row.cell_md[col.qualified_id] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
+                        row.cell_md[col.id] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
                         continue
 
                     val = row[slot_idx]
                     if val is None:
-                        row.cell_vals[col.id] = None
-                        row.cell_md[col.qualified_id] = None
+                        row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
+                        row.cell_md[col.id] = None
                         continue
 
                     if col.col_type.is_json_type():
@@ -97,24 +99,24 @@ class CellMaterializationNode(ExecNode):
     def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, val: Any) -> None:
         if self._json_has_inlined_objs(val):
             row.cell_vals[col.id] = self._rewrite_json(val)
-            row.cell_md[col.qualified_id] = exprs.CellMd(
+            row.cell_md[col.id] = exprs.CellMd(
                 file_urls=[local_path.as_uri() for local_path in self.inlined_obj_files]
             )
         else:
             row.cell_vals[col.id] = val
-            row.cell_md[col.qualified_id] = None
+            row.cell_md[col.id] = None
 
     def _materialize_array_cell(self, row: exprs.DataRow, col: catalog.Column, val: np.ndarray) -> None:
         if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
             # this is a vector column (ie, used for a vector index): store the array itself
             row.cell_vals[col.id] = val
-            row.cell_md[col.qualified_id] = None
+            row.cell_md[col.id] = None
         elif val.nbytes <= self.MAX_DB_ARRAY_SIZE:
             # this array is small enough to store in the db column (type: binary) directly
             buffer = io.BytesIO()
             np.save(buffer, val, allow_pickle=False)
             row.cell_vals[col.id] = buffer.getvalue()
-            row.cell_md[col.qualified_id] = None
+            row.cell_md[col.id] = None
         else:
             # append this array to the buffer and store its location in the cell md
             ar: np.ndarray
@@ -131,10 +133,10 @@ class CellMaterializationNode(ExecNode):
             if np.issubdtype(val.dtype, np.bool_):
                 cell_md.array_is_bool = True
                 cell_md.array_shape = val.shape
-            row.cell_md[col.qualified_id] = cell_md
+            row.cell_md[col.id] = cell_md
             self._flush_full_buffer()
 
-        assert row.cell_vals[col.id] is not None or row.cell_md[col.qualified_id] is not None
+        assert row.cell_vals[col.id] is not None or row.cell_md[col.id] is not None
 
     def _json_has_inlined_objs(self, element: Any) -> bool:
         if isinstance(element, list):

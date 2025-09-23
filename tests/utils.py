@@ -279,10 +279,10 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
 
 
 def create_arrays(
-    sizes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]
+    shapes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]
 ) -> Iterator[np.ndarray]:
     """Generate random arrays of different sizes and dtypes."""
-    size_iter = itertools.cycle(sizes)
+    size_iter = itertools.cycle(shapes)
     dtype_iter = itertools.cycle(dtypes)
     rng = np.random.default_rng(0)
     while True:

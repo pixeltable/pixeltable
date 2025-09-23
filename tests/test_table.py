@@ -40,6 +40,7 @@ from .utils import (
     get_image_files,
     get_multimedia_commons_video_uris,
     get_video_files,
+    image_iterator,
     make_tbl,
     read_data_file,
     reload_catalog,
@@ -1547,14 +1548,22 @@ class TestTable:
 
     def test_insert_arrays(self, reset_db: None) -> None:
         """Test storing arrays of various sizes and dtypes."""
-        t = pxt.create_table('test', {'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array})
-
-        # about 700MB of data
-        vals = create_arrays(
-            sizes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
+        # 5 columns: cycle through different shapes and sizes in each row
+        t = pxt.create_table(
+            'test', {'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array}
         )
-        rows = [{'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals)} for _ in range(100)]
-        total_bytes = sum(row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes for row in rows)
+
+        vals = create_arrays(
+            shapes=[(4, 4), (40, 40), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
+        )
+        rows = [
+            {'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals), 'ar4': next(vals), 'ar5': next(vals)}
+            for _ in range(60)
+        ]
+        total_bytes = sum(
+            row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes + row['ar4'].nbytes + row['ar5'].nbytes
+            for row in rows
+        )
         start = time.monotonic()
         status = t.insert(rows)
         end = time.monotonic()
@@ -1570,25 +1579,48 @@ class TestTable:
         assert all(np.array_equal(row['ar1'], rows[i]['ar1']) for i, row in enumerate(res))
         assert all(np.array_equal(row['ar2'], rows[i]['ar2']) for i, row in enumerate(res))
         assert all(np.array_equal(row['ar3'], rows[i]['ar3']) for i, row in enumerate(res))
+        assert all(np.array_equal(row['ar4'], rows[i]['ar4']) for i, row in enumerate(res))
+        assert all(np.array_equal(row['ar5'], rows[i]['ar5']) for i, row in enumerate(res))
 
         pxt.drop_table('test')
         assert MediaStore.get().count(tbl_id) == 0
 
-    def test_insert_inlined_arrays(self, reset_db: None) -> None:
+    def test_insert_inlined_objects(self, reset_db: None) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
-        t = pxt.create_table('test', {'list_c': pxt.Json, 'dict_c': pxt.Json})
+        schema = {
+            'array_list': pxt.Json,
+            'array_dict': pxt.Json,
+            'img1': pxt.Image,
+            'img2': pxt.Image,
+            'img3': pxt.Image,
+            'img_list': pxt.Json,
+            'img_dict': pxt.Json,
+        }
+        t = pxt.create_table('test', schema)
 
         array_vals = create_arrays(
-            sizes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
+            shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
+        imgs = image_iterator()
         rng = np.random.default_rng(0)
-        rows = [
-            {
-                'list_c': [next(array_vals) for _ in range(rng.integers(1, 10, endpoint=True, dtype=int))],
-                'dict_c': {str(i): next(array_vals) for i in range(rng.integers(1, 10, endpoint=True, dtype=int))},
-            }
-            for _ in range(10)
-        ]
+        rows: list[dict[str, Any]] = []
+        for _ in range(10):
+            img1 = next(imgs)
+            img2 = next(imgs)
+            img3 = next(imgs)
+            rows.append(
+                {
+                    'array_list': [next(array_vals) for _ in range(rng.integers(1, 10, endpoint=True, dtype=int))],
+                    'array_dict': {
+                        str(i): next(array_vals) for i in range(rng.integers(1, 10, endpoint=True, dtype=int))
+                    },
+                    'img1': img1,
+                    'img2': img2,
+                    'img3': img3,
+                    'img_list': [img1, img2, img3],
+                    'img_dict': {'img1': img1, 'img2': img2, 'img3': img3},
+                }
+            )
         status = t.insert(rows)
         assert status.num_excs == 0
         tbl_id = t._id
@@ -1596,17 +1628,49 @@ class TestTable:
 
         res = t.head(10)  # head(): return in insertion order
         for i, row in enumerate(res):
-            assert_json_eq(row['list_c'], rows[i]['list_c'])
-            assert_json_eq(row['dict_c'], rows[i]['dict_c'])
+            assert_json_eq(row['array_list'], rows[i]['array_list'])
+            assert_json_eq(row['array_dict'], rows[i]['array_dict'])
+            assert_json_eq(row['img_list'], [row['img1'], row['img2'], row['img3']])
+            assert_json_eq(row['img_dict'], {'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']})
 
         pxt.drop_table('test')
         assert MediaStore.get().count(tbl_id) == 0
 
-        # test list construction
-        t = pxt.create_table(
-            'test', {'id': pxt.Int, 'a1': pxt.Array, 'a2': pxt.Array, 'a3': pxt.Array, 'a4': pxt.Array, 'a5': pxt.Array}
+    def test_nonstandard_json_construction(self, reset_db: None) -> None:
+        # test list/dict construction
+        # use 5 arrays to ensure every row sees a different combination of shapes and dtypes
+        schema = {
+            'id': pxt.Int,
+            'a1': pxt.Array,
+            'a2': pxt.Array,
+            'a3': pxt.Array,
+            'a4': pxt.Array,
+            'a5': pxt.Array,
+            'img1': pxt.Image,
+            'img2': pxt.Image,
+            'img3': pxt.Image,
+            'img4': pxt.Image,
+        }
+        t = pxt.create_table('test', schema)
+        t.add_computed_column(l1=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5])
+        t.add_computed_column(
+            d1={
+                'a': t.a1,
+                'z': t.img1,
+                'b': t.a2,
+                'y': t.img2,
+                'c': t.a3,
+                'x': t.img3,
+                'd': t.a4,
+                'w': t.img4,
+                'e': t.a5,
+            }
         )
-        t.add_computed_column(l1=[t.a1, t.a2, t.a3, t.a4, t.a5])
+
+        array_vals = create_arrays(
+            shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
+        )
+        imgs = image_iterator()
         rows = [
             {
                 'id': i,
@@ -1615,6 +1679,10 @@ class TestTable:
                 'a3': next(array_vals),
                 'a4': next(array_vals),
                 'a5': next(array_vals),
+                'img1': next(imgs),
+                'img2': next(imgs),
+                'img3': next(imgs),
+                'img4': next(imgs),
             }
             for i in range(100)
         ]
@@ -1623,57 +1691,50 @@ class TestTable:
         tbl_id = t._id
         assert MediaStore.get().count(tbl_id) > 0
 
-        res = t.select(t.l1, l2=[t.a1, t.a2, t.a3, t.a4, t.a5]).order_by(t.id).collect()
+        # list construction
+        res = t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id).collect()
         for i, row in enumerate(res):
             assert_json_eq(row['l1'], row['l2'], context=f'row {i}')
 
-        # test json path materialization (instead of reconstruction of l1)
+        # dict construction
+        res = (
+            t.select(
+                t.d1,
+                d2={
+                    'a': t.a1,
+                    'z': t.img1,
+                    'b': t.a2,
+                    'y': t.img2,
+                    'c': t.a3,
+                    'x': t.img3,
+                    'd': t.a4,
+                    'w': t.img4,
+                    'e': t.a5,
+                },
+            )
+            .order_by(t.id)
+            .collect()
+        )
+        for i, row in enumerate(res):
+            assert_json_eq(row['d1'], row['d2'], context=f'row {i}')
+
+        # test json path materialization (instead of full reconstruction of l1/d1)
         # TODO: collect runtime information to verify that we're only reconstructing l1[0], not the entire cell
         res = t.select(t.a1, l_a1=t.l1[0]).order_by(t.id).collect()
         for i, row in enumerate(res):
             assert_json_eq(row['a1'], row['l_a1'], context=f'row {i}')
+        res = t.select(t.img1, l_img1=t.l1[1]).order_by(t.id).collect()
+        for i, row in enumerate(res):
+            assert_json_eq(row['img1'], row['l_img1'], context=f'row {i}')
+        res = t.select(t.a2, d_a2=t.d1['b']).order_by(t.id).collect()
+        for i, row in enumerate(res):
+            assert_json_eq(row['a2'], row['d_a2'], context=f'row {i}')
+        res = t.select(t.img2, d_img2=t.d1['y']).order_by(t.id).collect()
+        for i, row in enumerate(res):
+            assert_json_eq(row['img2'], row['d_img2'], context=f'row {i}')
 
         pxt.drop_table('test')
         assert MediaStore.get().count(tbl_id) == 0
-
-    def test_insert_nonstandard_json(self, reset_db: None) -> None:
-        """
-        Test that images and numpy arrays embedded in JSON structures properly survive a round trip to the database.
-        """
-        imgs = [PIL.Image.open(file) for file in get_image_files()[:10]]
-        arrays = [np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64), np.array(['abc', 'def'], dtype=np.str_)]
-
-        t = pxt.create_table('test', {'col': pxt.Json})
-        val = {
-            'some_text': 'This is a string',
-            'some_number': 4171780,
-            'some_image': imgs[0],
-            'another_image': imgs[1],
-            'list_of_images': imgs[2:5],
-            'nested_image': {'image': imgs[5], 'nested_list': [imgs[6], imgs[7]]},
-            'list_of_arrays': arrays,
-        }
-        t.insert(col=val)
-        _ = t.collect()
-
-        # We cannot expect the images to be a bytewise exact match, due to the approximate nature of jpeg encoding.
-        # However, it should be the case that if we do a direct round trip via insertion into an image column, then
-        # we should get an identical result as if the image were embedded in a JSON structure. The following logic
-        # uses this principle to construct an expected result.
-        tmp_tbl = pxt.create_table('tmp', {'col': pxt.Image})
-        tmp_tbl.insert({'col': img} for img in imgs)
-        expected_imgs = tmp_tbl.head()['col']
-        expected_val = {
-            'some_text': 'This is a string',
-            'some_number': 4171780,
-            'some_image': expected_imgs[0],
-            'another_image': expected_imgs[1],
-            'list_of_images': expected_imgs[2:5],
-            'nested_image': {'image': expected_imgs[5], 'nested_list': [expected_imgs[6], expected_imgs[7]]},
-            'list_of_arrays': arrays,
-        }
-        expected = pxt.dataframe.DataFrameResultSet([[expected_val]], t._get_schema())
-        assert_resultset_eq(expected, t.head())
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')

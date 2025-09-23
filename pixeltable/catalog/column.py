@@ -210,12 +210,6 @@ class Column:
         assert self.value_expr_dict is None or self._value_expr is not None
         return self._value_expr
 
-    @property
-    def qualified_id(self) -> QColumnId:
-        assert self.tbl is not None
-        assert self.id is not None
-        return QColumnId(self.tbl.id, self.id)
-
     def set_value_expr(self, value_expr: exprs.Expr) -> None:
         self._value_expr = value_expr
         self.value_expr_dict = self._value_expr.as_dict()

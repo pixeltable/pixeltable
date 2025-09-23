@@ -74,6 +74,9 @@ class DataRow:
     missing_dependents: np.ndarray  # of int16; number of missing dependents
     is_scheduled: np.ndarray  # of bool; True if this slot is scheduled for evaluation
 
+    # cell md needed for query execution; needs to be indexed by slot idx, not column id, to work for joins
+    slot_cellmd: dict[int, CellMd]
+
     # file_urls:
     # - stored url of file for media in vals[i]
     # - None if vals[i] is not media type
@@ -95,12 +98,9 @@ class DataRow:
     parent_row: Optional[DataRow]
     parent_slot_idx: Optional[int]
 
-    cell_vals: dict[int, Any]  # materialized values of output columns; key: col id
-    # cell_md: list[CellMd | None]
-    # cell_md: np.ndarray  # of CellMd | None
-    # CellMd is produced for output columns and is also needed during query execution (for json reconstruction);
-    # we need to use QColumnId as a key, because the DataRow instance can represent the output of a join
-    cell_md: dict[catalog.QColumnId, CellMd]
+    # state for table output (insert()/update()); key: column id
+    cell_vals: dict[int, Any]  # materialized values of output columns, in the format required for the column
+    cell_md: dict[int, CellMd]
 
     # control structures that are shared across all DataRows in a batch
     img_slot_idxs: list[int]
@@ -110,7 +110,7 @@ class DataRow:
 
     def __init__(
         self,
-        num_slots: int,
+        size: int,
         img_slot_idxs: list[int],
         media_slot_idxs: list[int],
         array_slot_idxs: list[int],
@@ -118,7 +118,7 @@ class DataRow:
         parent_row: Optional[DataRow] = None,
         parent_slot_idx: Optional[int] = None,
     ):
-        self.init(num_slots)
+        self.init(size)
         self.parent_row = parent_row
         self.parent_slot_idx = parent_slot_idx
         self.img_slot_idxs = img_slot_idxs
@@ -126,19 +126,19 @@ class DataRow:
         self.array_slot_idxs = array_slot_idxs
         self.json_slot_idxs = json_slot_idxs
 
-    def init(self, num_slots: int) -> None:
-        self.vals = np.full(num_slots, None, dtype=object)
-        self.has_val = np.zeros(num_slots, dtype=bool)
-        self.excs = np.full(num_slots, None, dtype=object)
-        self.missing_slots = np.zeros(num_slots, dtype=bool)
-        self.missing_dependents = np.zeros(num_slots, dtype=np.int16)
-        self.is_scheduled = np.zeros(num_slots, dtype=bool)
-        self.file_urls = np.full(num_slots, None, dtype=object)
-        self.file_paths = np.full(num_slots, None, dtype=object)
+    def init(self, size: int) -> None:
+        self.vals = np.full(size, None, dtype=object)
+        self.has_val = np.zeros(size, dtype=bool)
+        self.excs = np.full(size, None, dtype=object)
+        self.missing_slots = np.zeros(size, dtype=bool)
+        self.missing_dependents = np.zeros(size, dtype=np.int16)
+        self.is_scheduled = np.zeros(size, dtype=bool)
+        self.slot_cellmd = {}
+        self.file_urls = np.full(size, None, dtype=object)
+        self.file_paths = np.full(size, None, dtype=object)
         self._may_have_exc = False
         self.cell_vals = {}
         self.cell_md = {}
-        # self.cell_md = [None] * num_output_cols
         self.pk = None
         self.parent_row = None
         self.parent_slot_idx = None
