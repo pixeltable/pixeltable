@@ -498,9 +498,7 @@ class TableVersion:
 
     def add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
@@ -619,9 +617,7 @@ class TableVersion:
         assert idx_id in self._tbl_md.index_md
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         idx_md = self._tbl_md.index_md[idx_id]
         idx_md.schema_version_drop = self.schema_version
         assert idx_md.name in self.idxs_by_name
@@ -650,9 +646,7 @@ class TableVersion:
             self.next_col_id += 1
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
         for col in cols:
@@ -775,9 +769,7 @@ class TableVersion:
         assert self.is_mutable
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
 
         # drop this column and all dependent index columns and indices
         dropped_cols = [col]
@@ -841,9 +833,7 @@ class TableVersion:
         self._schema_version_md.columns[col.id].name = new_name
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
 
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
@@ -863,9 +853,7 @@ class TableVersion:
 
     def _create_schema_version(self) -> None:
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
@@ -912,8 +900,7 @@ class TableVersion:
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
-        self.version += 1
-        self.created_at = timestamp
+        self.bump_version(timestamp, bump_schema_version=False)
         cols_with_excs, row_counts = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
@@ -1114,8 +1101,7 @@ class TableVersion:
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
-            self.version += 1
-            self.created_at = timestamp
+            self.bump_version(timestamp, bump_schema_version=False)
             cols_with_excs, row_counts = self.store_tbl.insert_rows(
                 plan, v_min=self.version, show_progress=show_progress
             )
@@ -1186,8 +1172,7 @@ class TableVersion:
         result = UpdateStatus(row_count_stats=row_counts)
         if del_rows > 0:
             # we're creating a new version
-            self.version += 1
-            self.created_at = timestamp
+            self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
             status = view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
@@ -1232,8 +1217,16 @@ class TableVersion:
                 )
             )
 
-        # delete newly-added data
-        MediaStore.get().delete(self.id, tbl_version=self.version)
+        old_tbl_md = copy.deepcopy(self._tbl_md)
+        old_version_md = copy.deepcopy(self._version_md)
+        old_schema_version_md = copy.deepcopy(self._schema_version_md)
+
+        @env.register_rollback_action
+        def _() -> None:
+            self._tbl_md = old_tbl_md
+            self._version_md = old_version_md
+            self._schema_version_md = old_schema_version_md
+
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions
@@ -1294,7 +1287,8 @@ class TableVersion:
             .where(schema.TableVersion.version == self.version)
         )
 
-        self.version -= 1
+        self._tbl_md.current_version = self._version_md.version = self.version - 1
+
         self._write_md(new_version=False, new_schema_version=False)
 
         # propagate to views
@@ -1306,6 +1300,11 @@ class TableVersion:
         # force reload on next operation
         self.is_validated = False
         pxt.catalog.Catalog.get().remove_tbl_version(self)
+
+        # delete newly-added data
+        # Do this at the end, after all DB operations have completed.
+        # TODO: The transaction could still fail. Really this should be done via PendingTableOps.
+        MediaStore.get().delete(self.id, tbl_version=old_tbl_md.current_version)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     def _init_external_stores(self) -> None:
@@ -1316,9 +1315,7 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: pxt.io.ExternalStore) -> None:
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
 
         self.external_stores[store.name] = store
         self._tbl_md.external_stores.append(
@@ -1328,9 +1325,7 @@ class TableVersion:
 
     def unlink_external_store(self, store: pxt.io.ExternalStore) -> None:
         del self.external_stores[store.name]
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
         self._write_md(new_version=True, new_schema_version=True)
@@ -1386,32 +1381,50 @@ class TableVersion:
         # if this is a snapshot instance, we need to ignore current_version
         return self._tbl_md.current_version if self.effective_version is None else self.effective_version
 
-    @version.setter
-    def version(self, version: int) -> None:
-        assert self.effective_version is None
-        self._tbl_md.current_version = version
-        self._version_md.version = version
-
     @property
     def created_at(self) -> float:
         return self._version_md.created_at
-
-    @created_at.setter
-    def created_at(self, ts: float) -> None:
-        assert self.effective_version is None
-        self._version_md.created_at = ts
 
     @property
     def schema_version(self) -> int:
         return self._schema_version_md.schema_version
 
-    @schema_version.setter
-    def schema_version(self, version: int) -> None:
+    def bump_version(self, timestamp: Optional[float] = None, *, bump_schema_version: bool) -> None:
         assert self.effective_version is None
-        self._tbl_md.current_schema_version = version
-        self._version_md.schema_version = version
-        self._schema_version_md.preceding_schema_version = self._schema_version_md.schema_version
-        self._schema_version_md.schema_version = version
+
+        if timestamp is None:
+            timestamp = time.time()
+
+        old_version = self._tbl_md.current_version
+        assert self._version_md.version == old_version
+        old_timestamp = self._version_md.created_at
+        new_version = old_version + 1
+        self._tbl_md.current_version = new_version
+        self._version_md.version = new_version
+        self._version_md.created_at = timestamp
+
+        @env.register_rollback_action
+        def _() -> None:
+            self._tbl_md.current_version = old_version
+            self._version_md.version = old_version
+            self._version_md.created_at = old_timestamp
+
+        if bump_schema_version:
+            old_schema_version = self._tbl_md.current_schema_version
+            assert self._version_md.schema_version == old_schema_version
+            assert self._schema_version_md.schema_version == old_schema_version
+            old_preceding_schema_version = self._schema_version_md.preceding_schema_version
+            self._tbl_md.current_schema_version = new_version
+            self._version_md.schema_version = new_version
+            self._schema_version_md.preceding_schema_version = self._schema_version_md.schema_version
+            self._schema_version_md.schema_version = new_version
+
+            @env.register_rollback_action
+            def _() -> None:
+                self._tbl_md.current_schema_version = old_schema_version
+                self._version_md.schema_version = old_schema_version
+                self._schema_version_md.preceding_schema_version = old_preceding_schema_version
+                self._schema_version_md.schema_version = old_schema_version
 
     @property
     def preceding_schema_version(self) -> int:

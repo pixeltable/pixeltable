@@ -284,7 +284,7 @@ class Env:
             yield self._current_conn
 
     def add_rollback_action(self, func: Callable[[], None]) -> None:
-        assert self._current_conn is not None
+        assert self.in_xact
         self._current_tx_rollback_actions.append(func)
 
     def configure_logging(

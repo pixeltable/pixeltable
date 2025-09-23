@@ -16,7 +16,9 @@ class RandomTblOps:
     NUM_BASE_TABLES = 4
     BASE_TABLE_NAMES = tuple(f'tbl_{i}' for i in range(NUM_BASE_TABLES))
     BASIC_SCHEMA: ClassVar[dict[str, type]] = {'c0': pxt.Int, 'c1': pxt.Float, 'c2': pxt.String}
-    INITIAL_ROWS: ClassVar[list[dict[str, Any]]] = [{'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(50)]
+    INITIAL_ROWS: ClassVar[list[dict[str, Any]]] = [
+        {'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(50)
+    ]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
 
     RANDOM_OPS_DEF = (
@@ -141,13 +143,21 @@ class RandomTblOps:
         try:
             for res in op():
                 msg_parts.append(res)
-        except pxt.Error as e:
-            errmsg = str(e).replace('\n', ' ')
-            msg_parts.append(f'pxt.Error: {errmsg}')
         except Exception as e:
             errmsg = str(e).replace('\n', ' ')
-            msg_parts.append(f'FATAL ERROR: {e.__class__.__qualname__}: {errmsg}')
-            fatal = e
+            if isinstance(e, pxt.Error) and (
+                str(e)[:30]
+                in (
+                    # Whitelisted errors; these are expected in the current implementation.
+                    'That Pixeltable operation coul',
+                    'SQL error during execution of ',
+                    'Column has been dropped (no re',
+                )
+            ):
+                msg_parts.append(f'pxt.Error: {errmsg}')
+            else:
+                msg_parts.append(f'FATAL ERROR: {e.__class__.__qualname__}: {errmsg}')
+                fatal = e
 
         self.emit(op, ''.join(msg_parts))
         if fatal is not None:
