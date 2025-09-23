@@ -6,7 +6,7 @@ import random
 import sys
 import time
 from datetime import datetime
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, ClassVar, Iterator
 
 import pixeltable as pxt
 from pixeltable.config import Config
@@ -15,11 +15,11 @@ from pixeltable.config import Config
 class RandomTblOps:
     NUM_BASE_TABLES = 4
     BASE_TABLE_NAMES = tuple(f'tbl_{i}' for i in range(NUM_BASE_TABLES))
-    BASIC_SCHEMA = {'c0': pxt.Int, 'c1': pxt.Float, 'c2': pxt.String}
-    INITIAL_ROWS = list({'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(50))
+    BASIC_SCHEMA: ClassVar[dict[str, type]] = {'c0': pxt.Int, 'c1': pxt.Float, 'c2': pxt.String}
+    INITIAL_ROWS: ClassVar[list[dict[str, Any]]] = [{'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(50)]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
 
-    RANDOM_OPS_DEF = [
+    RANDOM_OPS_DEF = (
         ('query', 100),
         ('insert_rows', 30),
         ('update_rows', 15),
@@ -27,12 +27,12 @@ class RandomTblOps:
         ('add_data_column', 5),
         ('add_computed_column', 5),
         ('drop_column', 3),
-        #('add_view', 5),
-        #('drop_view', 2),
-        #('drop_table', 0.25),
-    ]
+        # ('add_view', 5),
+        # ('drop_view', 2),
+        # ('drop_table', 0.25),
+    )
 
-    RANDOM_OPS: list[tuple[float, Callable]] = []
+    random_ops: list[tuple[float, Callable]]
 
     logger = logging.getLogger('random_tbl_ops')
 
@@ -57,7 +57,7 @@ class RandomTblOps:
         self.logger.info(line)
 
     @classmethod
-    def tbl_descr(self, t: pxt.Table) -> str:
+    def tbl_descr(cls, t: pxt.Table) -> str:
         return f'{t._name!r} ({t._id.hex[:6]}...)'
 
     def get_random_tbl(self, allow_view: bool) -> pxt.Table:
@@ -122,7 +122,11 @@ class RandomTblOps:
     def drop_column(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=True)
         yield f'Drop a column from {self.tbl_descr(t)}: '
-        cnames = list(col_name for col_name, col in t.get_metadata()['columns'].items() if col['defined_in'] == t._name and col_name not in ('c0', 'c1', 'c2'))
+        cnames = [
+            col_name
+            for col_name, col in t.get_metadata()['columns'].items()
+            if col['defined_in'] == t._name and col_name not in ('c0', 'c1', 'c2')
+        ]
         if len(cnames) == 0:
             yield 'No columns to drop.'
         else:
@@ -151,18 +155,19 @@ class RandomTblOps:
 
     def random_tbl_op(self) -> None:
         r = random.uniform(0, 1)
-        for cumulative_weight, op in self.RANDOM_OPS:
+        for cumulative_weight, op in self.random_ops:
             if r < cumulative_weight:
                 self.run_op(op)
                 return
 
     def run(self) -> None:
-        # Initialize RANDOM_OPS.
+        # Initialize random_ops.
+        self.random_ops = []
         total_weight = sum(float(weight) for _, weight in self.RANDOM_OPS_DEF)
         cumulative_weight = 0.0
         for op_name, weight in self.RANDOM_OPS_DEF:
             cumulative_weight += float(weight)
-            self.RANDOM_OPS.append((cumulative_weight / total_weight, getattr(self, op_name)))
+            self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
         while True:
             self.random_tbl_op()

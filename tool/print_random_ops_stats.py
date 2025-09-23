@@ -1,18 +1,21 @@
 import re
+from typing import ClassVar
 
 import pandas as pd
 
 from pixeltable.config import Config
 from tool.random_tbl_ops_2 import RandomTblOps
 
-LINE_PARSER = re.compile(r'^\[(?P<timestamp>.+?)\] \[Worker (?P<worker_id>\d+)\] \[(?P<operation>.+?)\]: (?P<message>.*)$')
+LINE_PARSER = re.compile(
+    r'^\[(?P<timestamp>.+?)\] \[Worker (?P<worker_id>\d+)\] \[(?P<operation>.+?)\]: (?P<message>.*)$'
+)
 
 
 class StatsPrinter:
-    num_operations: dict[str, dict[int, int]] = {}
-    num_errors: dict[str, dict[int, int]] = {}
-    error_freq: dict[str, dict[int, int]] = {}
-    max_worker: int = 0
+    num_operations: ClassVar[dict[str, dict[int, int]]] = {}
+    num_errors: ClassVar[dict[str, dict[int, int]]] = {}
+    error_freq: ClassVar[dict[str, dict[int, int]]] = {}
+    max_worker: ClassVar[int] = 0
 
     def process_line(self, line: str) -> None:
         m = LINE_PARSER.match(line.strip())
@@ -50,7 +53,7 @@ class StatsPrinter:
             err_dict[worker] += 1
 
     def print_stats(self) -> None:
-        with open(Config.get().home / 'random-tbl-ops.log') as fp:
+        with open(Config.get().home / 'random-tbl-ops.log', encoding='utf-8') as fp:
             while True:
                 line = fp.readline()
                 if line == '':
@@ -70,7 +73,7 @@ class StatsPrinter:
         print()
 
         err_notes = sorted(self.error_freq.keys(), key=lambda k: -sum(self.error_freq[k].values()))
-        err_data: dict[str, list[str]] = {}
+        err_data: dict[str, list[int]] = {}
         err_data['Total'] = [sum(self.error_freq[err_note].values()) for err_note in err_notes]
         for worker in range(self.max_worker + 1):
             err_data[f'W {worker:02d}'] = [self.error_freq[err_note].get(worker, 0) for err_note in err_notes]

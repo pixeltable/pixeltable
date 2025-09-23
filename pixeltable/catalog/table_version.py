@@ -13,13 +13,11 @@ import jsonschema.exceptions
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import env
 import pixeltable.exceptions as excs
-from pixeltable import exprs, index
+from pixeltable import env, exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
-from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 

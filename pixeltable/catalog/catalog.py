@@ -391,8 +391,17 @@ class Catalog:
                     tbl_name = tbl.tbl_name()
                     _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
                     raise excs.Error(f'Table was dropped: {tbl_name}') from None
-                elif isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.InFailedSqlTransaction)) and convert_db_excs:
-                    # we still got a serialization error, despite getting x-locks at the beginning
+                elif (
+                    isinstance(
+                        e.orig,
+                        (
+                            psycopg.errors.SerializationFailure,  # serialization error despite getting x-locks
+                            psycopg.errors.InFailedSqlTransaction,  # can happen after tx fails for another reason
+                            psycopg.errors.DuplicateColumn,  # if a different process added a column concurrently
+                        ),
+                    )
+                    and convert_db_excs
+                ):
                     msg: str
                     if tbl is not None:
                         msg = f'{tbl.tbl_name()} ({tbl.tbl_id})'
@@ -400,7 +409,7 @@ class Catalog:
                         msg = f'{tbl_id}'
                     else:
                         msg = ''
-                    _logger.debug(f'Exception: serialization failure: {msg} ({e})')
+                    _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
                     raise excs.Error(
                         'That Pixeltable operation could not be completed because it conflicted with another '
                         'operation that was run on a different process.\n'

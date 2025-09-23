@@ -280,6 +280,7 @@ class TestTable:
                     'columns': {
                         'col': {
                             'computed_with': None,
+                            'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
@@ -308,6 +309,7 @@ class TestTable:
                     'columns': {
                         'col': {
                             'computed_with': None,
+                            'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
@@ -349,6 +351,7 @@ class TestTable:
                     'columns': {
                         'col': {
                             'computed_with': None,
+                            'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
@@ -377,6 +380,7 @@ class TestTable:
                     'columns': {
                         'col': {
                             'computed_with': None,
+                            'defined_in': 'test',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
@@ -386,6 +390,7 @@ class TestTable:
                         },
                         'col2': {
                             'computed_with': "col + 'x'",
+                            'defined_in': 'test_snap',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,

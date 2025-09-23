@@ -2,8 +2,6 @@ import subprocess
 import sys
 import time
 
-import pixeltable as pxt
-
 
 def run_workers(num_workers: int, duration: float, script: str) -> None:
     processes: list[subprocess.Popen] = []
