@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, NamedTuple, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Optional, Union
 
 import pandas as pd
 import pydantic
@@ -24,9 +24,8 @@ if TYPE_CHECKING:
         str,
         os.PathLike,
         Path,  # OS paths, filenames, URLs
-        Iterator[dict[str, Any]],  # iterator producing dictionaries of values
-        RowData,  # list of dictionaries
-        Sequence[pydantic.BaseModel],  # list of Pydantic models
+        Iterable[dict[str, Any]],  # dictionaries of values
+        Iterable[pydantic.BaseModel],  # Pydantic model instances
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
         datasets.Dataset,
@@ -764,15 +763,15 @@ def ls(path: str = '') -> pd.DataFrame:
                 base = md['base'] or ''
                 if base.startswith('_'):
                     base = '<anonymous base table>'
-                if md['is_snapshot']:
+                if md['is_replica']:
+                    kind = 'replica'
+                elif md['is_snapshot']:
                     kind = 'snapshot'
                 elif md['is_view']:
                     kind = 'view'
                 else:
                     kind = 'table'
                 version = '' if kind == 'snapshot' else str(md['version'])
-                if md['is_replica']:
-                    kind = f'{kind}-replica'
             rows.append([name, kind, version, base])
         return rows
 

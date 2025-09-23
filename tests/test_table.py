@@ -2845,6 +2845,7 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_coco_dataset()
+
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_pytorch_dataset()
 

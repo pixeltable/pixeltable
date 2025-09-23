@@ -27,6 +27,25 @@ class Column:
 
     A Column contains all the metadata necessary for executing queries and updates against a particular version of a
     table/view.
+
+    Args:
+        name: column name; None for system columns (eg, index columns)
+        col_type: column type; can be None if the type can be derived from ``computed_with``
+        computed_with: an Expr that computes the column value
+        is_pk: if True, this column is part of the primary key
+        stored: determines whether a computed column is present in the stored table or recomputed on demand
+        destination: An object store reference for persisting computed files
+        col_id: column ID (only used internally)
+
+    Computed columns: those have a non-None ``computed_with`` argument
+    - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
+        col_type is None
+    - when loaded from md store: ``computed_with`` is set and col_type is set
+
+    ``stored`` (only valid for computed columns):
+    - if True: the column is present in the stored table
+    - if False: the column is not present in the stored table and recomputed during a query
+    - if None: the system chooses for you (at present, this is always False, but this may change in the future)
     """
 
     name: str
@@ -65,27 +84,6 @@ class Column:
         tbl: Optional[TableVersion] = None,
         destination: Optional[str] = None,
     ):
-        """Column constructor.
-
-        Args:
-            name: column name; None for system columns (eg, index columns)
-            col_type: column type; can be None if the type can be derived from ``computed_with``
-            computed_with: an Expr that computes the column value
-            is_pk: if True, this column is part of the primary key
-            stored: determines whether a computed column is present in the stored table or recomputed on demand
-            destination: An object store reference for persisting computed files
-            col_id: column ID (only used internally)
-
-        Computed columns: those have a non-None ``computed_with`` argument
-        - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
-          col_type is None
-        - when loaded from md store: ``computed_with`` is set and col_type is set
-
-        ``stored`` (only valid for computed columns):
-        - if True: the column is present in the stored table
-        - if False: the column is not present in the stored table and recomputed during a query
-        - if None: the system chooses for you (at present, this is always False, but this may change in the future)
-        """
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f"Invalid column name: '{name}'")
         self.name = name

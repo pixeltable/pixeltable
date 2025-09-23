@@ -12,15 +12,14 @@ class DataRowBatch:
     """Set of DataRows, indexed by rowid.
 
     Contains the metadata needed to initialize DataRows.
+
+    Requires either num_rows or rows to be specified, but not both.
     """
 
     row_builder: exprs.RowBuilder
     rows: list[exprs.DataRow]
 
     def __init__(self, row_builder: exprs.RowBuilder, rows: Optional[list[exprs.DataRow]] = None):
-        """
-        Requires either num_rows or rows to be specified, but not both.
-        """
         self.row_builder = row_builder
         self.rows = [] if rows is None else rows
 
