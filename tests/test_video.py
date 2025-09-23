@@ -8,7 +8,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.iterators import FrameIterator
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     generate_test_video,
@@ -63,16 +63,16 @@ class TestVideo:
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths)
-        assert MediaStore.get().count(view._id) == 0
+        assert ObjectOps.count(None, view._id) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths)
-        assert MediaStore.get().count(view._id) == view.count()
+        assert ObjectOps.count(None, view._id) == view.count()
 
         # revert() also removes computed images
         tbl.insert({'video': p} for p in video_filepaths)
         tbl.revert()
-        assert MediaStore.get().count(view._id) == view.count()
+        assert ObjectOps.count(None, view._id) == view.count()
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')

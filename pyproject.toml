@@ -155,6 +155,7 @@ dev = [
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
     "lancedb>=0.20",
+    "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.10"
 ]

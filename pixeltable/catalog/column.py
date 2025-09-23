@@ -34,6 +34,7 @@ class Column:
         computed_with: an Expr that computes the column value
         is_pk: if True, this column is part of the primary key
         stored: determines whether a computed column is present in the stored table or recomputed on demand
+        destination: An object store reference for persisting computed files
         col_id: column ID (only used internally)
 
     Computed columns: those have a non-None ``computed_with`` argument
@@ -52,6 +53,7 @@ class Column:
     col_type: ts.ColumnType
     stored: bool
     is_pk: bool
+    destination: Optional[str]  # An object store reference for computed files
     _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
@@ -80,6 +82,7 @@ class Column:
         stores_cellmd: Optional[bool] = None,
         value_expr_dict: Optional[dict[str, Any]] = None,
         tbl: Optional[TableVersion] = None,
+        destination: Optional[str] = None,
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f"Invalid column name: '{name}'")
@@ -124,6 +127,7 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
+        self.destination = destination
 
     def to_md(self, pos: Optional[int] = None) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -136,6 +140,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
+            destination=self.destination,
         )
         if pos is None:
             return col_md, None
@@ -170,6 +175,7 @@ class Column:
             schema_version_drop=col_md.schema_version_drop,
             value_expr_dict=col_md.value_expr,
             tbl=tbl,
+            destination=col_md.destination,
         )
         return col
 
