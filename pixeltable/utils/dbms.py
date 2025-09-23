@@ -85,8 +85,7 @@ class CockroachDbms(Dbms):
     def create_vector_index(
         self, index_name: str, index_value_sa_col: sql.schema.Column, conn: sql.Connection, metric: str
     ) -> None:
-        # TODO Add support for metric
         create_index_sql = sql.text(
-            f"""CREATE VECTOR INDEX {index_name} ON {index_value_sa_col.table.name} ({index_value_sa_col.name})"""
+            f"""CREATE VECTOR INDEX {index_name} ON {index_value_sa_col.table.name} ({index_value_sa_col.name} {metric})"""
         )
         conn.execute(create_index_sql)
