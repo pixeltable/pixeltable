@@ -57,7 +57,7 @@ def _() -> Any:
 
 
 class S3Store(ObjectStoreBase):
-    """Class to handle S3 storage operations."""
+    """Wrapper for an s3 storage target with all needed methods."""
 
     # URI of the S3 bucket in the format s3://bucket_name/prefix/
     # Always ends with a slash
@@ -72,7 +72,6 @@ class S3Store(ObjectStoreBase):
     soa: StorageObjectAddress
 
     def __init__(self, soa: StorageObjectAddress):
-        """Initialize the S3Store with a StorageObjectAddress."""
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix

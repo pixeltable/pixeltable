@@ -38,7 +38,6 @@ class LocalStore(ObjectStoreBase):
     soa: Optional[StorageObjectAddress]
 
     def __init__(self, location: Path | StorageObjectAddress):
-        """Initialize a LocalStore with a base directory."""
         if isinstance(location, Path):
             self.__base_dir = location
             self.soa = None
