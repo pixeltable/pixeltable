@@ -78,7 +78,7 @@ class RandomTblOps:
         t = self.get_random_tbl(allow_view=True)
         num_rows = int(random.uniform(50, 100))
         yield f'Collect {num_rows} rows from {self.tbl_descr(t)}: '
-        res = t.sample(n=50).collect()
+        res = t.sample(n=num_rows).collect()
         yield f'Collected {len(res)} rows.'
 
     def insert_rows(self) -> Iterator[str]:
@@ -87,7 +87,7 @@ class RandomTblOps:
         yield f'Insert {num_rows} rows into {self.tbl_descr(t)}: '
         i_start = random.randint(100, 1000000000)
         us = t.insert([{'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(i_start, i_start + num_rows)])
-        return f'Inserted {us.row_count_stats.ins_rows} rows (total now {t.count()}).'
+        yield f'Inserted {us.row_count_stats.ins_rows} rows (total now {t.count()}).'
 
     def update_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
@@ -109,7 +109,7 @@ class RandomTblOps:
         cname = f'c{n}'
         yield f'Add data column {cname!r} to {self.tbl_descr(t)}: '
         t.add_column(**{cname: pxt.String}, if_exists='ignore')
-        return 'Success.'
+        yield 'Success.'
 
     def add_computed_column(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=True)
@@ -117,7 +117,7 @@ class RandomTblOps:
         cname = f'c{n}'
         yield f'Add computed column {cname!r} to {self.tbl_descr(t)}: '
         t.add_computed_column(**{cname: t.c0 * random.uniform(1.0, 5.0)}, if_exists='ignore')
-        return 'Success.'
+        yield 'Success.'
 
     def drop_column(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=True)
@@ -177,6 +177,7 @@ def main() -> None:
 
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
+    os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
 
     if worker_id == 0:
         t = time.monotonic()

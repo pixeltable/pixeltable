@@ -35,6 +35,7 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
+from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.http_server import make_server
 
 if TYPE_CHECKING:
@@ -90,6 +91,7 @@ class Env:
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
     _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
+    _current_tx_rollback_actions: list[Callable[[], None]]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
     verbosity: int
@@ -156,6 +158,7 @@ class Env:
         self._current_conn = None
         self._current_session = None
         self._current_isolation_level = None
+        self._current_tx_rollback_actions = []
         self._dbms = None
         self._event_loop = None
 
@@ -255,6 +258,7 @@ class Env:
         """
         if self._current_conn is None:
             assert self._current_session is None
+            assert not self._current_tx_rollback_actions
             try:
                 self._current_isolation_level = 'SERIALIZABLE'
                 with (
@@ -265,14 +269,23 @@ class Env:
                     self._current_conn = conn
                     self._current_session = session
                     yield conn
+            except Exception:
+                for hook in reversed(self._current_tx_rollback_actions):
+                    run_cleanup(hook, raise_error=False)
+                raise
             finally:
                 self._current_session = None
                 self._current_conn = None
                 self._current_isolation_level = None
+                self._current_tx_rollback_actions.clear()
         else:
             assert self._current_session is not None
             assert for_write == (self._current_isolation_level == 'serializable')
             yield self._current_conn
+
+    def add_rollback_action(self, func: Callable[[], None]) -> None:
+        assert self._current_conn is not None
+        self._current_tx_rollback_actions.append(func)
 
     def configure_logging(
         self,
@@ -390,7 +403,7 @@ class Env:
             warnings.simplefilter('ignore', category=FutureWarning)
 
         # Set verbose level for user visible console messages
-        self.verbosity = config.get_int_value('verbosity')
+        self.verbosity = config.get_int_value('verbosity') or 0
         stdout_handler = ConsoleOutputHandler(stream=stdout)
         stdout_handler.setLevel(map_level(self.verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
@@ -918,6 +931,19 @@ class Env:
                 self._logger.removeHandler(handler)
             except Exception as e:
                 _logger.warning(f'Error removing handler: {e}')
+
+
+def register_rollback_action(func: Callable[[], None]) -> Callable[[], None]:
+    """Registers a function to be called if the current transaction fails.
+
+    The function is called only if the current transaction fails due to an exception.
+
+    Rollback functions are called in reverse order of registration (LIFO).
+
+    The function should not raise exceptions; if it does, they are logged and ignored.
+    """
+    Env.get().add_rollback_action(func)
+    return func
 
 
 def register_client(name: str) -> Callable:

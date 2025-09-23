@@ -54,7 +54,6 @@ def main() -> None:
         sys.exit(1)
 
     script = sys.argv[3]
-    pxt.init()
     run_workers(num_workers, duration, script)
 
 
