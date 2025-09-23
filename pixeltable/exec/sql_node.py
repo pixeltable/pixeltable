@@ -71,6 +71,13 @@ class SqlNode(ExecNode):
     If set_pk is True, they are added to the end of the result set when creating the SQL statement
     so they can always be referenced as cols[-num_pk_cols:] in the result set.
     The pk_columns consist of the rowid columns of the target table followed by the version number.
+
+    If row_builder contains references to unstored iter columns, expands the select list to include their
+    SQL-materializable subexpressions.
+
+    Args:
+        select_list: output of the query
+        set_pk: if True, sets the primary for each DataRow
     """
 
     tbl: Optional[catalog.TableVersionPath]
@@ -99,14 +106,6 @@ class SqlNode(ExecNode):
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
     ):
-        """
-        If row_builder contains references to unstored iter columns, expands the select list to include their
-        SQL-materializable subexpressions.
-
-        Args:
-            select_list: output of the query
-            set_pk: if True, sets the primary for each DataRow
-        """
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
@@ -394,6 +393,11 @@ class SqlScanNode(SqlNode):
     Materializes data from the store via a Select stmt.
 
     Supports filtering and ordering.
+
+    Args:
+        select_list: output of the query
+        set_pk: if True, sets the primary for each DataRow
+        exact_version_only: tables for which we only want to see rows created at the current version
     """
 
     exact_version_only: list[catalog.TableVersionHandle]
@@ -407,12 +411,6 @@ class SqlScanNode(SqlNode):
         set_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ):
-        """
-        Args:
-            select_list: output of the query
-            set_pk: if True, sets the primary for each DataRow
-            exact_version_only: tables for which we only want to see rows created at the current version
-        """
         sql_elements = exprs.SqlElementCache()
         super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=set_pk, cell_md_col_refs=cell_md_col_refs)
         # create Select stmt
@@ -434,6 +432,11 @@ class SqlScanNode(SqlNode):
 class SqlLookupNode(SqlNode):
     """
     Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key values
+
+    Args:
+        select_list: output of the query
+        sa_key_cols: list of key columns in the store table
+        key_vals: list of key values to look up
     """
 
     def __init__(
@@ -445,12 +448,6 @@ class SqlLookupNode(SqlNode):
         key_vals: list[tuple],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
     ):
-        """
-        Args:
-            select_list: output of the query
-            sa_key_cols: list of key columns in the store table
-            key_vals: list of key values to look up
-        """
         sql_elements = exprs.SqlElementCache()
         super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=True, cell_md_col_refs=cell_md_col_refs)
         # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
@@ -466,6 +463,11 @@ class SqlLookupNode(SqlNode):
 class SqlAggregationNode(SqlNode):
     """
     Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key values
+
+    Args:
+        select_list: can contain calls to AggregateFunctions
+        group_by_items: list of expressions to group by
+        limit: max number of rows to return: None = no limit
     """
 
     group_by_items: Optional[list[exprs.Expr]]
@@ -480,12 +482,6 @@ class SqlAggregationNode(SqlNode):
         limit: Optional[int] = None,
         exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ):
-        """
-        Args:
-            select_list: can contain calls to AggregateFunctions
-            group_by_items: list of expressions to group by
-            limit: max number of rows to return: None = no limit
-        """
         self.input_cte, input_col_map = input.to_cte()
         sql_elements = exprs.SqlElementCache(input_col_map)
         super().__init__(None, row_builder, select_list, sql_elements)
@@ -551,6 +547,12 @@ class SqlJoinNode(SqlNode):
 class SqlSampleNode(SqlNode):
     """
     Returns rows sampled from the input node.
+
+    Args:
+        input: SqlNode to sample from
+        select_list: can contain calls to AggregateFunctions
+        sample_clause: specifies the sampling method
+        stratify_exprs: Analyzer processed list of expressions to stratify by.
     """
 
     input_cte: Optional[sql.CTE]
@@ -566,13 +568,6 @@ class SqlSampleNode(SqlNode):
         sample_clause: 'SampleClause',
         stratify_exprs: list[exprs.Expr],
     ):
-        """
-        Args:
-            input: SqlNode to sample from
-            select_list: can contain calls to AggregateFunctions
-            sample_clause: specifies the sampling method
-            stratify_exprs: Analyzer processed list of expressions to stratify by.
-        """
         assert isinstance(input, SqlNode)
         self.input_cte, input_col_map = input.to_cte(keep_pk=True)
         self.pk_count = input.num_pk_cols

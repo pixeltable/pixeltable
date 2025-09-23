@@ -94,6 +94,16 @@ class DocumentSplitter(ComponentIterator):
     include additional metadata fields if specified in the `metadata` parameter, as explained below.
 
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
+
+    Args:
+        separators: separators to use to chunk the document. Options are:
+             `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
+             This may be a comma-separated string, e.g., `'heading,token_limit'`.
+        limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
+             or `'char_limit'` is specified.
+        metadata: additional metadata fields to include in the output. Options are:
+             `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
+             (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
     """
 
     METADATA_COLUMN_TYPES: ClassVar[dict[ChunkMetadata, ColumnType]] = {
@@ -116,18 +126,6 @@ class DocumentSplitter(ComponentIterator):
         tiktoken_encoding: Optional[str] = 'cl100k_base',
         tiktoken_target_model: Optional[str] = None,
     ):
-        """Init method for `DocumentSplitter` class.
-
-        Args:
-            separators: separators to use to chunk the document. Options are:
-                 `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
-                 This may be a comma-separated string, e.g., `'heading,token_limit'`.
-            limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
-                 or `'char_limit'` is specified.
-            metadata: additional metadata fields to include in the output. Options are:
-                 `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
-                 (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
-        """
         if html_skip_tags is None:
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)

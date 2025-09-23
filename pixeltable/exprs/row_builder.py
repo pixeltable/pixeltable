@@ -49,6 +49,12 @@ class RowBuilder:
 
     For ColumnRefs to unstored iterator columns:
     - in order for them to be executable, we also record the iterator args and pass them to the ColumnRef
+
+    Args:
+        output_exprs: list of Exprs to be evaluated
+        columns: list of columns to be materialized
+        input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
+    TODO: enforce that output_exprs doesn't overlap with input_exprs?
     """
 
     unique_exprs: ExprSet
@@ -107,13 +113,6 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: Optional[catalog.TableVersion] = None,
     ):
-        """
-        Args:
-            output_exprs: list of Exprs to be evaluated
-            columns: list of columns to be materialized
-            input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
-        TODO: enforce that output_exprs doesn't overlap with input_exprs?
-        """
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
         self.stored_img_cols = []
