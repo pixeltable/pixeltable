@@ -20,7 +20,7 @@ from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.local_store import LocalStore, TempStore
 
 from .utils import (
     IN_CI,
@@ -98,8 +98,6 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
 
 @pytest.fixture(scope='function')
 def reset_db(init_env: None) -> None:
-    from pixeltable.env import Env
-
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
@@ -117,13 +115,14 @@ def _free_disk_space() -> None:
     # tests.
 
     # Clear the temp store and media store
+    # If the LocalStore is actually an object store, this will NOT clear the object store.
     try:
         TempStore.clear()
-        MediaStore.get().clear()
-        _logger.info('Cleared TempStore and MediaStore.')
+        LocalStore(Env.get().object_soa).clear()
+        _logger.info('Cleared TempStore and LocalStore.')
     except PermissionError:
         # Sometimes this happens on Windows if a file is held open by a concurrent process.
-        _logger.info('PermissionError trying to clear TempStore and MediaStore.')
+        _logger.info('PermissionError trying to clear TempStore and LocalStore.')
 
     try:
         _clear_hf_caches()

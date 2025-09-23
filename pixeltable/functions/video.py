@@ -17,7 +17,7 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger('pixeltable')
 _format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
