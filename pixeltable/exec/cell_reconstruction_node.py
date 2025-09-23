@@ -110,11 +110,7 @@ class CellReconstructionNode(ExecNode):
                     if val is None:
                         continue
                     cell_md = row.slot_cellmd.get(col_ref.slot_idx)
-                    if (
-                        cell_md is None
-                        or cell_md.file_urls is None
-                        or not json_has_inlined_objs(row[col_ref.slot_idx])
-                    ):
+                    if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(row[col_ref.slot_idx]):
                         continue
                     row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
 
