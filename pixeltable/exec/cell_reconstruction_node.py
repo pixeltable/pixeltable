@@ -103,36 +103,36 @@ class CellReconstructionNode(ExecNode):
         self.file_handles = {}
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        try:
-            async for batch in self.input:
-                for row in batch:
-                    for col_ref in self.json_refs:
-                        val = row[col_ref.slot_idx]
-                        if val is None:
-                            continue
-                        cell_md = row.slot_cellmd.get(col_ref.slot_idx)
-                        if (
-                            cell_md is None
-                            or cell_md.file_urls is None
-                            or not json_has_inlined_objs(row[col_ref.slot_idx])
-                        ):
-                            continue
-                        row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
+        async for batch in self.input:
+            for row in batch:
+                for col_ref in self.json_refs:
+                    val = row[col_ref.slot_idx]
+                    if val is None:
+                        continue
+                    cell_md = row.slot_cellmd.get(col_ref.slot_idx)
+                    if (
+                        cell_md is None
+                        or cell_md.file_urls is None
+                        or not json_has_inlined_objs(row[col_ref.slot_idx])
+                    ):
+                        continue
+                    row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
 
-                    for col_ref in self.array_refs:
-                        cell_md = row.slot_cellmd.get(col_ref.slot_idx)
-                        if cell_md is not None and cell_md.array_start is not None:
-                            assert row[col_ref.slot_idx] is None
-                            assert cell_md.array_end is not None
-                            assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
-                            row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
-                        else:
-                            assert row[col_ref.slot_idx] is None or isinstance(row[col_ref.slot_idx], np.ndarray)
+                for col_ref in self.array_refs:
+                    cell_md = row.slot_cellmd.get(col_ref.slot_idx)
+                    if cell_md is not None and cell_md.array_start is not None:
+                        assert row[col_ref.slot_idx] is None
+                        assert cell_md.array_end is not None
+                        assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
+                        row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
+                    else:
+                        assert row[col_ref.slot_idx] is None or isinstance(row[col_ref.slot_idx], np.ndarray)
 
-                yield batch
-        finally:
-            for fp in self.file_handles.values():
-                fp.close()
+            yield batch
+
+    def close(self) -> None:
+        for fp in self.file_handles.values():
+            fp.close()
 
     def _reconstruct_array(self, cell_md: exprs.CellMd) -> np.ndarray:
         local_path = parse_local_file_path(cell_md.file_urls[0])

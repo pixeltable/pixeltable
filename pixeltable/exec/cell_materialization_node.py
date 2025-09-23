@@ -50,7 +50,7 @@ class CellMaterializationNode(ExecNode):
 
     # execution state
     inlined_obj_files: list[Path]  # only [-1] is open for writing
-    buffered_writer: io.BufferedWriter  # BufferedWriter for inlined_obj_files[-1]
+    buffered_writer: io.BufferedWriter | None  # BufferedWriter for inlined_obj_files[-1]
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
     MAX_DB_ARRAY_SIZE = 512  # max size of array stored in table column; in bytes
@@ -94,7 +94,12 @@ class CellMaterializationNode(ExecNode):
 
             yield batch
 
-        self._flush_full_buffer(force=True)
+        self._flush_full_buffer(finalize=True)
+
+    def close(self) -> None:
+        if self.buffered_writer is not None:
+            # there must have been an error, otherwise _flush_full_buffer(finalize=True) would have set this to None
+            self.buffered_writer.close()
 
     def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, val: Any) -> None:
         if self._json_has_inlined_objs(val):
@@ -207,10 +212,13 @@ class CellMaterializationNode(ExecNode):
         assert isinstance(fh, io.BufferedWriter)
         self.buffered_writer = fh
 
-    def _flush_full_buffer(self, force: bool = False) -> None:
-        if self.buffered_writer.tell() < self.MIN_FILE_SIZE and not force:
+    def _flush_full_buffer(self, finalize: bool = False) -> None:
+        if self.buffered_writer.tell() < self.MIN_FILE_SIZE and not finalize:
             return
         self.buffered_writer.flush()
-        os.fsync(self.buffered_writer.fileno())
+        os.fsync(self.buffered_writer.fileno())  # needed to force bytes cached by OS to storage
         self.buffered_writer.close()
-        self._reset_buffer()
+        if finalize:
+            self.buffered_writer = None
+        else:
+            self._reset_buffer()
