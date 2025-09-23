@@ -19,7 +19,7 @@ from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project
 from pixeltable.utils import coco
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 # label_studio_sdk>=1 and label_studio_sdk<1 are not compatible, so we need to try
 # the import two different ways to insure intercompatibility

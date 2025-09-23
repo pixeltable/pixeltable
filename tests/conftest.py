@@ -20,7 +20,7 @@ from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.local_store import LocalStore, TempStore
 
 from .utils import (
     IN_CI,
@@ -76,9 +76,20 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    reinit_db = True
+    if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
+        print('Using external database connection for test configuration')
+        reinit_db = False
 
-    for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA', 'FIFTYONE_DATABASE_DIR'):
-        print(f'{var:21} = {os.environ[var]}')
+    for var in (
+        'PIXELTABLE_HOME',
+        'PIXELTABLE_CONFIG',
+        'PIXELTABLE_DB',
+        'PIXELTABLE_PGDATA',
+        'FIFTYONE_DATABASE_DIR',
+        'PIXELTABLE_DB_CONNECT_STR',
+    ):
+        print(f'{var:25} = {os.environ.get(var)}')
 
     # Ensure the shared home directory exists.
     shared_home.mkdir(parents=True, exist_ok=True)
@@ -90,7 +101,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
-        Env._init_env(reinit_db=True)
+        Env._init_env(reinit_db=reinit_db)
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
@@ -98,8 +109,6 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
 
 @pytest.fixture(scope='function')
 def reset_db(init_env: None) -> None:
-    from pixeltable.env import Env
-
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
@@ -117,13 +126,14 @@ def _free_disk_space() -> None:
     # tests.
 
     # Clear the temp store and media store
+    # If the LocalStore is actually an object store, this will NOT clear the object store.
     try:
         TempStore.clear()
-        MediaStore.get().clear()
-        _logger.info('Cleared TempStore and MediaStore.')
+        LocalStore(Env.get().object_soa).clear()
+        _logger.info('Cleared TempStore and LocalStore.')
     except PermissionError:
         # Sometimes this happens on Windows if a file is held open by a concurrent process.
-        _logger.info('PermissionError trying to clear TempStore and MediaStore.')
+        _logger.info('PermissionError trying to clear TempStore and LocalStore.')
 
     try:
         _clear_hf_caches()
