@@ -22,8 +22,6 @@ from typing import (
 )
 
 import pandas as pd
-
-# import polars as pl
 import pydantic
 import sqlalchemy as sql
 
@@ -108,6 +106,7 @@ class DataFrameResultSet:
         Returns:
             A Polars DataFrame containing the result set data.
         """
+        Env.get().require_package('polars')
         import polars as pl
 
         if not self._rows:

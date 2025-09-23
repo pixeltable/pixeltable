@@ -11,19 +11,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, cast
 
 import pandas as pd
-
-if TYPE_CHECKING:
-    import polars as pl
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
-from pixeltable.io.polars import _pl_check_primary_key_values, _pl_row_to_pxt_row, pl_infer_schema
 from pixeltable.utils import parse_local_file_path
 
 from .utils import normalize_schema_names
+
+if TYPE_CHECKING:
+    import polars as pl
 
 _logger = logging.getLogger('pixeltable')
 
@@ -311,10 +310,12 @@ class PolarsTableDataConduit(TableDataConduit):
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
         """Return inferred schema, inferred primary key, and source column map"""
+        from pixeltable.io.polars import _pl_infer_schema
+
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
-            self.src_schema = pl_infer_schema(self.pl_df, self.src_schema_overrides, self.src_pk)
+            self.src_schema = _pl_infer_schema(self.pl_df, self.src_schema_overrides, self.src_pk)
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
                 self.src_schema, self.src_pk, self.src_schema_overrides, False
             )
@@ -323,6 +324,8 @@ class PolarsTableDataConduit(TableDataConduit):
             raise NotImplementedError()
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
+        from pixeltable.io.polars import _pl_check_primary_key_values
+
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
         self.normalize_pxt_schema_types()
         _pl_check_primary_key_values(self.pl_df, self.src_pk)
@@ -335,6 +338,8 @@ class PolarsTableDataConduit(TableDataConduit):
         self.prepare_insert()
 
     def prepare_insert(self) -> None:
+        from pixeltable.io.polars import _pl_row_to_pxt_row
+
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pl_df.columns)

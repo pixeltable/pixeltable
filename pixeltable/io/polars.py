@@ -1,49 +1,44 @@
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
+
+import polars as pl
+import polars.datatypes as pl_types
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
-if TYPE_CHECKING:
-    import polars as pl
-
+PL_TO_PXT_TYPES: dict[pl.DataType, ts.ColumnType] = {
+    pl_types.Int8(): ts.IntType(nullable=True),
+    pl_types.Int16(): ts.IntType(nullable=True),
+    pl_types.Int32(): ts.IntType(nullable=True),
+    pl_types.Int64(): ts.IntType(nullable=True),
+    pl_types.UInt8(): ts.IntType(nullable=True),
+    pl_types.UInt16(): ts.IntType(nullable=True),
+    pl_types.UInt32(): ts.IntType(nullable=True),
+    pl_types.UInt64(): ts.IntType(nullable=True),
+    pl_types.Float32(): ts.FloatType(nullable=True),
+    pl_types.Float64(): ts.FloatType(nullable=True),
+    pl_types.String(): ts.StringType(nullable=True),
+    pl_types.Utf8(): ts.StringType(nullable=True),
+    pl_types.Categorical(): ts.StringType(nullable=True),
+    pl_types.Boolean(): ts.BoolType(nullable=True),
+    pl_types.Date(): ts.DateType(nullable=True),
+}
 
 # Function to map polars data types to Pixeltable types
-def _get_pxt_type_for_pl_type(pl_dtype: 'pl.DataType', nullable: bool) -> Optional[ts.ColumnType]:
-    """Get Pixeltable type for a given polars data type."""
-    import polars.datatypes as pl_types
+def _get_pxt_type_for_pl_type(pl_dtype: pl.DataType | pl.DataTypeClass, nullable: bool) -> Optional[ts.ColumnType]:
+    """Get Pixeltable type for basic polars data types.
+    These are the only types which are supported as the inner type of a polars Array.
+    """
+    if pl_dtype in PL_TO_PXT_TYPES:
+        pt = PL_TO_PXT_TYPES[pl_dtype]
+        return pt.copy(nullable=nullable) if pt is not None else None
 
-    # Integer types
-    if isinstance(
-        pl_dtype,
-        (
-            pl_types.Int8,
-            pl_types.Int16,
-            pl_types.Int32,
-            pl_types.Int64,
-            pl_types.UInt8,
-            pl_types.UInt16,
-            pl_types.UInt32,
-            pl_types.UInt64,
-        ),
-    ):
-        return ts.IntType(nullable=nullable)
-    # Float types
-    elif isinstance(pl_dtype, (pl_types.Float32, pl_types.Float64)):
-        return ts.FloatType(nullable=nullable)
-    # Boolean type
-    elif isinstance(pl_dtype, pl_types.Boolean):
-        return ts.BoolType(nullable=nullable)
     # String types
-    elif isinstance(pl_dtype, (pl_types.Utf8, pl_types.String)):
+    elif isinstance(pl_dtype, pl_types.Enum):
         return ts.StringType(nullable=nullable)
-    # Date and time types
-    elif isinstance(pl_dtype, pl_types.Date):
-        return ts.DateType(nullable=nullable)
     elif isinstance(pl_dtype, pl_types.Datetime):
         return ts.TimestampType(nullable=nullable)
-    elif isinstance(pl_dtype, (pl_types.Time, pl_types.Duration)):
-        return ts.StringType(nullable=nullable)  # Pixeltable doesn't have Time type, use String
 
     return None
 
@@ -53,10 +48,10 @@ def _pl_check_primary_key_values(df: 'pl.DataFrame', primary_key: list[str]) -> 
     for col_name in primary_key:
         null_count = df.get_column(col_name).null_count()
         if null_count > 0:
-            raise excs.Error(f'Primary key column `{col_name}` cannot contain null values.')
+            raise excs.Error(f'Primary key column {col_name!r} cannot contain null values.')
 
 
-def pl_infer_schema(
+def _pl_infer_schema(
     df: 'pl.DataFrame', schema_overrides: dict[str, ts.ColumnType], primary_key: list[str]
 ) -> dict[str, ts.ColumnType]:
     """
@@ -91,104 +86,23 @@ def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullab
     Returns:
         ts.ColumnType: A Pixeltable ColumnType
     """
-    import polars.datatypes as pl_types
-
     # Handle basic type mapping
     basic_type = _get_pxt_type_for_pl_type(pl_dtype, nullable)
     if basic_type is not None:
         return basic_type
 
+    if isinstance(pl_dtype, pl_types.Array):
+        pxt_dtype = _get_pxt_type_for_pl_type(pl_dtype.inner, nullable)
+        if pxt_dtype is not None:
+            return ts.ArrayType(shape=pl_dtype.shape, dtype=pxt_dtype, nullable=nullable)
+
     # Handle List/Array types
     if isinstance(pl_dtype, pl_types.List):
-        inner_type = pl_dtype.inner
-        if isinstance(
-            inner_type,
-            (
-                pl_types.Int8,
-                pl_types.Int16,
-                pl_types.Int32,
-                pl_types.Int64,
-                pl_types.UInt8,
-                pl_types.UInt16,
-                pl_types.UInt32,
-                pl_types.UInt64,
-            ),
-        ):
-            # Try to infer array shape from actual data
-            if len(data_col) > 0:
-                first_non_null = None
-                for val in data_col:
-                    if val is not None:
-                        # polars returns Series objects for list elements
-                        if hasattr(val, 'to_list'):
-                            first_non_null = val.to_list()
-                        elif isinstance(val, list):
-                            first_non_null = val
-                        else:
-                            first_non_null = val
-                        break
-
-                if first_non_null is not None and hasattr(first_non_null, '__len__') and len(first_non_null) > 0:
-                    return ts.ArrayType(shape=(None, len(first_non_null)), dtype=ts.IntType(), nullable=nullable)
-
-            return ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=nullable)
-        elif isinstance(inner_type, (pl_types.Float32, pl_types.Float64)):
-            # Try to infer array shape from actual data for float arrays too
-            if len(data_col) > 0:
-                first_non_null = None
-                for val in data_col:
-                    if val is not None:
-                        # polars returns Series objects for list elements
-                        if hasattr(val, 'to_list'):
-                            first_non_null = val.to_list()
-                        elif isinstance(val, list):
-                            first_non_null = val
-                        else:
-                            first_non_null = val
-                        break
-
-                if first_non_null is not None and hasattr(first_non_null, '__len__') and len(first_non_null) > 0:
-                    return ts.ArrayType(shape=(None, len(first_non_null)), dtype=ts.FloatType(), nullable=nullable)
-
-            return ts.ArrayType(shape=(None, None), dtype=ts.FloatType(), nullable=nullable)
-        elif isinstance(inner_type, (pl_types.Utf8, pl_types.String)):
-            # Handle List(String) - could be string arrays or mixed type converted to strings
-            # Use JSON for flexibility since string arrays can have variable lengths
-            return ts.JsonType(nullable=nullable)
-        else:
-            # For complex list types, use JSON
-            return ts.JsonType(nullable=nullable)
+        return ts.JsonType(nullable=nullable)
 
     # Handle Struct types as JSON
     if isinstance(pl_dtype, pl_types.Struct):
         return ts.JsonType(nullable=nullable)
-
-    # Handle Categorical as String
-    if isinstance(pl_dtype, pl_types.Categorical):
-        return ts.StringType(nullable=nullable)
-
-    # Handle Object type by inspecting actual data
-    if isinstance(pl_dtype, pl_types.Object):
-        # Make a copy of the Series without null values for type inference
-        non_null_data = data_col.drop_nulls()
-
-        if len(non_null_data) == 0:
-            # No non-null values; default to StringType
-            return ts.StringType(nullable=nullable)
-
-        # Convert to Python values for type inference
-        sample_values = non_null_data.to_list()[:100]  # Sample first 100 values
-
-        inferred_type = ts.ColumnType.infer_common_literal_type(sample_values)
-        if inferred_type is None:
-            # Fallback on StringType if everything else fails
-            return ts.StringType(nullable=nullable)
-        else:
-            return inferred_type.copy(nullable=nullable)
-
-    # Handle Null type
-    if isinstance(pl_dtype, pl_types.Null):
-        return ts.StringType(nullable=True)  # Default to nullable string for null columns
 
     raise excs.Error(f'Could not infer Pixeltable type for polars column: {data_col.name} (dtype: {pl_dtype})')
 
