@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import enum
-import logging
 from typing import Any, ClassVar, Optional
 
 import numpy as np
