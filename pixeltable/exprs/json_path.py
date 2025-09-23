@@ -26,6 +26,9 @@ class JsonPath(Expr):
     (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
     """
 
+    path_elements: list[str | int | slice]
+    compiled_path: jmespath.parser.ParsedResult | None
+    scope_idx: int
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
@@ -36,7 +39,7 @@ class JsonPath(Expr):
         super().__init__(ts.JsonType(nullable=True))  # JsonPath expressions are always nullable
         if anchor is not None:
             self.components = [anchor]
-        self.path_elements: list[str | int | slice] = path_elements
+        self.path_elements = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         self.scope_idx = scope_idx
         # NOTE: the _create_id() result will change if set_anchor() gets called;
