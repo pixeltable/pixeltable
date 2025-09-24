@@ -204,6 +204,13 @@ class MethodSectionGenerator(PageBase):
 
             # Format parameter
             type_str = params_with_types.get(param.arg_name, param.type_name or "Any")
+            # Clean up type strings that break MDX
+            if type_str:
+                import re
+                # Convert to string first if it's not already
+                type_str = str(type_str)
+                # Remove <class '...'> format
+                type_str = re.sub(r"<class '([^']+)'>", r"\1", type_str)
             default = params_with_defaults.get(param.arg_name)
 
             content += f"- **`{param.arg_name}`** "

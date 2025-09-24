@@ -26,7 +26,7 @@ class DataclassSection(SectionBase):
         if not fields:
             return ""
 
-        content = "## Fields\n\n"
+        content = "## Attributes\n\n"
 
         for field in fields:
             content += f"### `{field.name}`\n\n"

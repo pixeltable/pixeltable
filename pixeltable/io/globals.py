@@ -103,25 +103,26 @@ def create_label_studio_project(
         column of the table `tbl`:
 
         >>> config = \"\"\"
-            <View>
-                <Video name="video_obj" value="$video_col"/>
-                <Choices name="video-category" toName="video" showInLine="true">
-                    <Choice value="city"/>
-                    <Choice value="food"/>
-                    <Choice value="sports"/>
-                </Choices>
-            </View>\"\"\"
-            create_label_studio_project(tbl, config)
+        ... <View>
+        ...     <Video name="video_obj" value="$video_col"/>
+        ...     <Choices name="video-category" toName="video" showInLine="true">
+        ...         <Choice value="city"/>
+        ...         <Choice value="food"/>
+        ...         <Choice value="sports"/>
+        ...     </Choices>
+        ... </View>
+        ... \"\"\"
+        >>> create_label_studio_project(tbl, config)
 
         Create a Label Studio project with the same configuration, using `media_import_method='url'`,
         whose media are stored in an S3 bucket:
 
         >>> create_label_studio_project(
-                tbl,
-                config,
-                media_import_method='url',
-                s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
-            )
+        ...     tbl,
+        ...     config,
+        ...     media_import_method='url',
+        ...     s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
+        ... )
     """
     Env.get().require_package('label_studio_sdk')
 
@@ -204,7 +205,7 @@ def export_images_as_fo_dataset(
         Export the images in the `image` column of the table `tbl` as a Voxel51 dataset, using classification
         labels from `tbl.classifications`:
 
-        >>> export_as_fiftyone(
+        >>> export_images_as_fo_dataset(
         ...     tbl,
         ...     tbl.image,
         ...     classifications=tbl.classifications
