@@ -110,7 +110,6 @@ class SqlNode(ExecNode):
         self.sql_elements = sql_elements
         self.tbl = tbl
         if cell_md_col_refs is not None:
-            assert tbl is not None
             assert all(ref.col.stores_cellmd for ref in cell_md_col_refs)
             self.cell_md_col_refs = cell_md_col_refs
         else:
@@ -520,7 +519,8 @@ class SqlJoinNode(SqlNode):
             input_cte, input_col_map = input_node.to_cte()
             self.input_ctes.append(input_cte)
             sql_elements.extend(input_col_map)
-        super().__init__(None, row_builder, select_list, sql_elements)
+        cell_md_col_refs = [ref for input in inputs for ref in input.cell_md_col_refs]
+        super().__init__(None, row_builder, select_list, sql_elements, cell_md_col_refs=cell_md_col_refs)
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable import plan
