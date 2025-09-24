@@ -67,7 +67,7 @@ def main() -> None:
         sys.exit(1)
 
     script = sys.argv[3]
-    run_workers(num_workers, duration, script, sys.argv[4:])
+    run_workers(num_workers, duration, script)
 
 
 if __name__ == '__main__':

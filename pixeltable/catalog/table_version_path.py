@@ -4,7 +4,6 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from .column import Column

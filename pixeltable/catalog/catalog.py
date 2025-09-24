@@ -3,7 +3,6 @@ from __future__ import annotations
 import dataclasses
 import functools
 import logging
-import os
 import random
 import time
 from collections import defaultdict
@@ -248,6 +247,11 @@ class Catalog:
                 # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
                 for v in tbl_version.mutable_views:
                     assert v.effective_version is None, f'{v.id}:{v.effective_version}'
+
+    def mark_modified_tvs(self, *handle: TableVersionHandle) -> None:
+        """Record that the given TableVersion instances were modified in the current transaction"""
+        assert Env.get().in_xact
+        self._modified_tvs.update(handle)
 
     @contextmanager
     def begin_xact(
@@ -1257,7 +1261,7 @@ class Catalog:
             base_id = tbl._tbl_version_path.base.tbl_id
             base_tv = self.get_tbl_version(base_id, None, validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
-            self._modified_tvs.add(base_tv.handle)
+            self.mark_modified_tvs(base_tv.handle)
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
@@ -1268,7 +1272,7 @@ class Catalog:
         if tbl._tbl_version is not None:
             # invalidate the TableVersion instance when we're done so that existing references to it can find out it
             # has been dropped
-            self._modified_tvs.add(tbl._tbl_version)
+            self.mark_modified_tvs(tbl._tbl_version)
         tv = tbl._tbl_version.get() if tbl._tbl_version is not None else None
         # if tv is not None:
         #     tv = tbl._tbl_version.get()
@@ -1895,7 +1899,7 @@ class Catalog:
         self._tbl_versions[tbl_id, effective_version] = tbl_version
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
-        self._modified_tvs.add(tbl_version.handle)
+        self.mark_modified_tvs(tbl_version.handle)
         tbl_version.init()
         return tbl_version
 

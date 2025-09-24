@@ -681,7 +681,7 @@ class TableVersion:
         cols_to_add = list(cols)
 
         @env.register_rollback_action
-        def _() -> None:
+        def _r() -> None:
             # Delete columns that are added as part of current add_columns operation and re-initialize
             # the sqlalchemy schema
             self.cols = [col for col in self.cols if col not in cols_to_add]
@@ -736,7 +736,8 @@ class TableVersion:
                 excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
             except sql_exc.DBAPIError as exc:
                 Catalog.get().raise_from_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
-                # If it wasn't converted, re-raise as a generic Pixeltable error (not a known concurrency error; it's something else)
+                # If it wasn't converted, re-raise as a generic Pixeltable error
+                # (this means it's not a known concurrency error; it's something else)
                 raise excs.Error(
                     f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
                 ) from exc
@@ -1097,7 +1098,7 @@ class TableVersion:
         from pixeltable.catalog import Catalog
         from pixeltable.plan import Planner
 
-        Catalog.get()._modified_tvs.add(self.handle)
+        Catalog.get().mark_modified_tvs(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
@@ -1156,7 +1157,7 @@ class TableVersion:
         """Delete rows in this table and propagate to views"""
         from pixeltable.catalog import Catalog
 
-        Catalog.get()._modified_tvs.add(self.handle)
+        Catalog.get().mark_modified_tvs(self.handle)
 
         # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
@@ -1235,7 +1236,7 @@ class TableVersion:
         # revert schema changes:
         # - undo changes to self._tbl_md and write that back
         # - delete newly-added TableVersion/TableSchemaVersion records
-        Catalog.get()._modified_tvs.add(self.handle)
+        Catalog.get().mark_modified_tvs(self.handle)
         old_version = self.version
         if self.version == self.schema_version:
             # physically delete newly-added columns and remove them from the stored md
@@ -1393,7 +1394,7 @@ class TableVersion:
         if timestamp is None:
             timestamp = time.time()
 
-        Catalog.get()._modified_tvs.add(self.handle)
+        Catalog.get().mark_modified_tvs(self.handle)
 
         old_version = self._tbl_md.current_version
         assert self._version_md.version == old_version

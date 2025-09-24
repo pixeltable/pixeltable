@@ -1,5 +1,4 @@
 import re
-from typing import ClassVar
 
 import pandas as pd
 
@@ -12,10 +11,16 @@ LINE_PARSER = re.compile(
 
 
 class StatsPrinter:
-    num_operations: ClassVar[dict[str, dict[int, int]]] = {}
-    num_errors: ClassVar[dict[str, dict[int, int]]] = {}
-    error_freq: ClassVar[dict[str, dict[int, int]]] = {}
-    max_worker: ClassVar[int] = 0
+    num_operations: dict[str, dict[int, int]]
+    num_errors: dict[str, dict[int, int]]
+    error_freq: dict[str, dict[int, int]]
+    max_worker: int
+
+    def __init__(self) -> None:
+        self.num_operations = {}
+        self.num_errors = {}
+        self.error_freq = {}
+        self.max_worker = 0
 
     def process_line(self, line: str) -> None:
         m = LINE_PARSER.match(line.strip())

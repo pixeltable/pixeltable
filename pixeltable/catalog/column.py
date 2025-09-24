@@ -29,7 +29,7 @@ class Column:
     table/view.
     """
 
-    name: str
+    name: Optional[str]
     id: Optional[int]
     col_type: ts.ColumnType
     stored: bool
