@@ -218,63 +218,70 @@
                   {
                     "group": "Core API",
                     "pages": [
-                      "docs/sdk/latest/core-api/pixeltable",
-                      "docs/sdk/latest/core-api/table",
-                      "docs/sdk/latest/core-api/dataframe"
+                      "docs/sdk/latest/pixeltable",
+                      "docs/sdk/latest/table",
+                      "docs/sdk/latest/dataframe",
+                      "docs/sdk/latest/columnmetadata",
+                      "docs/sdk/latest/dircontents",
+                      "docs/sdk/latest/indexmetadata",
+                      "docs/sdk/latest/tablemetadata",
+                      "docs/sdk/latest/updatestatus",
+                      "docs/sdk/latest/versionmetadata"
                     ]
                   },
                   {
                     "group": "Built-in Functions and Operators",
                     "pages": [
-                      "docs/sdk/latest/built-in-functions-and-operators/audio",
-                      "docs/sdk/latest/built-in-functions-and-operators/date",
-                      "docs/sdk/latest/built-in-functions-and-operators/image",
-                      "docs/sdk/latest/built-in-functions-and-operators/json",
-                      "docs/sdk/latest/built-in-functions-and-operators/math",
-                      "docs/sdk/latest/built-in-functions-and-operators/string",
-                      "docs/sdk/latest/built-in-functions-and-operators/timestamp",
-                      "docs/sdk/latest/built-in-functions-and-operators/video"
+                      "docs/sdk/latest/audio",
+                      "docs/sdk/latest/date",
+                      "docs/sdk/latest/image",
+                      "docs/sdk/latest/json",
+                      "docs/sdk/latest/math",
+                      "docs/sdk/latest/string",
+                      "docs/sdk/latest/timestamp",
+                      "docs/sdk/latest/video"
                     ]
                   },
                   {
                     "group": "AI Integrations",
                     "pages": [
-                      "docs/sdk/latest/ai-integrations/openai",
-                      "docs/sdk/latest/ai-integrations/anthropic",
-                      "docs/sdk/latest/ai-integrations/huggingface",
-                      "docs/sdk/latest/ai-integrations/gemini",
-                      "docs/sdk/latest/ai-integrations/bedrock",
-                      "docs/sdk/latest/ai-integrations/groq",
-                      "docs/sdk/latest/ai-integrations/replicate",
-                      "docs/sdk/latest/ai-integrations/together",
-                      "docs/sdk/latest/ai-integrations/fireworks",
-                      "docs/sdk/latest/ai-integrations/mistralai",
-                      "docs/sdk/latest/ai-integrations/deepseek",
-                      "docs/sdk/latest/ai-integrations/ollama",
-                      "docs/sdk/latest/ai-integrations/llama_cpp",
-                      "docs/sdk/latest/ai-integrations/whisper",
-                      "docs/sdk/latest/ai-integrations/vision",
-                      "docs/sdk/latest/ai-integrations/yolox",
-                      "docs/sdk/latest/ai-integrations/whisperx"
+                      "docs/sdk/latest/openai",
+                      "docs/sdk/latest/anthropic",
+                      "docs/sdk/latest/huggingface",
+                      "docs/sdk/latest/gemini",
+                      "docs/sdk/latest/bedrock",
+                      "docs/sdk/latest/groq",
+                      "docs/sdk/latest/replicate",
+                      "docs/sdk/latest/together",
+                      "docs/sdk/latest/fireworks",
+                      "docs/sdk/latest/mistralai",
+                      "docs/sdk/latest/deepseek",
+                      "docs/sdk/latest/ollama",
+                      "docs/sdk/latest/llama_cpp",
+                      "docs/sdk/latest/whisper",
+                      "docs/sdk/latest/vision",
+                      "docs/sdk/latest/yolox",
+                      "docs/sdk/latest/whisperx"
                     ]
                   },
                   {
                     "group": "Iterators",
                     "pages": [
-                      "docs/sdk/latest/iterators/iterators",
-                      "docs/sdk/latest/iterators/iterators/audiosplitter",
-                      "docs/sdk/latest/iterators/iterators/componentiterator",
-                      "docs/sdk/latest/iterators/iterators/documentsplitter",
-                      "docs/sdk/latest/iterators/iterators/frameiterator",
-                      "docs/sdk/latest/iterators/iterators/stringsplitter",
-                      "docs/sdk/latest/iterators/iterators/tileiterator"
+                      "docs/sdk/latest/iterators",
+                      "docs/sdk/latest/audiosplitter",
+                      "docs/sdk/latest/componentiterator",
+                      "docs/sdk/latest/documentsplitter",
+                      "docs/sdk/latest/frameiterator",
+                      "docs/sdk/latest/stringsplitter",
+                      "docs/sdk/latest/tileiterator",
+                      "docs/sdk/latest/videosplitter"
                     ]
                   },
                   {
                     "group": "Import/Export",
                     "pages": [
-                      "docs/sdk/latest/import-export/io",
-                      "docs/sdk/latest/import-export/io/externalstore"
+                      "docs/sdk/latest/io",
+                      "docs/sdk/latest/externalstore"
                     ]
                   }
                 ]
@@ -284,12 +291,16 @@
           {
             "dropdown": "v0.4.9",
             "icon": "tag",
-            "pages": ["docs/sdk/v0.4.9/index"]
+            "pages": [
+              "docs/sdk/v0.4.9/index"
+            ]
           },
           {
             "dropdown": "v0.4.8",
             "icon": "tag",
-            "pages": ["docs/sdk/v0.4.8/index"]
+            "pages": [
+              "docs/sdk/v0.4.8/index"
+            ]
           }
         ]
       }

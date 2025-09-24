@@ -1,0 +1,91 @@
+---
+title: "pixeltable.UpdateStatus"
+sidebarTitle: "UpdateStatus"
+icon: "square-c"
+---
+
+Information about changes to table data or table schema
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/update_status.py#L53" target="_blank">View source on GitHub</a>
+
+## Methods
+
+
+---
+
+### `insert_to_update()`
+
+Convert the update status from an insert operation to an update operation.
+
+
+This is used when an insert operation is treated as an update.
+
+
+**Signature:**
+
+```python
+insert_to_update() -> "'UpdateStatus'"
+```
+
+
+---
+
+### `to_cascade()`
+
+Convert the update status to a cascade update status.
+
+
+This is used when an operation cascades changes to other tables.
+
+
+**Signature:**
+
+```python
+to_cascade() -> "'UpdateStatus'"
+```
+
+## Properties
+
+### ext_num_rows
+
+**Type:** Property (read)
+
+### external_rows_created
+
+**Type:** Property (read)
+
+### external_rows_deleted
+
+**Type:** Property (read)
+
+### external_rows_updated
+
+**Type:** Property (read)
+
+### insert_msg
+
+Return a message describing the results of an insert operation.
+
+
+**Type:** Property (read)
+
+### num_computed_values
+
+**Type:** Property (read)
+
+### num_excs
+
+**Type:** Property (read)
+
+### num_rows
+
+**Type:** Property (read)
+
+### pxt_rows_updated
+
+Returns the number of Pixeltable rows that were updated as a result of the operation.
+
+
+**Type:** Property (read)
+

@@ -1,6 +1,0 @@
-{
-  "docs_json_path": "../mintlify/docs.json",
-  "sdk_output_dir": "../mintlify/docs/sdk/latest",
-  "sdk_tab": "Pixeltable SDK",
-  "show_errors": true
-}
