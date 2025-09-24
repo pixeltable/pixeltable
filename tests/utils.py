@@ -6,7 +6,6 @@ import random
 import shutil
 import subprocess
 import sysconfig
-import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 from unittest import TestCase
@@ -20,11 +19,11 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-import pixeltable.utils.s3 as s3_util
 from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.object_stores import ObjectOps
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
@@ -378,23 +377,7 @@ def __image_mode(path: str) -> str:
 
 def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     uri = 's3://multimedia-commons/data/videos/mp4/'
-    parsed = urllib.parse.urlparse(uri)
-    bucket_name = parsed.netloc
-    prefix = parsed.path.lstrip('/')
-    s3_client = s3_util.get_client()
-    uris: list[str] = []
-    # Use paginator to handle more than 1000 objects
-    paginator = s3_client.get_paginator('list_objects_v2')
-
-    for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
-        if 'Contents' not in page:
-            continue
-        for obj in page['Contents']:
-            if len(uris) >= n:
-                return uris
-            uri = f's3://{bucket_name}/{obj["Key"]}'
-            uris.append(uri)
-    return uris
+    return ObjectOps.list_uris(uri, n_max=n)
 
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
@@ -493,6 +476,22 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
     assert (now - actual_created_at).total_seconds() <= 60
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
+
+
+def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMetadata) -> None:
+    """
+    Assert that version metadata (user-facing metadata as returned by `tbl.get_versions()`) matches the expected dict.
+    `created_at` will be checked to be less than 1 minute ago; the other fields will be checked for exact
+    equality.
+    """
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    actual_created_at: datetime.datetime = actual['created_at']
+    assert (now - actual_created_at).total_seconds() <= 60
+
+    trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
     tc = TestCase()
     tc.maxDiff = 10_000
     tc.assertDictEqual(expected, trimmed_actual)

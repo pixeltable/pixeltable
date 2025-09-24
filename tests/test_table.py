@@ -24,7 +24,7 @@ from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     TESTS_DIR,
@@ -1017,7 +1017,7 @@ class TestTable:
         n_sample_rows = 20
         schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String, 'img_literal': pxt.Image}
         tbl = pxt.create_table('test', schema)
-        assert MediaStore.get().count(tbl._id) == 0
+        assert ObjectOps.count(None, tbl._id) == 0
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -1028,7 +1028,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
-        assert MediaStore.get().count(tbl._id) == n_sample_rows
+        assert ObjectOps.count(None, tbl._id) == n_sample_rows
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -1039,21 +1039,15 @@ class TestTable:
 
         # Test adding stored image transformation
         tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
-        assert MediaStore.get().count(tbl._id) == 2 * n_sample_rows
-
-        # Test MediaStore.get().stats()
-        stats = list(filter(lambda x: x[0] == tbl._id, MediaStore.get().stats()))
-        assert len(stats) == 2  # Two columns
-        assert stats[0][2] == n_sample_rows  # Each column has n_sample_rows associated images
-        assert stats[1][2] == n_sample_rows
+        assert ObjectOps.count(None, tbl._id) == 2 * n_sample_rows
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert MediaStore.get().count(tbl._id) == n_sample_rows
+        assert ObjectOps.count(None, tbl._id) == n_sample_rows
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table('test')
-        assert MediaStore.get().count(tbl._id) == 0
+        assert ObjectOps.count(None, tbl._id) == 0
 
     def test_schema_spec(self, reset_db: None) -> None:
         with pytest.raises(pxt.Error) as exc_info:
@@ -1359,10 +1353,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert MediaStore.get().count(view._id) == view.count() * 2
+        assert ObjectOps.count(None, view._id) == view.count() * 2
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        assert MediaStore.get().count(view._id) == view.count() * 2
+        assert ObjectOps.count(None, view._id) == view.count() * 2
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -1371,7 +1365,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert MediaStore.get().count(view._id) == 0
+        assert ObjectOps.count(None, view._id) == 0
 
         with pytest.raises(pxt.Error, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
@@ -1384,7 +1378,7 @@ class TestTable:
             pxt.drop_table('test_tbl')
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
-        assert MediaStore.get().count(view._id) == 0
+        assert ObjectOps.count(None, view._id) == 0
 
     def test_video_urls(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -1976,7 +1970,7 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert MediaStore.get().count(t._id) == t.count() * stores_img_col
+        assert ObjectOps.count(None, t._id) == t.count() * stores_img_col
 
         # test loading from store
         reload_catalog()
@@ -1991,13 +1985,13 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        assert MediaStore.get().count(t2._id) == t2.count() * stores_img_col
+        assert ObjectOps.count(None, t2._id) == t2.count() * stores_img_col
         _ = t2.collect()
         _ = t2.collect().to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        assert MediaStore.get().count(t2._id) == t2.count() * stores_img_col
+        assert ObjectOps.count(None, t2._id) == t2.count() * stores_img_col
 
     @staticmethod
     @pxt.udf
@@ -2850,6 +2844,7 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_coco_dataset()
+
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             _ = t.to_pytorch_dataset()
 

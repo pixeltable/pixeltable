@@ -118,6 +118,7 @@ dev = [
     "mkdocs-material>=9.5.23,<10",
     "mkdocstrings-python>=1.10.2,<2",
     "black>=24.4",
+    "pydoclint>=0.7",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
@@ -154,6 +155,7 @@ dev = [
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
     "lancedb>=0.20",
+    "google-cloud-storage>=2.18.0",
 ]
 test = [
     "pytest>=8.4",
