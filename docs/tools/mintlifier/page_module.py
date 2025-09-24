@@ -101,7 +101,7 @@ class ModulePageGenerator(PageBase):
     
     def _document_children(self, module: Any, children: List[str], module_path: str) -> str:
         """Document only specified children."""
-        content = "## Module Contents\n\n"
+        content = ""
         
         # Get module name for parent groups
         module_name = module_path.split('.')[-1]
@@ -127,7 +127,7 @@ class ModulePageGenerator(PageBase):
         
         # Generate class pages
         if classes_to_generate:
-            content += "### Classes\n\n"
+            content += "## Classes\n\n"
             self._generated_classes = []
             class_parent_groups = parent_groups + [module_name]
             
@@ -149,7 +149,7 @@ class ModulePageGenerator(PageBase):
         
         # Document functions inline (no separate pages)
         if functions_to_generate:
-            content += "### Functions\n\n"
+            content += "## Functions\n\n"
             
             for name, obj in sorted(functions_to_generate):
                 # Generate inline documentation
@@ -163,7 +163,7 @@ class ModulePageGenerator(PageBase):
     
     def _document_all_public(self, module: Any, module_path: str, parent_groups: List[str]) -> str:
         """Document all public items in module."""
-        content = "## Module Contents\n\n"
+        content = ""
 
         # Get all public items
         items = []
@@ -214,7 +214,7 @@ class ModulePageGenerator(PageBase):
         
         # Document classes - list with links and generate their pages
         if classes:
-            content += "### Classes\n\n"
+            content += "## Classes\n\n"
             module_name = module_path.split('.')[-1]
             class_parent_groups = parent_groups + [module_name]
             
@@ -240,7 +240,7 @@ class ModulePageGenerator(PageBase):
         
         # Document functions inline (no separate pages)
         if functions:
-            content += "### Functions\n\n"
+            content += "## Functions\n\n"
             
             for name, obj in sorted(functions):
                 # Generate inline documentation
