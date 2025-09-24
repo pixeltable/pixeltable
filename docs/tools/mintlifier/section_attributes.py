@@ -23,11 +23,7 @@ class AttributesSection(SectionBase):
             return False
 
         # Don't handle NamedTuple
-        if hasattr(obj, '_fields') and hasattr(obj, '_field_defaults'):
-            return False
-
-        # Handle everything else
-        return True
+        return not (hasattr(obj, '_fields') and hasattr(obj, '_field_defaults'))
 
     def generate_section(self, obj: Any, name: str) -> str:
         """Generate class attributes documentation section.
