@@ -48,6 +48,12 @@ class RowBuilder:
 
     For ColumnRefs to unstored iterator columns:
     - in order for them to be executable, we also record the iterator args and pass them to the ColumnRef
+
+    Args:
+        output_exprs: list of Exprs to be evaluated
+        columns: list of columns to be materialized
+        input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
+    TODO: enforce that output_exprs doesn't overlap with input_exprs?
     """
 
     unique_exprs: ExprSet
@@ -105,13 +111,6 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: Optional[catalog.TableVersion] = None,
     ):
-        """
-        Args:
-            output_exprs: list of Exprs to be evaluated
-            columns: list of columns to be materialized
-            input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
-        TODO: enforce that output_exprs doesn't overlap with input_exprs?
-        """
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
         self.stored_img_cols = []
@@ -474,11 +473,6 @@ class RowBuilder:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                if col.col_type.is_media_type():
-                    if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
-                        # we have yet to store this image
-                        data_row.flush_img(slot_idx, col)
-                    data_row.move_tmp_media_file(slot_idx, col)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
