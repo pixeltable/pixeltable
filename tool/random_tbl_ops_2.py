@@ -5,11 +5,13 @@ import os
 import random
 import sys
 import time
+from argparse import ArgumentParser
 from datetime import datetime
 from typing import Any, Callable, ClassVar, Iterator
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from tool.worker_harness import run_workers
 
 
 class RandomTblOps:
@@ -21,17 +23,18 @@ class RandomTblOps:
     ]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
 
+    # (operation_name, relative_frequency, is_read_op)
     RANDOM_OPS_DEF = (
-        ('query', 100),
-        ('insert_rows', 30),
-        ('update_rows', 15),
-        ('delete_rows', 15),
-        ('add_data_column', 5),
-        ('add_computed_column', 5),
-        ('drop_column', 3),
-        # ('add_view', 5),
-        # ('drop_view', 2),
-        # ('drop_table', 0.25),
+        ('query', 100, True),
+        ('insert_rows', 30, False),
+        ('update_rows', 15, False),
+        ('delete_rows', 15, False),
+        ('add_data_column', 5, False),
+        ('add_computed_column', 5, False),
+        ('drop_column', 3, False),
+        # ('add_view', 5, False),
+        # ('drop_view', 2, False),
+        # ('drop_table', 0.25, False),
     )
 
     random_ops: list[tuple[float, Callable]]
@@ -39,12 +42,12 @@ class RandomTblOps:
     logger = logging.getLogger('random_tbl_ops')
 
     worker_id: int
+    read_only: bool
 
-    def __init__(self, worker_id: int) -> None:
+    def __init__(self, worker_id: int, read_only: bool) -> None:
         self.worker_id = worker_id
-        # logging.basicConfig(filename='random-tbl-ops.log',
-        #                 format='%(message)s',
-        #                 level=logging.INFO)
+        self.read_only = read_only
+
         handler = logging.FileHandler(Config.get().home / 'random-tbl-ops.log')
         handler.setLevel(logging.INFO)
         formatter = logging.Formatter('%(message)s')
@@ -172,10 +175,13 @@ class RandomTblOps:
 
     def run(self) -> None:
         # Initialize random_ops.
+        allowed_ops = [
+            (op_name, weight) for op_name, weight, is_read_op in self.RANDOM_OPS_DEF if is_read_op or not self.read_only
+        ]
         self.random_ops = []
-        total_weight = sum(float(weight) for _, weight in self.RANDOM_OPS_DEF)
+        total_weight = sum(float(weight) for _, weight in allowed_ops)
         cumulative_weight = 0.0
-        for op_name, weight in self.RANDOM_OPS_DEF:
+        for op_name, weight in allowed_ops:
             cumulative_weight += float(weight)
             self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
@@ -184,12 +190,7 @@ class RandomTblOps:
             time.sleep(random.uniform(0.1, 0.5))
 
 
-def main() -> None:
-    if len(sys.argv) == 1:
-        worker_id = 0
-    else:
-        worker_id = int(sys.argv[1])
-
+def run(worker_id: int, read_only: bool) -> None:
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
@@ -202,9 +203,39 @@ def main() -> None:
         time.sleep(5)
 
     try:
-        RandomTblOps(worker_id).run()
+        RandomTblOps(worker_id, read_only).run()
     except KeyboardInterrupt:
         pass
+
+
+def make_parser() -> ArgumentParser:
+    parser = ArgumentParser(description='Run random table operations.')
+    parser.add_argument('workers', type=int, help='Number of worker processes to start')
+    parser.add_argument('duration', type=float, help='Duration to run (in seconds)')
+    parser.add_argument(
+        '-r', '--read-only-workers', type=int, default=0, help='Number of read-only workers (default: 0)'
+    )
+    return parser
+
+
+def main() -> None:
+    parser = make_parser()
+    args = parser.parse_args()
+
+    if args.workers < 1:
+        print('`workers` must be at least 1')
+        sys.exit(1)
+
+    if args.read_only_workers < 0 or args.read_only_workers > args.workers:
+        print('--read-only-workers must be between 0 and `workers`')
+        sys.exit(1)
+
+    worker_args = [
+        ['-c', f'from tool.random_tbl_ops_2 import run; run({i}, {i >= args.workers - args.read_only_workers})']
+        for i in range(args.workers)
+    ]
+
+    run_workers(args.workers, args.duration, worker_args=worker_args)
 
 
 if __name__ == '__main__':

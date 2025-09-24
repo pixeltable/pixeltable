@@ -13,7 +13,7 @@ PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
 "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS random_tbl_ops;"
 
 # Run worker harness script
-python "$SCRIPT_DIR/../tool/worker_harness.py" $1 $2 "$SCRIPT_DIR/../tool/random_tbl_ops_2.py"
+python "$SCRIPT_DIR/../tool/random_tbl_ops_2.py" "$@"
 echo
 
 # Print stats

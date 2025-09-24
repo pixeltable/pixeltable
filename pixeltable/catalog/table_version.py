@@ -292,11 +292,13 @@ class TableVersion:
         tbl_id = UUID(hex=inital_md.tbl_md.tbl_id)
         assert (tbl_id, None) not in cat._tbl_versions
         tbl_version = cls(tbl_id, inital_md.tbl_md, inital_md.version_md, None, inital_md.schema_version_md, [])
-        # TODO: break this up, so that Catalog.create_table() registers tbl_version
+
         @env.register_rollback_action
         def _() -> None:
             if (tbl_id, None) in cat._tbl_versions:
                 del cat._tbl_versions[tbl_id, None]
+
+        # TODO: break this up, so that Catalog.create_table() registers tbl_version
         cat._tbl_versions[tbl_id, None] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()

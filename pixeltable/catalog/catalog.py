@@ -434,7 +434,7 @@ class Catalog:
                         tv.is_validated = False
 
                 if has_exc:
-                    # purge all modified TableVersion instances, we can't guarantee they are still consistent with the
+                    # purge all modified TableVersion instances; we can't guarantee they are still consistent with the
                     # stored metadata
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.id, handle.effective_version)

@@ -2,11 +2,21 @@ import subprocess
 import sys
 import time
 
+from mistralai import Optional
 
-def run_workers(num_workers: int, duration: float, script: str) -> None:
+
+def run_workers(
+    num_workers: int, duration: float, script: Optional[str] = None, worker_args: Optional[list[list[str]]] = None
+) -> None:
+    if (script is None) == (worker_args is None):
+        raise ValueError('Exactly one of `script` or `worker_args` must be specified.')
+
+    if script is not None:
+        worker_args = [[script, str(i)] for i in range(num_workers)]
+
     processes: list[subprocess.Popen] = []
     for i in range(num_workers):
-        p = subprocess.Popen(['python', script, str(i)])
+        p = subprocess.Popen(['python', *worker_args[i]])
         processes.append(p)
 
     start_time = time.time()
@@ -57,7 +67,7 @@ def main() -> None:
         sys.exit(1)
 
     script = sys.argv[3]
-    run_workers(num_workers, duration, script)
+    run_workers(num_workers, duration, script, sys.argv[4:])
 
 
 if __name__ == '__main__':

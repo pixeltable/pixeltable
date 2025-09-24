@@ -60,7 +60,7 @@ class StatsPrinter:
                     break
                 self.process_line(line)
 
-        ops = tuple(op for op, _ in RandomTblOps.RANDOM_OPS_DEF)
+        ops = tuple(op for op, *_ in RandomTblOps.RANDOM_OPS_DEF)
         data: dict[str, list[str]] = {}
         for op in ops:
             key = op[:6]
