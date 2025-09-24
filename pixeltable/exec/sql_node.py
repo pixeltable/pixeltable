@@ -82,7 +82,7 @@ class SqlNode(ExecNode):
 
     tbl: Optional[catalog.TableVersionPath]
     select_list: exprs.ExprSet
-    cell_md_col_refs: list[exprs.ColumnRef]  # slots for which we also need to set DataRow.slot_cellmd
+    cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
     num_pk_cols: int
     py_filter: Optional[exprs.Expr]  # a predicate that can only be run in Python
@@ -111,9 +111,11 @@ class SqlNode(ExecNode):
         self.tbl = tbl
         if cell_md_col_refs is not None:
             assert all(ref.col.stores_cellmd for ref in cell_md_col_refs)
-            self.cell_md_col_refs = cell_md_col_refs
+            self.cell_md_refs = [
+                exprs.ColumnPropertyRef(ref, exprs.ColumnPropertyRef.Property.CELLMD) for ref in cell_md_col_refs
+            ]
         else:
-            self.cell_md_col_refs = []
+            self.cell_md_refs = []
         self.select_list = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
@@ -159,16 +161,14 @@ class SqlNode(ExecNode):
             return self.tbl.tbl_version.get().store_tbl.pk_columns()
         return []
 
-    def _cell_md_col_items(self) -> list[sql.Column]:
-        assert self.tbl is not None or len(self.cell_md_col_refs) == 0
-        return [ref.col.sa_cellmd_col for ref in self.cell_md_col_refs]
-
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
         sql_select_list = (
-            [self.sql_elements.get(e) for e in self.select_list] + self._cell_md_col_items() + self._pk_col_items()
+            [self.sql_elements.get(e) for e in self.select_list]
+            + [self.sql_elements.get(e) for e in self.cell_md_refs]
+            + self._pk_col_items()
         )
         stmt = sql.select(*sql_select_list)
 
@@ -210,7 +210,7 @@ class SqlNode(ExecNode):
             if not keep_pk:
                 self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
             self.cte = self._create_stmt().cte()
-        return self.cte, exprs.ExprDict(zip(self.select_list, self.cte.c))  # skip pk cols
+        return self.cte, exprs.ExprDict(zip(list(self.select_list) + self.cell_md_refs, self.cte.c))  # skip pk cols
 
     @classmethod
     def retarget_rowid_refs(cls, target: catalog.TableVersionPath, expr_seq: Iterable[exprs.Expr]) -> None:
@@ -338,9 +338,9 @@ class SqlNode(ExecNode):
                 output_row.set_pk(tuple(sql_row[-self.num_pk_cols :]))
 
             # populate DataRow.slot_cellmd, where requested
-            for i, ref in enumerate(self.cell_md_col_refs[::-1]):
+            for i, cell_md_ref in enumerate(self.cell_md_refs[::-1]):
                 cell_md_dict = sql_row[-i - self.num_pk_cols - 1]
-                output_row.slot_cellmd[ref.slot_idx] = (
+                output_row.slot_cellmd[cell_md_ref.col_ref.slot_idx] = (
                     exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
                 )
 
@@ -519,7 +519,7 @@ class SqlJoinNode(SqlNode):
             input_cte, input_col_map = input_node.to_cte()
             self.input_ctes.append(input_cte)
             sql_elements.extend(input_col_map)
-        cell_md_col_refs = [ref for input in inputs for ref in input.cell_md_col_refs]
+        cell_md_col_refs = [cell_md_ref.col_ref for input in inputs for cell_md_ref in input.cell_md_refs]
         super().__init__(None, row_builder, select_list, sql_elements, cell_md_col_refs=cell_md_col_refs)
 
     def _create_stmt(self) -> sql.Select:
@@ -574,8 +574,9 @@ class SqlSampleNode(SqlNode):
         assert self.pk_count > 1
         sql_elements = exprs.SqlElementCache(input_col_map)
         assert sql_elements.contains_all(stratify_exprs)
+        cell_md_col_refs = [cell_md_ref.col_ref for cell_md_ref in input.cell_md_refs]
         super().__init__(
-            input.tbl, row_builder, select_list, sql_elements, cell_md_col_refs=input.cell_md_col_refs, set_pk=True
+            input.tbl, row_builder, select_list, sql_elements, cell_md_col_refs=cell_md_col_refs, set_pk=True
         )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause

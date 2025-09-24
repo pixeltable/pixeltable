@@ -28,12 +28,19 @@ from .utils import (
 
 class TestDataFrame:
     def create_join_tbls(self, num_rows: int) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
-        t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int})
-        t2 = pxt.create_table(f't2_{num_rows}', {'id': pxt.Int, 'f': pxt.Float})
-        validate_update_status(t1.insert({'id': i, 'i': i} for i in range(num_rows)), expected_rows=num_rows)
+        t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
+        validate_update_status(
+            t1.insert({'id': i, 'i': i, 'a': np.ones((100, 100), dtype=np.int64) * i} for i in range(num_rows)),
+            expected_rows=num_rows,
+        )
+        t2 = pxt.create_table(f't2_{num_rows}', {'id': pxt.Int, 'f': pxt.Float, 'a': pxt.Array})
         # t2 has matching ids
         validate_update_status(
-            t2.insert({'id': i, 'f': float(num_rows - i)} for i in range(num_rows)), expected_rows=num_rows
+            t2.insert(
+                {'id': i, 'f': float(num_rows - i), 'a': np.ones((100, 100), dtype=np.int64) * (num_rows - i)}
+                for i in range(num_rows)
+            ),
+            expected_rows=num_rows,
         )
 
         # t3:
@@ -126,13 +133,19 @@ class TestDataFrame:
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
     def test_join(self, reset_db: None) -> None:
-        t1, t2, t3 = self.create_join_tbls(1000)
+        num_rows = 1000
+        t1, t2, t3 = self.create_join_tbls(num_rows)
         # inner join
         df = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
         pd_df = df.collect().to_pandas()
-        assert len(pd_df) == 1000
+        assert len(pd_df) == num_rows
         assert pd_df.f.is_monotonic_increasing  # correct ordering
-        assert (pd_df.out == 1000.0).all()  # correct sum
+        assert (pd_df.out == float(num_rows)).all()  # correct sum
+
+        # inner join that selects externally-stored arrays
+        res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, a1=t1.a, a2=t2.a).order_by(t2.f).collect()
+        for row in res:
+            np.array_equal(row['a1'] + row['a2'], np.ones((100, 100), dtype=np.int64) * num_rows)
 
         # the same inner join, but with redundant join predicates
         df = (
