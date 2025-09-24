@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import logging
+import os
 import random
 import time
 from collections import defaultdict
@@ -12,6 +13,7 @@ from uuid import UUID
 
 import psycopg
 import sqlalchemy as sql
+import sqlalchemy.exc as sql_exc
 
 from pixeltable import exceptions as excs
 
@@ -103,7 +105,7 @@ def retry_loop(
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
-                except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+                except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -354,7 +356,7 @@ class Catalog:
                             # raise to abort the transaction
                             raise
 
-                        except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+                        except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                             has_exc = True
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
@@ -378,45 +380,10 @@ class Catalog:
                     # we got this exception after getting the initial table locks and therefore need to abort
                     raise
 
-            except (sql.exc.DBAPIError, sql.exc.OperationalError, sql.exc.InternalError) as e:
+            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                # we got some db error during the actual operation (not just while trying to get locks on the metadata
-                # records): we convert these into Errors, if asked to do so, and abort
-                # TODO: what other concurrency-related exceptions should we expect?
-
-                # we always convert UndefinedTable exceptions (they can't be retried)
-                if isinstance(e.orig, psycopg.errors.UndefinedTable):
-                    # the table got dropped in the middle of the operation
-                    assert tbl is not None
-                    tbl_name = tbl.tbl_name()
-                    _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
-                    raise excs.Error(f'Table was dropped: {tbl_name}') from None
-                elif (
-                    isinstance(
-                        e.orig,
-                        (
-                            psycopg.errors.SerializationFailure,  # serialization error despite getting x-locks
-                            psycopg.errors.InFailedSqlTransaction,  # can happen after tx fails for another reason
-                            psycopg.errors.DuplicateColumn,  # if a different process added a column concurrently
-                        ),
-                    )
-                    and convert_db_excs
-                ):
-                    msg: str
-                    if tbl is not None:
-                        msg = f'{tbl.tbl_name()} ({tbl.tbl_id})'
-                    elif tbl_id is not None:
-                        msg = f'{tbl_id}'
-                    else:
-                        msg = ''
-                    _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
-                    raise excs.Error(
-                        'That Pixeltable operation could not be completed because it conflicted with another '
-                        'operation that was run on a different process.\n'
-                        'Please re-run the operation.'
-                    ) from None
-                else:
-                    raise
+                self.raise_from_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
+                raise  # re-raise the error if it didn't convert to a pxt.Error
 
             except:
                 has_exc = True
@@ -439,6 +406,44 @@ class Catalog:
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.id, handle.effective_version)
                 self._modified_tvs.clear()
+
+    def raise_from_sql_exc(
+        self, e: sql_exc.StatementError, tbl_id: UUID | None, tbl: TableVersionHandle | None, convert_db_excs: bool
+    ) -> None:
+        # we got some db error during the actual operation (not just while trying to get locks on the metadata
+        # records); we convert these into pxt.Error exceptions if appropriate
+
+        # we always convert UndefinedTable exceptions (they can't be retried)
+        if isinstance(e.orig, psycopg.errors.UndefinedTable):
+            # the table got dropped in the middle of the operation
+            assert tbl is not None
+            tbl_name = tbl.get().name
+            _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
+            raise excs.Error(f'Table was dropped: {tbl_name}') from None
+        elif (
+            isinstance(
+                e.orig,
+                (
+                    psycopg.errors.SerializationFailure,  # serialization error despite getting x-locks
+                    psycopg.errors.InFailedSqlTransaction,  # can happen after tx fails for another reason
+                    psycopg.errors.DuplicateColumn,  # if a different process added a column concurrently
+                ),
+            )
+            and convert_db_excs
+        ):
+            msg: str
+            if tbl is not None:
+                msg = f'{tbl.get().name} ({tbl.id})'
+            elif tbl_id is not None:
+                msg = f'{tbl_id}'
+            else:
+                msg = ''
+            _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
+            raise excs.Error(
+                'That Pixeltable operation could not be completed because it conflicted with another '
+                'operation that was run on a different process.\n'
+                'Please re-run the operation.'
+            ) from None
 
     @property
     def in_write_xact(self) -> bool:
@@ -604,7 +609,7 @@ class Catalog:
                     if op.op_sn == op.num_ops - 1:
                         conn.execute(reset_has_pending_stmt)
 
-            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):

@@ -37,6 +37,9 @@ class TableVersionHandle:
     def __hash__(self) -> int:
         return hash((self.id, self.effective_version))
 
+    def __repr__(self) -> str:
+        return f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version})'
+
     @property
     def is_snapshot(self) -> bool:
         return self.effective_version is not None
@@ -78,15 +81,12 @@ class ColumnHandle:
     col_id: int
 
     def get(self) -> 'Column':
-        from pixeltable.catalog import Catalog
-
         if self.col_id not in self.tbl_version.get().cols_by_id:
             if self.col_id in self.tbl_version.get()._tbl_md.column_md:
                 schema_version_drop = self.tbl_version.get()._tbl_md.column_md[self.col_id].schema_version_drop
                 schema_version_suffix = f'; it was dropped in table version {schema_version_drop}'
             else:
                 schema_version_suffix = ''
-            Catalog.get()._modified_tvs.add(self.tbl_version)
             raise excs.Error(
                 f'Column has been dropped (no record for column ID {self.col_id} in table '
                 f'{self.tbl_version.get().versioned_name!r}{schema_version_suffix})'

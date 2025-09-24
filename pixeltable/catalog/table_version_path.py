@@ -66,14 +66,7 @@ class TableVersionPath:
     def refresh_cached_md(self) -> None:
         from pixeltable.catalog import Catalog
 
-        if Env.get().in_xact:
-            # when we're running inside a transaction, we need to make sure to supply current metadata;
-            # mixing stale metadata with current metadata leads to query construction failures
-            # (multiple sqlalchemy Table instances for the same underlying table create corrupted From clauses)
-            if self._cached_tbl_version is not None and self._cached_tbl_version.is_validated:
-                # nothing to refresh
-                return
-        elif self._cached_tbl_version is not None:
+        if self._cached_tbl_version is not None and self._cached_tbl_version.is_validated:
             return
 
         with Catalog.get().begin_xact(tbl_id=self.tbl_version.id, for_write=False):

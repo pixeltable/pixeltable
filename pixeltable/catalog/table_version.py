@@ -11,6 +11,7 @@ from uuid import UUID
 
 import jsonschema.exceptions
 import sqlalchemy as sql
+from sqlalchemy import exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -674,6 +675,7 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
+        from pixeltable.catalog import Catalog
         from pixeltable.plan import Planner
 
         cols_to_add = list(cols)
@@ -732,16 +734,19 @@ class TableVersion:
             plan.open()
             try:
                 excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
-            except sql.exc.DBAPIError as exc:
-                # Wrap the DBAPIError in an excs.Error to unify processing in the subsequent except block
-                raise excs.Error(f'SQL error during execution of computed column `{col.name}`:\n{exc}') from exc
+            except sql_exc.DBAPIError as exc:
+                Catalog.get().raise_from_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                # If it wasn't converted, re-raise as a generic Pixeltable error (not a known concurrency error; it's something else)
+                raise excs.Error(
+                    f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
+                ) from exc
             if excs_per_col > 0:
                 cols_with_excs.append(col)
                 num_excs += excs_per_col
             computed_values += plan.ctx.num_computed_exprs * row_count
             plan.close()
 
-        pxt.catalog.Catalog.get().record_column_dependencies(self)
+        Catalog.get().record_column_dependencies(self)
 
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
@@ -1290,7 +1295,7 @@ class TableVersion:
 
         # force reload on next operation
         self.is_validated = False
-        pxt.catalog.Catalog.get().remove_tbl_version(self)
+        Catalog.get().remove_tbl_version(self)
 
         # delete newly-added data
         # Do this at the end, after all DB operations have completed.
@@ -1539,8 +1544,8 @@ class TableVersion:
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
-        from pixeltable import catalog
+        from pixeltable.catalog import Catalog
 
         id = UUID(d['id'])
         effective_version = d['effective_version']
-        return catalog.Catalog.get().get_tbl_version(id, effective_version)
+        return Catalog.get().get_tbl_version(id, effective_version)
