@@ -342,13 +342,12 @@ class FunctionSectionGenerator(PageBase):
                         current_example = {'description': '', 'code': '', 'output': ''}
                         code_lines = []
 
-            else:
-                # Not in code - this is descriptive text
-                if line.strip():
-                    # Add to description
-                    if current_example['description']:
-                        current_example['description'] += ' '
-                    current_example['description'] += line.strip()
+            # Not in code - this is descriptive text
+            elif line.strip():
+                # Add to description
+                if current_example['description']:
+                    current_example['description'] += ' '
+                current_example['description'] += line.strip()
 
             i += 1
 
