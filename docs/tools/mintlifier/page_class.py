@@ -18,7 +18,10 @@ class ClassPageGenerator(PageBase):
         # Initialize method generator for inline sections
         self.method_gen = MethodSectionGenerator(show_errors)
 
-    def generate_page(self, class_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] | None = None) -> Optional[dict]:
+    def generate_page(
+        self, class_path: str, parent_groups: List[str], item_type: str,
+        opml_children: List[str] | None = None
+    ) -> Optional[dict]:
         """Generate class documentation page and return navigation structure.
 
         Args:
@@ -41,7 +44,9 @@ class ClassPageGenerator(PageBase):
             import importlib
             module = importlib.import_module(module_path)
             if not hasattr(module, class_name):
-                return self._generate_error_page(class_name, parent_groups, f"Class {class_name} not found in {module_path}")
+                return self._generate_error_page(
+                    class_name, parent_groups, f"Class {class_name} not found in {module_path}"
+                )
             cls = getattr(module, class_name)
             if not inspect.isclass(cls):
                 return self._generate_error_page(class_name, parent_groups, f"{class_name} is not a class")
@@ -202,10 +207,10 @@ icon: "square-c"
 
             try:
                 obj = getattr(cls, name)
-                if not callable(obj) and not isinstance(obj, property):
-                    # Check if it's a class attribute (not instance)
-                    if hasattr(cls, name) and not hasattr(cls.__init__, name):
-                        attributes.append((name, obj))
+                # Check if it's a class attribute (not instance)
+                if (not callable(obj) and not isinstance(obj, property) and
+                        hasattr(cls, name) and not hasattr(cls.__init__, name)):
+                    attributes.append((name, obj))
             except AttributeError:
                 continue
 

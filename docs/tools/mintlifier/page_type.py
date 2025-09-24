@@ -16,7 +16,10 @@ class TypePageGenerator(PageBase):
         """Initialize with output directory, version, and error display setting."""
         super().__init__(output_dir, version, show_errors, github_repo, github_package_path)
 
-    def generate_page(self, type_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] | None = None) -> Optional[str]:
+    def generate_page(
+        self, type_path: str, parent_groups: List[str], item_type: str,
+        opml_children: List[str] | None = None
+    ) -> Optional[str]:
         """Generate type documentation page.
 
         Types are documented differently from classes - they show:
