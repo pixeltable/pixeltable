@@ -72,6 +72,7 @@ class Env:
     _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
     _db_url: Optional[str]
     _default_time_zone: Optional[ZoneInfo]
+    _verbosity: int
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
@@ -97,7 +98,6 @@ class Env:
     _current_tx_rollback_actions: list[Callable[[], None]]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
-    verbosity: int
 
     @classmethod
     def get(cls) -> Env:
@@ -225,6 +225,10 @@ class Env:
         tz_name = None if tz is None else tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
+
+    @property
+    def verbosity(self) -> int:
+        return self._verbosity
 
     @property
     def conn(self) -> Optional[sql.Connection]:
@@ -407,10 +411,12 @@ class Env:
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
-        # Set verbose level for user visible console messages
-        self.verbosity = config.get_int_value('verbosity') or 0
+        # Set verbosity level for user visible console messages
+        self._verbosity = config.get_int_value('verbosity')
+        if self._verbosity is None:
+            self._verbosity = 1
         stdout_handler = ConsoleOutputHandler(stream=stdout)
-        stdout_handler.setLevel(map_level(self.verbosity))
+        stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
         self._console_logger = ConsoleLogger(self._logger)

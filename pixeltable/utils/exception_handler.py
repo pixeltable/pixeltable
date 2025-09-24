@@ -3,6 +3,8 @@ from typing import Any, Callable, Optional, TypeVar
 
 R = TypeVar('R')
 
+logger = logging.getLogger('pixeltable')
+
 
 def run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = True, **kwargs: Any) -> Optional[R]:
     """
@@ -15,20 +17,20 @@ def run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = 
         raise_error: raise an exception if an error occurs during cleanup.
     """
     try:
-        logging.debug(f'Running cleanup function: {cleanup_func.__name__!r}')
+        logger.debug(f'Running cleanup function: {cleanup_func.__name__!r}')
         return cleanup_func(*args, **kwargs)
     except KeyboardInterrupt as interrupt:
         # Save original exception and re-attempt cleanup
         original_exception = interrupt
-        logging.debug(f'Cleanup {cleanup_func.__name__!r} interrupted, retrying')
+        logger.debug(f'Cleanup {cleanup_func.__name__!r} interrupted, retrying')
         try:
             return cleanup_func(*args, **kwargs)
         except Exception as e:
             # Suppress this exception
-            logging.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e.__class__}: {e}')
+            logger.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e.__class__}: {e}')
         raise KeyboardInterrupt from original_exception
     except Exception as e:
-        logging.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e.__class__}: {e}')
+        logger.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e.__class__}: {e}')
         if raise_error:
             raise e
     return None

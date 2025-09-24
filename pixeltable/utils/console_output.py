@@ -1,6 +1,8 @@
 import logging
 from typing import TextIO
 
+from pixeltable import exceptions as excs
+
 
 def map_level(verbosity: int) -> int:
     """
@@ -19,7 +21,8 @@ def map_level(verbosity: int) -> int:
         return logging.INFO
     if verbosity == 2:
         return logging.DEBUG
-    return logging.INFO
+
+    raise excs.Error(f'Invalid verbosity level: {verbosity}')
 
 
 class ConsoleOutputHandler(logging.StreamHandler):
