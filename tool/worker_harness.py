@@ -2,11 +2,9 @@ import subprocess
 import sys
 import time
 
-from mistralai import Optional
-
 
 def run_workers(
-    num_workers: int, duration: float, script: Optional[str] = None, worker_args: Optional[list[list[str]]] = None
+    num_workers: int, duration: float, script: str | None = None, worker_args: list[list[str]] | None = None
 ) -> None:
     if (script is None) == (worker_args is None):
         raise ValueError('Exactly one of `script` or `worker_args` must be specified.')
@@ -45,7 +43,7 @@ def run_workers(
     except KeyboardInterrupt:
         print('\n\nReceived KeyboardInterrupt.')
 
-    # Duration elapsed, kill all processes
+    # Duration elapsed; kill all processes
     elapsed = min(time.time() - start_time, duration)
     print(f'Terminating all workers after {elapsed:.1f} seconds.')
     for p in processes:

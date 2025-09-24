@@ -941,6 +941,13 @@ class Catalog:
         comment: str,
         media_validation: MediaValidation,
     ) -> tuple[Table, bool]:
+        """
+        Creates a new InsertableTable at the given path.
+
+        If `if_exists == IfExistsParam.IGNORE` and a table `t` already exists at the given path, returns `t, False`.
+
+        Otherwise, creates a new table `t` and returns `t, True` (or raises an exception if the operation fails).
+        """
         existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
         if existing is not None:
             assert isinstance(existing, Table)
