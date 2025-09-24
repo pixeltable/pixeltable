@@ -26,7 +26,7 @@ class TypedDictSection(SectionBase):
         if not hasattr(obj, '__annotations__'):
             return ""
 
-        content = "## Fields\n\n"
+        content = "## Attributes\n\n"
 
         # Get annotations
         annotations = obj.__annotations__

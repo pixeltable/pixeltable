@@ -25,7 +25,7 @@ class NamedTupleSection(SectionBase):
         if not hasattr(obj, '_fields'):
             return ""
 
-        content = "## Fields\n\n"
+        content = "## Attributes\n\n"
 
         # Get field information
         fields = obj._fields

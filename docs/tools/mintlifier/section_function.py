@@ -154,8 +154,15 @@ class FunctionSectionGenerator(PageBase):
         for param in parsed.params:
             # Format parameter
             type_str = params_with_types.get(param.arg_name, param.type_name or "Any")
+            # Clean up type strings that break MDX
+            if type_str:
+                import re
+                # Convert to string first if it's not already
+                type_str = str(type_str)
+                # Remove <class '...'> format
+                type_str = re.sub(r"<class '([^']+)'>", r"\1", type_str)
             default = params_with_defaults.get(param.arg_name)
-            
+
             content += f"- **`{param.arg_name}`** "
             if type_str:
                 content += f"(*{type_str}*)"
@@ -264,7 +271,10 @@ class FunctionSectionGenerator(PageBase):
 
     def _extract_doctest_examples(self, text: str) -> list:
         """
-        Extract doctest examples from text, similar to docstring_parser's Numpy example parser's approach.
+        Extract doctest examples from text.
+
+        Groups consecutive >>> blocks as single examples when they're part of the
+        same logical operation (e.g., defining a variable then using it).
 
         Returns a list of dicts with 'description', 'code', and 'output' keys.
         """
@@ -276,17 +286,16 @@ class FunctionSectionGenerator(PageBase):
         in_code = False
         code_lines = []
 
-        for i, line in enumerate(lines):
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
             # Check if line starts a doctest
             if line.strip().startswith('>>>'):
-                # If we were collecting output, save the previous example
-                if current_example['code']:
-                    current_example['code'] = '\n'.join(code_lines)
-                    examples.append(current_example)
-                    current_example = {'description': '', 'code': '', 'output': ''}
-                    code_lines = []
+                if not in_code:
+                    # Starting a new code block
+                    in_code = True
 
-                in_code = True
                 # Remove the >>> prompt and add to code
                 code_line = line.strip()[3:].lstrip()
                 code_lines.append(code_line)
@@ -294,34 +303,64 @@ class FunctionSectionGenerator(PageBase):
             elif line.strip().startswith('...'):
                 # Continuation of previous code line
                 if in_code:
-                    # Remove the ... prompt and add to code
                     code_line = line.strip()[3:].lstrip()
                     code_lines.append(code_line)
 
             elif in_code:
-                # This is either output or the end of the code block
+                # We're in a code block and hit a non-code line
                 if line.strip() == '':
-                    # Empty line might mean end of example
-                    # Check if next line is another >>> or regular text
-                    if i + 1 < len(lines) and not lines[i+1].strip().startswith(('>>>', '...')):
+                    # Empty line - check what comes next
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line.startswith('>>>'):
+                            # Another >>> immediately after - continue same example
+                            pass
+                        elif next_line == '':
+                            # Double blank line - end of example
+                            in_code = False
+                            if code_lines:
+                                current_example['code'] = '\n'.join(code_lines)
+                                examples.append(current_example)
+                                current_example = {'description': '', 'code': '', 'output': ''}
+                                code_lines = []
+                        else:
+                            # Text after blank line - end of code block
+                            in_code = False
+                            if code_lines:
+                                current_example['code'] = '\n'.join(code_lines)
+                                examples.append(current_example)
+                                current_example = {'description': '', 'code': '', 'output': ''}
+                                code_lines = []
+                    else:
+                        # End of text
                         in_code = False
-                        current_example['code'] = '\n'.join(code_lines)
-                        code_lines = []
                 else:
-                    # This is output from the previous command
-                    current_example['output'] += line + '\n'
+                    # Non-empty, non-code line - this would be output in a real doctest
+                    # For now, we'll treat it as end of code block
+                    in_code = False
+                    if code_lines:
+                        current_example['code'] = '\n'.join(code_lines)
+                        examples.append(current_example)
+                        current_example = {'description': '', 'code': '', 'output': ''}
+                        code_lines = []
 
             else:
-                # Regular descriptive text
-                if not in_code and line.strip():
-                    current_example['description'] += line.strip() + ' '
+                # Not in code - this is descriptive text
+                if line.strip():
+                    # Add to description
+                    if current_example['description']:
+                        current_example['description'] += ' '
+                    current_example['description'] += line.strip()
+
+            i += 1
 
         # Don't forget the last example
         if code_lines:
             current_example['code'] = '\n'.join(code_lines)
             examples.append(current_example)
-        elif current_example['description']:
-            examples.append(current_example)
+
+        # Filter out empty examples
+        examples = [ex for ex in examples if ex['code'] or ex['description']]
 
         return examples
 
