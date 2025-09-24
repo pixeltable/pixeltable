@@ -6,6 +6,10 @@ from typing import Optional, List, Any
 from page_base import PageBase
 from docstring_parser import parse as parse_docstring
 from section_method import MethodSectionGenerator
+from section_typeddict import TypedDictSection
+from section_dataclass import DataclassSection
+from section_namedtuple import NamedTupleSection
+from section_attributes import AttributesSection
 
 
 class ClassPageGenerator(PageBase):
@@ -17,8 +21,19 @@ class ClassPageGenerator(PageBase):
         super().__init__(output_dir, version, show_errors, github_repo, github_package_path)
         # Initialize method generator for inline sections
         self.method_gen = MethodSectionGenerator(show_errors)
-    
-    def generate_page(self, class_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] = None) -> Optional[dict]:
+
+        # Initialize attribute section handlers
+        self.attribute_handlers = [
+            TypedDictSection(show_errors),
+            DataclassSection(show_errors),
+            NamedTupleSection(show_errors),
+            AttributesSection(show_errors)  # Fallback handler
+        ]
+
+    def generate_page(
+        self, class_path: str, parent_groups: List[str], item_type: str,
+        opml_children: List[str] | None = None
+    ) -> Optional[dict]:
         """Generate class documentation page and return navigation structure.
         
         Args:
@@ -106,10 +121,9 @@ icon: "square-c"
         
         # Document properties
         content += self._document_properties(cls)
-        
-        # Document class attributes
-        content += self._document_class_attributes(cls)
-        
+
+        # Document attributes/fields using appropriate handler
+        content += self._document_attributes_or_fields(cls)
         return content
     
     # Constructor documentation removed per Marcel's feedback
@@ -191,37 +205,20 @@ icon: "square-c"
             content += ")\n\n"
         
         return content
-    
-    def _document_class_attributes(self, cls: type) -> str:
-        """Document class-level attributes."""
-        content = ""
-        
-        # Get class attributes (excluding methods and properties)
-        attributes = []
-        for name in dir(cls):
-            if name.startswith('_'):
-                continue
-            
-            try:
-                obj = getattr(cls, name)
-                if not callable(obj) and not isinstance(obj, property):
-                    # Check if it's a class attribute (not instance)
-                    if hasattr(cls, name) and not hasattr(cls.__init__, name):
-                        attributes.append((name, obj))
-            except AttributeError:
-                continue
-        
-        if not attributes:
-            return content
-        
-        content += "## Class Attributes\n\n"
-        
-        for attr_name, attr_value in sorted(attributes):
-            content += f"### {attr_name}\n\n"
-            content += f"```python\n{attr_name} = {repr(attr_value)}\n```\n\n"
-        
-        return content
-    
+
+    def _document_attributes_or_fields(self, cls: type) -> str:
+        """Document attributes/fields using the appropriate handler.
+
+        This method selects the right handler based on the class type
+        (TypedDict, dataclass, NamedTuple, or standard class).
+        """
+        # Find the appropriate handler
+        for handler in self.attribute_handlers:
+            if handler.can_handle(cls):
+                return handler.generate_section(cls, cls.__name__)
+
+        # This shouldn't happen if AttributesSection is the fallback
+        return ""
     def _generate_error_page(self, class_name: str, parent_groups: List[str], error: str) -> str:
         """Generate error page when class can't be loaded."""
         content = f"""---
