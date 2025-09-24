@@ -15,6 +15,29 @@ from tool.worker_harness import run_workers
 
 
 class RandomTblOps:
+    """
+    Runs random table operations on a single worker.
+
+    The operations will run over a configurable number of base table names. The base tables will be created and dropped
+    from time to time, but always using the same fixed pool of names, 'tbl_0' ... 'tbl_{n-1}'.
+
+    Optionally, the worker can be configured to be read-only, in which case it will be limited to running queries (no
+    operations that modify table data or schemas).
+
+    At each iteration, the following steps take place:
+    - Select a random operation. The operations will occur with varying frequencies as defined in `RANDOM_OPS_DEF`.
+    - Select a random base table for the operation, from 0 to n-1. If the table does not exist (either because it is
+        the first time it has been selected, or because it was recently dropped), it will first be created and
+        populated with some initial data.
+    - If the operation supports only base tables, carry out the operation on the selected table.
+    - If the operation supports views and the table has at least one view, then: 50% of the time, carry out the
+        operation on the selected base table; 50% of the time, carry it out on a random view of the selected table.
+    - Capture the outcome of the operation in $PIXELTABLE_HOME/random-tbl-ops.log and on the console.
+    - Sleep for a short random time (0.1 to 0.5 seconds) before starting the next iteration.
+    """
+
+    # TODO: Support additional operations such as index ops, pxt.move(), and replicas
+    # TODO: Add additional datatypes including media data
     NUM_BASE_TABLES = 4
     BASE_TABLE_NAMES = tuple(f'tbl_{i}' for i in range(NUM_BASE_TABLES))
     BASIC_SCHEMA: ClassVar[dict[str, type]] = {'c0': pxt.Int, 'c1': pxt.Float, 'c2': pxt.String}
@@ -23,7 +46,9 @@ class RandomTblOps:
     ]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
 
-    # (operation_name, relative_frequency, is_read_op)
+    # (operation_name, relative_prob, is_read_op)
+    # The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
+    # worker, then only the operations with is_read_op=True will participate in the normalization.
     RANDOM_OPS_DEF = (
         ('query', 100, True),
         ('insert_rows', 30, False),
@@ -32,9 +57,9 @@ class RandomTblOps:
         ('add_data_column', 5, False),
         ('add_computed_column', 5, False),
         ('drop_column', 3, False),
-        # ('add_view', 5, False),
-        # ('drop_view', 2, False),
-        # ('drop_table', 0.25, False),
+        ('create_view', 5, False),
+        ('drop_view', 3, False),
+        ('drop_table', 0.25, False),
     )
 
     random_ops: list[tuple[float, Callable]]
@@ -65,22 +90,22 @@ class RandomTblOps:
     def tbl_descr(cls, t: pxt.Table) -> str:
         return f'{t._name!r} ({t._id.hex[:6]}...)'
 
-    def get_random_tbl(self, allow_view: bool) -> pxt.Table:
+    def get_random_tbl(self, allow_base_tbl: bool = True, allow_view: bool = True) -> pxt.Table | None:
         name = random.choice(self.BASE_TABLE_NAMES)
         # If the table does not already exist, create it and populate with some initial data
         t = pxt.create_table(name, source=self.INITIAL_ROWS, if_exists='ignore')
         if not allow_view:
             return t  # View not allowed
-        if random.uniform(0, 1) < 0.5:
+        if allow_base_tbl and random.uniform(0, 1) < 0.5:
             return t  # Return base table 50% of the time
         views = t.list_views()
         if len(views) == 0:
-            return t  # No views to choose from
+            return t if allow_base_tbl else None  # No views to choose from
         view = random.choice(views)
         return pxt.get_table(view)
 
     def query(self) -> Iterator[str]:
-        t = self.get_random_tbl(allow_view=True)
+        t = self.get_random_tbl()
         num_rows = int(random.uniform(50, 100))
         yield f'Collect {num_rows} rows from {self.tbl_descr(t)}: '
         res = t.sample(n=num_rows).collect()
@@ -109,7 +134,7 @@ class RandomTblOps:
         yield f'Deleted {us.row_count_stats.del_rows} rows (total now {t.count()}).'
 
     def add_data_column(self) -> Iterator[str]:
-        t = self.get_random_tbl(allow_view=True)
+        t = self.get_random_tbl()
         n = int(random.uniform(0, 100))
         cname = f'c{n}'
         yield f'Add data column {cname!r} to {self.tbl_descr(t)}: '
@@ -117,7 +142,7 @@ class RandomTblOps:
         yield 'Success.'
 
     def add_computed_column(self) -> Iterator[str]:
-        t = self.get_random_tbl(allow_view=True)
+        t = self.get_random_tbl()
         n = int(random.uniform(0, 100))
         cname = f'c{n}'
         yield f'Add computed column {cname!r} to {self.tbl_descr(t)}: '
@@ -125,7 +150,7 @@ class RandomTblOps:
         yield 'Success.'
 
     def drop_column(self) -> Iterator[str]:
-        t = self.get_random_tbl(allow_view=True)
+        t = self.get_random_tbl()
         yield f'Drop a column from {self.tbl_descr(t)}: '
         cnames = [
             col_name
@@ -140,7 +165,33 @@ class RandomTblOps:
             t.drop_column(cname)
             yield 'Success.'
 
+    def create_view(self) -> Iterator[str]:
+        t = self.get_random_tbl()  # Allows views on views
+        n = int(random.uniform(0, 100))
+        vname = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
+        p = random.choice(self.PRIMES)
+        yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
+        # TODO: Change 'ignore' to 'replace-force' after fixing PXT-774
+        pxt.create_view(vname, t.where(t.c0 % p == 0), if_exists='ignore')
+        yield 'Success.'
+
+    def drop_view(self) -> Iterator[str]:
+        t = self.get_random_tbl(allow_base_tbl=False)
+        if t is None:
+            yield 'No views to drop.'
+            return
+        yield f'Drop view {self.tbl_descr(t)}: '
+        pxt.drop_table(t, force=True)
+        yield 'Success.'
+
+    def drop_table(self) -> Iterator[str]:
+        t = self.get_random_tbl(allow_view=False)
+        yield f'Drop table {self.tbl_descr(t)}: '
+        pxt.drop_table(t, force=True)
+        yield 'Success.'
+
     def run_op(self, op: Callable) -> None:
+        """Run the given operation once. Capture any "expected" errors and fail fatally on unexpected ones."""
         msg_parts: list[str] = []
         fatal: Exception | None = None
         try:
@@ -149,12 +200,12 @@ class RandomTblOps:
         except Exception as e:
             errmsg = str(e).replace('\n', ' ')
             if isinstance(e, pxt.Error) and (
-                str(e)[:30]
+                str(e)[:17]
                 in (
                     # Whitelisted errors; these are expected in the current implementation.
-                    'That Pixeltable operation coul',
-                    'SQL error during execution of ',
-                    'Column has been dropped (no re',
+                    # Any other exception indicates a failed run.
+                    'That Pixeltable o',  # Concurrency conflict
+                    'Table was dropped',  # Table dropped by another process
                 )
             ):
                 msg_parts.append(f'pxt.Error: {errmsg}')
@@ -167,6 +218,7 @@ class RandomTblOps:
             raise fatal
 
     def random_tbl_op(self) -> None:
+        """Select a random operation and run it once."""
         r = random.uniform(0, 1)
         for cumulative_weight, op in self.random_ops:
             if r < cumulative_weight:
@@ -174,6 +226,7 @@ class RandomTblOps:
                 return
 
     def run(self) -> None:
+        """Run random table operations indefinitely."""
         # Initialize random_ops.
         allowed_ops = [
             (op_name, weight) for op_name, weight, is_read_op in self.RANDOM_OPS_DEF if is_read_op or not self.read_only
@@ -191,10 +244,14 @@ class RandomTblOps:
 
 
 def run(worker_id: int, read_only: bool) -> None:
+    """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
 
+    # In order to localize initialization to a single process, we call pxt.init() only from worker 0. The timings are
+    # adjusted so that all workers start issuing operations at approximately the same time.
+    # TODO: Do we want pxt.init() to be concurrency-safe (the first time it is called, when setting up the DB)?
     if worker_id == 0:
         t = time.monotonic()
         pxt.init()
@@ -205,6 +262,7 @@ def run(worker_id: int, read_only: bool) -> None:
     try:
         RandomTblOps(worker_id, read_only).run()
     except KeyboardInterrupt:
+        # Suppress the stack trace, but abort.
         pass
 
 

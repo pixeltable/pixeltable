@@ -1,5 +1,7 @@
 #!/bin/bash -e
 
+# Initializes a clean DB, runs random_tbl_ops_2.py, and prints statistics at the end.
+
 SCRIPT_DIR=$(dirname "$0")
 
 export PIXELTABLE_HOME=~/.pixeltable
@@ -12,7 +14,7 @@ POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdou
 PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
 "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS random_tbl_ops;"
 
-# Run worker harness script
+# Run script
 python "$SCRIPT_DIR/../tool/random_tbl_ops_2.py" "$@"
 echo
 
