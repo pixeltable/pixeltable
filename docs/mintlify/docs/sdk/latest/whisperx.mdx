@@ -3,11 +3,16 @@ title: "pixeltable.functions.whisperx"
 sidebarTitle: "whisperx"
 icon: "square-m"
 ---
+
+## ⚠️ No Documentation
+
+<Warning>
+Documentation for `pixeltable.functions.whisperx` is not available.
+</Warning>
+
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/whisperx.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Functions
+## Functions
 
 
 ---
@@ -86,8 +91,12 @@ transcribe(audio: Audio,
 
 <Tip>
 
-Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`: Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`, with speaker diarization enabled, expecting at least 2 speakers: 
+Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`:
+```python
+tbl.add_computed_column(result=transcribe(tbl.audio, model='tiny.en'))
+```
 
+Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`, with speaker diarization enabled, expecting at least 2 speakers:
 ```python
 tbl.add_computed_column(
 result=transcribe(

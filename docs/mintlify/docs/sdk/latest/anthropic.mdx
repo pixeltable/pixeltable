@@ -9,9 +9,7 @@ Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/anthropic.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Functions
+## Functions
 
 
 ---
@@ -79,7 +77,7 @@ messages(messages: Json,
 
 <Tip>
 
-Add a computed column that applies the model `claude-3-5-sonnet-20241022` to an existing Pixeltable column `tbl.prompt` of the table `tbl`: 
+Add a computed column that applies the model `claude-3-5-sonnet-20241022` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 ```python
 msgs = [{'role': 'user', 'content': tbl.prompt}]
 tbl.add_computed_column(response=messages(msgs, model='claude-3-5-sonnet-20241022'))

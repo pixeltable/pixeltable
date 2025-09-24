@@ -11,9 +11,7 @@ This UDF will cause Pixeltable to invoke the relevant model locally. In order to
 
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/whisper.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Functions
+## Functions
 
 
 ---
@@ -64,7 +62,7 @@ transcribe(audio: Audio,
 
 <Tip>
 
-Add a computed column that applies the model `base.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`: 
+Add a computed column that applies the model `base.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`:
 ```python
 tbl.add_computed_column(result=transcribe(tbl.audio, model='base.en'))
 ```

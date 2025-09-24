@@ -9,17 +9,26 @@ Represents the contents of a Pixeltable directory.
 
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L948" target="_blank">View source on GitHub</a>
 
-## Class Attributes
+## Attributes
 
-### dirs
+### `dirs`
 
-```python
-dirs = _tuplegetter(0, 'Alias for field number 0')
-```
+**Type:** `ForwardRef('list[str]')`
 
-### tables
+**Immutable:** This field cannot be modified after creation
 
-```python
-tables = _tuplegetter(1, 'Alias for field number 1')
-```
+### `tables`
+
+**Type:** `ForwardRef('list[str]')`
+
+**Immutable:** This field cannot be modified after creation
+
+## Usage
+
+`DirContents` is a NamedTuple and supports:
+
+- Accessing fields by name: `instance.field_name`
+- Accessing fields by index: `instance[0]`
+- Unpacking: `field1, field2 = instance`
+- Iteration: `for value in instance`
 

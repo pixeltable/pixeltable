@@ -9,9 +9,7 @@ Core Pixeltable API for table operations, data processing, and UDF management.
 
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/__init__.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Functions
+## Functions
 
 
 ---
@@ -82,14 +80,26 @@ create_dir(path: 'str',
 
 <Tip>
 
-Create a subdirectory: 
+```python
+pxt.create_dir('my_dir')
+```
 
-Create a subdirectory only if it does not already exist, otherwise do nothing: 
+Create a subdirectory:
+```python
+pxt.create_dir('my_dir.sub_dir')
+```
 
-Create a directory and replace if it already exists: 
+Create a subdirectory only if it does not already exist, otherwise do nothing:
+```python
+pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+```
 
-Create a subdirectory along with its ancestors: 
+Create a directory and replace if it already exists:
+```python
+pxt.create_dir('my_dir', if_exists='replace_force')
+```
 
+Create a subdirectory along with its ancestors:
 ```python
 pxt.create_dir('parent1.parent2.sub_dir', parents=True)
 ```
@@ -156,10 +166,21 @@ create_snapshot(path_str: 'str',
 
 <Tip>
 
-Create a snapshot `my_snapshot` of a table `my_table`: Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`, if `my_snapshot` does not already exist: 
+Create a snapshot `my_snapshot` of a table `my_table`:
+```python
+tbl = pxt.get_table('my_table')
+snapshot = pxt.create_snapshot('my_snapshot', tbl)
+```
 
-Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`: 
+Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`, if `my_snapshot` does not already exist:
+```python
+view = pxt.get_table('my_view')
+snapshot = pxt.create_snapshot(
+'my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore'
+)
+```
 
+Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
 ```python
 tbl = pxt.get_table('my_table')
 snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
@@ -247,14 +268,28 @@ create_table(path: 'str',
 
 <Tip>
 
-Create a table with an int and a string column: Create a table from a select statement over an existing table `orig_table` (this will create a new table containing the exact contents of the query): 
+Create a table with an int and a string column:
+```python
+tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String})
+```
 
-Create a table if it does not already exist, otherwise get the existing table: 
+Create a table from a select statement over an existing table `orig_table` (this will create a new table containing the exact contents of the query):
+```python
+tbl1 = pxt.get_table('orig_table')
+tbl2 = pxt.create_table('new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2))
+```
 
-Create a table with an int and a float column, and replace any existing table: 
+Create a table if it does not already exist, otherwise get the existing table:
+```python
+tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String}, if_exists='ignore')
+```
 
-Create a table from a CSV file: 
+Create a table with an int and a float column, and replace any existing table:
+```python
+tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
+```
 
+Create a table from a CSV file:
 ```python
 tbl = pxt.create_table('my_table', source='data.csv')
 ```
@@ -324,10 +359,19 @@ create_view(path: 'str',
 
 <Tip>
 
-Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10: Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10, and if it not already exist. Otherwise, get the existing view named `my_view`: 
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
+```python
+tbl = pxt.get_table('my_table')
+view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+```
 
-Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100, and replace any existing view named `my_view`: 
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10, and if it not already exist. Otherwise, get the existing view named `my_view`:
+```python
+tbl = pxt.get_table('my_table')
+view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+```
 
+Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100, and replace any existing view named `my_view`:
 ```python
 tbl = pxt.get_table('my_table')
 view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
@@ -369,12 +413,22 @@ drop_dir(path: 'str',
 
 <Tip>
 
-Remove a directory, if it exists and is empty: Remove a subdirectory: 
+Remove a directory, if it exists and is empty:
+```python
+pxt.drop_dir('my_dir')
+```
 
-Remove an existing directory if it is empty, but do nothing if it does not exist: 
+Remove a subdirectory:
+```python
+pxt.drop_dir('my_dir.sub_dir')
+```
 
-Remove an existing directory and all its contents: 
+Remove an existing directory if it is empty, but do nothing if it does not exist:
+```python
+pxt.drop_dir('my_dir.sub_dir', if_not_exists='ignore')
+```
 
+Remove an existing directory and all its contents:
 ```python
 pxt.drop_dir('my_dir', force=True)
 ```
@@ -415,12 +469,23 @@ drop_table(table: 'str | catalog.Table',
 
 <Tip>
 
-Drop a table by its fully qualified name: Drop a table by its handle: 
+Drop a table by its fully qualified name:
+```python
+pxt.drop_table('subdir.my_table')
+```
 
-Drop a table if it exists, otherwise do nothing: 
+Drop a table by its handle:
+```python
+t = pxt.get_table('subdir.my_table')
+pxt.drop_table(t)
+```
 
-Drop a table and all its dependents: 
+Drop a table if it exists, otherwise do nothing:
+```python
+pxt.drop_table('subdir.my_table', if_not_exists='ignore')
+```
 
+Drop a table and all its dependents:
 ```python
 pxt.drop_table('subdir.my_table', force=True)
 ```
@@ -460,8 +525,12 @@ get_dir_contents(dir_path: 'str' = '',
 
 <Tip>
 
-Get contents of top-level directory: Get contents of 'dir1': 
+Get contents of top-level directory:
+```python
+pxt.get_dir_contents()
+```
 
+Get contents of 'dir1':
 ```python
 pxt.get_dir_contents('dir1')
 ```
@@ -498,12 +567,22 @@ get_table(path: 'str') -> 'catalog.Table'
 
 <Tip>
 
-Get handle for a table in the top-level directory: For a table in a subdirectory: 
+Get handle for a table in the top-level directory:
+```python
+tbl = pxt.get_table('my_table')
+```
 
-Handles to views and snapshots are retrieved in the same way: 
+For a table in a subdirectory:
+```python
+tbl = pxt.get_table('subdir.my_table')
+```
 
-Get a handle to a specific version of a table: 
+Handles to views and snapshots are retrieved in the same way:
+```python
+tbl = pxt.get_table('my_snapshot')
+```
 
+Get a handle to a specific version of a table:
 ```python
 tbl = pxt.get_table('my_table:722')
 ```
@@ -571,8 +650,12 @@ move(path: 'str',
 
 <Tip>
 
-Move a table to a different directory: Rename a table: 
+Move a table to a different directory:
+```python
+> pxt.move('dir1.my_table', 'dir2.my_table')
+```
 
+Rename a table:
 ```python
 > pxt.move('dir1.my_table', 'dir1.new_name')
 ```

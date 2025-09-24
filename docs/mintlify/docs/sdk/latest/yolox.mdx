@@ -3,11 +3,16 @@ title: "pixeltable.functions.yolox"
 sidebarTitle: "yolox"
 icon: "square-m"
 ---
+
+## ⚠️ No Documentation
+
+<Warning>
+Documentation for `pixeltable.functions.yolox` is not available.
+</Warning>
+
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/yolox.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Functions
+## Functions
 
 
 ---
@@ -38,7 +43,7 @@ yolo_to_coco(detections: Json) -> Json
 
 <Tip>
 
-Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image` is the image for which detections were computed: 
+Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image` is the image for which detections were computed:
 ```python
 tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
 tbl.add_computed_column(detections_coco=yolo_to_coco(tbl.detections))
@@ -87,7 +92,7 @@ yolox(images: Image,
 
 <Tip>
 
-Add a computed column that applies the model `yolox_m` to an existing Pixeltable column `tbl.image` of the table `tbl`: 
+Add a computed column that applies the model `yolox_m` to an existing Pixeltable column `tbl.image` of the table `tbl`:
 ```python
 tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
 ```

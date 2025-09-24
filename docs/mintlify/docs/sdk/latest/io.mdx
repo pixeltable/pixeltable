@@ -3,15 +3,20 @@ title: "pixeltable.io"
 sidebarTitle: "io"
 icon: "square-m"
 ---
+
+## ⚠️ No Documentation
+
+<Warning>
+Documentation for `pixeltable.io` is not available.
+</Warning>
+
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/__init__.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Classes
+## Classes
 
 - [ExternalStore](./externalstore)
 
-### Functions
+## Functions
 
 
 ---
@@ -93,10 +98,29 @@ The items in the `s3_configuration` dictionary correspond to kwarg parameters of
 
 <Tip>
 
-Create a Label Studio project whose tasks correspond to videos stored in the `video_col` column of the table `tbl`: Create a Label Studio project with the same configuration, using `media_import_method='url'`, whose media are stored in an S3 bucket: 
+Create a Label Studio project whose tasks correspond to videos stored in the `video_col` column of the table `tbl`:
+```python
+config = """
+<View>
+<Video name="video_obj" value="$video_col"/>
+<Choices name="video-category" toName="video" showInLine="true">
+<Choice value="city"/>
+<Choice value="food"/>
+<Choice value="sports"/>
+</Choices>
+</View>
+"""
+create_label_studio_project(tbl, config)
+```
 
+Create a Label Studio project with the same configuration, using `media_import_method='url'`, whose media are stored in an S3 bucket:
 ```python
 create_label_studio_project(
+tbl,
+config,
+media_import_method='url',
+s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
+)
 ```
 
 
@@ -172,9 +196,9 @@ If multiple `Expr`s are provided, each one must evaluate to a list of such dicti
 
 <Tip>
 
-Export the images in the `image` column of the table `tbl` as a Voxel51 dataset, using classification labels from `tbl.classifications`: See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial for a fully worked example. 
+Export the images in the `image` column of the table `tbl` as a Voxel51 dataset, using classification labels from `tbl.classifications`:
 ```python
-export_as_fiftyone(
+export_images_as_fo_dataset(
 tbl,
 tbl.image,
 classifications=tbl.classifications
@@ -389,9 +413,9 @@ import_pandas(tbl_name: str,
 
 **Parameters:**
 
-- **`tbl_name`** (*<class 'str'>*): The name of the table to create.
+- **`tbl_name`** (*str*): The name of the table to create.
 
-- **`df`** (*<class 'pandas.core.frame.DataFrame'>*): The Pandas `DataFrame`.
+- **`df`** (*pandas.core.frame.DataFrame*): The Pandas `DataFrame`.
 
 - **`schema_overrides`** (*typing.Optional[dict[str, typing.Any]]*): If specified, then for each (name, type) pair in `schema_overrides`, the column with name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid Pixeltable identifiers).
 

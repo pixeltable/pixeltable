@@ -9,9 +9,7 @@ Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/video.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Functions
+## Functions
 
 
 ---
@@ -118,7 +116,7 @@ extract_audio(video_path: Video,
 
 <Tip>
 
-Add a computed column to a table `tbl` that extracts audio from an existing column `video_col`: 
+Add a computed column to a table `tbl` that extracts audio from an existing column `video_col`:
 ```python
 tbl.add_computed_column(
 extracted_audio=tbl.video_col.extract_audio(format='flac')
@@ -160,8 +158,12 @@ extract_frame(video: Video,
 
 <Tip>
 
-Extract the first frame from each video in the `video` column of the table `tbl`: Extract a frame close to the end of each video in the `video` column of the table `tbl`: 
+Extract the first frame from each video in the `video` column of the table `tbl`:
+```python
+tbl.select(tbl.video.extract_frame(0.0)).collect()
+```
 
+Extract a frame close to the end of each video in the `video` column of the table `tbl`:
 ```python
 tbl.select(tbl.video.extract_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
 ```
@@ -257,7 +259,7 @@ get_metadata(video: Video) -> Json
 
 <Tip>
 
-Extract metadata for files in the `video_col` column of the table `tbl`: 
+Extract metadata for files in the `video_col` column of the table `tbl`:
 ```python
 tbl.select(tbl.video_col.get_metadata()).collect()
 ```
@@ -343,10 +345,31 @@ overlay_text(video: Video,
 
 <Tip>
 
-Add a simple text overlay to videos in a table: Add a YouTube-style caption: 
+Add a simple text overlay to videos in a table:
+```python
+tbl.select(tbl.video.overlay_text('Sample Text')).collect()
+```
 
-Add text with a semi-transparent background box: 
+Add a YouTube-style caption:
+```python
+tbl.select(
+tbl.video.overlay_text(
+'Caption text',
+font_size=32,
+color='white',
+opacity=1.0,
+box=True,
+box_color='black',
+box_opacity=0.8,
+box_border=[6, 14],
+horizontal_margin=10,
+vertical_align='bottom',
+vertical_margin=70
+)
+).collect()
+```
 
+Add text with a semi-transparent background box:
 ```python
 tbl.select(
 tbl.video.overlay_text(
@@ -401,8 +424,12 @@ segment_video(video: Video,
 
 <Tip>
 
-Split a video at 1 minute intervals Split video into two parts at the midpoint: 
+Split a video at 1 minute intervals
+```python
+tbl.select(segment_paths=tbl.video.segment_video(duration=60)).collect()
+```
 
+Split video into two parts at the midpoint:
 ```python
 duration = tbl.video.get_duration()
 tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()

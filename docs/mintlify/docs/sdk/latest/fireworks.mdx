@@ -9,9 +9,7 @@ Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/fireworks.py#L0" target="_blank">View source on GitHub</a>
 
-## Module Contents
-
-### Functions
+## Functions
 
 
 ---
@@ -57,7 +55,7 @@ chat_completions(messages: Json,
 
 <Tip>
 
-Add a computed column that applies the model `accounts/fireworks/models/mixtral-8x22b-instruct` to an existing Pixeltable column `tbl.prompt` of the table `tbl`: 
+Add a computed column that applies the model `accounts/fireworks/models/mixtral-8x22b-instruct` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 ```python
 messages = [{'role': 'user', 'content': tbl.prompt}]
 tbl.add_computed_column(
