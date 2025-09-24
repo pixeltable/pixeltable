@@ -181,13 +181,13 @@ class RandomTblOps:
             yield 'No views to drop.'
             return
         yield f'Drop view {self.tbl_descr(t)}: '
-        pxt.drop_table(t, force=True)
+        pxt.drop_table(t, force=True, if_not_exists='ignore')
         yield 'Success.'
 
     def drop_table(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
         yield f'Drop table {self.tbl_descr(t)}: '
-        pxt.drop_table(t, force=True)
+        pxt.drop_table(t, force=True, if_not_exists='ignore')
         yield 'Success.'
 
     def run_op(self, op: Callable) -> None:
