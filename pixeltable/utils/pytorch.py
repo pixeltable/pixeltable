@@ -19,15 +19,14 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
     PyTorch dataset interface for pixeltable data.
     NB. This class must inherit from torch.utils.data.IterableDataset for it
     to work with torch.utils.data.DataLoader.
+
+    Args:
+        path: path to directory containing parquet files
+        image_format: 'np' or 'pt'. 'np' is RGB uint8 array,
+                    'pt' is result of torchvision.transforms.ToTensor()
     """
 
     def __init__(self, path: Path, image_format: str):
-        """
-        Args:
-            path: path to directory containing parquet files
-            image_format: 'np' or 'pt'. 'np' is RGB uint8 array,
-                        'pt' is result of torchvision.transforms.ToTensor()
-        """
         super().__init__()
 
         self.path = path

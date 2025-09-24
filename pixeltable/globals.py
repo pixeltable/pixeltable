@@ -763,15 +763,15 @@ def ls(path: str = '') -> pd.DataFrame:
                 base = md['base'] or ''
                 if base.startswith('_'):
                     base = '<anonymous base table>'
-                if md['is_snapshot']:
+                if md['is_replica']:
+                    kind = 'replica'
+                elif md['is_snapshot']:
                     kind = 'snapshot'
                 elif md['is_view']:
                     kind = 'view'
                 else:
                     kind = 'table'
                 version = '' if kind == 'snapshot' else str(md['version'])
-                if md['is_replica']:
-                    kind = f'{kind}-replica'
             rows.append([name, kind, version, base])
         return rows
 
