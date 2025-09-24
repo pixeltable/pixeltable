@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, Optional
 
 import polars as pl
@@ -25,6 +26,7 @@ PL_TO_PXT_TYPES: dict[pl.DataType, ts.ColumnType] = {
     pl_types.Date(): ts.DateType(nullable=True),
 }
 
+
 # Function to map polars data types to Pixeltable types
 def _get_pxt_type_for_pl_type(pl_dtype: pl.DataType | pl.DataTypeClass, nullable: bool) -> Optional[ts.ColumnType]:
     """Get Pixeltable type for basic polars data types.
@@ -34,7 +36,6 @@ def _get_pxt_type_for_pl_type(pl_dtype: pl.DataType | pl.DataTypeClass, nullable
         pt = PL_TO_PXT_TYPES[pl_dtype]
         return pt.copy(nullable=nullable) if pt is not None else None
 
-    # String types
     elif isinstance(pl_dtype, pl_types.Enum):
         return ts.StringType(nullable=nullable)
     elif isinstance(pl_dtype, pl_types.Datetime):
@@ -96,12 +97,7 @@ def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullab
         if pxt_dtype is not None:
             return ts.ArrayType(shape=pl_dtype.shape, dtype=pxt_dtype, nullable=nullable)
 
-    # Handle List/Array types
-    if isinstance(pl_dtype, pl_types.List):
-        return ts.JsonType(nullable=nullable)
-
-    # Handle Struct types as JSON
-    if isinstance(pl_dtype, pl_types.Struct):
+    if isinstance(pl_dtype, (pl_types.List, pl_types.Struct)):
         return ts.JsonType(nullable=nullable)
 
     raise excs.Error(f'Could not infer Pixeltable type for polars column: {data_col.name} (dtype: {pl_dtype})')
@@ -138,36 +134,25 @@ def _pl_row_to_pxt_row(
         elif pxt_type.is_string_type():
             nval = str(val)
         elif pxt_type.is_date_type():
-            if hasattr(val, 'date'):
-                nval = val.date()  # Extract date from datetime
-            else:
-                nval = val
+            if not isinstance(val, dt.date):
+                raise excs.Error(f'Expected date value for date column, got {type(val)}: {val}')
+            nval = val
         elif pxt_type.is_timestamp_type():
-            if hasattr(val, 'astimezone'):
-                # Handle timezone-aware timestamps
-                nval = val.astimezone(Env.get().default_time_zone)
+            if not isinstance(val, dt.datetime):
+                raise excs.Error(f'Expected datetime value for timestamp column, got {type(val)}: {val}')
+            if val.tzinfo is not None and val.tzinfo.utcoffset(val) is not None:
+                nval = val.astimezone(tz=Env.get().default_time_zone)
             else:
-                # Handle naive timestamps - localize to default timezone
-                import datetime as dt
-
-                if isinstance(val, dt.datetime):
-                    nval = val.replace(tzinfo=Env.get().default_time_zone)
-                else:
-                    nval = val
+                nval = val.replace(tzinfo=Env.get().default_time_zone)
         elif pxt_type.is_json_type():
             # For JSON types, keep the value as-is (lists, dicts, etc.)
             nval = val
         elif pxt_type.is_array_type():
-            # For array types, convert lists to numpy arrays as Pixeltable expects
+            # polars Array types are converted into Python lists when exported
             if isinstance(val, list):
                 import numpy as np
 
                 nval = np.array(val)
-            elif hasattr(val, 'to_list'):
-                # Handle polars Series objects from list columns
-                import numpy as np
-
-                nval = np.array(val.to_list())
             else:
                 nval = val
         else:

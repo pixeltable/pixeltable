@@ -345,7 +345,7 @@ class PolarsTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pl_df.columns)
         # Convert all rows to insertable format
         self.valid_rows = [
-            _pl_row_to_pxt_row(row, self.src_schema, self.source_column_map) for row in self.pl_df.to_dicts()
+            _pl_row_to_pxt_row(row, self.src_schema, self.source_column_map) for row in self.pl_df.iter_rows(named=True)
         ]
         self.batch_count = 1
 
