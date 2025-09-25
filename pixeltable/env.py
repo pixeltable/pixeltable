@@ -28,6 +28,7 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
@@ -36,6 +37,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
+from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
 
 if TYPE_CHECKING:
     import spacy
@@ -58,7 +60,8 @@ class Env:
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Optional[Path]
-    _file_cache_dir: Optional[Path]  # cached media files with external URL
+    _object_soa: Optional[StorageObjectAddress]
+    _file_cache_dir: Optional[Path]  # cached object files with external URL
     _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
     _log_dir: Optional[Path]  # log files
     _tmp_dir: Optional[Path]  # any tmp files
@@ -88,7 +91,7 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
-    _current_session: Optional[sql.orm.Session]
+    _current_session: Optional[orm.Session]
     _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
@@ -120,7 +123,8 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
-        self._file_cache_dir = None  # cached media files with external URL
+        self._object_soa = None  # computed object files in StorageObjectAddress format
+        self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
         self._tmp_dir = None  # any tmp files
@@ -224,7 +228,7 @@ class Env:
         return self._current_conn
 
     @property
-    def session(self) -> Optional[sql.orm.Session]:
+    def session(self) -> Optional[orm.Session]:
         assert self._current_session is not None
         return self._current_session
 
@@ -258,7 +262,7 @@ class Env:
                 self._current_isolation_level = 'SERIALIZABLE'
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
-                    sql.orm.Session(conn) as session,
+                    orm.Session(conn) as session,
                     conn.begin(),
                 ):
                     self._current_conn = conn
@@ -363,6 +367,7 @@ class Env:
 
         if not self._media_dir.exists():
             self._media_dir.mkdir()
+        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), may_contain_object_name=False)
         if not self._file_cache_dir.exists():
             self._file_cache_dir.mkdir()
         if not self._dataset_cache_dir.exists():
@@ -615,15 +620,17 @@ class Env:
         Args:
             - name: The name of the client
         """
-        cl = _registered_clients[name]
-        if cl.client_obj is not None:
-            return cl.client_obj  # Already initialized
+        # Return the existing client if it has already been constructed
+        with _registered_clients_lock:
+            cl = _registered_clients[name]
+            if cl.client_obj is not None:
+                return cl.client_obj  # Already initialized
 
-        # Construct a client, retrieving each parameter from config.
-
+        # Retrieve parameters required to construct the requested client.
         init_kwargs: dict[str, Any] = {}
         for param in cl.params.values():
             # Determine the type of the parameter for proper config parsing.
+            pname = param.name
             t = param.annotation
             # Deference Optional[T]
             if typing.get_origin(t) in (typing.Union, types.UnionType):
@@ -633,27 +640,31 @@ class Env:
                 elif args[1] is type(None):
                     t = args[0]
             assert isinstance(t, type), t
-            arg: Any = Config.get().get_value(param.name, t, section=name)
+            arg: Any = Config.get().get_value(pname, t, section=name)
             if arg is not None:
-                init_kwargs[param.name] = arg
+                init_kwargs[pname] = arg
             elif param.default is inspect.Parameter.empty:
                 raise excs.Error(
-                    f'`{name}` client not initialized: parameter `{param.name}` is not configured.\n'
-                    f'To fix this, specify the `{name.upper()}_{param.name.upper()}` environment variable, '
-                    f'or put `{param.name.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
+                    f'`{name}` client not initialized: parameter `{pname}` is not configured.\n'
+                    f'To fix this, specify the `{name.upper()}_{pname.upper()}` environment variable, '
+                    f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
-        cl.client_obj = cl.init_fn(**init_kwargs)
-        self._logger.info(f'Initialized `{name}` client.')
-        return cl.client_obj
+        # Construct the requested client
+        with _registered_clients_lock:
+            if cl.client_obj is not None:
+                return cl.client_obj  # Already initialized
+            cl.client_obj = cl.init_fn(**init_kwargs)
+            self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+            return cl.client_obj
 
     def _start_web_server(self) -> None:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
         On Windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
-        This arrangement enables serving media hosted within _home,
-        as well as external media inserted into pixeltable or produced by pixeltable.
+        This arrangement enables serving objects hosted within _home,
+        as well as external objects inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
@@ -714,11 +725,13 @@ class Env:
         """Declare optional packages that are utilized by some parts of the code."""
         self.__register_package('accelerate')
         self.__register_package('anthropic')
+        self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
         self.__register_package('boto3')
         self.__register_package('datasets')
         self.__register_package('diffusers')
         self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
+        self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
@@ -818,6 +831,12 @@ class Env:
     def media_dir(self) -> Path:
         assert self._media_dir is not None
         return self._media_dir
+
+    @property
+    def object_soa(self) -> StorageObjectAddress:
+        assert self._media_dir is not None
+        assert self._object_soa is not None
+        return self._object_soa
 
     @property
     def file_cache_dir(self) -> Path:
@@ -951,11 +970,13 @@ def register_client(name: str) -> Callable:
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
-        _registered_clients[name] = ApiClient(init_fn=fn, params=params)
+        with _registered_clients_lock:
+            _registered_clients[name] = ApiClient(init_fn=fn, params=params)
 
     return decorator
 
 
+_registered_clients_lock: threading.Lock = threading.Lock()
 _registered_clients: dict[str, ApiClient] = {}
 
 

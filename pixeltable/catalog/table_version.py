@@ -20,7 +20,7 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.object_stores import ObjectOps
 
 from .tbl_ops import TableOp
 
@@ -327,7 +327,7 @@ class TableVersion:
             from .table_version_path import TableVersionPath
 
             # clear out any remaining media files from an aborted previous attempt
-            MediaStore.get().delete(self.id)
+            self.delete_media()
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
@@ -356,13 +356,22 @@ class TableVersion:
         cat = pxt.catalog.Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
         # TableVersion instance before.
-        assert tbl_version.effective_version is not None
-        assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
+        # Actually this isn't true, because we might be re-creating a dropped replica.
+        # TODO: Understand why old TableVersions are kept around even for a dropped table.
+        # assert tbl_version.effective_version is not None
+        # assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
         tbl_version.store_tbl.ensure_columns_exist(col for col in tbl_version.cols if col.is_stored)
         return tbl_version
+
+    def delete_media(self, tbl_version: Optional[int] = None) -> None:
+        # Assemble a set of column destinations and delete objects from all of them
+        # None is a valid column destination which refers to the default object location
+        destinations = {col.destination for col in self.cols if col.is_stored}
+        for dest in destinations:
+            ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
     def drop(self) -> None:
         # if self.is_view and self.is_mutable:
@@ -374,7 +383,7 @@ class TableVersion:
         #     if self.base.get().is_mutable:
         #         self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        MediaStore.get().delete(self.id)
+        self.delete_media()
         FileCache.get().clear(tbl_id=self.id)
         self.store_tbl.drop()
 
@@ -1236,7 +1245,7 @@ class TableVersion:
             )
 
         # delete newly-added data
-        MediaStore.get().delete(self.id, tbl_version=self.version)
+        self.delete_media(tbl_version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions

@@ -148,7 +148,7 @@ jobs:
           df -h
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /opt/hostedtoolcache /opt/az /opt/microsoft
           df -h
       - name: Install ollama
         run: |
@@ -163,9 +163,3 @@ jobs:
           use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
-      - name: Print debugging info
-        if: ${{ always() }}
-        run: |
-          conda activate nb-test-env
-          conda info
-          pip list

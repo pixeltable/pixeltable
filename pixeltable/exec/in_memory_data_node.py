@@ -2,7 +2,7 @@ import logging
 from typing import Any, AsyncIterator, Optional
 
 from pixeltable import catalog, exprs
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode

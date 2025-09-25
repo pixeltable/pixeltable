@@ -24,7 +24,8 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.media_store import MediaStore, TempStore
+from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectOps
 
 _logger = logging.getLogger('pixeltable')
 
@@ -362,12 +363,17 @@ class TableRestorer:
         for md in tbl_md:
             md.tbl_md.is_replica = True
 
+        assert not tbl_md[0].version_md.is_fragment  # Top-level table cannot be a version fragment
+
         cat = catalog.Catalog.get()
 
         with cat.begin_xact(for_write=True):
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
             # versions that have not been seen before.
             cat.create_replica(catalog.Path.parse(self.tbl_path), tbl_md)
+
+            _logger.debug(f'Now will import data for {len(tbl_md)} table(s):')
+            _logger.debug(repr([md.tbl_md.tbl_id for md in tbl_md[::-1]]))
 
             # Now we need to load data for replica_tbl and its ancestors, except that we skip
             # replica_tbl itself if it's a pure snapshot.
@@ -619,7 +625,7 @@ class TableRestorer:
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
                 # Move the file to the media store and update the URL.
-                self.media_files[url] = MediaStore.get().relocate_local_media_file(src_path, media_col)
+                self.media_files[url] = ObjectOps.put_file(media_col, src_path, relocate_or_delete=True)
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
