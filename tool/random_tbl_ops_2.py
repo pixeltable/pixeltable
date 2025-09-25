@@ -206,6 +206,7 @@ class RandomTblOps:
                     # Any other exception indicates a failed run.
                     'That Pixeltable o',  # Concurrency conflict
                     'Table was dropped',  # Table dropped by another process
+                    'Column was droppe',  # Column dropped by another process
                 )
             ):
                 msg_parts.append(f'pxt.Error: {errmsg}')

@@ -439,15 +439,18 @@ class Catalog:
         return func
 
     def convert_sql_exc(
-        self, e: sql_exc.StatementError, tbl_id: UUID | None, tbl: TableVersionHandle | None, convert_db_excs: bool
+        self,
+        e: sql_exc.StatementError,
+        tbl_id: UUID | None = None,
+        tbl: TableVersionHandle | None = None,
+        convert_db_excs: bool = True,
     ) -> None:
         # we got some db error during the actual operation (not just while trying to get locks on the metadata
         # records); we convert these into pxt.Error exceptions if appropriate
 
         # we always convert UndefinedTable exceptions (they can't be retried)
-        if isinstance(e.orig, psycopg.errors.UndefinedTable):
+        if isinstance(e.orig, psycopg.errors.UndefinedTable) and tbl is not None:
             # the table got dropped in the middle of the operation
-            assert tbl is not None
             tbl_name = tbl.get().name
             _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
             raise excs.Error(f'Table was dropped: {tbl_name}') from None

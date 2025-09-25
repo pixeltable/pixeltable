@@ -23,7 +23,7 @@ from typing import (
 
 import pandas as pd
 import pydantic
-import sqlalchemy as sql
+import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import Catalog, is_valid_identifier
@@ -538,20 +538,23 @@ class DataFrame:
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
-            except sql.exc.DBAPIError as e:
-                raise excs.Error(f'Error during SQL execution:\n{e}') from e
+            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+                Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+                raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> DataFrameResultSet:
         return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
 
     async def _acollect(self) -> DataFrameResultSet:
+        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         try:
             result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
             return DataFrameResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
-        except sql.exc.DBAPIError as e:
-            raise excs.Error(f'Error during SQL execution:\n{e}') from e
+        except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+            Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+            raise  # just re-raise if not converted to a Pixeltable error
 
     def count(self) -> int:
         """Return the number of rows in the DataFrame.
