@@ -893,6 +893,7 @@ class TestView:
                     'columns': {
                         name: {
                             'computed_with': None,
+                            'defined_in': 'test_tbl',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': 'on_write',
@@ -1004,6 +1005,7 @@ class TestView:
                     'columns': {
                         name: {
                             'computed_with': computed_with,
+                            'defined_in': 'test_tbl' if name in ('c1', 'c2', 'balloon') else 'test_view',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': 'on_write',
@@ -1078,6 +1080,11 @@ class TestView:
                     'columns': {
                         name: {
                             'computed_with': computed_with,
+                            'defined_in': 'test_tbl'
+                            if name in ('c1', 'c2', 'balloon')
+                            else 'test_view'
+                            if name in ('c3', 'hamburger', 'c4')
+                            else 'test_subview',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': 'on_write',

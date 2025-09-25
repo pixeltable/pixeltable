@@ -19,6 +19,10 @@ class ColumnMetadata(TypedDict):
     """The media validation policy for this column."""
     computed_with: Optional[str]
     """Expression used to compute this column; `None` if this is not a computed column."""
+    defined_in: Optional[str]
+    """Name of the table where this column was originally defined.
+
+    If the current table is a view, then `defined_in` may differ from the current table name."""
 
 
 class EmbeddingIndexParams(TypedDict):

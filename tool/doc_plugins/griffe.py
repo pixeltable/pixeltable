@@ -3,13 +3,13 @@ import inspect
 import warnings
 
 import griffe.expressions
-from griffe import Extension, Function, Object, ObjectNode, dynamic_import  # type: ignore[attr-defined]
+from griffe import Extension, Function, Object, ObjectNode, dynamic_import
 from griffe.dataclasses import Parameters
 from mkdocstrings_handlers.python import rendering
 
 import pixeltable as pxt
 
-logger = griffe.get_logger(__name__)  # type: ignore[attr-defined]
+logger = griffe.get_logger(__name__)
 
 
 class PxtGriffeExtension(Extension):
