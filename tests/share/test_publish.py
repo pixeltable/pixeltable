@@ -47,3 +47,13 @@ class TestPublish:
 
         assert_resultset_eq(snap_data, snap_replica_data, compare_col_names=True)
         # assert_resultset_eq(tbl_data, tbl_replica_data, compare_col_names=True)
+
+    def test_remote_tbl_ops_errors(self, reset_db: None) -> None:
+        with pytest.raises(pxt.Error, match=r'Cannot use `force=True` with a cloud replica URI.'):
+            pxt.drop_table('pxt://pxt-test/test', force=True)
+        with pytest.raises(
+            pxt.Error, match=r"`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"
+        ):
+            pxt.publish('tbl', 'not-a-uri')
+        with pytest.raises(pxt.Error, match=r"`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"):
+            pxt.replicate('not-a-uri', 'replica')

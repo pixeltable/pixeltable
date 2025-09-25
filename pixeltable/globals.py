@@ -427,10 +427,7 @@ def publish(
     share.push_replica(destination_uri, source, bucket_name, access)
 
 
-def replicate(
-    remote_uri: str,
-    local_path: str
-) -> catalog.Table:
+def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     """
     Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of the replica in a
     way that preserves the table structure of the original source data. Once replicated, the local table can be
@@ -559,13 +556,17 @@ def drop_table(
         assert isinstance(table, str)
         tbl_path = table
 
+    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+
     if tbl_path.startswith('pxt://'):
         # Remote table
+        if force:
+            raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
+        # TODO: Handle if_not_exists properly
         share.delete_replica(tbl_path)
     else:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
-        if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
         Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
