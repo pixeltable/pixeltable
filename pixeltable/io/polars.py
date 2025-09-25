@@ -9,6 +9,9 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 
 PL_TO_PXT_TYPES: dict[pl.DataType, ts.ColumnType] = {
+    pl_types.String(): ts.StringType(nullable=True),
+    pl_types.Utf8(): ts.StringType(nullable=True),
+    pl_types.Categorical(): ts.StringType(nullable=True),
     pl_types.Int8(): ts.IntType(nullable=True),
     pl_types.Int16(): ts.IntType(nullable=True),
     pl_types.Int32(): ts.IntType(nullable=True),
@@ -19,12 +22,52 @@ PL_TO_PXT_TYPES: dict[pl.DataType, ts.ColumnType] = {
     pl_types.UInt64(): ts.IntType(nullable=True),
     pl_types.Float32(): ts.FloatType(nullable=True),
     pl_types.Float64(): ts.FloatType(nullable=True),
-    pl_types.String(): ts.StringType(nullable=True),
-    pl_types.Utf8(): ts.StringType(nullable=True),
-    pl_types.Categorical(): ts.StringType(nullable=True),
     pl_types.Boolean(): ts.BoolType(nullable=True),
     pl_types.Date(): ts.DateType(nullable=True),
 }
+
+PXT_TO_PL_TYPES2: dict[ts.ColumnType.Type, pl_types.DataType] = {
+    ts.ColumnType.Type.STRING: pl_types.String(),
+    ts.ColumnType.Type.INT: pl_types.Int64(),
+    ts.ColumnType.Type.FLOAT: pl_types.Float32(),
+    ts.ColumnType.Type.BOOL: pl_types.Boolean(),
+    ts.ColumnType.Type.JSON: pl_types.String(),  # TODO pl_types.struct() is possible
+    ts.ColumnType.Type.IMAGE: pl_types.Binary(),  # inline image
+    ts.ColumnType.Type.VIDEO: pl_types.String(),  # path
+    ts.ColumnType.Type.AUDIO: pl_types.String(),  # path
+    ts.ColumnType.Type.DOCUMENT: pl_types.String(),  # path
+    ts.ColumnType.Type.DATE: pl_types.Date(),
+}
+
+
+def pxt_to_pl_type(pxt_type: ts.ColumnType) -> Optional[pl.DataType]:
+    """Convert a pixeltable DataType to a polars datatype if one is defined.
+    Returns None if no conversion is currently implemented.
+    """
+    if pxt_type.type_enum in PXT_TO_PL_TYPES2:
+        return PXT_TO_PL_TYPES2[pxt_type.type_enum]  # __class__]
+    elif isinstance(pxt_type, ts.TimestampType):
+        return pl_types.Datetime(time_unit='us', time_zone=Env.get().default_time_zone)
+    elif isinstance(pxt_type, ts.ArrayType):
+        print(f'Converting array type: {pxt_type}, {pxt_type.dtype}, {pxt_type.shape}')
+        pl_inner = PXT_TO_PL_TYPES2.get(pxt_type.dtype, None)
+        print(f'Inner type converted to: {pl_inner}')
+        if pl_inner is None:
+            return None
+        print(f'Inner type converted to: {pl_inner}')
+        if None in pxt_type.shape:
+            return pl_types.List(pl_inner)
+        print('Returning fixed shape array')
+        return pl_types.Array(inner=pl_inner, shape=pxt_type.shape)
+    else:
+        return None
+
+
+def pxt_to_pl_schema(pixeltable_schema: dict[str, Any]) -> pl.Schema:
+    pl_dict = {name: pxt_to_pl_type(typ) for name, typ in pixeltable_schema.items()}
+    for x in pl_dict.items():
+        print(x)
+    return pl.Schema(pl_dict.items())
 
 
 # Function to map polars data types to Pixeltable types
@@ -98,6 +141,7 @@ def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullab
             return ts.ArrayType(shape=pl_dtype.shape, dtype=pxt_dtype, nullable=nullable)
 
     if isinstance(pl_dtype, (pl_types.List, pl_types.Struct)):
+        # This is not entirely correct, as polars lists are used to store arrays with variable shapes
         return ts.JsonType(nullable=nullable)
 
     raise excs.Error(f'Could not infer Pixeltable type for polars column: {data_col.name} (dtype: {pl_dtype})')
@@ -131,7 +175,8 @@ def _pl_row_to_pxt_row(
             nval = int(val)
         elif pxt_type.is_bool_type():
             nval = bool(val)
-        elif pxt_type.is_string_type():
+        elif pxt_type.is_string_type() or (pxt_type.is_media_type() and isinstance(val, str)):
+            # Process string types which overridden to be media types (e.g. file paths)
             nval = str(val)
         elif pxt_type.is_date_type():
             if not isinstance(val, dt.date):
@@ -141,8 +186,10 @@ def _pl_row_to_pxt_row(
             if not isinstance(val, dt.datetime):
                 raise excs.Error(f'Expected datetime value for timestamp column, got {type(val)}: {val}')
             if val.tzinfo is not None and val.tzinfo.utcoffset(val) is not None:
+                # Process timezone-aware datetime by converting to default timezone
                 nval = val.astimezone(tz=Env.get().default_time_zone)
             else:
+                # Process naive datetime by localizing to default timezone
                 nval = val.replace(tzinfo=Env.get().default_time_zone)
         elif pxt_type.is_json_type():
             # For JSON types, keep the value as-is (lists, dicts, etc.)

@@ -280,6 +280,7 @@ class TestPolars:
 
         # Create polars DataFrame with various casting operations
         df = pl.DataFrame(complex_data)
+        df.glimpse()
 
         # Add categorical column properly
         categorical_data = pl.DataFrame({'categorical_col': ['category_A', 'category_B', 'category_A']})
@@ -321,6 +322,7 @@ class TestPolars:
         assert schema['datetime_col'] == ts.TimestampType(nullable=True)
         assert schema['datetime_tz_col'] == ts.TimestampType(nullable=True)
 
+        #### BROKEN: polars makes lists from variable shape np.ndarrays
         # Complex types should map to appropriate Pixeltable types
         # Lists of integers with consistent length should become ArrayType
         #        assert schema['list_int_col'] == ts.ArrayType(shape=(None, 3), dtype=ts.IntType(), nullable=True)
@@ -436,27 +438,29 @@ class TestPolars:
         assert len(all_results) == 5
         assert all_results['string_col'][-2:] == ['additional', 'data']
 
-        # Test 7: Verify to_polars() method on DataFrameResultSet
-        print('Test 7: Testing to_polars() conversion...')
-        result_set = table.select().order_by(table.int32_col).collect()
-
-        # Convert back to polars DataFrame
-        converted_df = result_set.to_polars()
-
-        # Verify the conversion preserved data integrity
-        assert len(converted_df) == 5  # Should have all 5 rows
-        assert converted_df.width == len(schema)  # Should have all columns
-        assert converted_df.columns == list(schema.keys())  # Column names should match
-
-        # Verify some key data points
-        assert converted_df['int32_col'].to_list() == [1000, 2000, 3000, 4000, 5000]
-        assert converted_df['string_col'].to_list() == ['hello', 'world', 'polars', 'additional', 'data']
-
         # Test empty result conversion
         empty_result = table.select().where(table.int32_col > 10000).collect()
         empty_df = empty_result.to_polars()
         assert len(empty_df) == 0
         assert empty_df.columns == list(schema.keys())  # Should preserve column structure
-        print('✅ to_polars() conversion working perfectly')
+        print('polars empty dataframe:', empty_df)
+        empty_df.glimpse()
 
-        print(f'✅ Comprehensive polars integration test passed with {table.count()} rows and {len(schema)} columns!')
+        # # Test 7: Verify to_polars() method on DataFrameResultSet
+        print('Test 7: Testing to_polars() conversion...')
+        result_set = table.select().order_by(table.int32_col).collect()
+
+        # Convert back to polars DataFrame
+        converted_df = result_set.to_polars()
+        converted_df.glimpse()
+        # BROKEN: Again because of confusion with lists and np.ndarrays
+        # # Verify the conversion preserved data integrity
+        # assert len(converted_df) == 5  # Should have all 5 rows
+        # assert converted_df.width == len(schema)  # Should have all columns
+        # assert converted_df.columns == list(schema.keys())  # Column names should match
+
+        # # Verify some key data points
+        # assert converted_df['int32_col'].to_list() == [1000, 2000, 3000, 4000, 5000]
+        # assert converted_df['string_col'].to_list() == ['hello', 'world', 'polars', 'additional', 'data']
+
+        assert False

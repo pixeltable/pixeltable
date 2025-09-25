@@ -21,6 +21,7 @@ from typing import (
     TypeVar,
 )
 
+import numpy as np
 import pandas as pd
 import pydantic
 import sqlalchemy as sql
@@ -109,8 +110,13 @@ class DataFrameResultSet:
         Env.get().require_package('polars')
         import polars as pl
 
+        from pixeltable.io.polars import pxt_to_pl_schema
+
         if not self._rows:
-            return pl.DataFrame({col: [] for col in self._col_names})
+            pl_schema = pxt_to_pl_schema(self.schema)
+            return pl.DataFrame({col: [] for col in self._col_names}, schema=pl_schema)
+
+#        return pl.from_dicts(self._rows)
 
         # Create the data dictionary, handling None values properly for Polars
         data_dict = {}
@@ -120,6 +126,8 @@ class DataFrameResultSet:
             for val in col_data:
                 if val is None:
                     processed_data.append(None)
+                elif isinstance(val, np.ndarray):
+                    processed_data.append(val.tolist())
                 elif hasattr(val, 'tolist'):
                     # Handle numpy arrays
                     processed_data.append(val.tolist())
