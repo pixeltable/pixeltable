@@ -156,6 +156,7 @@ dev = [
     "fiftyone>=1.7",
     "lancedb>=0.20",
     "google-cloud-storage>=2.18.0",
+    "fastapi>=0.117.1"	
 ]
 test = [
     "pytest>=8.4",
