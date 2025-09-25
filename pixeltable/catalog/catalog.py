@@ -387,7 +387,7 @@ class Catalog:
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                self.raise_from_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
+                self.convert_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
             except:
@@ -438,7 +438,7 @@ class Catalog:
         self._current_tx_undo_actions.append(func)
         return func
 
-    def raise_from_sql_exc(
+    def convert_sql_exc(
         self, e: sql_exc.StatementError, tbl_id: UUID | None, tbl: TableVersionHandle | None, convert_db_excs: bool
     ) -> None:
         # we got some db error during the actual operation (not just while trying to get locks on the metadata

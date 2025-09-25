@@ -689,19 +689,6 @@ class TableVersion:
 
         cols_to_add = list(cols)
 
-        @Catalog.get().register_undo_action
-        def _r() -> None:
-            # Delete columns that are added as part of current add_columns operation and re-initialize
-            # the sqlalchemy schema
-            self.cols = [col for col in self.cols if col not in cols_to_add]
-            for col in cols_to_add:
-                # remove columns that we already added
-                if col.id in self.cols_by_id:
-                    del self.cols_by_id[col.id]
-                if col.name is not None and col.name in self.cols_by_name:
-                    del self.cols_by_name[col.name]
-                self.store_tbl.create_sa_tbl()
-
         row_count = self.store_tbl.count()
         for col in cols_to_add:
             assert col.tbl is self
@@ -744,7 +731,7 @@ class TableVersion:
             try:
                 excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
             except sql_exc.DBAPIError as exc:
-                Catalog.get().raise_from_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
                 # If it wasn't converted, re-raise as a generic Pixeltable error
                 # (this means it's not a known concurrency error; it's something else)
                 raise excs.Error(
@@ -1396,6 +1383,16 @@ class TableVersion:
         return self._schema_version_md.schema_version
 
     def bump_version(self, timestamp: Optional[float] = None, *, bump_schema_version: bool) -> None:
+        """
+        Increments the table version and adjusts all associated metadata. This will *not* trigger a database action;
+        _write_md() must be called separately to persist the changes.
+
+        Args:
+            timestamp: the creation time for the new version. Can be used to synchronize multiple metadata changes
+                to the same timestamp. If `None`, then defaults to `time.time()`.
+            bump_schema_version: if True, also adjusts the schema version (setting it equal to the new version)
+                and associated metadata.
+        """
         from pixeltable.catalog import Catalog
 
         assert self.effective_version is None
