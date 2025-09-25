@@ -285,13 +285,12 @@ class DataRow:
         self.vals[index] = None
         return False
 
-    def save_media_to_temp(self, index: int, col: catalog.Column) -> str:
+    def save_media_to_temp(self, index: int, col: catalog.Column, format: Optional[str] = None) -> str:
         """Save the media object in the column to the TempStore.
         Objects cannot be saved directly to general destinations."""
         assert col.col_type.is_media_type()
         val = self.vals[index]
-        format = None
-        if isinstance(val, PIL.Image.Image):
+        if format is None and isinstance(val, PIL.Image.Image):
             # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
             # In that case, use WebP instead.
             format = 'webp' if val.has_transparency_data else 'jpeg'
