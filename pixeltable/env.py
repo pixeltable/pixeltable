@@ -36,7 +36,6 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
-from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
 

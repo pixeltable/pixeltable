@@ -15,7 +15,7 @@ from sqlalchemy import exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable import env, exprs, index
+from pixeltable import exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
