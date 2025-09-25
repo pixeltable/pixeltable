@@ -1252,8 +1252,14 @@ class Catalog:
             TableVersion.create_replica(md)
 
     @retry_loop(for_write=False)
-    def get_table(self, path: Path) -> Table:
-        obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
+    def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
+        obj = Catalog.get()._get_schema_object(
+            path, expected=Table, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
+        )
+        if obj is None:
+            _logger.info(f'Skipped table {path!r} (does not exist).')
+            return None
+
         assert isinstance(obj, Table)
         # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
         # by another process.
@@ -1265,7 +1271,7 @@ class Catalog:
         tbl = self._get_schema_object(
             path,
             expected=Table,
-            raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
+            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
             lock_parent=True,
             lock_obj=False,
         )

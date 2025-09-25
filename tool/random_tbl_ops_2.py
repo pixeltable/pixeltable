@@ -91,18 +91,24 @@ class RandomTblOps:
         return f'{t._name!r} ({t._id.hex[:6]}...)'
 
     def get_random_tbl(self, allow_base_tbl: bool = True, allow_view: bool = True) -> pxt.Table | None:
-        name = random.choice(self.BASE_TABLE_NAMES)
-        # If the table does not already exist, create it and populate with some initial data
-        t = pxt.create_table(name, source=self.INITIAL_ROWS, if_exists='ignore')
-        if not allow_view:
-            return t  # View not allowed
-        if allow_base_tbl and random.uniform(0, 1) < 0.5:
-            return t  # Return base table 50% of the time
-        views = t.list_views()
-        if len(views) == 0:
-            return t if allow_base_tbl else None  # No views to choose from
-        view = random.choice(views)
-        return pxt.get_table(view)
+        # Occasionally it happens that we get a list of views, but by the time we try to get one of them, it has been
+        # dropped by another process. So we wrap the whole operation in a while loop and keep trying until it succeeds.
+        # (At least 99% of the time it succeeds on the first try.)
+        while True:
+            name = random.choice(self.BASE_TABLE_NAMES)
+            # If the table does not already exist, create it and populate with some initial data
+            t = pxt.create_table(name, source=self.INITIAL_ROWS, if_exists='ignore')
+            if not allow_view:
+                return t  # View not allowed
+            if allow_base_tbl and random.uniform(0, 1) < 0.5:
+                return t  # Return base table 50% of the time
+            view_names = t.list_views()
+            if len(view_names) == 0:
+                return t if allow_base_tbl else None  # No views to choose from
+            view_name = random.choice(view_names)
+            view = pxt.get_table(view_name, if_not_exists='ignore')
+            if view is not None:
+                return view
 
     def query(self) -> Iterator[str]:
         t = self.get_random_tbl()
@@ -162,7 +168,7 @@ class RandomTblOps:
         else:
             cname = random.choice(cnames)
             yield f'Column {cname!r}: '
-            t.drop_column(cname)
+            t.drop_column(cname, if_not_exists='ignore')
             yield 'Success.'
 
     def create_view(self) -> Iterator[str]:

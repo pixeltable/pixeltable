@@ -433,11 +433,16 @@ def create_replica(
         return share.pull_replica(destination, source)
 
 
-def get_table(path: str) -> catalog.Table:
+def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
     """Get a handle to an existing table, view, or snapshot.
 
     Args:
         path: Path to the table.
+        if_not_exists: Directive regarding how to handle if the path does not exist.
+            Must be one of the following:
+
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return `None`
 
     Returns:
         A handle to the [`Table`][pixeltable.Table].
@@ -462,8 +467,9 @@ def get_table(path: str) -> catalog.Table:
 
         >>> tbl = pxt.get_table('my_table:722')
     """
+    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
-    tbl = Catalog.get().get_table(path_obj)
+    tbl = Catalog.get().get_table(path_obj, if_not_exists_)
     return tbl
 
 
