@@ -105,6 +105,37 @@ icon: "{icon}"
 Documentation for `{name}` is not available.
 </Warning>"""
     
+    def _format_type(self, type_annotation: Any) -> str:
+        """Convert Python type annotations to clean strings for MDX documentation."""
+        if type_annotation is None:
+            return "Any"
+
+        # Handle string annotations
+        if isinstance(type_annotation, str):
+            return type_annotation
+
+        # Handle class types (like <class 'str'>)
+        if hasattr(type_annotation, '__module__') and hasattr(type_annotation, '__name__'):
+            # For built-in types, just use the name
+            if type_annotation.__module__ == 'builtins':
+                return type_annotation.__name__
+            # For other types, include the module
+            return f"{type_annotation.__module__}.{type_annotation.__name__}"
+
+        # Get the string representation
+        type_str = str(type_annotation)
+
+        # Clean up common patterns that break MDX
+        # Remove <class '...'> format
+        import re
+        type_str = re.sub(r"<class '([^']+)'>", r"\1", type_str)
+
+        # Clean up typing module references
+        type_str = type_str.replace('typing.', '')
+        type_str = type_str.replace('NoneType', 'None')
+
+        return type_str
+
     def _get_github_link(self, obj: Any) -> Optional[str]:
         """Get GitHub link to source code."""
         try:

@@ -45,79 +45,127 @@ This is used when an operation cascades changes to other tables.
 to_cascade() -> "'UpdateStatus'"
 ```
 
-## Properties
+## Attributes
 
-### ext_num_rows
+### `cascade_row_count_stats` *field*
 
-**Type:** Property (read)
+⚠️ **No documentation**
 
-### external_rows_created
+**Type:** field: RowCountStats
 
-**Type:** Property (read)
+**Default:** Factory function
 
-### external_rows_deleted
+---
 
-**Type:** Property (read)
+### `cols_with_excs` *field*
 
-### external_rows_updated
+⚠️ **No documentation**
 
-**Type:** Property (read)
+**Type:** field: list[str]
 
-### insert_msg
+**Default:** Factory function
+
+---
+
+### `ext_num_rows` *property*
+
+⚠️ **No documentation**
+
+**Type:** property (read-only)
+
+---
+
+### `ext_row_count_stats` *field*
+
+⚠️ **No documentation**
+
+**Type:** field: RowCountStats
+
+**Default:** Factory function
+
+---
+
+### `external_rows_created` *property*
+
+⚠️ **No documentation**
+
+**Type:** property (read-only)
+
+---
+
+### `external_rows_deleted` *property*
+
+⚠️ **No documentation**
+
+**Type:** property (read-only)
+
+---
+
+### `external_rows_updated` *property*
+
+⚠️ **No documentation**
+
+**Type:** property (read-only)
+
+---
+
+### `insert_msg` *property*
 
 Return a message describing the results of an insert operation.
 
 
-**Type:** Property (read)
+**Type:** property (read-only)
 
-### num_computed_values
+---
 
-**Type:** Property (read)
+### `num_computed_values` *property*
 
-### num_excs
+⚠️ **No documentation**
 
-**Type:** Property (read)
+**Type:** property (read-only)
 
-### num_rows
+---
 
-**Type:** Property (read)
+### `num_excs` *property*
 
-### pxt_rows_updated
+⚠️ **No documentation**
+
+**Type:** property (read-only)
+
+---
+
+### `num_rows` *property*
+
+⚠️ **No documentation**
+
+**Type:** property (read-only)
+
+---
+
+### `pxt_rows_updated` *property*
 
 Returns the number of Pixeltable rows that were updated as a result of the operation.
 
 
-**Type:** Property (read)
+**Type:** property (read-only)
 
-## Attributes
+---
 
-### `updated_cols`
+### `row_count_stats` *field*
 
-**Type:** `list[str]`
+⚠️ **No documentation**
 
-**Default:** Factory function
-
-### `cols_with_excs`
-
-**Type:** `list[str]`
+**Type:** field: RowCountStats
 
 **Default:** Factory function
 
-### `row_count_stats`
+---
 
-**Type:** `RowCountStats`
+### `updated_cols` *field*
 
-**Default:** Factory function
+⚠️ **No documentation**
 
-### `cascade_row_count_stats`
-
-**Type:** `RowCountStats`
-
-**Default:** Factory function
-
-### `ext_row_count_stats`
-
-**Type:** `RowCountStats`
+**Type:** field: list[str]
 
 **Default:** Factory function
 
