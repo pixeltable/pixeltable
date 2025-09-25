@@ -113,6 +113,13 @@ def main() -> None:
     else:
         worker_id = int(sys.argv[1])
 
+    if worker_id == 0:
+        t = time.monotonic()
+        pxt.init()
+        time.sleep(5 - time.monotonic() + t)  # Sleep until 5 seconds after init
+    else:
+        time.sleep(5)
+
     t = pxt.create_table('random_tbl', schema={'c1': pxt.Int}, if_exists='ignore')
     t.add_computed_column(computed1=t.c1 + 10, if_exists='ignore')
 
