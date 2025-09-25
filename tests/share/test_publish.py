@@ -7,9 +7,9 @@ from tests.conftest import clean_db
 from tests.utils import assert_resultset_eq, get_image_files, reload_catalog, skip_test_if_no_pxt_credentials
 
 
-class TestReplica:
+class TestPublish:
     @pytest.mark.parametrize('org_slug', ['pxt-test', 'pxt-test:main', 'pxt-test:my-db'])
-    def test_replica_round_trip(self, reset_db: None, org_slug: str) -> None:
+    def test_publish_round_trip(self, reset_db: None, org_slug: str) -> None:
         """
         Test a publish/clone/drop snapshot round trip, with three different organization slug configurations:
         - Default main ('pxt-test')
@@ -30,13 +30,13 @@ class TestReplica:
 
         snap_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
         # tbl_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
-        _ = pxt.create_replica(snap_remote_uri, source=snap)
+        pxt.publish(snap, snap_remote_uri)
         # _ = pxt.create_replica(tbl_remote_uri, source=tbl)
 
         clean_db()
         reload_catalog()
 
-        snap_replica = pxt.create_replica('snap_replica', source=snap_remote_uri)
+        snap_replica = pxt.replicate(snap_remote_uri, 'snap_replica')
         snap_replica_data = snap_replica.head(n=500)
 
         # tbl_replica = pxt.create_replica('tbl_replica', source=tbl_remote_uri)
