@@ -395,10 +395,10 @@ async def chat_completions(
         of the table `tbl`:
 
         >>> messages = [
-                {'role': 'system', 'content': 'You are a helpful assistant.'},
-                {'role': 'user', 'content': tbl.prompt}
-            ]
-            tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
+        ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
+        ...     {'role': 'user', 'content': tbl.prompt}
+        ... ]
+        >>> tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
     """
     if model_kwargs is None:
         model_kwargs = {}

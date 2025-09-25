@@ -1,3 +1,10 @@
+"""
+Pixeltable UDFs for Ollama local models.
+
+Provides integration with Ollama for running large language models locally,
+including chat completions and embeddings.
+"""
+
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np

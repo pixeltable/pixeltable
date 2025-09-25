@@ -1,3 +1,10 @@
+"""
+Pixeltable UDFs for llama.cpp models.
+
+Provides integration with llama.cpp for running quantized language models locally,
+supporting chat completions and embeddings with GGUF format models.
+"""
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
