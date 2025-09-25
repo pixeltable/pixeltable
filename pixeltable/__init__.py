@@ -20,7 +20,6 @@ from .globals import (
     array,
     configure_logging,
     create_dir,
-    create_replica,
     create_snapshot,
     create_table,
     create_view,
@@ -34,6 +33,8 @@ from .globals import (
     list_tables,
     ls,
     move,
+    publish,
+    replicate,
     tool,
     tools,
 )
