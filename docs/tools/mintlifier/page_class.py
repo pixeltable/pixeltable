@@ -2,7 +2,7 @@
 
 import inspect
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Any
 from page_base import PageBase
 from docstring_parser import parse as parse_docstring
 from section_method import MethodSectionGenerator
@@ -14,7 +14,7 @@ from section_attributes import AttributesSection
 
 class ClassPageGenerator(PageBase):
     """Generate documentation pages for Python classes."""
-
+    
     def __init__(self, output_dir: Path, version: str = "main", show_errors: bool = True,
                  github_repo: str = "pixeltable/pixeltable", github_package_path: str = "pixeltable"):
         """Initialize with output directory, version, and error display setting."""
@@ -35,7 +35,7 @@ class ClassPageGenerator(PageBase):
         opml_children: List[str] | None = None
     ) -> Optional[dict]:
         """Generate class documentation page and return navigation structure.
-
+        
         Args:
             class_path: Full path to class
             parent_groups: Parent group hierarchy
@@ -45,48 +45,47 @@ class ClassPageGenerator(PageBase):
         # Store parent groups for use in method generation
         self.current_parent_groups = parent_groups
         self._generated_methods = []  # Track generated method pages
-
+        
         # Parse class path
         parts = class_path.split('.')
         module_path = '.'.join(parts[:-1])
         class_name = parts[-1]
-
+        
         # Import and get class
         try:
             import importlib
             module = importlib.import_module(module_path)
             if not hasattr(module, class_name):
-                return self._generate_error_page(
-                    class_name, parent_groups, f"Class {class_name} not found in {module_path}"
-                )
+                return self._generate_error_page(class_name, parent_groups, f"Class {class_name} not found in {module_path}")
             cls = getattr(module, class_name)
             if not inspect.isclass(cls):
                 return self._generate_error_page(class_name, parent_groups, f"{class_name} is not a class")
         except ImportError as e:
             return self._generate_error_page(class_name, parent_groups, str(e))
-
+        
         # Store children for use in method documentation
         self.opml_children = opml_children
-
+        
         # Build documentation
         content = self._build_frontmatter(cls, class_name, class_path)
         content += self._build_class_documentation(cls, class_name, class_path)
-
+        
         # Write file
         class_page = self._write_mdx_file(class_name, parent_groups, content)
-
+        
         # Build navigation structure for class
         # Methods are now inline, so classes don't need to be groups anymore
         # Just return the class page directly
         return class_page
-
+    
     def _build_frontmatter(self, cls: type, name: str, full_path: str) -> str:
         """Build MDX frontmatter."""
         doc = inspect.getdoc(cls)
         parsed = parse_docstring(doc) if doc else None
+        description = ""
         if parsed and parsed.short_description:
-            self._escape_yaml(parsed.short_description[:200])
-
+            description = self._escape_yaml(parsed.short_description[:200])
+        
         # Use full path for title, but just class name for sidebar
         class_name = full_path.split('.')[-1]
         return f"""---
@@ -95,47 +94,44 @@ sidebarTitle: "{class_name}"
 icon: "square-c"
 ---
 """
-
+    
     def _build_class_documentation(self, cls: type, name: str, full_path: str) -> str:
         """Build complete class documentation."""
         content = ""
-
+        
         # Get docstring
         doc = inspect.getdoc(cls)
         if doc:
             # Add the full docstring as the class description
             content += f"\n{self._escape_mdx(doc)}\n\n"
-        elif self.show_errors:
-            content += "\n## ⚠️ No Documentation\n\n"
-            content += f"<Warning>\nDocumentation for `{name}` is not available.\n</Warning>\n\n"
-
+        else:
+            if self.show_errors:
+                content += f"\n## ⚠️ No Documentation\n\n"
+                content += f"<Warning>\nDocumentation for `{name}` is not available.\n</Warning>\n\n"
+        
         # Skip constructor per Marcel's feedback - no longer documenting __init__
-
+        
         # Add GitHub link
         github_link = self._get_github_link(cls)
         if github_link:
             content += f"<a href=\"{github_link}\" target=\"_blank\">View source on GitHub</a>\n\n"
-
+        
         # Document class methods
         content += self._document_methods(cls, full_path)
 
-        # Document properties
-        content += self._document_properties(cls)
-
-        # Document attributes/fields using appropriate handler
-        content += self._document_attributes_or_fields(cls)
-
+        # Document all attributes (properties, fields, etc.) in a unified section
+        content += self._document_all_attributes(cls)
         return content
-
+    
     # Constructor documentation removed per Marcel's feedback
-
+    
     def _document_methods(self, cls: type, full_path: str) -> str:
         """Document class methods inline."""
         content = ""
-
+        
         # Get methods to document
         methods = []
-
+        
         if self.opml_children:
             # Only document specified methods
             for method_name in self.opml_children:
@@ -154,73 +150,146 @@ icon: "square-c"
                 if inspect.ismethod(obj) or inspect.isfunction(obj):
                     # Skip __init__ per Marcel's feedback
                     methods.append((name, obj))
-
+        
         if not methods:
             return content
-
+        
         content += "## Methods\n\n"
-
+        
         # Get class name for inline sections
         class_name = full_path.split('.')[-1]
-
+        
         # Generate inline method documentation
         for method_name, method in sorted(methods):
             # Generate inline section (skips __init__ internally)
             method_section = self.method_gen.generate_section(method, method_name, class_name)
             content += method_section
-
+        
         # Clear the generated methods list since we're not creating separate pages
         self._generated_methods = []
-
+        
         return content
+    
+    def _document_all_attributes(self, cls: type) -> str:
+        """Document all attributes (properties, fields, etc.) in a unified section."""
+        import dataclasses
 
-    def _document_properties(self, cls: type) -> str:
-        """Document class properties."""
         content = ""
-        properties = []
+        all_attributes = []
 
+        # Collect properties
         for name, obj in inspect.getmembers(cls):
-            # Skip private properties
+            # Skip private attributes
             if name.startswith('_'):
                 continue
             if isinstance(obj, property):
-                properties.append((name, obj))
+                doc = inspect.getdoc(obj.fget) if obj.fget else None
+                attr_type = "property"
+                if obj.fset:
+                    attr_type = "property (read/write)"
+                else:
+                    attr_type = "property (read-only)"
+                all_attributes.append((name, attr_type, doc, None))
 
-        if not properties:
+        # Collect dataclass fields if applicable
+        if dataclasses.is_dataclass(cls):
+            for field in dataclasses.fields(cls):
+                if not field.name.startswith('_'):
+                    # Try to get field documentation from class docstring
+                    field_doc = self._extract_field_doc(cls, field.name)
+                    field_type = self._format_type(field.type) if field.type else "Any"
+                    default = field.default if field.default != dataclasses.MISSING else field.default_factory if field.default_factory != dataclasses.MISSING else None
+                    all_attributes.append((field.name, f"field: {field_type}", field_doc, default))
+
+        # Collect TypedDict fields
+        elif hasattr(cls, '__annotations__') and type(cls).__name__ == '_TypedDictMeta':
+            annotations = cls.__annotations__
+            required_keys = getattr(cls, '__required_keys__', set())
+            optional_keys = getattr(cls, '__optional_keys__', set())
+
+            for field_name, field_type in annotations.items():
+                if not field_name.startswith('_'):
+                    field_doc = self._extract_field_doc(cls, field_name)
+                    type_str = self._format_type(field_type)
+                    if field_name in optional_keys:
+                        type_str = f"{type_str} (optional)"
+                    elif field_name in required_keys:
+                        type_str = f"{type_str} (required)"
+                    all_attributes.append((field_name, f"field: {type_str}", field_doc, None))
+
+        # Collect NamedTuple fields
+        elif hasattr(cls, '_fields') and hasattr(cls, '_field_defaults'):
+            fields = cls._fields
+            defaults = getattr(cls, '_field_defaults', {})
+            types = getattr(cls, '__annotations__', {})
+
+            for field_name in fields:
+                if not field_name.startswith('_'):
+                    field_doc = self._extract_field_doc(cls, field_name)
+                    type_str = self._format_type(types.get(field_name, "Any"))
+                    default = defaults.get(field_name)
+                    all_attributes.append((field_name, f"field: {type_str}", field_doc, default))
+
+        if not all_attributes:
             return content
 
-        content += "## Properties\n\n"
+        content += "## Attributes\n\n"
 
-        for prop_name, prop in sorted(properties):
-            content += f"### {prop_name}\n\n"
+        for i, (attr_name, attr_type, doc, default) in enumerate(sorted(all_attributes)):
+            # Add separator between items (but not before the first one)
+            if i > 0:
+                content += "---\n\n"
 
-            doc = inspect.getdoc(prop.fget) if prop.fget else None
+            # Determine the label based on attr_type
+            if "property" in attr_type:
+                label = "property"
+            elif "field" in attr_type:
+                label = "field"
+            else:
+                label = "attribute"
+
+            content += f"### `{attr_name}` *{label}*\n\n"
+
+            # Add documentation or warning
             if doc:
-                parsed = parse_docstring(doc)
-                if parsed.short_description:
+                parsed = parse_docstring(doc) if '\n' in doc else None
+                if parsed and parsed.short_description:
                     content += f"{self._escape_mdx(parsed.short_description)}\n\n"
+                else:
+                    content += f"{self._escape_mdx(doc)}\n\n"
+            elif self.show_errors:
+                content += "⚠️ **No documentation**\n\n"
 
-            content += "**Type:** Property (read"
-            if prop.fset:
-                content += "/write"
-            content += ")\n\n"
+            # Add type information
+            content += f"**Type:** {attr_type}\n\n"
+
+            # Add default value if present
+            if default is not None:
+                if callable(default):
+                    content += f"**Default:** Factory function\n\n"
+                else:
+                    content += f"**Default:** `{default!r}`\n\n"
 
         return content
 
-    def _document_attributes_or_fields(self, cls: type) -> str:
-        """Document attributes/fields using the appropriate handler.
+    def _extract_field_doc(self, cls: type, field_name: str) -> str | None:
+        """Extract documentation for a specific field from class docstring."""
+        doc = inspect.getdoc(cls)
+        if not doc:
+            return None
 
-        This method selects the right handler based on the class type
-        (TypedDict, dataclass, NamedTuple, or standard class).
-        """
-        # Find the appropriate handler
-        for handler in self.attribute_handlers:
-            if handler.can_handle(cls):
-                return handler.generate_section(cls, cls.__name__)
+        # Simple pattern matching for field documentation
+        import re
+        pattern = rf'^\s*{re.escape(field_name)}\s*:\s*(.+?)(?=^\s*\w+\s*:|^\s*$)'
+        match = re.search(pattern, doc, re.MULTILINE | re.DOTALL)
 
-        # This shouldn't happen if AttributesSection is the fallback
-        return ""
+        if match:
+            field_doc = match.group(1).strip()
+            # Clean up multiple spaces and newlines
+            field_doc = ' '.join(field_doc.split())
+            return field_doc
 
+        return None
     def _generate_error_page(self, class_name: str, parent_groups: List[str], error: str) -> str:
         """Generate error page when class can't be loaded."""
         content = f"""---
