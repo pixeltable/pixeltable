@@ -120,10 +120,10 @@ def main() -> None:
     else:
         time.sleep(5)
 
-    t = pxt.create_table('random_tbl', schema={'c1': pxt.Int}, if_exists='ignore')
-    t.add_computed_column(computed1=t.c1 + 10, if_exists='ignore')
+    tbl = pxt.create_table('random_tbl', schema={'c1': pxt.Int}, if_exists='ignore')
+    tbl.add_computed_column(computed1=tbl.c1 + 10, if_exists='ignore')
 
-    RandomTblOps(worker_id, t).run()
+    RandomTblOps(worker_id, tbl).run()
 
 
 if __name__ == '__main__':
