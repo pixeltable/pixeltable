@@ -294,7 +294,7 @@ class TableVersion:
         assert (tbl_id, None) not in cat._tbl_versions
         tbl_version = cls(tbl_id, inital_md.tbl_md, inital_md.version_md, None, inital_md.schema_version_md, [])
 
-        @env.register_rollback_action
+        @cat.register_undo_action
         def _() -> None:
             if (tbl_id, None) in cat._tbl_versions:
                 del cat._tbl_versions[tbl_id, None]
@@ -689,7 +689,7 @@ class TableVersion:
 
         cols_to_add = list(cols)
 
-        @env.register_rollback_action
+        @Catalog.get().register_undo_action
         def _r() -> None:
             # Delete columns that are added as part of current add_columns operation and re-initialize
             # the sqlalchemy schema

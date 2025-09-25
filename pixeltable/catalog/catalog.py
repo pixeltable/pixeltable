@@ -18,6 +18,7 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+from pixeltable.utils.exception_handler import run_cleanup
 
 from .column import Column
 from .dir import Dir
@@ -168,6 +169,7 @@ class Catalog:
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
+    _current_tx_undo_actions: list[Callable[[], None]]
     _in_retry_loop: bool
 
     # cached column dependencies
@@ -200,6 +202,7 @@ class Catalog:
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._modified_tvs = set()
+        self._current_tx_undo_actions = []
         self._in_retry_loop = False
         self._column_dependencies = {}
         self._column_dependents = None
@@ -315,7 +318,7 @@ class Catalog:
                 self._column_dependents = None
                 has_exc = False
 
-                with Env.get().begin_xact(for_write=for_write) as conn:
+                with self.__begin_guarded_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
                             target: Optional[TableVersionHandle] = None
@@ -408,6 +411,32 @@ class Catalog:
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.id, handle.effective_version)
                 self._modified_tvs.clear()
+
+    @contextmanager
+    def __begin_guarded_xact(self, *, for_write: bool) -> Iterator[sql.Connection]:
+        assert not self._current_tx_undo_actions
+        with Env.get().begin_xact(for_write=for_write) as conn:
+            try:
+                yield conn
+            except:
+                for hook in reversed(self._current_tx_undo_actions):
+                    run_cleanup(hook, raise_error=False)
+                raise
+            finally:
+                self._current_tx_undo_actions.clear()
+
+    def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
+        """Registers a function to be called if the current transaction fails.
+
+        The function is called only if the current transaction fails due to an exception.
+
+        Rollback functions are called in reverse order of registration (LIFO).
+
+        The function should not raise exceptions; if it does, they are logged and ignored.
+        """
+        assert Env.get().in_xact
+        self._current_tx_undo_actions.append(func)
+        return func
 
     def raise_from_sql_exc(
         self, e: sql_exc.StatementError, tbl_id: UUID | None, tbl: TableVersionHandle | None, convert_db_excs: bool
