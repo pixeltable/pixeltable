@@ -33,7 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
+from pixeltable.config import Config, PIXELTABLE_API_URL
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
@@ -197,7 +197,7 @@ class Env:
         if self._remote_client is None:
             from pixeltable.share.remote import RemoteClient
 
-            self._remote_client = RemoteClient()
+            self._remote_client = RemoteClient(base_url=PIXELTABLE_API_URL)
         return self._remote_client
 
     @remote_client.setter
