@@ -72,15 +72,16 @@ class ArithmeticExpr(Expr):
             return left * right
         if self.operator == ArithmeticOperator.DIV:
             assert self.col_type.is_float_type()
-            # Avoid DivisionByZero: if right is 0, make this a NULL
+            # Avoid division by zero errors by converting any zero divisor to NULL.
             # TODO: Should we cast the NULLs to NaNs when they are retrieved back into Python?
-            nullif = sql.sql.func.nullif(right, 0)
-            # We have to cast to a `float`, or else we'll get a `Decimal`
-            return sql.sql.expression.cast(left / nullif, self.col_type.to_sa_type())
+            # These casts cause the computation to take place in float units, rather than DECIMAL.
+            nullif = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+            return sql.cast(left, self.col_type.to_sa_type()) / nullif
         if self.operator == ArithmeticOperator.MOD:
             if self.col_type.is_int_type():
-                nullif = sql.sql.func.nullif(right, 0)
-                return left % nullif
+                # Avoid division by zero errors by converting any zero divisor to NULL.
+                nullif1 = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+                return left % nullif1
             if self.col_type.is_float_type():
                 # Postgres does not support modulus for floats
                 return None
@@ -90,11 +91,9 @@ class ArithmeticExpr(Expr):
             # We need the behavior to be consistent, so that expressions will evaluate the same way
             # whether or not their operands can be translated to SQL. These SQL clauses should
             # mimic the behavior of Python's // operator.
-            nullif = sql.sql.func.nullif(right, 0)
-            if self.col_type.is_int_type():
-                return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
-            if self.col_type.is_float_type():
-                return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
+            # Avoid division by zero errors by converting any zero divisor to NULL.
+            nullif = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+            return sql.func.floor(sql.cast(left, self.col_type.to_sa_type()) / nullif)
         raise AssertionError()
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

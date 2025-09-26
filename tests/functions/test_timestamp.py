@@ -123,9 +123,12 @@ class TestTimestamp:
         # values, to ensure that we test some values where it's different from
         # the system local time where the test is running.
         for tz_str in [None, 'America/Anchorage', 'America/New_York', 'Asia/Kolkata', 'Asia/Dubai']:
-            print(f'Testing with default time zone equal to: {tz_str}')
+            print(f'Requesting client in time zone: {tz_str}')
             default_time_zone = None if tz_str is None else ZoneInfo(tz_str)
             Env.get().default_time_zone = default_time_zone
+            # Be sure we are testing with the timezone of the local DB client
+            default_time_zone = Env.get().default_time_zone
+            print(f'  (effective default time zone is: {default_time_zone})')
 
             pxt.drop_table('test_tbl', force=True)
             t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})

@@ -17,6 +17,7 @@ from typing import Optional
 import sqlalchemy as sql
 
 import pixeltable as pxt
+from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 
 
@@ -96,8 +97,18 @@ def round(self: float, digits: Optional[int] = None) -> float:
 def _(self: sql.ColumnElement, digits: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
     if digits is None:
         return sql.func.round(self)
+    elif Env.get().is_using_cockroachdb:
+        # CockroachDB cannot represent infinity as a NUMERIC, so special-case them
+        sqlinf = sql.cast(sql.literal('Infinity'), sql.Float)
+        return sql.case(
+            # Check for infinities
+            (self == sqlinf, self),
+            (self == -sqlinf, self),
+            # Normal case: round the numeric cast (includes NaN handling)
+            else_=sql.cast(sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer)), sql.Float),
+        )
     else:
-        return sql.func.round(self.cast(sql.Numeric), digits.cast(sql.Integer))
+        return sql.cast(sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer)), sql.Float)
 
 
 @pxt.udf(is_method=True)

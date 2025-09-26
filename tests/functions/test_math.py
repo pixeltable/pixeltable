@@ -10,7 +10,7 @@ from pixeltable import exprs, functions as pxtf
 
 
 class TestMath:
-    TEST_FLOATS = (0.0, 1.6, -19.274, 1.32e57, math.inf, -math.inf, math.nan)
+    TEST_FLOATS = (0.0, 1.6, -19.27469, 1.32e57, math.inf, -math.inf, math.nan)
     TEST_INTS = (0, 1, -19, 4171780)
 
     @pytest.mark.parametrize('method_type', [pxt.Float, pxt.Int])
@@ -18,6 +18,8 @@ class TestMath:
         t = pxt.create_table('test_tbl', {'x': method_type})
         values = self.TEST_FLOATS if method_type is pxt.Float else self.TEST_INTS
         t.insert({'x': x} for x in values)
+        r = t.collect()
+        assert np.array_equal(r['x'], np.array(values), equal_nan=True), r
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]]
 
@@ -44,6 +46,9 @@ class TestMath:
             print(f'Testing {pxt_fn.name} ...')
             actual = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
             expected = [py_fn(x, *args, **kwargs) for x in values]
+            print(f'  values:   {values}')
+            print(f'  actual:   {actual}')
+            print(f'  expected: {expected}')
             assert np.array_equal(actual, expected, equal_nan=True), f'{actual} != {expected}'
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
