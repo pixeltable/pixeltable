@@ -10,6 +10,9 @@ import toml
 
 from pixeltable import env, exceptions as excs
 
+# Pixeltable API URL for remote operations
+PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
+
 _logger = logging.getLogger('pixeltable')
 
 T = TypeVar('T')

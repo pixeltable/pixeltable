@@ -12,6 +12,7 @@ from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.config import PIXELTABLE_API_URL
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
@@ -21,7 +22,6 @@ from .packager import TablePackager, TableRestorer
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
 
-PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
 def push_replica(

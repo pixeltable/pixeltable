@@ -33,7 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
+from pixeltable.config import Config, PIXELTABLE_API_URL
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
@@ -41,6 +41,8 @@ from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
 
 if TYPE_CHECKING:
     import spacy
+
+    from pixeltable.share.remote import RemoteClient
 
 
 _logger = logging.getLogger('pixeltable')
@@ -95,6 +97,7 @@ class Env:
     _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
+    _remote_client: Optional[RemoteClient]  # RemoteClient instance for remote function calls
 
     @classmethod
     def get(cls) -> Env:
@@ -161,6 +164,7 @@ class Env:
         self._current_isolation_level = None
         self._dbms = None
         self._event_loop = None
+        self._remote_client = None
 
     def _init_event_loop(self) -> None:
         try:
@@ -186,6 +190,20 @@ class Env:
         if self._event_loop is None:
             self._init_event_loop()
         return self._event_loop
+
+    @property
+    def remote_client(self) -> 'RemoteClient':
+        """Get the remote client instance, creating a default one if none exists."""
+        if self._remote_client is None:
+            from pixeltable.share.remote import RemoteClient
+
+            self._remote_client = RemoteClient(base_url=PIXELTABLE_API_URL)
+        return self._remote_client
+
+    @remote_client.setter
+    def remote_client(self, client: Optional['RemoteClient']) -> None:
+        """Set the remote client instance."""
+        self._remote_client = client
 
     @property
     def db_url(self) -> str:
