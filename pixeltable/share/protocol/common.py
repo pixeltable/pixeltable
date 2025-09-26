@@ -55,10 +55,6 @@ def validate_pxt_uri(v: str) -> str:
         clean_path = path_part.lstrip('/')
         if not clean_path:
             raise ValueError('URI must have a path or UUID after the slash')
-
-        # Both hierarchical paths and UUIDs are valid
-        # UUID validation is optional here - we'll identify it in parsing
-
     return v
 
 
