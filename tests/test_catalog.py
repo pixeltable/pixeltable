@@ -51,7 +51,7 @@ class TestCatalog:
     def test_ls(self, reset_db: None) -> None:
         t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
         snapshot = pxt.create_snapshot('snapshot_for_replica', t)
-        packager = TablePackager(snapshot)
+        packager = TablePackager(snapshot, table_uri='pxt://test/test')
         bundle_path = packager.package()
         clean_db()
         reload_catalog()

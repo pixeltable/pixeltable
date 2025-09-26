@@ -33,7 +33,7 @@ from ..utils import (
 
 class TestPackager:
     def test_packager(self, test_tbl: pxt.Table) -> None:
-        packager = TablePackager(test_tbl)
+        packager = TablePackager(test_tbl, table_uri='pxt://test/test')
         bundle_path = packager.package()
 
         # Reinstantiate a catalog to test reads from scratch
@@ -49,7 +49,7 @@ class TestPackager:
         view.add_computed_column(vc2=(view.c2 + 1))
         subview = pxt.create_view('test_dir.subdir.test_subview', view.where(view.c2 % 5 == 0))
         subview.add_computed_column(vvc2=(subview.vc2 + 1))
-        packager = TablePackager(subview)
+        packager = TablePackager(subview, table_uri='pxt://test/test')
         bundle_path = packager.package()
 
         dest = self.__extract_bundle(bundle_path)
@@ -73,7 +73,7 @@ class TestPackager:
         print(repr(t.select(t.image.fileurl, t.rot.fileurl).collect()))
         print(repr(t.select(t.video.fileurl).collect()))
 
-        packager = TablePackager(t)
+        packager = TablePackager(t, table_uri='pxt://test/test')
         bundle_path = packager.package()
 
         dest = self.__extract_bundle(bundle_path)
@@ -186,7 +186,7 @@ class TestPackager:
         result_set = tbl.head(n=5000)
 
         # Package the snapshot into a tarball
-        packager = TablePackager(tbl)
+        packager = TablePackager(tbl, table_uri='pxt://test/test')
         bundle_path = packager.package()
 
         return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
