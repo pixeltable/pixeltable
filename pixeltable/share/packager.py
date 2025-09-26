@@ -22,6 +22,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.share.protocol import ListTableMetadataEntry, PathUri, PublishSnapshotRequest, TableMetadataEntry
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.local_store import TempStore
@@ -55,8 +56,9 @@ class TablePackager:
     bundle_path: Path
     preview_header: dict[str, str]
     preview: list[list[Any]]
+    request: PublishSnapshotRequest
 
-    def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, table: catalog.Table, table_uri: str) -> None:
         self.table = table
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
@@ -64,13 +66,13 @@ class TablePackager:
         # Load metadata
         with catalog.Catalog.get().begin_xact(for_write=False):
             tbl_md = catalog.Catalog.get().load_replica_md(table)
-            self.md = {
-                'pxt_version': pxt.__version__,
-                'pxt_md_version': metadata.VERSION,
-                'md': {'tables': [md.as_dict() for md in tbl_md]},
-            }
-        if additional_md is not None:
-            self.md.update(additional_md)
+            self.request = PublishSnapshotRequest(
+                table_uri=PathUri(table_uri),
+                pxt_version=pxt.__version__,
+                pxt_md_version=metadata.VERSION,
+                md=ListTableMetadataEntry(tables=[TableMetadataEntry.model_validate(md.as_dict()) for md in tbl_md]),
+            )
+            self.md = self.request.model_dump()
 
     def package(self) -> Path:
         """
