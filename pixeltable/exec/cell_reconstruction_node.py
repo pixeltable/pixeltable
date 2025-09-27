@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+import io
+import logging
+from pathlib import Path
+from typing import Any, AsyncIterator
+
+import numpy as np
+import PIL.Image
+
+import pixeltable.type_system as ts
+from pixeltable import exprs, catalog
+from pixeltable.utils import parse_local_file_path
+
+from .data_row_batch import DataRowBatch
+from .exec_node import ExecNode
+
+_logger = logging.getLogger('pixeltable')
+
+
+def json_has_inlined_objs(element: Any) -> bool:
+    """Returns True if element contains inlined objects produced by CellMaterializationNode."""
+    if isinstance(element, list):
+        return any(json_has_inlined_objs(v) for v in element)
+    if isinstance(element, dict):
+        if '__pxturlidx__' in element:
+            assert '__pxttype__' in element
+            assert '__pxtstart__' in element
+            assert '__pxtend__' in element
+            return True
+        return any(json_has_inlined_objs(v) for v in element.values())
+    return False
+
+
+def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.BufferedReader]) -> Any:
+    """Recursively reconstructs inlined objects in a json structure."""
+    if isinstance(element, list):
+        return [reconstruct_json(v, urls, file_handles) for v in element]
+    if isinstance(element, dict):
+        if '__pxttype__' in element:
+            assert '__pxturlidx__' in element
+            url_idx, start, end = element['__pxturlidx__'], element['__pxtstart__'], element['__pxtend__']
+            assert isinstance(url_idx, int) and url_idx < len(urls)
+            assert isinstance(start, int)
+            assert isinstance(end, int)
+            url = urls[url_idx]
+            local_path = parse_local_file_path(url)
+            if local_path not in file_handles:
+                file_handles[local_path] = open(local_path, 'rb')  # noqa: SIM115
+            fp = file_handles[local_path]
+
+            fp.seek(start)
+            assert fp.tell() == start
+            if element['__pxttype__'] == ts.ColumnType.Type.ARRAY.name:
+                assert '__pxtisboolarray__' in element and '__pxtarrayshape__' in element
+                is_bool_array, array_shape = element['__pxtisboolarray__'], element['__pxtarrayshape__']
+                ar = load_array(fp, start, end, is_bool_array, array_shape)
+                return ar
+            else:
+                assert element['__pxttype__'] == ts.ColumnType.Type.IMAGE.name
+                bytesio = io.BytesIO(fp.read(end - start))
+                img = PIL.Image.open(bytesio)
+                img.load()
+                assert fp.tell() == end, f'{fp.tell()} != {end} / {start}'
+                return img
+        else:
+            return {k: reconstruct_json(v, urls, file_handles) for k, v in element.items()}
+    return element
+
+
+def load_array(
+    fh: io.BufferedReader, start: int, end: int, is_bool_array: bool, shape: tuple[int, ...] | None
+) -> np.ndarray:
+    """Loads an array from a section of a file."""
+    fh.seek(start)
+    ar = np.load(fh, allow_pickle=False)
+    assert fh.tell() == end
+    if is_bool_array:
+        assert shape is not None
+        ar = np.unpackbits(ar, count=np.prod(shape)).reshape(shape).astype(bool)
+    return ar
+
+
+class CellReconstructionNode(ExecNode):
+    """
+    Reconstruction of stored json and array cells that were produced by CellMaterializationNode.
+    """
+
+    json_refs: list[exprs.ColumnRef]
+    array_refs: list[exprs.ColumnRef]
+    excluded_cols: list[catalog.Column]
+    file_handles: dict[Path, io.BufferedReader]  # key: file path
+
+    def __init__(
+        self,
+        json_refs: list[exprs.ColumnRef],
+        array_refs: list[exprs.ColumnRef],
+        row_builder: exprs.RowBuilder,
+        input: ExecNode | None = None,
+    ):
+        super().__init__(row_builder, [], [], input)
+        self.json_refs = json_refs
+        self.array_refs = array_refs
+        self.excluded_col_ids = []
+        self.file_handles = {}
+
+    def exclude_columns(self, cols: list[catalog.Column]) -> None:
+        excluded_cols = set(cols)
+        self.json_refs = [ref for ref in self.json_refs if ref.col not in excluded_cols]
+        self.array_refs = [ref for ref in self.array_refs if ref.col not in excluded_cols]
+
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+        async for batch in self.input:
+            for row in batch:
+                for col_ref in self.json_refs:
+                    val = row[col_ref.slot_idx]
+                    if val is None:
+                        continue
+                    cell_md = row.slot_cellmd.get(col_ref.slot_idx)
+                    if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(row[col_ref.slot_idx]):
+                        continue
+                    row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
+
+                for col_ref in self.array_refs:
+                    cell_md = row.slot_cellmd.get(col_ref.slot_idx)
+                    if cell_md is not None and cell_md.array_start is not None:
+                        assert row[col_ref.slot_idx] is None
+                        assert cell_md.array_end is not None
+                        assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
+                        row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
+                    else:
+                        assert row[col_ref.slot_idx] is None or isinstance(row[col_ref.slot_idx], np.ndarray)
+
+            yield batch
+
+    def close(self) -> None:
+        for fp in self.file_handles.values():
+            fp.close()
+
+    def _reconstruct_array(self, cell_md: exprs.CellMd) -> np.ndarray:
+        local_path = parse_local_file_path(cell_md.file_urls[0])
+        assert local_path is not None
+        if local_path not in self.file_handles:
+            self.file_handles[local_path] = open(str(local_path), 'rb')  # noqa: SIM115
+        fp = self.file_handles[local_path]
+        ar = load_array(fp, cell_md.array_start, cell_md.array_end, bool(cell_md.array_is_bool), cell_md.array_shape)
+        return ar

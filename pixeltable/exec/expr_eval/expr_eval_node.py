@@ -306,6 +306,9 @@ class ExprEvalNode(ExecNode):
                     task.cancel()
             _ = await asyncio.gather(*active_tasks, return_exceptions=True)
 
+            # expr cleanup
+            exprs.Expr.release_list(self.exec_ctx.all_exprs)
+
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExecCtx
     ) -> None:

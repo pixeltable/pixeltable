@@ -44,21 +44,21 @@ class ColumnPropertyRef(Expr):
         return [*super()._id_attrs(), ('prop', self.prop.value)]
 
     @property
-    def _col_ref(self) -> ColumnRef:
+    def col_ref(self) -> ColumnRef:
         col_ref = self.components[0]
         assert isinstance(col_ref, ColumnRef)
         return col_ref
 
     def __repr__(self) -> str:
-        return f'{self._col_ref}.{self.prop.name.lower()}'
+        return f'{self.col_ref}.{self.prop.name.lower()}'
 
     def is_cellmd_prop(self) -> bool:
         return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG, self.Property.CELLMD)
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
-        if not self._col_ref.col_handle.get().is_stored:
+        if not self.col_ref.col_handle.get().is_stored:
             return None
-        col = self._col_ref.col_handle.get()
+        col = self.col_ref.col_handle.get()
 
         # the errortype/-msg properties of a read-validated media column need to be extracted from the DataRow
         if (
@@ -77,7 +77,7 @@ class ColumnPropertyRef(Expr):
             return col.sa_cellmd_col
         if self.prop == self.Property.FILEURL:
             # the file url is stored as the column value
-            return sql_elements.get(self._col_ref)
+            return sql_elements.get(self.col_ref)
         return None
 
     @classmethod
@@ -87,15 +87,15 @@ class ColumnPropertyRef(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.prop == self.Property.FILEURL:
-            assert data_row.has_val[self._col_ref.slot_idx]
-            data_row[self.slot_idx] = data_row.file_urls[self._col_ref.slot_idx]
+            assert data_row.has_val[self.col_ref.slot_idx]
+            data_row[self.slot_idx] = data_row.file_urls[self.col_ref.slot_idx]
             return
         elif self.prop == self.Property.LOCALPATH:
-            assert data_row.has_val[self._col_ref.slot_idx]
-            data_row[self.slot_idx] = data_row.file_paths[self._col_ref.slot_idx]
+            assert data_row.has_val[self.col_ref.slot_idx]
+            data_row[self.slot_idx] = data_row.file_paths[self.col_ref.slot_idx]
             return
         elif self.is_cellmd_prop():
-            exc = data_row.get_exc(self._col_ref.slot_idx)
+            exc = data_row.get_exc(self.col_ref.slot_idx)
             if exc is None:
                 data_row[self.slot_idx] = None
             elif self.prop == self.Property.ERRORTYPE:

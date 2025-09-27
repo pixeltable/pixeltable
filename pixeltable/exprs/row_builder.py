@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
 import sys
 import time
-from dataclasses import dataclass
 from typing import Any, Iterable, NamedTuple, Optional, Sequence
 from uuid import UUID
 
 import numpy as np
+import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exprs, utils
 from pixeltable.env import Env
@@ -92,10 +93,11 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
+    json_slot_idxs: list[int]  # Indices of json slots
     stored_img_cols: list[exprs.ColumnSlotIdx]
     stored_media_cols: list[exprs.ColumnSlotIdx]
 
-    @dataclass
+    @dataclasses.dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
 
@@ -245,6 +247,7 @@ class RowBuilder:
             e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
+        self.json_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_json_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
@@ -462,13 +465,32 @@ class RowBuilder:
 
         num_excs = 0
         table_row: list[Any] = list(pk)
+        # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         for col, slot_idx in self.table_columns:
+            if col.id in data_row.cell_vals:
+                table_row.append(data_row.cell_vals[col.id])
+                if col.stores_cellmd:
+                    if data_row.cell_md[col.id] is None:
+                        table_row.append(sql.sql.null())
+                    else:
+                        # we want to minimize the size of the stored dict and use dict_factory to remove Nones
+                        md = dataclasses.asdict(
+                            data_row.cell_md[col.id], dict_factory=lambda d: {k: v for (k, v) in d if v is not None}
+                        )
+                        assert len(md) > 0
+                        table_row.append(md)
+                if data_row.has_exc(slot_idx):
+                    num_excs += 1
+                    if cols_with_excs is not None:
+                        cols_with_excs.add(col.id)
+                continue
+
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
                 if cols_with_excs is not None:
                     cols_with_excs.add(col.id)
-                table_row.append(None)
+                table_row.append(sql.sql.null() if col.col_type.is_json_type() else None)
                 if col.stores_cellmd:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
@@ -476,7 +498,7 @@ class RowBuilder:
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
-                    table_row.append(None)  # placeholder for cellmd column
+                    table_row.append(sql.sql.null())  # placeholder for cellmd column
 
         return table_row, num_excs
 
@@ -498,4 +520,10 @@ class RowBuilder:
 
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""
-        return exprs.DataRow(self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+        return exprs.DataRow(
+            size=self.num_materialized,
+            img_slot_idxs=self.img_slot_idxs,
+            media_slot_idxs=self.media_slot_idxs,
+            array_slot_idxs=self.array_slot_idxs,
+            json_slot_idxs=self.json_slot_idxs,
+        )

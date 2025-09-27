@@ -123,8 +123,8 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            property_is_present = self.col.stores_cellmd
-            if not property_is_present:
+            is_valid = (self.col.is_computed or self.col.col_type.is_media_type()) and self.col.is_stored
+            if not is_valid:
                 raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
         if (

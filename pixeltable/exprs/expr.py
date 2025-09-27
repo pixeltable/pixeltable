@@ -368,6 +368,15 @@ class Expr(abc.ABC):
         for e in expr_list:
             yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
 
+    @classmethod
+    def list_contains(
+        cls,
+        expr_list: Iterable[Expr],
+        expr_class: type[Expr] | None = None,
+        filter: Callable[[Expr], bool] | None = None,
+    ) -> bool:
+        return any(e._contains(expr_class, filter) for e in expr_list)
+
     def _contains(self, cls: Optional[type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.

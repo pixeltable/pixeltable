@@ -39,7 +39,7 @@ class ExecNode(abc.ABC):
         self.flushed_img_slots = [
             e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
-        self.ctx = None  # all nodes of a tree share the same context
+        self.ctx = input.ctx if input is not None else None
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
