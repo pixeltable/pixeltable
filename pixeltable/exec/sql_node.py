@@ -481,6 +481,7 @@ class SqlAggregationNode(SqlNode):
         limit: Optional[int] = None,
         exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ):
+        assert len(input.cell_md_refs) == 0  # there's no aggregation over json or arrays in SQL
         self.input_cte, input_col_map = input.to_cte()
         sql_elements = exprs.SqlElementCache(input_col_map)
         super().__init__(None, row_builder, select_list, sql_elements)

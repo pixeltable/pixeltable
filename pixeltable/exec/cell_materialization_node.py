@@ -48,6 +48,7 @@ class CellMaterializationNode(ExecNode):
     """
 
     output_col_info: list[exprs.ColumnSlotIdx]
+    copies: set[int]  # slot idxs that can be copied directly to the output column, without further transformation
 
     # execution state
     inlined_obj_files: list[Path]  # only [-1] is open for writing
@@ -56,13 +57,19 @@ class CellMaterializationNode(ExecNode):
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
     MAX_DB_ARRAY_SIZE = 512  # max size of array stored in table column; in bytes
 
-    def __init__(self, row_builder: exprs.RowBuilder, input: ExecNode | None = None):
-        super().__init__(row_builder, [], [], input)
+    def __init__(self, input: ExecNode, copied_cols: list[catalog.Column] | None = None):
+        super().__init__(input.row_builder, [], [], input)
         self.output_col_info = [
             col_info
-            for col_info in row_builder.table_columns
+            for col_info in input.row_builder.table_columns
             if col_info.col.col_type.is_json_type() or col_info.col.col_type.is_array_type()
         ]
+        if copied_cols is not None:
+            output_slot_idxs = {info.col.id: info.slot_idx for info in self.output_col_info}
+            output_col_ids = set(output_slot_idxs.keys())
+            self.copies = {output_slot_idxs[col.id] for col in copied_cols if col.id in output_col_ids}
+        else:
+            self.copies = set()
         self.inlined_obj_files = []
         self._reset_buffer()
 
@@ -70,6 +77,13 @@ class CellMaterializationNode(ExecNode):
         async for batch in self.input:
             for row in batch:
                 for col, slot_idx in self.output_col_info:
+                    if (False and
+                            slot_idx in self.copies):
+                        assert not row.has_exc(slot_idx)
+                        row.cell_vals[col.id] = row[slot_idx]
+                        row.cell_md[col.id] = row.slot_cellmd[slot_idx]
+                        continue
+
                     if row.has_exc(slot_idx):
                         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
                         row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None

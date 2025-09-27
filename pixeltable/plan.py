@@ -386,7 +386,7 @@ class Planner:
             TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_row_id
         )
 
-        plan = cls._insert_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
+        plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
@@ -395,7 +395,7 @@ class Planner:
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
         if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
-            plan = exec.CellMaterializationNode(row_builder, plan)
+            plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(
             exec.ExecContext(
@@ -425,10 +425,17 @@ class Planner:
         plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
 
         # Modify the plan RowBuilder to register the output columns
+        needs_cell_materialization = False
         for col_name, expr in zip(df.schema.keys(), df._select_list_exprs):
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
+            needs_cell_materialization = (
+                needs_cell_materialization or col.col_type.is_json_type() or col.col_type.is_array_type()
+            )
+
+        if needs_cell_materialization:
+            plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(
             exec.ExecContext(
@@ -449,12 +456,14 @@ class Planner:
         cascade: bool,
     ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
         """Creates a plan to materialize updated rows.
+
         The plan:
         - retrieves rows that are visible at the current version of the table
         - materializes all stored columns and the update targets
         - if cascade is True, recomputes all computed columns that transitively depend on the updated columns
           and copies the values of all other stored columns
         - if cascade is False, copies all columns that aren't update targets from the original rows
+
         Returns:
             - root node of the plan
             - list of qualified column names that are getting updated
@@ -505,6 +514,21 @@ class Planner:
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         plan.ctx.num_computed_exprs = len(recomputed_exprs)
 
+        # we need to avoid reconstructing and re-materializing array and json columns that are purely pass-through,
+        # ie, not needed for updated or recomputed base cols
+        eval_targets = select_list[len(copied_cols):]  # everything that's not simply copied
+        eval_target_col_refs = list(exprs.Expr.list_subexprs(eval_targets, expr_class=exprs.ColumnRef))
+        eval_target_col_ids = {ref.col.id for ref in eval_target_col_refs if ref.col.tbl.id == target.id}
+        pass_through_cols = [col for col in copied_cols if col.id not in eval_target_col_ids]
+        reconstruction_node = plan.get_node(exec.CellReconstructionNode)
+        if reconstruction_node is not None:
+            reconstruction_node.exclude_columns(pass_through_cols)
+        # TODO: this will re-materialize an array cell that got reconstructed because a recomputed column depends on it
+        # but which itself didn't change; fix this by having the SqlNode populate cell_vals/cell_md in addition to the
+        # ColumnRef's slot, so that it can be skipped altogether for cell materialization
+        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in all_base_cols):
+            plan = exec.CellMaterializationNode(plan, copied_cols=pass_through_cols)
+
         plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
 
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
@@ -527,6 +551,66 @@ class Planner:
                     .strip()
                     .format(validation_error=col.value_expr.validation_error)
                 )
+
+    @classmethod
+    def _cell_md_col_refs(cls, expr_list: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
+        """Return list of ColumnRefs that need their cellmd values for reconstruction"""
+        json_col_refs = list(
+            exprs.Expr.list_subexprs(
+                expr_list,
+                expr_class=exprs.ColumnRef,
+                filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_json_type(),
+                traverse_matches=False,
+            )
+        )
+
+        def needs_reconstruction(e: exprs.Expr) -> bool:
+            assert isinstance(e, exprs.ColumnRef)
+            # Vector-typed array columns are used for vector indexes, and are stored in the db
+            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+
+        array_col_refs = list(
+            exprs.Expr.list_subexprs(
+                expr_list, expr_class=exprs.ColumnRef, filter=needs_reconstruction, traverse_matches=False
+            )
+        )
+
+        return json_col_refs + array_col_refs
+
+    @classmethod
+    def _add_cell_reconstruction_node(cls, expr_list: list[exprs.Expr], input: exec.ExecNode) -> exec.ExecNode:
+        """
+        Add a CellReconstructionNode, if required by any of the exprs in expr_list.
+
+        Cell reconstruction is required for
+        1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
+           or as part of a ColumnPropertyRef
+        2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
+        """
+
+        def json_filter(e: exprs.Expr) -> bool:
+            if isinstance(e, exprs.JsonPath):
+                return not e.is_relative_path() and isinstance(e.anchor, exprs.ColumnRef)
+            if isinstance(e, exprs.ColumnPropertyRef):
+                return e.col_ref.col.col_type.is_json_type()
+            return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
+
+        def array_filter(e: exprs.Expr) -> bool:
+            if isinstance(e, exprs.ColumnPropertyRef):
+                return e.col_ref.col.col_type.is_array_type()
+            if not isinstance(e, exprs.ColumnRef):
+                return False
+            # Vector-typed array columns are used for vector indexes, and are stored in the db
+            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+
+        json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
+        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
+        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
+        if len(json_refs) > 0 or len(array_refs) > 0:
+            return exec.CellReconstructionNode(json_refs, array_refs, input.row_builder, input=input)
+        else:
+            return input
 
     @classmethod
     def create_batch_update_plan(
@@ -589,13 +673,18 @@ class Planner:
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs, target)
         analyzer.finalize(row_builder)
-        sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, sql_exprs, sa_key_cols, key_vals)
+
+        cell_md_col_refs = cls._cell_md_col_refs(sql_exprs)
+        sql_lookup_node = exec.SqlLookupNode(
+            tbl, row_builder, sql_exprs, sa_key_cols, key_vals, cell_md_col_refs=cell_md_col_refs
+        )
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
         plan: exec.ExecNode = row_update_node
         if not cls._is_contained_in(analyzer.select_list, sql_exprs):
             # we need an ExprEvalNode to evaluate the remaining output exprs
             plan = exec.ExprEvalNode(row_builder, analyzer.select_list, sql_exprs, input=plan)
+
         # update row builder with column information
         all_base_cols = copied_cols + list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
@@ -605,6 +694,10 @@ class Planner:
         # we're returning everything to the user, so we might as well do it in a single batch
         ctx.batch_size = 0
         plan.set_ctx(ctx)
+
+        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in all_base_cols):
+            plan = exec.CellMaterializationNode(plan, copied_cols=copied_cols)
+
         plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return (
@@ -656,8 +749,11 @@ class Planner:
             exact_version_only=view.get_bases(),
         )
         plan.ctx.num_computed_exprs = len(recomputed_exprs)
-        for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
+        materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
+        for i, col in enumerate(materialized_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        if any(c.col_type.is_array_type() or c.col_type.is_json_type() for c in materialized_cols):
+            plan = exec.CellMaterializationNode(plan)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
         plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
 
@@ -729,6 +825,8 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
+        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+            plan = exec.CellMaterializationNode(plan)
         plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
 
         return plan, len(row_builder.default_eval_ctx.target_exprs)
@@ -792,10 +890,10 @@ class Planner:
         return {e.id for e in l1} <= {e.id for e in l2}
 
     @classmethod
-    def _insert_prefetch_node(
+    def _add_prefetch_node(
         cls, tbl_id: UUID, expressions: Iterable[exprs.Expr], input_node: exec.ExecNode
     ) -> exec.ExecNode:
-        """Return a node to prefetch data if needed, otherwise return input"""
+        """Add a CachePrefetch node, if needed."""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
         # aren't explicitly captured as dependencies
@@ -938,32 +1036,12 @@ class Planner:
                 )
             )
 
-            # json and array columns need their cellmd values for reconstruction
-            json_col_refs = list(
-                exprs.Expr.list_subexprs(
-                    tbl_scan_exprs,
-                    expr_class=exprs.ColumnRef,
-                    filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_json_type(),
-                    traverse_matches=False,
-                )
-            )
-
-            def is_reconstructable_array(e: exprs.Expr) -> bool:
-                assert isinstance(e, exprs.ColumnRef)
-                return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
-
-            array_col_refs = list(
-                exprs.Expr.list_subexprs(
-                    tbl_scan_exprs, expr_class=exprs.ColumnRef, filter=is_reconstructable_array, traverse_matches=False
-                )
-            )
-
             plan = exec.SqlScanNode(
                 tbl,
                 row_builder,
                 select_list=tbl_scan_exprs,
                 set_pk=with_pk,
-                cell_md_col_refs=json_col_refs + array_col_refs,
+                cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
                 exact_version_only=exact_version_only,
             )
             tbl_scan_plans.append(plan)
@@ -995,36 +1073,8 @@ class Planner:
                 stratify_exprs=analyzer.stratify_exprs,
             )
 
-        plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
-
-        # cell reconstruction is required for
-        # 1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
-        #    or as part of a ColumnPropertyRef
-        # 2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
-
-        def json_filter(e: exprs.Expr) -> bool:
-            if isinstance(e, exprs.JsonPath):
-                return not e.is_relative_path() and isinstance(e.anchor, exprs.ColumnRef)
-            if isinstance(e, exprs.ColumnPropertyRef):
-                return e.col_ref.col.col_type.is_json_type()
-            return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
-
-        def array_filter(e: exprs.Expr) -> bool:
-            if isinstance(e, exprs.ColumnPropertyRef):
-                return e.col_ref.col.col_type.is_array_type()
-            if not isinstance(e, exprs.ColumnRef):
-                return False
-            # Vector-typed array columns are used for vector indexes, and are stored in the db
-            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
-
-        json_candidates = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=json_filter, traverse_matches=False))
-        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
-        array_candidates = list(
-            exprs.Expr.list_subexprs(analyzer.all_exprs, filter=array_filter, traverse_matches=False)
-        )
-        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
-        if len(json_refs) > 0 or len(array_refs) > 0:
-            plan = exec.CellReconstructionNode(json_refs, array_refs, row_builder, input=plan)
+        plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
+        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
