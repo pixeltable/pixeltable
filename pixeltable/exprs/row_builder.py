@@ -69,7 +69,8 @@ class RowBuilder:
     input_exprs: ExprSet
 
     tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
-    table_columns: list[ColumnSlotIdx]
+    table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
+    #table_columns: list[ColumnSlotIdx]
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
 
@@ -94,8 +95,8 @@ class RowBuilder:
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
     json_slot_idxs: list[int]  # Indices of json slots
-    stored_img_cols: list[exprs.ColumnSlotIdx]
-    stored_media_cols: list[exprs.ColumnSlotIdx]
+    #stored_img_cols: list[exprs.ColumnSlotIdx]
+    #stored_media_cols: list[exprs.ColumnSlotIdx]
 
     @dataclasses.dataclass
     class EvalCtx:
@@ -140,7 +141,7 @@ class RowBuilder:
         from .column_ref import ColumnRef
 
         self.tbl = tbl
-        self.table_columns: list[ColumnSlotIdx] = []
+        self.table_columns = {}
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
         for col in columns:
@@ -253,12 +254,15 @@ class RowBuilder:
         """Record a column that is part of the table row"""
         assert self.tbl is not None
         assert col.is_stored
-        info = ColumnSlotIdx(col, slot_idx)
-        self.table_columns.append(info)
-        if col.col_type.is_media_type():
-            self.stored_media_cols.append(info)
-            if col.col_type.is_image_type():
-                self.stored_img_cols.append(info)
+        self.table_columns[col] = slot_idx
+        # if col.col_type.is_media_type():
+        #     self.stored_media_cols.append(info)
+        #     if col.col_type.is_image_type():
+        #         self.stored_img_cols.append(info)
+
+    def add_table_columns(self, cols: list[catalog.Column]) -> None:
+        for col in cols:
+            self.table_columns[col] = None
 
     @property
     def num_materialized(self) -> int:
@@ -466,7 +470,7 @@ class RowBuilder:
         num_excs = 0
         table_row: list[Any] = list(pk)
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
-        for col, slot_idx in self.table_columns:
+        for col, slot_idx in self.table_columns.items():
             if col.id in data_row.cell_vals:
                 table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
@@ -511,10 +515,10 @@ class RowBuilder:
         assert self.tbl is not None, self.table_columns
         store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
 
-        for col in self.table_columns:
-            store_col_names.append(col.col.store_name())
-            if col.col.stores_cellmd:
-                store_col_names.append(col.col.cellmd_store_name())
+        for col in self.table_columns.keys():
+            store_col_names.append(col.store_name())
+            if col.stores_cellmd:
+                store_col_names.append(col.cellmd_store_name())
 
         return store_col_names
 

@@ -82,6 +82,7 @@ class SqlNode(ExecNode):
 
     tbl: Optional[catalog.TableVersionPath]
     select_list: exprs.ExprSet
+    columns: list[catalog.Column]  # for which columns to populate DataRow.cell_vals/cell_md
     cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
     num_pk_cols: int
@@ -89,6 +90,12 @@ class SqlNode(ExecNode):
     py_filter_eval_ctx: Optional[exprs.RowBuilder.EvalCtx]
     cte: Optional[sql.CTE]
     sql_elements: exprs.SqlElementCache
+
+    # execution state
+    cellmd_item_idxs: exprs.ExprDict[int] | None  # cellmd expr -> idx in sql select list
+    column_item_idxs: dict[catalog.Column, int] | None  # column -> idx in sql select list
+    column_cellmd_item_idxs: dict[catalog.Column, int] | None  # column -> idx in sql select list
+    result_cursor: sql.engine.CursorResult | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
     where_clause: Optional[exprs.Expr]
@@ -102,6 +109,7 @@ class SqlNode(ExecNode):
         tbl: Optional[catalog.TableVersionPath],
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
+        columns: list[catalog.Column],
         sql_elements: exprs.SqlElementCache,
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
@@ -109,6 +117,7 @@ class SqlNode(ExecNode):
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
+        self.columns = columns
         if cell_md_col_refs is not None:
             assert all(ref.col.stores_cellmd for ref in cell_md_col_refs)
             self.cell_md_refs = [
@@ -138,6 +147,9 @@ class SqlNode(ExecNode):
             assert self.num_pk_cols > 1
 
         # additional state
+        self.cellmd_item_idxs = None
+        self.column_item_idxs = None
+        self.column_cellmd_item_idxs = None
         self.result_cursor = None
         # the filter is provided by the subclass
         self.py_filter = None
@@ -165,11 +177,21 @@ class SqlNode(ExecNode):
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
-        sql_select_list = (
-            [self.sql_elements.get(e) for e in self.select_list]
-            + [self.sql_elements.get(e) for e in self.cell_md_refs]
-            + self._pk_col_items()
-        )
+        # sql_select_list = (
+        #     [self.sql_elements.get(e) for e in self.select_list]
+        #     + [self.sql_elements.get(e) for e in self.cell_md_refs]
+        #     + self._pk_col_items()
+        # )
+        # stmt = sql.select(*sql_select_list)
+
+        sql_select_list_exprs = exprs.ExprSet(self.select_list)
+        self.cellmd_item_idxs = exprs.ExprDict((ref, sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
+        column_refs = [exprs.ColumnRef(col) for col in self.columns]
+        self.column_item_idxs = {col_ref.col: sql_select_list_exprs.add(col_ref) for col_ref in column_refs}
+        column_cellmd_refs = [exprs.ColumnPropertyRef(col_ref, exprs.ColumnPropertyRef.Property.CELLMD)
+                               for col_ref in column_refs if col_ref.col.stores_cellmd]
+        self.column_cellmd_item_idxs = {cellmd_ref.col_ref.col: sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs}
+        sql_select_list = [self.sql_elements.get(e) for e in sql_select_list_exprs] + self._pk_col_items()
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
@@ -337,10 +359,22 @@ class SqlNode(ExecNode):
             if self.num_pk_cols > 0:
                 output_row.set_pk(tuple(sql_row[-self.num_pk_cols :]))
 
+            # column copies
+            for col, item_idx in self.column_item_idxs.items():
+                output_row.cell_vals[col.id] = sql_row[item_idx]
+            for col, item_idx in self.column_cellmd_item_idxs.items():
+                cell_md_dict = sql_row[item_idx]
+                output_row.cell_md[col.id] = exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
+
             # populate DataRow.slot_cellmd, where requested
-            for i, cell_md_ref in enumerate(self.cell_md_refs[::-1]):
-                cell_md_dict = sql_row[-i - self.num_pk_cols - 1]
-                output_row.slot_cellmd[cell_md_ref.col_ref.slot_idx] = (
+            # for i, cell_md_ref in enumerate(self.cell_md_refs[::-1]):
+            #     cell_md_dict = sql_row[-i - self.num_pk_cols - 1]
+            #     output_row.slot_cellmd[cell_md_ref.col_ref.slot_idx] = (
+            #         exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
+            #     )
+            for cellmd_ref, item_idx in self.cellmd_item_idxs.items():
+                cell_md_dict = sql_row[item_idx]
+                output_row.slot_cellmd[cellmd_ref.col_ref.slot_idx] = (
                     exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
                 )
 
@@ -406,12 +440,13 @@ class SqlScanNode(SqlNode):
         tbl: catalog.TableVersionPath,
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
+        columns: list[catalog.Column],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ):
         sql_elements = exprs.SqlElementCache()
-        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=set_pk, cell_md_col_refs=cell_md_col_refs)
+        super().__init__(tbl, row_builder, select_list, columns=columns, sql_elements=sql_elements, set_pk=set_pk, cell_md_col_refs=cell_md_col_refs)
         # create Select stmt
         if exact_version_only is None:
             exact_version_only = []

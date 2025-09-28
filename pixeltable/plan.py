@@ -495,7 +495,8 @@ class Planner:
             for col in target.cols_by_id.values()
             if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
         ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
+        #select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list: list[exprs.Expr] = []
         select_list.extend(update_targets.values())
 
         recomputed_exprs = [
@@ -507,27 +508,29 @@ class Planner:
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
-        plan = cls.create_query_plan(FromClause(tbls=[tbl]), select_list, where_clause=where_clause, ignore_errors=True)
-        all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
+        plan = cls.create_query_plan(FromClause(tbls=[tbl]), select_list=select_list, columns=copied_cols, where_clause=where_clause, ignore_errors=True)
+        #all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
+        all_base_cols = updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
+        plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         plan.ctx.num_computed_exprs = len(recomputed_exprs)
 
-        # we need to avoid reconstructing and re-materializing array and json columns that are purely pass-through,
-        # ie, not needed for updated or recomputed base cols
-        eval_targets = select_list[len(copied_cols):]  # everything that's not simply copied
-        eval_target_col_refs = list(exprs.Expr.list_subexprs(eval_targets, expr_class=exprs.ColumnRef))
-        eval_target_col_ids = {ref.col.id for ref in eval_target_col_refs if ref.col.tbl.id == target.id}
-        pass_through_cols = [col for col in copied_cols if col.id not in eval_target_col_ids]
-        reconstruction_node = plan.get_node(exec.CellReconstructionNode)
-        if reconstruction_node is not None:
-            reconstruction_node.exclude_columns(pass_through_cols)
-        # TODO: this will re-materialize an array cell that got reconstructed because a recomputed column depends on it
-        # but which itself didn't change; fix this by having the SqlNode populate cell_vals/cell_md in addition to the
-        # ColumnRef's slot, so that it can be skipped altogether for cell materialization
+        # # we need to avoid reconstructing and re-materializing array and json columns that are purely pass-through,
+        # # ie, not needed for updated or recomputed base cols
+        # eval_targets = select_list[len(copied_cols):]  # everything that's not simply copied
+        # eval_target_col_refs = list(exprs.Expr.list_subexprs(eval_targets, expr_class=exprs.ColumnRef))
+        # eval_target_col_ids = {ref.col.id for ref in eval_target_col_refs if ref.col.tbl.id == target.id}
+        # pass_through_cols = [col for col in copied_cols if col.id not in eval_target_col_ids]
+        # reconstruction_node = plan.get_node(exec.CellReconstructionNode)
+        # if reconstruction_node is not None:
+        #     reconstruction_node.exclude_columns(pass_through_cols)
+        # # TODO: this will re-materialize an array cell that got reconstructed because a recomputed column depends on it
+        # # but which itself didn't change; fix this by having the SqlNode populate cell_vals/cell_md in addition to the
+        # # ColumnRef's slot, so that it can be skipped altogether for cell materialization
         if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in all_base_cols):
-            plan = exec.CellMaterializationNode(plan, copied_cols=pass_through_cols)
+            plan = exec.CellMaterializationNode(plan)
 
         plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
 
@@ -910,6 +913,7 @@ class Planner:
         cls,
         from_clause: FromClause,
         select_list: Optional[list[exprs.Expr]] = None,
+        columns: list[catalog.Column] | None = None,
         where_clause: Optional[exprs.Expr] = None,
         group_by_clause: Optional[list[exprs.Expr]] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
@@ -924,6 +928,8 @@ class Planner:
         """
         if select_list is None:
             select_list = []
+        if columns is None:
+            columns = []
         if order_by_clause is None:
             order_by_clause = []
         if exact_version_only is None:
@@ -951,6 +957,7 @@ class Planner:
             row_builder=row_builder,
             analyzer=analyzer,
             eval_ctx=eval_ctx,
+            columns=columns,
             limit=limit,
             with_pk=True,
             exact_version_only=exact_version_only,
@@ -966,6 +973,7 @@ class Planner:
         row_builder: exprs.RowBuilder,
         analyzer: Analyzer,
         eval_ctx: exprs.RowBuilder.EvalCtx,
+        columns: list[catalog.Column],
         limit: Optional[exprs.Expr] = None,
         with_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
@@ -1040,6 +1048,7 @@ class Planner:
                 tbl,
                 row_builder,
                 select_list=tbl_scan_exprs,
+                columns=[c for c in columns if c.tbl.id == tbl.tbl_id],
                 set_pk=with_pk,
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
                 exact_version_only=exact_version_only,
