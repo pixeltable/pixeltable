@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from llm_dev_pattern_gen import NotebookPatternExtractor
-from llm_map_gen import LLMMapGenerator
+from llm_api_map_gen import LLMApiMapGenerator
 
 
 def generate_quick_reference(output_dir: Path):
@@ -216,10 +216,11 @@ def main():
     from opml_reader import OPMLReader
     
     mintlifier_dir = Path(__file__).parent
-    llm_map_gen = LLMMapGenerator(mintlifier_dir, version='main')
+    llm_map_gen = LLMApiMapGenerator(mintlifier_dir, version='main')
     
     # Load and process OPML to build the map
-    opml_reader = OPMLReader(mintlifier_dir / 'mintlifier.opml')
+    opml_path = mintlifier_dir.parent / 'public_api.opml'
+    opml_reader = OPMLReader(opml_path)
     tab_structure = opml_reader.load()
     all_pages = opml_reader.get_all_pages()
     
@@ -240,8 +241,8 @@ def main():
     # Step 2: Extract patterns from notebooks
     print("2. Generating llm_dev_patterns.jsonld from notebooks...")
     extractor = NotebookPatternExtractor(
-        opml_path=str(mintlifier_dir / 'mintlifier.opml'),
-        notebooks_dir=str(mintlifier_dir.parent / 'notebooks')
+        opml_path=str(opml_path),
+        notebooks_dir=str(Path(__file__).parent.parent.parent / 'notebooks')
     )
     extractor.save_patterns(str(output_dir / 'llm_dev_patterns.jsonld'))
     

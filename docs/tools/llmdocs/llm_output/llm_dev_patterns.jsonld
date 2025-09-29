@@ -8,7 +8,7 @@
   "@type": "DataCatalog",
   "name": "Pixeltable Developer Patterns",
   "description": "Curated examples demonstrating Pixeltable capabilities",
-  "dateModified": "2025-08-28T09:57:42.321715",
+  "dateModified": "2025-09-28T18:13:51.508728",
   "dataset": [
     {
       "@type": "Dataset",
@@ -18,9 +18,9 @@
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/pixeltable-basics.ipynb",
       "keywords": [
         "udf",
+        "computed column",
         "incremental",
-        "multimodal",
-        "computed column"
+        "multimodal"
       ],
       "hasPart": [
         {
@@ -65,7 +65,7 @@
               "codeSample": {
                 "@type": "SoftwareSourceCode",
                 "programmingLanguage": "Python",
-                "text": "t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')"
+                "text": "t.insert(input_image='https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')"
               }
             },
             {
@@ -125,7 +125,7 @@
               "codeSample": {
                 "@type": "SoftwareSourceCode",
                 "programmingLanguage": "Python",
-                "text": "more_images = [\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000030.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000042.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000061.jpg'\n]\nt.insert({'input_image': image} for image in more_images)"
+                "text": "more_images = [\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000030.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000042.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000061.jpg'\n]\nt.insert({'input_image': image} for image in more_images)"
               }
             },
             {
@@ -239,11 +239,11 @@
       "description": "Welcome to Section 2 of the __Pixeltable Fundamentals__ tutorial, __Computed Columns__. In the previous section, [Tables and Data Operations](https://pixeltable.readme.io/docs/tables-and-data-operations), we learned how to create tables, populate them with data, and query and manipulate their contents. In this section, we'll introduce one of Pixeltable's most essential and powerful concepts: computed columns. We'll learn how to: - Add computed columns to a table",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/computed-columns.ipynb",
       "keywords": [
-        "computed column",
-        "udf",
         "incremental",
+        "computed column",
+        "multimodal",
         "iterator",
-        "multimodal"
+        "udf"
       ],
       "hasPart": []
     },
@@ -254,8 +254,8 @@
       "description": "Welcome to Section 3 of the __Pixeltable Fundamentals__ tutorial, __Queries and Expressions__. In the previous section of this tutorial, [Computed Columns](https://docs.pixeltable.com/docs/computed-columns), we saw how to issue queries over Pixeltable tables, such as: ```python",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/queries-and-expressions.ipynb",
       "keywords": [
-        "computed column",
         "incremental",
+        "computed column",
         "embedding",
         "iterator",
         "multimodal"
@@ -269,10 +269,10 @@
       "description": "Welcome to Section 1 of the Pixeltable Fundamentals tutorial, __Tables and Data Operations__. In this section, we'll learn how to: - Create and manage tables: Understand Pixeltable's table structure, create and modify tables, and work with table schemas - Manipulate data: Insert, update, and delete data within tables, and retrieve data from tables into Python variables",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb",
       "keywords": [
-        "iterator",
-        "incremental",
         "multimodal",
-        "computed column"
+        "computed column",
+        "iterator",
+        "incremental"
       ],
       "hasPart": []
     },
@@ -283,12 +283,12 @@
       "description": "**If you are running this tutorial in Colab:** In order to make the tutorial run a bit snappier, let's switch to a GPU-equipped instance for this Colab session. To do that, click on the `Runtime -> Change runtime type` menu item at the top, then select the `GPU` radio button and click on `Save`. Main takeaways:",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/embedding-indexes.ipynb",
       "keywords": [
-        "tool calling",
-        "computed column",
-        "udf",
         "incremental",
+        "computed column",
         "embedding",
-        "multimodal"
+        "multimodal",
+        "udf",
+        "tool calling"
       ],
       "hasPart": [
         {
@@ -350,7 +350,7 @@
               "codeSample": {
                 "@type": "SoftwareSourceCode",
                 "programmingLanguage": "Python",
-                "text": "more_img_urls = [\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000080.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000090.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000106.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000108.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000139.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000285.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000632.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000724.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000776.jpg',\n    'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000785.jpg',\n]\nimgs.insert({'id': 10 + i, 'img': url} for i, url in enumerate(more_img_urls))"
+                "text": "more_img_urls = [\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000080.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000090.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000106.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000108.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000139.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000285.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000632.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000724.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000776.jpg',\n    'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000785.jpg',\n]\nimgs.insert({'id': 10 + i, 'img': url} for i, url in enumerate(more_img_urls))"
               }
             },
             {
@@ -478,11 +478,11 @@
       "description": "Pixeltable comes with a library of built-in functions and integrations, but sooner or later, you'll want to introduce some customized logic into your workflow. This is where Pixeltable's rich UDF (User-Defined Function) capability comes in. Pixeltable UDFs let you write code in Python, then directly insert your custom logic into Pixeltable expressions and computed columns. In this how-to guide, we'll show how to define UDFs, extend their capabilities, and use them in computed columns. To start, we'll install the necessary dependencies, create a Pixeltable directory and table to experiment with, and add some sample data. A Pixeltable UDF is just a Python function that is marked with the `@pxt.udf` decorator. ```python @pxt.udf",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb",
       "keywords": [
-        "computed column",
-        "udf",
         "incremental",
+        "computed column",
+        "multimodal",
         "iterator",
-        "multimodal"
+        "udf"
       ],
       "hasPart": []
     },
@@ -494,8 +494,8 @@
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/working-with-external-files.ipynb",
       "keywords": [
         "udf",
-        "multimodal",
-        "computed column"
+        "computed column",
+        "multimodal"
       ],
       "hasPart": []
     },
@@ -529,10 +529,10 @@
       "description": "This tutorial demonstrates how to integrate Pixeltable with Label Studio, in order to provide seamless management of annotations data across the annotation workflow. We'll assume that you're at least somewhat familiar with Pixeltable and have read the [Pixeltable Basics](https://pixeltable.readme.io/docs/pixeltable-basics) tutorial. __This tutorial can only be run in a local Pixeltable installation, not in Colab or Kaggle__, since it relies on spinning up a locally running Label Studio instance. See the [Installation Guide](https://pixeltable.readme.io/docs/installation) for instructions on how to set up a local Pixeltable instance. To begin, let's ensure the requisite dependencies are installed.",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/using-label-studio-with-pixeltable.ipynb",
       "keywords": [
-        "iterator",
-        "incremental",
         "multimodal",
-        "computed column"
+        "computed column",
+        "iterator",
+        "incremental"
       ],
       "hasPart": []
     },
@@ -555,11 +555,11 @@
       "description": "Pixeltable unifies data and computation into a table interface. In this tutorial, we'll go into more depth on the Hugging Face integration between datasets and how Hugging Face models can be incorporated into Pixeltable workflows to run models locally. Now let's load the Hugging Face dataset, as described in the [Hugging Face documentation](https://huggingface.co/docs/datasets/en/package_reference/loading_methods).",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-hugging-face.ipynb",
       "keywords": [
-        "udf",
         "incremental",
         "embedding",
+        "multimodal",
         "iterator",
-        "multimodal"
+        "udf"
       ],
       "hasPart": []
     },
@@ -583,8 +583,8 @@
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-fiftyone.ipynb",
       "keywords": [
         "udf",
-        "multimodal",
-        "computed column"
+        "computed column",
+        "multimodal"
       ],
       "hasPart": [
         {
@@ -727,9 +727,9 @@
       "description": "- A Together AI account with an API key (https://api.together.ai/settings/api-keys) - Together.ai usage may incur costs based on your Together.ai plan. - Be mindful of sensitive data and consider security measures when integrating with external services.",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-together.ipynb",
       "keywords": [
-        "embedding",
         "multimodal",
-        "computed column"
+        "computed column",
+        "embedding"
       ],
       "hasPart": []
     },
@@ -764,9 +764,9 @@
       "description": "Ollama is a popular platform for local serving of LLMs. In this tutorial, we'll show how to integrate Ollama models into a Pixeltable workflow. You'll need to have an Ollama server instance to query. There are several ways to do this. If you're running this notebook on your own machine, running Windows, Mac OS, or Linux, you can install Ollama at: https://ollama.com/download ",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-ollama.ipynb",
       "keywords": [
-        "incremental",
         "multimodal",
-        "computed column"
+        "computed column",
+        "incremental"
       ],
       "hasPart": []
     },
@@ -777,9 +777,9 @@
       "description": "This tutorial demonstrates how to use Pixeltable's built-in `llama.cpp` integration to run local LLMs efficiently. **If you are running this tutorial in Colab:** In order to make the tutorial run a bit snappier, let's switch to a GPU-equipped instance for this Colab session. To do that, click on the `Runtime -> Change runtime type` menu item at the top, then select the `GPU` radio button and click on `Save`.",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-llama-cpp.ipynb",
       "keywords": [
-        "iterator",
         "multimodal",
-        "computed column"
+        "computed column",
+        "iterator"
       ],
       "hasPart": []
     },
@@ -790,9 +790,9 @@
       "description": "Pixeltable's OpenAI integration enables you to access OpenAI models via the OpenAI API. - An OpenAI account with an API key (https://openai.com/index/openai-api/) - OpenAI usage may incur costs based on your OpenAI plan.",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-openai.ipynb",
       "keywords": [
-        "embedding",
         "multimodal",
-        "computed column"
+        "computed column",
+        "embedding"
       ],
       "hasPart": []
     },
@@ -804,9 +804,9 @@
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-bedrock.ipynb",
       "keywords": [
         "udf",
-        "tool calling",
+        "computed column",
         "multimodal",
-        "computed column"
+        "tool calling"
       ],
       "hasPart": []
     },
@@ -817,12 +817,12 @@
       "description": "In this tutorial, we'll demonstrate how RAG operations can be implemented in Pixeltable. In particular, we'll develop a RAG application that summarizes a collection of PDF documents and uses ChatGPT to answer questions about them. In a traditional RAG workflow, such operations might be implemented as a Python script that runs on a periodic schedule or in response to certain events. In Pixeltable, they are implemented as persistent tables that are updated automatically and incrementally as new data becomes available. **If you are running this tutorial in Colab:**",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/rag-demo.ipynb",
       "keywords": [
-        "computed column",
-        "udf",
         "incremental",
+        "computed column",
         "embedding",
+        "multimodal",
         "iterator",
-        "multimodal"
+        "udf"
       ],
       "hasPart": []
     },
@@ -833,10 +833,10 @@
       "description": "In this tutorial, we'll demonstrate how to use Pixeltable to do frame-by-frame object detection, made simple through Pixeltable's video-related functionality: * automatic frame extraction * running complex functions against frames (in this case, the YOLOX object detection models)",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/object-detection-in-videos.ipynb",
       "keywords": [
-        "iterator",
-        "incremental",
         "multimodal",
-        "computed column"
+        "computed column",
+        "iterator",
+        "incremental"
       ],
       "hasPart": [
         {
@@ -891,7 +891,7 @@
               "codeSample": {
                 "@type": "SoftwareSourceCode",
                 "programmingLanguage": "Python",
-                "text": "videos_table.insert([\n    {\n        'video': 'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4'\n    }\n])"
+                "text": "videos_table.insert([\n    {\n        'video': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4'\n    }\n])"
               }
             },
             {
@@ -1065,8 +1065,8 @@
       "description": "In this tutorial, we'll build an end-to-end workflow for creating and indexing audio transcriptions of video data. We'll demonstrate how Pixeltable can be used to: 1) Extract audio data from video files; 2) Transcribe the audio using OpenAI Whisper;",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/audio-transcriptions.ipynb",
       "keywords": [
-        "computed column",
         "incremental",
+        "computed column",
         "embedding",
         "iterator",
         "multimodal"
@@ -1128,12 +1128,12 @@
       "description": "In this tutorial, we'll explore Pixeltable's flexible handling of RAG operations on unstructured text. In a traditional AI workflow, such operations might be implemented as a Python script that runs on a periodic schedule or in response to certain events. In Pixeltable, as with everything else, they are implemented as persistent table operations that update incrementally as new data becomes available. In our tutorial workflow, we'll chunk Wikipedia articles in various ways with a document splitter, then apply several kinds of embeddings to the chunks. We start by installing the necessary dependencies, creating a Pixeltable directory `rag_ops_demo` (if it doesn't already exist), and setting up the table structure for our new workflow. Now we'll create the tables that represent our workflow, starting with a table to hold references to source documents. The table contains a single column `source_doc` whose elements have type `pxt.Document`, representing a general document instance. In this tutorial, we'll be working with HTML documents, but Pixeltable supports a range of other document types, such as Markdown and PDF.",
       "url": "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/rag-operations.ipynb",
       "keywords": [
-        "tool calling",
-        "computed column",
         "incremental",
+        "computed column",
         "embedding",
         "iterator",
-        "multimodal"
+        "multimodal",
+        "tool calling"
       ],
       "hasPart": [
         {

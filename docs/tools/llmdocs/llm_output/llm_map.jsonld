@@ -5,13 +5,13 @@
   "version": "main",
   "url": "https://docs.pixeltable.com/sdk/main",
   "programmingLanguage": "Python",
-  "dateModified": "2025-08-28T09:57:41.474227",
+  "dateModified": "2025-09-28T18:13:49.567234",
   "hasPart": [
     {
       "@type": "SoftwareSourceCode",
       "@id": "pxt:pixeltable",
       "name": "pixeltable",
-      "description": "",
+      "description": "Core Pixeltable API for table operations, data processing, and UDF management.",
       "programmingLanguage": "Python",
       "url": "https://docs.pixeltable.com/sdk/main/pixeltable",
       "codeRepository": "https://github.com/pixeltable/pixeltable/tree/main",
@@ -26,12 +26,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L46",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L46",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L47",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L47",
           "codeLocation": {
-            "startLine": 46,
+            "startLine": 47,
             "lineCount": 150,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -210,12 +210,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L198",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L198",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L199",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L199",
           "codeLocation": {
-            "startLine": 198,
+            "startLine": 199,
             "lineCount": 118,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -356,12 +356,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L318",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L318",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L319",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L319",
           "codeLocation": {
-            "startLine": 318,
+            "startLine": 319,
             "lineCount": 79,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -490,12 +490,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L497",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L497",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L498",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L498",
           "codeLocation": {
-            "startLine": 497,
-            "lineCount": 49,
-            "relativePath": "pixeltable/globals.py"
+            "startLine": 498,
+            "lineCount": 54,
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -560,12 +560,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L435",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L435",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L436",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L436",
           "codeLocation": {
-            "startLine": 435,
+            "startLine": 436,
             "lineCount": 32,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -611,12 +611,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L631",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L631",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L637",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L637",
           "codeLocation": {
-            "startLine": 631,
+            "startLine": 637,
             "lineCount": 50,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -686,12 +686,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L683",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L683",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L689",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L689",
           "codeLocation": {
-            "startLine": 683,
+            "startLine": 689,
             "lineCount": 40,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -756,12 +756,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L548",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L548",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L554",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L554",
           "codeLocation": {
-            "startLine": 548,
+            "startLine": 554,
             "lineCount": 32,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -820,12 +820,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L725",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L725",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L731",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L731",
           "codeLocation": {
-            "startLine": 725,
+            "startLine": 731,
             "lineCount": 60,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -859,12 +859,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L469",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L469",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L470",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L470",
           "codeLocation": {
-            "startLine": 469,
+            "startLine": 470,
             "lineCount": 26,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -916,12 +916,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L920",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L920",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L926",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L926",
           "codeLocation": {
-            "startLine": 920,
+            "startLine": 926,
             "lineCount": 16,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -999,12 +999,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L38",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/globals.py#L38",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L39",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L39",
           "codeLocation": {
-            "startLine": 38,
+            "startLine": 39,
             "lineCount": 6,
-            "relativePath": "pixeltable/globals.py"
+            "relativePath": "pixeltable/pixeltable/globals.py"
           },
           "signature": {
             "parameters": [
@@ -1038,12 +1038,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/func/udf.py#L46",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/func/udf.py#L46",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/func/udf.py#L46",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/func/udf.py#L46",
           "codeLocation": {
             "startLine": 46,
             "lineCount": 49,
-            "relativePath": "pixeltable/func/udf.py"
+            "relativePath": "pixeltable/pixeltable/func/udf.py"
           },
           "signature": {
             "parameters": [
@@ -1078,12 +1078,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/func/query_template_function.py#L106",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/func/query_template_function.py#L106",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/func/query_template_function.py#L106",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/func/query_template_function.py#L106",
           "codeLocation": {
             "startLine": 106,
             "lineCount": 20,
-            "relativePath": "pixeltable/func/query_template_function.py"
+            "relativePath": "pixeltable/pixeltable/func/query_template_function.py"
           },
           "signature": {
             "parameters": [
@@ -1134,13 +1134,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L547",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L556",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L547",
-            "line": 547,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L556",
+            "line": 556,
             "lineCount": 46,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1184,13 +1184,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L796",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L820",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L796",
-            "line": 796,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L820",
+            "line": 820,
             "lineCount": 114,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1234,13 +1234,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L911",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L935",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L911",
-            "line": 911,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L935",
+            "line": 935,
             "lineCount": 20,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1283,13 +1283,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1471",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1504",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1471",
-            "line": 1471,
-            "lineCount": 61,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1504",
+            "line": 1504,
+            "lineCount": 75,
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1297,6 +1297,12 @@
                 "name": "columns",
                 "required": true,
                 "type": "str | ColumnRef"
+              },
+              {
+                "name": "where",
+                "required": false,
+                "type": "'exprs.Expr' | None",
+                "default": "None"
               },
               {
                 "name": "errors_only",
@@ -1311,7 +1317,7 @@
                 "default": "True"
               }
             ],
-            "formatted": "(\n    columns: str | ColumnRef,\n    errors_only: bool = False,\n    cascade: bool = True\n)",
+            "formatted": "(\n    columns: str | ColumnRef,\n    where: 'exprs.Expr' | None = None,\n    errors_only: bool = False,\n    cascade: bool = True\n)",
             "returns": "UpdateStatus"
           },
           "parameters": [
@@ -1320,6 +1326,12 @@
               "name": "columns",
               "valueType": "Any",
               "description": "The names or references of the computed columns to recompute."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "where",
+              "valueType": "Any",
+              "description": "A predicate to filter rows to recompute."
             },
             {
               "@type": "PropertyValue",
@@ -1345,13 +1357,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1282",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1306",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1282",
-            "line": 1282,
-            "lineCount": 79,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1306",
+            "line": 1306,
+            "lineCount": 88,
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1443,13 +1455,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1362",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1395",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1362",
-            "line": 1362,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1395",
+            "line": 1395,
             "lineCount": 37,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1505,13 +1517,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1533",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1580",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1533",
-            "line": 1533,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1580",
+            "line": 1580,
             "lineCount": 16,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1544,13 +1556,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L945",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L969",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L945",
-            "line": 945,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L969",
+            "line": 969,
             "lineCount": 125,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1654,13 +1666,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1071",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1095",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1071",
-            "line": 1071,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1095",
+            "line": 1095,
             "lineCount": 62,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1717,13 +1729,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1150",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1174",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1150",
-            "line": 1150,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1174",
+            "line": 1174,
             "lineCount": 62,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [
@@ -1780,13 +1792,13 @@
             "@id": "pxt:Table"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1550",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1597",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L1550",
-            "line": 1550,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L1597",
+            "line": 1597,
             "lineCount": 13,
-            "relativePath": "pixeltable/catalog/table.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+            "relativePath": "pixeltable/pixeltable/catalog/table.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
           },
           "signature": {
             "parameters": [],
@@ -1796,13 +1808,13 @@
         }
       ],
       "sourceLocation": {
-        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L49",
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L59",
         "@type": "SoftwareSourceCode",
-        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/catalog/table.py#L49",
-        "line": 49,
-        "lineCount": 1707,
-        "relativePath": "pixeltable/catalog/table.py",
-        "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/catalog/table.py"
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table.py#L59",
+        "line": 59,
+        "lineCount": 1761,
+        "relativePath": "pixeltable/pixeltable/catalog/table.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table.py"
       },
       "constructor": {
         "parameters": [
@@ -1834,7 +1846,7 @@
       "@type": "Class",
       "@id": "pxt:pixeltable.DataFrame",
       "name": "DataFrame",
-      "description": "",
+      "description": "Represents a query for retrieving and transforming data from Pixeltable tables.",
       "url": "https://docs.pixeltable.com/sdk/main/pixeltable/DataFrame",
       "memberOf": {
         "@type": "SoftwareSourceCode",
@@ -1851,13 +1863,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L639",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L640",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L639",
-            "line": 639,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L640",
+            "line": 640,
             "lineCount": 85,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -1900,13 +1912,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L725",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L726",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L725",
-            "line": 725,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L726",
+            "line": 726,
             "lineCount": 41,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -1938,13 +1950,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L828",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L829",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L828",
-            "line": 828,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L829",
+            "line": 829,
             "lineCount": 77,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2000,13 +2012,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L906",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L907",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L906",
-            "line": 906,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L907",
+            "line": 907,
             "lineCount": 75,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2038,13 +2050,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1005",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1006",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1005",
-            "line": 1005,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1006",
+            "line": 1006,
             "lineCount": 46,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2088,13 +2100,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1052",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1053",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1052",
-            "line": 1052,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1053",
+            "line": 1053,
             "lineCount": 22,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2126,13 +2138,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L982",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L983",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L982",
-            "line": 982,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L983",
+            "line": 983,
             "lineCount": 22,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [],
@@ -2150,13 +2162,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1075",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1076",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1075",
-            "line": 1075,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1076",
+            "line": 1076,
             "lineCount": 116,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2237,13 +2249,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L544",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L545",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L544",
-            "line": 544,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L545",
+            "line": 545,
             "lineCount": 2,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [],
@@ -2261,13 +2273,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L395",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L396",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L395",
-            "line": 395,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L396",
+            "line": 396,
             "lineCount": 5,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2292,13 +2304,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L401",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L402",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L401",
-            "line": 401,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L402",
+            "line": 402,
             "lineCount": 26,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2331,13 +2343,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L428",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L429",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L428",
-            "line": 428,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L429",
+            "line": 429,
             "lineCount": 28,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2370,13 +2382,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1382",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1405",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1382",
-            "line": 1382,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1405",
+            "line": 1405,
             "lineCount": 46,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [
@@ -2409,13 +2421,13 @@
             "@id": "pxt:DataFrame"
           },
           "sourceLocation": {
-            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1350",
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1373",
             "@type": "SoftwareSourceCode",
-            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L1350",
-            "line": 1350,
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L1373",
+            "line": 1373,
             "lineCount": 31,
-            "relativePath": "pixeltable/dataframe.py",
-            "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+            "relativePath": "pixeltable/pixeltable/dataframe.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
           },
           "signature": {
             "parameters": [],
@@ -2425,13 +2437,13 @@
         }
       ],
       "sourceLocation": {
-        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L188",
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L188",
         "@type": "SoftwareSourceCode",
-        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L188",
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/dataframe.py#L188",
         "line": 188,
-        "lineCount": 1240,
-        "relativePath": "pixeltable/dataframe.py",
-        "localPath": "/Users/lux/repos/pixeltable-docs/pixeltable/dataframe.py"
+        "lineCount": 1263,
+        "relativePath": "pixeltable/pixeltable/dataframe.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/dataframe.py"
       },
       "constructor": {
         "parameters": [
@@ -2485,6 +2497,282 @@
           }
         ],
         "formatted": "(\n    from_clause: Optional[plan.FromClause] = None,\n    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None,\n    where_clause: Optional[exprs.Expr] = None,\n    group_by_clause: Optional[list[exprs.Expr]] = None,\n    grouping_tbl: Optional[catalog.TableVersion] = None,\n    order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,\n    limit: Optional[exprs.Expr] = None,\n    sample_clause: Optional[SampleClause] = None\n)"
+      }
+    },
+    {
+      "@type": "Class",
+      "@id": "pxt:pixeltable.ColumnMetadata",
+      "name": "ColumnMetadata",
+      "description": "Metadata for a column of a Pixeltable table.",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/ColumnMetadata",
+      "memberOf": {
+        "@type": "SoftwareSourceCode",
+        "@id": "pxt:pixeltable"
+      },
+      "hasPart": [],
+      "sourceLocation": {
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L5",
+        "@type": "SoftwareSourceCode",
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L5",
+        "line": 5,
+        "lineCount": 17,
+        "relativePath": "pixeltable/pixeltable/catalog/table_metadata.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table_metadata.py"
+      },
+      "constructor": {
+        "parameters": [
+          {
+            "name": "args",
+            "required": true
+          },
+          {
+            "name": "kwargs",
+            "required": true
+          }
+        ],
+        "formatted": "(\n    args,\n    kwargs\n)"
+      }
+    },
+    {
+      "@type": "Class",
+      "@id": "pxt:pixeltable.DirContents",
+      "name": "DirContents",
+      "description": "Represents the contents of a Pixeltable directory.",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/DirContents",
+      "memberOf": {
+        "@type": "SoftwareSourceCode",
+        "@id": "pxt:pixeltable"
+      },
+      "hasPart": [],
+      "sourceLocation": {
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L948",
+        "@type": "SoftwareSourceCode",
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/globals.py#L948",
+        "line": 948,
+        "lineCount": 9,
+        "relativePath": "pixeltable/pixeltable/globals.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/globals.py"
+      },
+      "constructor": {
+        "parameters": [
+          {
+            "name": "args",
+            "required": true
+          },
+          {
+            "name": "kwargs",
+            "required": true
+          }
+        ],
+        "formatted": "(\n    args,\n    kwargs\n)"
+      }
+    },
+    {
+      "@type": "Class",
+      "@id": "pxt:pixeltable.IndexMetadata",
+      "name": "IndexMetadata",
+      "description": "Metadata for a column of a Pixeltable table.",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/IndexMetadata",
+      "memberOf": {
+        "@type": "SoftwareSourceCode",
+        "@id": "pxt:pixeltable"
+      },
+      "hasPart": [],
+      "sourceLocation": {
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L31",
+        "@type": "SoftwareSourceCode",
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L31",
+        "line": 31,
+        "lineCount": 10,
+        "relativePath": "pixeltable/pixeltable/catalog/table_metadata.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table_metadata.py"
+      },
+      "constructor": {
+        "parameters": [
+          {
+            "name": "args",
+            "required": true
+          },
+          {
+            "name": "kwargs",
+            "required": true
+          }
+        ],
+        "formatted": "(\n    args,\n    kwargs\n)"
+      }
+    },
+    {
+      "@type": "Class",
+      "@id": "pxt:pixeltable.TableMetadata",
+      "name": "TableMetadata",
+      "description": "Metadata for a Pixeltable table.",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/TableMetadata",
+      "memberOf": {
+        "@type": "SoftwareSourceCode",
+        "@id": "pxt:pixeltable"
+      },
+      "hasPart": [],
+      "sourceLocation": {
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L43",
+        "@type": "SoftwareSourceCode",
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L43",
+        "line": 43,
+        "lineCount": 29,
+        "relativePath": "pixeltable/pixeltable/catalog/table_metadata.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table_metadata.py"
+      },
+      "constructor": {
+        "parameters": [
+          {
+            "name": "args",
+            "required": true
+          },
+          {
+            "name": "kwargs",
+            "required": true
+          }
+        ],
+        "formatted": "(\n    args,\n    kwargs\n)"
+      }
+    },
+    {
+      "@type": "Class",
+      "@id": "pxt:pixeltable.UpdateStatus",
+      "name": "UpdateStatus",
+      "description": "Information about changes to table data or table schema",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/UpdateStatus",
+      "memberOf": {
+        "@type": "SoftwareSourceCode",
+        "@id": "pxt:pixeltable"
+      },
+      "hasPart": [
+        {
+          "@type": "Method",
+          "@id": "pxt:UpdateStatus.insert_to_update",
+          "name": "insert_to_update",
+          "description": "Convert the update status from an insert operation to an update operation.",
+          "memberOf": {
+            "@type": "Class",
+            "@id": "pxt:UpdateStatus"
+          },
+          "sourceLocation": {
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/update_status.py#L83",
+            "@type": "SoftwareSourceCode",
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/update_status.py#L83",
+            "line": 83,
+            "lineCount": 12,
+            "relativePath": "pixeltable/pixeltable/catalog/update_status.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/update_status.py"
+          },
+          "signature": {
+            "parameters": [],
+            "formatted": "()",
+            "returns": "'UpdateStatus'"
+          }
+        },
+        {
+          "@type": "Method",
+          "@id": "pxt:UpdateStatus.to_cascade",
+          "name": "to_cascade",
+          "description": "Convert the update status to a cascade update status.",
+          "memberOf": {
+            "@type": "Class",
+            "@id": "pxt:UpdateStatus"
+          },
+          "sourceLocation": {
+            "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/update_status.py#L96",
+            "@type": "SoftwareSourceCode",
+            "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/update_status.py#L96",
+            "line": 96,
+            "lineCount": 12,
+            "relativePath": "pixeltable/pixeltable/catalog/update_status.py",
+            "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/update_status.py"
+          },
+          "signature": {
+            "parameters": [],
+            "formatted": "()",
+            "returns": "'UpdateStatus'"
+          }
+        }
+      ],
+      "sourceLocation": {
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/update_status.py#L53",
+        "@type": "SoftwareSourceCode",
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/update_status.py#L53",
+        "line": 53,
+        "lineCount": 127,
+        "relativePath": "pixeltable/pixeltable/catalog/update_status.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/update_status.py"
+      },
+      "constructor": {
+        "parameters": [
+          {
+            "name": "updated_cols",
+            "required": false,
+            "type": "list[str]",
+            "default": "<factory>"
+          },
+          {
+            "name": "cols_with_excs",
+            "required": false,
+            "type": "list[str]",
+            "default": "<factory>"
+          },
+          {
+            "name": "row_count_stats",
+            "required": false,
+            "type": "RowCountStats",
+            "default": "<factory>"
+          },
+          {
+            "name": "cascade_row_count_stats",
+            "required": false,
+            "type": "RowCountStats",
+            "default": "<factory>"
+          },
+          {
+            "name": "ext_row_count_stats",
+            "required": false,
+            "type": "RowCountStats",
+            "default": "<factory>"
+          }
+        ],
+        "formatted": "(\n    updated_cols: list[str] = <factory>,\n    cols_with_excs: list[str] = <factory>,\n    row_count_stats: RowCountStats = <factory>,\n    cascade_row_count_stats: RowCountStats = <factory>,\n    ext_row_count_stats: RowCountStats = <factory>\n)",
+        "returns": "None"
+      }
+    },
+    {
+      "@type": "Class",
+      "@id": "pxt:pixeltable.VersionMetadata",
+      "name": "VersionMetadata",
+      "description": "Metadata for a specific version of a Pixeltable table.",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/VersionMetadata",
+      "memberOf": {
+        "@type": "SoftwareSourceCode",
+        "@id": "pxt:pixeltable"
+      },
+      "hasPart": [],
+      "sourceLocation": {
+        "@id": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L74",
+        "@type": "SoftwareSourceCode",
+        "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/catalog/table_metadata.py#L74",
+        "line": 74,
+        "lineCount": 23,
+        "relativePath": "pixeltable/pixeltable/catalog/table_metadata.py",
+        "localPath": "/Users/lux/repos/pixeltable/pixeltable/catalog/table_metadata.py"
+      },
+      "constructor": {
+        "parameters": [
+          {
+            "name": "args",
+            "required": true
+          },
+          {
+            "name": "kwargs",
+            "required": true
+          }
+        ],
+        "formatted": "(\n    args,\n    kwargs\n)"
       }
     },
     {
@@ -7576,6 +7864,122 @@
       "hasPart": [
         {
           "@type": "Function",
+          "@id": "pxt:pixeltable.functions.video.clip",
+          "name": "pixeltable.functions.video.clip",
+          "identifier": "clip",
+          "description": "Extract a clip from a video, specified by `start_time` and either `end_time` or `duration` (in seconds).",
+          "memberOf": {
+            "@type": "SoftwareSourceCode",
+            "@id": "pxt:pixeltable.functions.video"
+          },
+          "signature": {
+            "parameters": [
+              {
+                "name": "args",
+                "required": true,
+                "type": "Any"
+              },
+              {
+                "name": "kwargs",
+                "required": true,
+                "type": "Any"
+              }
+            ],
+            "formatted": "(\n    args: Any,\n    kwargs: Any\n)",
+            "returns": "'exprs.FunctionCall'"
+          },
+          "potentialAction": {
+            "@type": "InvokeAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "pxt:pixeltable.functions.video.clip",
+              "httpMethod": "GET"
+            }
+          },
+          "category": "video_processing",
+          "parameters": [
+            {
+              "@type": "PropertyValue",
+              "name": "video",
+              "valueType": "Any",
+              "description": "Input video file"
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "start_time",
+              "valueType": "Any",
+              "description": "Start time in seconds"
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "end_time",
+              "valueType": "Any",
+              "description": "End time in seconds"
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "duration",
+              "valueType": "Any",
+              "description": "Duration of the clip in seconds"
+            }
+          ],
+          "returns": {
+            "@type": "PropertyValue",
+            "valueType": "Any",
+            "description": "New video containing only the specified time range or None if start_time is beyond the end of the video."
+          }
+        },
+        {
+          "@type": "Function",
+          "@id": "pxt:pixeltable.functions.video.concat_videos",
+          "name": "pixeltable.functions.video.concat_videos",
+          "identifier": "concat_videos",
+          "description": "Merge multiple videos into a single video.",
+          "memberOf": {
+            "@type": "SoftwareSourceCode",
+            "@id": "pxt:pixeltable.functions.video"
+          },
+          "signature": {
+            "parameters": [
+              {
+                "name": "args",
+                "required": true,
+                "type": "Any"
+              },
+              {
+                "name": "kwargs",
+                "required": true,
+                "type": "Any"
+              }
+            ],
+            "formatted": "(\n    args: Any,\n    kwargs: Any\n)",
+            "returns": "'exprs.FunctionCall'"
+          },
+          "potentialAction": {
+            "@type": "InvokeAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "pxt:pixeltable.functions.video.concat_videos",
+              "httpMethod": "GET"
+            }
+          },
+          "category": "video_processing",
+          "parameters": [
+            {
+              "@type": "PropertyValue",
+              "name": "videos",
+              "valueType": "Any",
+              "description": "List of videos to merge."
+            }
+          ],
+          "returns": {
+            "@type": "PropertyValue",
+            "valueType": "Any",
+            "description": "A new video containing the merged videos."
+          }
+        },
+        {
+          "@type": "Function",
           "@id": "pxt:pixeltable.functions.video.extract_audio",
           "name": "pixeltable.functions.video.extract_audio",
           "identifier": "extract_audio",
@@ -7637,6 +8041,110 @@
         },
         {
           "@type": "Function",
+          "@id": "pxt:pixeltable.functions.video.extract_frame",
+          "name": "pixeltable.functions.video.extract_frame",
+          "identifier": "extract_frame",
+          "description": "Extract a single frame from a video at a specific timestamp.",
+          "memberOf": {
+            "@type": "SoftwareSourceCode",
+            "@id": "pxt:pixeltable.functions.video"
+          },
+          "signature": {
+            "parameters": [
+              {
+                "name": "args",
+                "required": true,
+                "type": "Any"
+              },
+              {
+                "name": "kwargs",
+                "required": true,
+                "type": "Any"
+              }
+            ],
+            "formatted": "(\n    args: Any,\n    kwargs: Any\n)",
+            "returns": "'exprs.FunctionCall'"
+          },
+          "potentialAction": {
+            "@type": "InvokeAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "pxt:pixeltable.functions.video.extract_frame",
+              "httpMethod": "GET"
+            }
+          },
+          "category": "video_processing",
+          "parameters": [
+            {
+              "@type": "PropertyValue",
+              "name": "video",
+              "valueType": "Any",
+              "description": "The video from which to extract the frame."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "timestamp",
+              "valueType": "Any",
+              "description": "Extract frame at this timestamp (in seconds)."
+            }
+          ],
+          "returns": {
+            "@type": "PropertyValue",
+            "valueType": "Any",
+            "description": "The extracted frame as a PIL Image, or None if the timestamp is beyond the video duration."
+          }
+        },
+        {
+          "@type": "Function",
+          "@id": "pxt:pixeltable.functions.video.get_duration",
+          "name": "pixeltable.functions.video.get_duration",
+          "identifier": "get_duration",
+          "description": "Get video duration in seconds.",
+          "memberOf": {
+            "@type": "SoftwareSourceCode",
+            "@id": "pxt:pixeltable.functions.video"
+          },
+          "signature": {
+            "parameters": [
+              {
+                "name": "args",
+                "required": true,
+                "type": "Any"
+              },
+              {
+                "name": "kwargs",
+                "required": true,
+                "type": "Any"
+              }
+            ],
+            "formatted": "(\n    args: Any,\n    kwargs: Any\n)",
+            "returns": "'exprs.FunctionCall'"
+          },
+          "potentialAction": {
+            "@type": "InvokeAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "pxt:pixeltable.functions.video.get_duration",
+              "httpMethod": "GET"
+            }
+          },
+          "category": "video_processing",
+          "parameters": [
+            {
+              "@type": "PropertyValue",
+              "name": "video",
+              "valueType": "Any",
+              "description": "The video for which to get the duration."
+            }
+          ],
+          "returns": {
+            "@type": "PropertyValue",
+            "valueType": "Any",
+            "description": "The duration in seconds, or None if the duration cannot be determined."
+          }
+        },
+        {
+          "@type": "Function",
           "@id": "pxt:pixeltable.functions.video.get_metadata",
           "name": "pixeltable.functions.video.get_metadata",
           "identifier": "get_metadata",
@@ -7675,7 +8183,7 @@
               "@type": "PropertyValue",
               "name": "video",
               "valueType": "Any",
-              "description": "The video to get metadata for."
+              "description": "The video for which to get metadata."
             }
           ],
           "returns": {
@@ -7689,7 +8197,7 @@
           "@id": "pxt:pixeltable.functions.video.make_video",
           "name": "pixeltable.functions.video.make_video",
           "identifier": "make_video",
-          "description": "Aggregator that creates a video from a sequence of images.",
+          "description": "Aggregator that creates a video from a sequence of images, using the default video encoder and yuv420p pixel format.",
           "memberOf": {
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.functions.video"
@@ -7724,13 +8232,195 @@
               "@type": "PropertyValue",
               "name": "fps",
               "valueType": "Any",
-              "description": "Frames per second for the output video. Default is 25. This is set when the aggregator is created."
+              "description": "Frames per second for the output video."
             }
           ],
           "returns": {
             "@type": "PropertyValue",
             "valueType": "Any",
             "description": ""
+          }
+        },
+        {
+          "@type": "Function",
+          "@id": "pxt:pixeltable.functions.video.overlay_text",
+          "name": "pixeltable.functions.video.overlay_text",
+          "identifier": "overlay_text",
+          "description": "Overlay text on a video with customizable positioning and styling.",
+          "memberOf": {
+            "@type": "SoftwareSourceCode",
+            "@id": "pxt:pixeltable.functions.video"
+          },
+          "signature": {
+            "parameters": [
+              {
+                "name": "args",
+                "required": true,
+                "type": "Any"
+              },
+              {
+                "name": "kwargs",
+                "required": true,
+                "type": "Any"
+              }
+            ],
+            "formatted": "(\n    args: Any,\n    kwargs: Any\n)",
+            "returns": "'exprs.FunctionCall'"
+          },
+          "potentialAction": {
+            "@type": "InvokeAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "pxt:pixeltable.functions.video.overlay_text",
+              "httpMethod": "GET"
+            }
+          },
+          "category": "video_processing",
+          "parameters": [
+            {
+              "@type": "PropertyValue",
+              "name": "video",
+              "valueType": "Any",
+              "description": "Input video to overlay text on."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "text",
+              "valueType": "Any",
+              "description": "The text string to overlay on the video."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "font",
+              "valueType": "Any",
+              "description": "Font family or path to font file. If None, uses the system default."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "font_size",
+              "valueType": "Any",
+              "description": "Size of the text in points."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "color",
+              "valueType": "Any",
+              "description": "Text color (e.g., `'white'`, `'red'`, `'#FF0000'`)."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "opacity",
+              "valueType": "Any",
+              "description": "Text opacity from 0.0 (transparent) to 1.0 (opaque)."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "horizontal_align",
+              "valueType": "Any",
+              "description": "Horizontal text alignment (`'left'`, `'center'`, `'right'`)."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "horizontal_margin",
+              "valueType": "Any",
+              "description": "Horizontal margin in pixels from the alignment edge."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "vertical_align",
+              "valueType": "Any",
+              "description": "Vertical text alignment (`'top'`, `'center'`, `'bottom'`)."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "vertical_margin",
+              "valueType": "Any",
+              "description": "Vertical margin in pixels from the alignment edge."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "box",
+              "valueType": "Any",
+              "description": "Whether to draw a background box behind the text."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "box_color",
+              "valueType": "Any",
+              "description": "Background box color as a string."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "box_opacity",
+              "valueType": "Any",
+              "description": "Background box opacity from 0.0 to 1.0."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "box_border",
+              "valueType": "Any",
+              "description": "Padding around text in the box in pixels.\n- `[10]`: 10 pixels on all sides\n- `[10, 20]`: 10 pixels on top/bottom, 20 on left/right\n- `[10, 20, 30]`: 10 pixels on top, 20 on left/right, 30 on bottom\n- `[10, 20, 30, 40]`: 10 pixels on top, 20 on right, 30 on bottom, 40 on left"
+            }
+          ],
+          "returns": {
+            "@type": "PropertyValue",
+            "valueType": "Any",
+            "description": "A new video with the text overlay applied."
+          }
+        },
+        {
+          "@type": "Function",
+          "@id": "pxt:pixeltable.functions.video.segment_video",
+          "name": "pixeltable.functions.video.segment_video",
+          "identifier": "segment_video",
+          "description": "Split a video into fixed-size segments.",
+          "memberOf": {
+            "@type": "SoftwareSourceCode",
+            "@id": "pxt:pixeltable.functions.video"
+          },
+          "signature": {
+            "parameters": [
+              {
+                "name": "args",
+                "required": true,
+                "type": "Any"
+              },
+              {
+                "name": "kwargs",
+                "required": true,
+                "type": "Any"
+              }
+            ],
+            "formatted": "(\n    args: Any,\n    kwargs: Any\n)",
+            "returns": "'exprs.FunctionCall'"
+          },
+          "potentialAction": {
+            "@type": "InvokeAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "pxt:pixeltable.functions.video.segment_video",
+              "httpMethod": "GET"
+            }
+          },
+          "category": "video_processing",
+          "parameters": [
+            {
+              "@type": "PropertyValue",
+              "name": "video",
+              "valueType": "Any",
+              "description": "Input video file to segment"
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "duration",
+              "valueType": "Any",
+              "description": "Approximate duration of each segment (in seconds)."
+            }
+          ],
+          "returns": {
+            "@type": "PropertyValue",
+            "valueType": "Any",
+            "description": "List of file paths for the generated video segments."
           }
         }
       ]
@@ -8242,12 +8932,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.functions.openai"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/openai.py#L755",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/openai.py#L755",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/openai.py#L758",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/openai.py#L758",
           "codeLocation": {
-            "startLine": 755,
+            "startLine": 758,
             "lineCount": 3,
-            "relativePath": "pixeltable/functions/openai.py"
+            "relativePath": "pixeltable/pixeltable/functions/openai.py"
           },
           "signature": {
             "parameters": [
@@ -8369,12 +9059,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.functions.anthropic"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/anthropic.py#L240",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/anthropic.py#L240",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/anthropic.py#L251",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/anthropic.py#L251",
           "codeLocation": {
-            "startLine": 240,
+            "startLine": 251,
             "lineCount": 3,
-            "relativePath": "pixeltable/functions/anthropic.py"
+            "relativePath": "pixeltable/pixeltable/functions/anthropic.py"
           },
           "signature": {
             "parameters": [
@@ -9110,12 +9800,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.functions.gemini"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/gemini.py#L99",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/gemini.py#L99",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/gemini.py#L100",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/gemini.py#L100",
           "codeLocation": {
-            "startLine": 99,
+            "startLine": 100,
             "lineCount": 3,
-            "relativePath": "pixeltable/functions/gemini.py"
+            "relativePath": "pixeltable/pixeltable/functions/gemini.py"
           },
           "signature": {
             "parameters": [
@@ -9149,7 +9839,7 @@
       "@type": "SoftwareSourceCode",
       "@id": "pxt:pixeltable.functions.bedrock",
       "name": "pixeltable.functions.bedrock",
-      "description": "",
+      "description": "Pixeltable UDFs for AWS Bedrock AI models.",
       "programmingLanguage": "Python",
       "url": "https://docs.pixeltable.com/sdk/main/pixeltable/functions/bedrock",
       "codeRepository": "https://github.com/pixeltable/pixeltable/tree/main",
@@ -9237,12 +9927,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.functions.bedrock"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/bedrock.py#L101",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/bedrock.py#L101",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/bedrock.py#L108",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/bedrock.py#L108",
           "codeLocation": {
-            "startLine": 101,
+            "startLine": 108,
             "lineCount": 3,
-            "relativePath": "pixeltable/functions/bedrock.py"
+            "relativePath": "pixeltable/pixeltable/functions/bedrock.py"
           },
           "signature": {
             "parameters": [
@@ -9352,12 +10042,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.functions.groq"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/groq.py#L99",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/groq.py#L99",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/groq.py#L99",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/groq.py#L99",
           "codeLocation": {
             "startLine": 99,
             "lineCount": 3,
-            "relativePath": "pixeltable/functions/groq.py"
+            "relativePath": "pixeltable/pixeltable/functions/groq.py"
           },
           "signature": {
             "parameters": [
@@ -9966,7 +10656,7 @@
       "@type": "SoftwareSourceCode",
       "@id": "pxt:pixeltable.functions.deepseek",
       "name": "pixeltable.functions.deepseek",
-      "description": "",
+      "description": "Pixeltable UDFs for Deepseek AI models.",
       "programmingLanguage": "Python",
       "url": "https://docs.pixeltable.com/sdk/main/pixeltable/functions/deepseek",
       "codeRepository": "https://github.com/pixeltable/pixeltable/tree/main",
@@ -10050,7 +10740,7 @@
       "@type": "SoftwareSourceCode",
       "@id": "pxt:pixeltable.functions.ollama",
       "name": "pixeltable.functions.ollama",
-      "description": "",
+      "description": "Pixeltable UDFs for Ollama local models.",
       "programmingLanguage": "Python",
       "url": "https://docs.pixeltable.com/sdk/main/pixeltable/functions/ollama",
       "codeRepository": "https://github.com/pixeltable/pixeltable/tree/main",
@@ -10283,7 +10973,7 @@
       "@type": "SoftwareSourceCode",
       "@id": "pxt:pixeltable.functions.llama_cpp",
       "name": "pixeltable.functions.llama_cpp",
-      "description": "",
+      "description": "Pixeltable UDFs for llama.cpp models.",
       "programmingLanguage": "Python",
       "url": "https://docs.pixeltable.com/sdk/main/pixeltable/functions/llama_cpp",
       "codeRepository": "https://github.com/pixeltable/pixeltable/tree/main",
@@ -10366,12 +11056,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.functions.llama_cpp"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/llama_cpp.py#L100",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/llama_cpp.py#L100",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/llama_cpp.py#L107",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/functions/llama_cpp.py#L107",
           "codeLocation": {
-            "startLine": 100,
+            "startLine": 107,
             "lineCount": 6,
-            "relativePath": "pixeltable/functions/llama_cpp.py"
+            "relativePath": "pixeltable/pixeltable/functions/llama_cpp.py"
           },
           "signature": {
             "parameters": [],
@@ -10645,22 +11335,22 @@
     },
     {
       "@type": "SoftwareSourceCode",
-      "@id": "pxt:pixeltable.ext.functions.yolox",
-      "name": "pixeltable.ext.functions.yolox",
+      "@id": "pxt:pixeltable.functions.yolox",
+      "name": "pixeltable.functions.yolox",
       "description": "",
       "programmingLanguage": "Python",
-      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/ext/functions/yolox",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/functions/yolox",
       "codeRepository": "https://github.com/pixeltable/pixeltable/tree/main",
       "hasPart": [
         {
           "@type": "Function",
-          "@id": "pxt:pixeltable.ext.functions.yolox.yolo_to_coco",
-          "name": "pixeltable.ext.functions.yolox.yolo_to_coco",
+          "@id": "pxt:pixeltable.functions.yolox.yolo_to_coco",
+          "name": "pixeltable.functions.yolox.yolo_to_coco",
           "identifier": "yolo_to_coco",
           "description": "Converts the output of a YOLOX object detection model to COCO format.",
           "memberOf": {
             "@type": "SoftwareSourceCode",
-            "@id": "pxt:pixeltable.ext.functions.yolox"
+            "@id": "pxt:pixeltable.functions.yolox"
           },
           "signature": {
             "parameters": [
@@ -10682,7 +11372,7 @@
             "@type": "InvokeAction",
             "target": {
               "@type": "EntryPoint",
-              "urlTemplate": "pxt:pixeltable.ext.functions.yolox.yolo_to_coco",
+              "urlTemplate": "pxt:pixeltable.functions.yolox.yolo_to_coco",
               "httpMethod": "GET"
             }
           },
@@ -10703,13 +11393,13 @@
         },
         {
           "@type": "Function",
-          "@id": "pxt:pixeltable.ext.functions.yolox.yolox",
-          "name": "pixeltable.ext.functions.yolox.yolox",
+          "@id": "pxt:pixeltable.functions.yolox.yolox",
+          "name": "pixeltable.functions.yolox.yolox",
           "identifier": "yolox",
           "description": "Computes YOLOX object detections for the specified image. `model_id` should reference one of the models",
           "memberOf": {
             "@type": "SoftwareSourceCode",
-            "@id": "pxt:pixeltable.ext.functions.yolox"
+            "@id": "pxt:pixeltable.functions.yolox"
           },
           "signature": {
             "parameters": [
@@ -10731,7 +11421,7 @@
             "@type": "InvokeAction",
             "target": {
               "@type": "EntryPoint",
-              "urlTemplate": "pxt:pixeltable.ext.functions.yolox.yolox",
+              "urlTemplate": "pxt:pixeltable.functions.yolox.yolox",
               "httpMethod": "GET"
             }
           },
@@ -10760,22 +11450,22 @@
     },
     {
       "@type": "SoftwareSourceCode",
-      "@id": "pxt:pixeltable.ext.functions.whisperx",
-      "name": "pixeltable.ext.functions.whisperx",
+      "@id": "pxt:pixeltable.functions.whisperx",
+      "name": "pixeltable.functions.whisperx",
       "description": "",
       "programmingLanguage": "Python",
-      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/ext/functions/whisperx",
+      "url": "https://docs.pixeltable.com/sdk/main/pixeltable/functions/whisperx",
       "codeRepository": "https://github.com/pixeltable/pixeltable/tree/main",
       "hasPart": [
         {
           "@type": "Function",
-          "@id": "pxt:pixeltable.ext.functions.whisperx.transcribe",
-          "name": "pixeltable.ext.functions.whisperx.transcribe",
+          "@id": "pxt:pixeltable.functions.whisperx.transcribe",
+          "name": "pixeltable.functions.whisperx.transcribe",
           "identifier": "transcribe",
           "description": "Transcribe an audio file using WhisperX.",
           "memberOf": {
             "@type": "SoftwareSourceCode",
-            "@id": "pxt:pixeltable.ext.functions.whisperx"
+            "@id": "pxt:pixeltable.functions.whisperx"
           },
           "signature": {
             "parameters": [
@@ -10797,7 +11487,7 @@
             "@type": "InvokeAction",
             "target": {
               "@type": "EntryPoint",
-              "urlTemplate": "pxt:pixeltable.ext.functions.whisperx.transcribe",
+              "urlTemplate": "pxt:pixeltable.functions.whisperx.transcribe",
               "httpMethod": "GET"
             }
           },
@@ -10814,12 +11504,84 @@
               "name": "model",
               "valueType": "Any",
               "description": "The name of the model to use for transcription."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "diarize",
+              "valueType": "Any",
+              "description": "Whether to perform speaker diarization."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "compute_type",
+              "valueType": "Any",
+              "description": "The compute type to use for the model (e.g., `'int8'`, `'float16'`). If `None`,\ndefaults to `'float16'` on CUDA devices and `'int8'` otherwise."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "language",
+              "valueType": "Any",
+              "description": "The language code for the transcription (e.g., `'en'` for English)."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "task",
+              "valueType": "Any",
+              "description": "The task to perform (e.g., `'transcribe'` or `'translate'`). Defaults to `'transcribe'`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "chunk_size",
+              "valueType": "Any",
+              "description": "The size of the audio chunks to process, in seconds. Defaults to `30`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "alignment_model_name",
+              "valueType": "Any",
+              "description": "The name of the alignment model to use. If `None`, uses the default model for the given\nlanguage. Only valid if `diarize=True`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "interpolate_method",
+              "valueType": "Any",
+              "description": "The method to use for interpolation of the alignment results. If not specified, uses the\nWhisperX default (`'nearest'`). Only valid if `diarize=True`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "return_char_alignments",
+              "valueType": "Any",
+              "description": "Whether to return character-level alignments. Defaults to `False`.\nOnly valid if `diarize=True`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "diarization_model_name",
+              "valueType": "Any",
+              "description": "The name of the diarization model to use. Defaults to\n`pyannote/speaker-diarization-3.1`. Only valid if `diarize=True`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "num_speakers",
+              "valueType": "Any",
+              "description": "The number of speakers to expect in the audio. By default, the model with try to detect the\nnumber of speakers. Only valid if `diarize=True`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "min_speakers",
+              "valueType": "Any",
+              "description": "If specified, the minimum number of speakers to expect in the audio.\nOnly valid if `diarize=True`."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "max_speakers",
+              "valueType": "Any",
+              "description": "If specified, the maximum number of speakers to expect in the audio.\nOnly valid if `diarize=True`."
             }
           ],
           "returns": {
             "@type": "PropertyValue",
             "valueType": "Any",
-            "description": "A dictionary containing the transcription and various other metadata."
+            "description": "A dictionary containing the audio transcription, diarization (if enabled), and various other metadata."
           }
         }
       ]
@@ -10874,6 +11636,13 @@
           "name": "TileIterator",
           "description": "Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be",
           "url": "https://docs.pixeltable.com/sdk/main/pixeltable/iterators/TileIterator"
+        },
+        {
+          "@type": "Class",
+          "@id": "pxt:pixeltable.iterators.VideoSplitter",
+          "name": "VideoSplitter",
+          "description": "Iterator over segments of a video file, which is split into fixed-size segments of length `segment_duration`",
+          "url": "https://docs.pixeltable.com/sdk/main/pixeltable/iterators/VideoSplitter"
         }
       ]
     },
@@ -10903,12 +11672,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/globals.py#L15",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/globals.py#L15",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/globals.py#L15",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/globals.py#L15",
           "codeLocation": {
             "startLine": 15,
-            "lineCount": 125,
-            "relativePath": "pixeltable/io/globals.py"
+            "lineCount": 126,
+            "relativePath": "pixeltable/pixeltable/io/globals.py"
           },
           "signature": {
             "parameters": [
@@ -11048,12 +11817,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/globals.py#L142",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/globals.py#L142",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/globals.py#L143",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/globals.py#L143",
           "codeLocation": {
-            "startLine": 142,
+            "startLine": 143,
             "lineCount": 86,
-            "relativePath": "pixeltable/io/globals.py"
+            "relativePath": "pixeltable/pixeltable/io/globals.py"
           },
           "signature": {
             "parameters": [
@@ -11138,6 +11907,98 @@
         },
         {
           "@type": "Function",
+          "@id": "pxt:pixeltable.io.export_lancedb",
+          "name": "pixeltable.io.export_lancedb",
+          "identifier": "export_lancedb",
+          "description": "Exports a dataframe's data to a LanceDB table.",
+          "memberOf": {
+            "@type": "SoftwareSourceCode",
+            "@id": "pxt:pixeltable.io"
+          },
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/utils/lancedb.py#L16",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/utils/lancedb.py#L16",
+          "codeLocation": {
+            "startLine": 16,
+            "lineCount": 73,
+            "relativePath": "pixeltable/pixeltable/utils/lancedb.py"
+          },
+          "signature": {
+            "parameters": [
+              {
+                "name": "table_or_df",
+                "required": true,
+                "type": "pxt.Table | pxt.DataFrame"
+              },
+              {
+                "name": "db_uri",
+                "required": true,
+                "type": "Path"
+              },
+              {
+                "name": "table_name",
+                "required": true,
+                "type": "str"
+              },
+              {
+                "name": "batch_size_bytes",
+                "required": false,
+                "type": "int",
+                "default": "134217728"
+              },
+              {
+                "name": "if_exists",
+                "required": false,
+                "type": "Literal['error', 'overwrite', 'append']",
+                "default": "error"
+              }
+            ],
+            "formatted": "(\n    table_or_df: pxt.Table | pxt.DataFrame,\n    db_uri: Path,\n    table_name: str,\n    batch_size_bytes: int = 134217728,\n    if_exists: Literal['error', 'overwrite', 'append'] = 'error'\n)",
+            "returns": "None"
+          },
+          "potentialAction": {
+            "@type": "InvokeAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "pxt:pixeltable.io.export_lancedb",
+              "httpMethod": "GET"
+            }
+          },
+          "category": "utility",
+          "parameters": [
+            {
+              "@type": "PropertyValue",
+              "name": "table_or_df ",
+              "valueType": "Any",
+              "description": "Table or Dataframe to export."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "db_uri",
+              "valueType": "Any",
+              "description": "Local Path to the LanceDB database."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "table_name ",
+              "valueType": "Any",
+              "description": "Name of the table in the LanceDB database."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "batch_size_bytes ",
+              "valueType": "Any",
+              "description": "Maximum size in bytes for each batch."
+            },
+            {
+              "@type": "PropertyValue",
+              "name": "if_exists",
+              "valueType": "Any",
+              "description": "Determines the behavior if the table already exists. Must be one of the following:\n- `'error'`: raise an error\n- `'overwrite'`: overwrite the existing table\n- `'append'`: append to the existing table"
+            }
+          ]
+        },
+        {
+          "@type": "Function",
           "@id": "pxt:pixeltable.io.export_parquet",
           "name": "pixeltable.io.export_parquet",
           "identifier": "export_parquet",
@@ -11146,12 +12007,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/parquet.py#L44",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/parquet.py#L44",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/parquet.py#L20",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/parquet.py#L20",
           "codeLocation": {
-            "startLine": 44,
-            "lineCount": 104,
-            "relativePath": "pixeltable/io/parquet.py"
+            "startLine": 20,
+            "lineCount": 48,
+            "relativePath": "pixeltable/pixeltable/io/parquet.py"
           },
           "signature": {
             "parameters": [
@@ -11227,12 +12088,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/pandas.py#L56",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/pandas.py#L56",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/pandas.py#L56",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/pandas.py#L56",
           "codeLocation": {
             "startLine": 56,
             "lineCount": 27,
-            "relativePath": "pixeltable/io/pandas.py"
+            "relativePath": "pixeltable/pixeltable/io/pandas.py"
           },
           "signature": {
             "parameters": [
@@ -11304,12 +12165,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/pandas.py#L85",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/pandas.py#L85",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/pandas.py#L85",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/pandas.py#L85",
           "codeLocation": {
             "startLine": 85,
             "lineCount": 28,
-            "relativePath": "pixeltable/io/pandas.py"
+            "relativePath": "pixeltable/pixeltable/io/pandas.py"
           },
           "signature": {
             "parameters": [
@@ -11381,12 +12242,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/hf_datasets.py#L92",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/hf_datasets.py#L92",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/hf_datasets.py#L92",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/hf_datasets.py#L92",
           "codeLocation": {
             "startLine": 92,
             "lineCount": 31,
-            "relativePath": "pixeltable/io/hf_datasets.py"
+            "relativePath": "pixeltable/pixeltable/io/hf_datasets.py"
           },
           "signature": {
             "parameters": [
@@ -11478,12 +12339,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/datarows.py#L103",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/datarows.py#L103",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/datarows.py#L103",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/datarows.py#L103",
           "codeLocation": {
             "startLine": 103,
             "lineCount": 38,
-            "relativePath": "pixeltable/io/datarows.py"
+            "relativePath": "pixeltable/pixeltable/io/datarows.py"
           },
           "signature": {
             "parameters": [
@@ -11599,12 +12460,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/pandas.py#L15",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/pandas.py#L15",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/pandas.py#L15",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/pandas.py#L15",
           "codeLocation": {
             "startLine": 15,
             "lineCount": 39,
-            "relativePath": "pixeltable/io/pandas.py"
+            "relativePath": "pixeltable/pixeltable/io/pandas.py"
           },
           "signature": {
             "parameters": [
@@ -11691,12 +12552,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/parquet.py#L150",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/parquet.py#L150",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/parquet.py#L70",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/parquet.py#L70",
           "codeLocation": {
-            "startLine": 150,
+            "startLine": 70,
             "lineCount": 32,
-            "relativePath": "pixeltable/io/parquet.py"
+            "relativePath": "pixeltable/pixeltable/io/parquet.py"
           },
           "signature": {
             "parameters": [
@@ -11788,12 +12649,12 @@
             "@type": "SoftwareSourceCode",
             "@id": "pxt:pixeltable.io"
           },
-          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/datarows.py#L59",
-          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/datarows.py#L59",
+          "sameAs": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/datarows.py#L59",
+          "url": "https://github.com/pixeltable/pixeltable/blob/main/pixeltable/pixeltable/io/datarows.py#L59",
           "codeLocation": {
             "startLine": 59,
             "lineCount": 42,
-            "relativePath": "pixeltable/io/datarows.py"
+            "relativePath": "pixeltable/pixeltable/io/datarows.py"
           },
           "signature": {
             "parameters": [

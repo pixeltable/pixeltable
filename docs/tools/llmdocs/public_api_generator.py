@@ -197,5 +197,22 @@ class PublicAPIGenerator:
         print(f"   Types: {len(self.api_entries['types'])}")
         print(f"   Total: {api_json['counts']['total']}")
         print(f"   Saved to: {output_path}")
-        
+
         return output_path
+
+
+if __name__ == "__main__":
+    from opml_reader import OPMLReader
+
+    # Load OPML
+    opml_path = Path(__file__).parent.parent / 'public_api.opml'
+    opml_reader = OPMLReader(opml_path)
+    tab_structure = opml_reader.load()
+    all_pages = opml_reader.get_all_pages()
+
+    # Generate API listing
+    generator = PublicAPIGenerator(Path(__file__).parent, version='main')
+
+    # Process pages and generate output
+    output_path = generator.generate(all_pages)
+    print(f"\n✅ Generated {output_path}")

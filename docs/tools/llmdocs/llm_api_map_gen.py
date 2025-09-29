@@ -17,7 +17,7 @@ except ImportError:
     print("   Install with: pip install PyLD")
 
 
-class LLMMapGenerator:
+class LLMApiMapGenerator:
     """Generate JSON-LD structured data map for LLM consumption."""
     
     def __init__(self, output_dir: Path, version: str = "main"):
