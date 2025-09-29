@@ -1,0 +1,1039 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pixeltable Documentation",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Introduction",
+            "pages": [
+              "docs/overview/introduction",
+              "docs/overview/installation",
+              "docs/overview/quick-start"
+            ]
+          },
+          {
+            "group": "Platform",
+            "pages": [
+              {
+                "group": "Tables and Schemas",
+                "pages": [
+                  "docs/platform/tables-and-schemas/tables-and-schemas",
+                  "docs/platform/tables-and-schemas/computed-columns"
+                ]
+              },
+              {
+                "group": "Data Operations",
+                "pages": [
+                  "docs/platform/data-operations/data-operations",
+                  "docs/platform/data-operations/table-history"
+                ]
+              },
+              {
+                "group": "Query Syntax",
+                "pages": [
+                  "docs/platform/query-syntax/query-syntax",
+                  "docs/platform/query-syntax/sampling"
+                ]
+              },
+              {
+                "group": "Views and Snapshots",
+                "pages": [
+                  "docs/platform/views-and-snapshots/views-and-snapshots",
+                  "docs/platform/views-and-snapshots/time-travel",
+                  "docs/platform/views-and-snapshots/iterator-views"
+                ]
+              },
+              "docs/platform/importing-data",
+              "docs/platform/error-handling",
+              "docs/platform/indexing-and-vector-embeddings",
+              "docs/platform/udfs-and-uda"
+            ]
+          },
+          {
+            "group": "Built-in AI/ML Integrations",
+            "pages": [
+              "docs/platform/integrations/overview",
+              {
+                "group": "Cloud LLM Providers",
+                "pages": [
+                  "docs/platform/integrations/cloud-llm-providers/anthropic-claude",
+                  "docs/platform/integrations/cloud-llm-providers/aws-bedrock",
+                  "docs/platform/integrations/cloud-llm-providers/deepseek",
+                  "docs/platform/integrations/cloud-llm-providers/fireworks",
+                  "docs/platform/integrations/cloud-llm-providers/google-gemini",
+                  "docs/platform/integrations/cloud-llm-providers/groq",
+                  "docs/platform/integrations/cloud-llm-providers/mistral-ai",
+                  "docs/platform/integrations/cloud-llm-providers/openai",
+                  "docs/platform/integrations/cloud-llm-providers/together-ai"
+                ]
+              },
+              {
+                "group": "Local LLM Runtimes",
+                "pages": [
+                  "docs/platform/integrations/local-llm-runtimes/llama-cpp",
+                  "docs/platform/integrations/local-llm-runtimes/ollama"
+                ]
+              },
+              {
+                "group": "Model Hubs",
+                "pages": [
+                  "docs/platform/integrations/model-hubs/hugging-face-hub",
+                  "docs/platform/integrations/model-hubs/replicate"
+                ]
+              },
+              {
+                "group": "Computer Vision & Audio",
+                "pages": [
+                  "docs/platform/integrations/computer-vision-audio/voxel51",
+                  "docs/platform/integrations/computer-vision-audio/whisper-whisperx",
+                  "docs/platform/integrations/computer-vision-audio/yolox"
+                ]
+              },
+              {
+                "group": "Annotation & Data Tools",
+                "pages": [
+                  "docs/platform/integrations/annotation-data-tools/label-studio",
+                  "docs/platform/integrations/annotation-data-tools/pandas"
+                ]
+              },
+              {
+                "group": "Custom Integrations",
+                "pages": [
+                  "docs/platform/integrations/custom-integrations/custom-embedding-models"
+                ]
+              },
+              "docs/platform/integrations/full-integration-catalog"
+            ]
+          },
+          {
+            "group": "Use-case Specific Guides",
+            "pages": [
+              {
+                "group": "Audio",
+                "pages": [
+                  "docs/use-case-guides/audio/overview"
+                ]
+              },
+              {
+                "group": "Video",
+                "pages": [
+                  "docs/use-case-guides/video/overview"
+                ]
+              },
+              {
+                "group": "Computer Vision / Images",
+                "pages": [
+                  "docs/use-case-guides/computer-vision-images/overview"
+                ]
+              },
+              {
+                "group": "Text / Documentation",
+                "pages": [
+                  "docs/use-case-guides/text-documentation/overview"
+                ]
+              },
+              {
+                "group": "Hybrid Media Solutions",
+                "pages": [
+                  "docs/use-case-guides/hybrid-media-solutions/overview"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "In Depth Guides",
+            "pages": [
+              "docs/in-depth-guides/understanding-pixeltable"
+            ]
+          },
+          {
+            "group": "Notebooks",
+            "pages": [
+              "docs/notebooks/pixeltable-basics",
+              {
+                "group": "Fundamentals",
+                "pages": [
+                  "docs/notebooks/fundamentals/computed-columns",
+                  "docs/notebooks/fundamentals/queries-and-expressions",
+                  "docs/notebooks/fundamentals/tables-and-data-operations"
+                ]
+              },
+              {
+                "group": "Feature Guides",
+                "pages": [
+                  "docs/notebooks/feature-guides/embedding-indexes",
+                  "docs/notebooks/feature-guides/time-zones",
+                  "docs/notebooks/feature-guides/udfs-in-pixeltable",
+                  "docs/notebooks/feature-guides/working-with-external-files"
+                ]
+              },
+              {
+                "group": "Integrations",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-openai",
+                  "docs/notebooks/integrations/working-with-anthropic",
+                  "docs/notebooks/integrations/working-with-bedrock",
+                  "docs/notebooks/integrations/working-with-deepseek",
+                  "docs/notebooks/integrations/working-with-fiftyone",
+                  "docs/notebooks/integrations/working-with-fireworks",
+                  "docs/notebooks/integrations/working-with-gemini",
+                  "docs/notebooks/integrations/working-with-groq",
+                  "docs/notebooks/integrations/working-with-hugging-face",
+                  "docs/notebooks/integrations/working-with-llama-cpp",
+                  "docs/notebooks/integrations/working-with-mistralai",
+                  "docs/notebooks/integrations/working-with-ollama",
+                  "docs/notebooks/integrations/working-with-replicate",
+                  "docs/notebooks/integrations/working-with-together",
+                  "docs/notebooks/integrations/using-label-studio-with-pixeltable"
+                ]
+              },
+              {
+                "group": "Use Cases",
+                "pages": [
+                  "docs/notebooks/use-cases/audio-transcriptions",
+                  "docs/notebooks/use-cases/object-detection-in-videos",
+                  "docs/notebooks/use-cases/rag-demo",
+                  "docs/notebooks/use-cases/rag-operations"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              {
+                "group": "Explore",
+                "pages": [
+                  "docs/examples/examples/use-cases",
+                  "docs/examples/examples/interactive-demos",
+                  "docs/examples/examples/sample-apps"
+                ]
+              },
+              {
+                "group": "Chatbot",
+                "pages": [
+                  "docs/examples/examples/chat/multimodal",
+                  "docs/examples/examples/chat/memory",
+                  "docs/examples/examples/chat/tools",
+                  "docs/examples/examples/chat/evals"
+                ]
+              },
+              {
+                "group": "Computer Vision",
+                "pages": [
+                  "docs/examples/examples/vision/label-studio",
+                  "docs/examples/examples/vision/voxel51",
+                  "docs/examples/examples/vision/yolox"
+                ]
+              },
+              {
+                "group": "Semantic Search",
+                "pages": [
+                  "docs/examples/examples/search/audio",
+                  "docs/examples/examples/search/images",
+                  "docs/examples/examples/search/PDF",
+                  "docs/examples/examples/search/website",
+                  "docs/examples/examples/search/video"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "docs/tutorials/integrations/hugging-face-models",
+              "docs/tutorials/integrations/custom-embedding-models"
+            ]
+          },
+          {
+            "group": "Libraries",
+            "pages": [
+              "docs/libraries/pixelagent",
+              "docs/libraries/mcp",
+              "docs/libraries/yolox"
+            ]
+          },
+          {
+            "group": "Support",
+            "pages": [
+              "docs/support/getting-help",
+              "docs/support/faq"
+            ]
+          },
+          {
+            "group": "\ud83d\udc80 Boneyard (Original Content)",
+            "collapsed": true,
+            "pages": [
+              "docs/overview/pixeltable",
+              "docs/overview/configuration",
+              "docs/overview/building-pixeltable-with-llms"
+            ]
+          },
+          {
+            "group": "\ud83d\udc80 Tutorials (Boneyard)",
+            "collapsed": true,
+            "pages": [
+              "docs/tutorials-boneyard/fundamentals",
+              "docs/tutorials-boneyard/feature-guide"
+            ]
+          },
+          {
+            "group": "\ud83d\udc80 Pixeltable Universe (Boneyard)",
+            "collapsed": true,
+            "pages": [
+              "docs/datastore/tables-and-operations",
+              "docs/datastore/views",
+              "docs/datastore/iterators",
+              "docs/datastore/bringing-data",
+              "docs/datastore/filtering-and-selecting",
+              "docs/datastore/computed-columns",
+              "docs/datastore/vector-database",
+              "docs/datastore/custom-functions",
+              "docs/datastore/sampling",
+              "docs/datastore/ai-ml-integrations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Built with Pixeltable",
+        "groups": [
+          {
+            "group": "Coming Soon",
+            "pages": []
+          }
+        ]
+      },
+      {
+        "tab": "Pixeltable SDK",
+        "dropdowns": [
+          {
+            "dropdown": "latest",
+            "icon": "rocket",
+            "groups": [
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  {
+                    "group": "Core API",
+                    "pages": [
+                      {
+                        "group": "class|pixeltable.Table",
+                        "pages": [
+                          "docs/sdk/latest/core-api/table",
+                          "docs/sdk/latest/core-api/table/add_column",
+                          "docs/sdk/latest/core-api/table/add_embedding_index",
+                          "docs/sdk/latest/core-api/table/delete",
+                          "docs/sdk/latest/core-api/table/drop_column",
+                          "docs/sdk/latest/core-api/table/drop_embedding_index",
+                          "docs/sdk/latest/core-api/table/drop_index",
+                          "docs/sdk/latest/core-api/table/insert",
+                          "docs/sdk/latest/core-api/table/recompute_columns",
+                          "docs/sdk/latest/core-api/table/rename_column",
+                          "docs/sdk/latest/core-api/table/revert",
+                          "docs/sdk/latest/core-api/table/update"
+                        ]
+                      },
+                      {
+                        "group": "class|pixeltable.DataFrame",
+                        "pages": [
+                          "docs/sdk/latest/core-api/dataframe",
+                          "docs/sdk/latest/core-api/dataframe/collect",
+                          "docs/sdk/latest/core-api/dataframe/distinct",
+                          "docs/sdk/latest/core-api/dataframe/group_by",
+                          "docs/sdk/latest/core-api/dataframe/head",
+                          "docs/sdk/latest/core-api/dataframe/join",
+                          "docs/sdk/latest/core-api/dataframe/limit",
+                          "docs/sdk/latest/core-api/dataframe/order_by",
+                          "docs/sdk/latest/core-api/dataframe/sample",
+                          "docs/sdk/latest/core-api/dataframe/select",
+                          "docs/sdk/latest/core-api/dataframe/show",
+                          "docs/sdk/latest/core-api/dataframe/tail",
+                          "docs/sdk/latest/core-api/dataframe/to_coco_dataset",
+                          "docs/sdk/latest/core-api/dataframe/to_pytorch_dataset",
+                          "docs/sdk/latest/core-api/dataframe/where"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable",
+                        "pages": [
+                          "docs/sdk/latest/core-api/pixeltable",
+                          "docs/sdk/latest/core-api/pixeltable/configure_logging",
+                          "docs/sdk/latest/core-api/pixeltable/create_dir",
+                          "docs/sdk/latest/core-api/pixeltable/create_snapshot",
+                          "docs/sdk/latest/core-api/pixeltable/create_table",
+                          "docs/sdk/latest/core-api/pixeltable/create_view",
+                          "docs/sdk/latest/core-api/pixeltable/drop_dir",
+                          "docs/sdk/latest/core-api/pixeltable/drop_table",
+                          "docs/sdk/latest/core-api/pixeltable/get_dir_contents",
+                          "docs/sdk/latest/core-api/pixeltable/get_table",
+                          "docs/sdk/latest/core-api/pixeltable/init",
+                          "docs/sdk/latest/core-api/pixeltable/ls",
+                          "docs/sdk/latest/core-api/pixeltable/move",
+                          "docs/sdk/latest/core-api/pixeltable/query",
+                          "docs/sdk/latest/core-api/pixeltable/udf"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Built-in Functions and Operators",
+                    "pages": [
+                      {
+                        "group": "mod|pixeltable.functions.audio",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/audio",
+                          "docs/sdk/latest/built-in-functions-and-operators/audio/get_metadata"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.date",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/date",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/add_days",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/day",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/isocalendar",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/isoformat",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/isoweekday",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/make_date",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/month",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/strftime",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/toordinal",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/weekday",
+                          "docs/sdk/latest/built-in-functions-and-operators/date/year"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.image",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/image",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/alpha_composite",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/b64_encode",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/blend",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/composite",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/convert",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/crop",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/effect_spread",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/entropy",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/get_metadata",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getbands",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getbbox",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getchannel",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getcolors",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getextrema",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getpalette",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getpixel",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getprojection",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/height",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/histogram",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/mode",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/point",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/quantize",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/reduce",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/resize",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/rotate",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/transpose",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/width"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.json",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/json",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/alpha_composite",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/b64_encode",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/blend",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/composite",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/convert",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/crop",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/effect_spread",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/entropy",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/get_metadata",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getbands",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getbbox",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getchannel",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getcolors",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getextrema",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getpalette",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getpixel",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/getprojection",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/height",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/histogram",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/mode",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/point",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/quantize",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/reduce",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/resize",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/rotate",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/transpose",
+                          "docs/sdk/latest/built-in-functions-and-operators/image/width"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.math",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/math",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/abs",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/bitwise_and",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/bitwise_or",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/bitwise_xor",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/ceil",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/floor",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/pow",
+                          "docs/sdk/latest/built-in-functions-and-operators/math/round"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.string",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/string",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/capitalize",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/casefold",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/center",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/contains",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/contains_re",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/count",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/endswith",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/fill",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/find",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/findall",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/format",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/fullmatch",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/index",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isalnum",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isalpha",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isascii",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isdecimal",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isdigit",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isidentifier",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/islower",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isnumeric",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isspace",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/istitle",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/isupper",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/join",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/len",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/ljust",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/lower",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/lstrip",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/match",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/normalize",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/pad",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/partition",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/removeprefix",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/removesuffix",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/repeat",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/replace",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/replace_re",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/reverse",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/rfind",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/rindex",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/rjust",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/rpartition",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/rstrip",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/slice",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/slice_replace",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/startswith",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/strip",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/swapcase",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/title",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/upper",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/wrap",
+                          "docs/sdk/latest/built-in-functions-and-operators/string/zfill"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.timestamp",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/astimezone",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/day",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/hour",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/isocalendar",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/isoformat",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/isoweekday",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/make_timestamp",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/microsecond",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/minute",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/month",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/posix_timestamp",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/replace",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/second",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/strftime",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/toordinal",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/weekday",
+                          "docs/sdk/latest/built-in-functions-and-operators/timestamp/year"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.video",
+                        "pages": [
+                          "docs/sdk/latest/built-in-functions-and-operators/video",
+                          "docs/sdk/latest/built-in-functions-and-operators/video/extract_audio",
+                          "docs/sdk/latest/built-in-functions-and-operators/video/get_metadata"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "AI Integrations",
+                    "pages": [
+                      {
+                        "group": "mod|pixeltable.functions.openai",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/openai",
+                          "docs/sdk/latest/ai-integrations/openai/chat_completions",
+                          "docs/sdk/latest/ai-integrations/openai/embeddings",
+                          "docs/sdk/latest/ai-integrations/openai/image_generations",
+                          "docs/sdk/latest/ai-integrations/openai/invoke_tools",
+                          "docs/sdk/latest/ai-integrations/openai/moderations",
+                          "docs/sdk/latest/ai-integrations/openai/speech",
+                          "docs/sdk/latest/ai-integrations/openai/transcriptions",
+                          "docs/sdk/latest/ai-integrations/openai/translations",
+                          "docs/sdk/latest/ai-integrations/openai/vision"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.anthropic",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/anthropic",
+                          "docs/sdk/latest/ai-integrations/anthropic/invoke_tools",
+                          "docs/sdk/latest/ai-integrations/anthropic/messages"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.huggingface",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/huggingface",
+                          "docs/sdk/latest/ai-integrations/huggingface/clip",
+                          "docs/sdk/latest/ai-integrations/huggingface/cross_encoder",
+                          "docs/sdk/latest/ai-integrations/huggingface/cross_encoder_list",
+                          "docs/sdk/latest/ai-integrations/huggingface/detr_for_object_detection",
+                          "docs/sdk/latest/ai-integrations/huggingface/detr_to_coco",
+                          "docs/sdk/latest/ai-integrations/huggingface/sentence_transformer",
+                          "docs/sdk/latest/ai-integrations/huggingface/sentence_transformer_list",
+                          "docs/sdk/latest/ai-integrations/huggingface/speech2text_for_conditional_generation",
+                          "docs/sdk/latest/ai-integrations/huggingface/vit_for_image_classification"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.gemini",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/gemini",
+                          "docs/sdk/latest/ai-integrations/gemini/generate_content",
+                          "docs/sdk/latest/ai-integrations/gemini/generate_images",
+                          "docs/sdk/latest/ai-integrations/gemini/generate_videos",
+                          "docs/sdk/latest/ai-integrations/gemini/invoke_tools"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.bedrock",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/bedrock",
+                          "docs/sdk/latest/ai-integrations/bedrock/converse",
+                          "docs/sdk/latest/ai-integrations/bedrock/invoke_tools"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.groq",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/groq",
+                          "docs/sdk/latest/ai-integrations/groq/chat_completions",
+                          "docs/sdk/latest/ai-integrations/groq/invoke_tools"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.replicate",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/replicate",
+                          "docs/sdk/latest/ai-integrations/replicate/run"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.together",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/together",
+                          "docs/sdk/latest/ai-integrations/together/chat_completions",
+                          "docs/sdk/latest/ai-integrations/together/completions",
+                          "docs/sdk/latest/ai-integrations/together/embeddings",
+                          "docs/sdk/latest/ai-integrations/together/image_generations"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.fireworks",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/fireworks",
+                          "docs/sdk/latest/ai-integrations/fireworks/chat_completions"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.mistralai",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/mistralai",
+                          "docs/sdk/latest/ai-integrations/mistralai/chat_completions",
+                          "docs/sdk/latest/ai-integrations/mistralai/embeddings",
+                          "docs/sdk/latest/ai-integrations/mistralai/fim_completions"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.deepseek",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/deepseek",
+                          "docs/sdk/latest/ai-integrations/deepseek/chat_completions"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.ollama",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/ollama",
+                          "docs/sdk/latest/ai-integrations/ollama/chat",
+                          "docs/sdk/latest/ai-integrations/ollama/embed",
+                          "docs/sdk/latest/ai-integrations/ollama/generate"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.llama_cpp",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/llama_cpp",
+                          "docs/sdk/latest/ai-integrations/llama_cpp/cleanup",
+                          "docs/sdk/latest/ai-integrations/llama_cpp/create_chat_completion"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.whisper",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/whisper",
+                          "docs/sdk/latest/ai-integrations/whisper/transcribe"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.functions.vision",
+                        "pages": [
+                          "docs/sdk/latest/ai-integrations/vision",
+                          "docs/sdk/latest/ai-integrations/vision/draw_bounding_boxes",
+                          "docs/sdk/latest/ai-integrations/vision/eval_detections"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Iterators",
+                    "pages": [
+                      {
+                        "group": "mod|pixeltable.iterators",
+                        "pages": [
+                          "docs/sdk/latest/iterators/iterators",
+                          {
+                            "group": "class|pixeltable.iterators.AudioSplitter",
+                            "pages": [
+                              "docs/sdk/latest/iterators/iterators/audiosplitter",
+                              "docs/sdk/latest/iterators/iterators/audiosplitter/build_chunks",
+                              "docs/sdk/latest/iterators/iterators/audiosplitter/close",
+                              "docs/sdk/latest/iterators/iterators/audiosplitter/create",
+                              "docs/sdk/latest/iterators/iterators/audiosplitter/input_schema",
+                              "docs/sdk/latest/iterators/iterators/audiosplitter/output_schema",
+                              "docs/sdk/latest/iterators/iterators/audiosplitter/set_pos"
+                            ]
+                          },
+                          {
+                            "group": "class|pixeltable.iterators.ComponentIterator",
+                            "pages": [
+                              "docs/sdk/latest/iterators/iterators/componentiterator",
+                              "docs/sdk/latest/iterators/iterators/componentiterator/close",
+                              "docs/sdk/latest/iterators/iterators/componentiterator/create",
+                              "docs/sdk/latest/iterators/iterators/componentiterator/input_schema",
+                              "docs/sdk/latest/iterators/iterators/componentiterator/output_schema",
+                              "docs/sdk/latest/iterators/iterators/componentiterator/set_pos"
+                            ]
+                          },
+                          {
+                            "group": "class|pixeltable.iterators.DocumentSplitter",
+                            "pages": [
+                              "docs/sdk/latest/iterators/iterators/documentsplitter",
+                              "docs/sdk/latest/iterators/iterators/documentsplitter/close",
+                              "docs/sdk/latest/iterators/iterators/documentsplitter/create",
+                              "docs/sdk/latest/iterators/iterators/documentsplitter/input_schema",
+                              "docs/sdk/latest/iterators/iterators/documentsplitter/output_schema",
+                              "docs/sdk/latest/iterators/iterators/documentsplitter/set_pos"
+                            ]
+                          },
+                          {
+                            "group": "class|pixeltable.iterators.FrameIterator",
+                            "pages": [
+                              "docs/sdk/latest/iterators/iterators/frameiterator",
+                              "docs/sdk/latest/iterators/iterators/frameiterator/close",
+                              "docs/sdk/latest/iterators/iterators/frameiterator/create",
+                              "docs/sdk/latest/iterators/iterators/frameiterator/input_schema",
+                              "docs/sdk/latest/iterators/iterators/frameiterator/output_schema",
+                              "docs/sdk/latest/iterators/iterators/frameiterator/set_pos"
+                            ]
+                          },
+                          {
+                            "group": "class|pixeltable.iterators.StringSplitter",
+                            "pages": [
+                              "docs/sdk/latest/iterators/iterators/stringsplitter",
+                              "docs/sdk/latest/iterators/iterators/stringsplitter/close",
+                              "docs/sdk/latest/iterators/iterators/stringsplitter/create",
+                              "docs/sdk/latest/iterators/iterators/stringsplitter/input_schema",
+                              "docs/sdk/latest/iterators/iterators/stringsplitter/output_schema",
+                              "docs/sdk/latest/iterators/iterators/stringsplitter/set_pos"
+                            ]
+                          },
+                          {
+                            "group": "class|pixeltable.iterators.TileIterator",
+                            "pages": [
+                              "docs/sdk/latest/iterators/iterators/tileiterator",
+                              "docs/sdk/latest/iterators/iterators/tileiterator/close",
+                              "docs/sdk/latest/iterators/iterators/tileiterator/create",
+                              "docs/sdk/latest/iterators/iterators/tileiterator/input_schema",
+                              "docs/sdk/latest/iterators/iterators/tileiterator/output_schema",
+                              "docs/sdk/latest/iterators/iterators/tileiterator/set_pos"
+                            ]
+                          },
+                          "docs/sdk/latest/ai-integrations/vision/draw_bounding_boxes",
+                          "docs/sdk/latest/ai-integrations/vision/eval_detections"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Import/Export",
+                    "pages": [
+                      {
+                        "group": "mod|pixeltable.io",
+                        "pages": [
+                          "docs/sdk/latest/import-export/io",
+                          {
+                            "group": "class|pixeltable.io.ExternalStore",
+                            "pages": [
+                              "docs/sdk/latest/import-export/io/externalstore",
+                              "docs/sdk/latest/import-export/io/externalstore/as_dict",
+                              "docs/sdk/latest/import-export/io/externalstore/from_dict",
+                              "docs/sdk/latest/import-export/io/externalstore/get_local_columns",
+                              "docs/sdk/latest/import-export/io/externalstore/link",
+                              "docs/sdk/latest/import-export/io/externalstore/sync",
+                              "docs/sdk/latest/import-export/io/externalstore/unlink"
+                            ]
+                          },
+                          "docs/sdk/latest/import-export/io/create_label_studio_project",
+                          "docs/sdk/latest/import-export/io/export_images_as_fo_dataset",
+                          "docs/sdk/latest/import-export/io/export_parquet",
+                          "docs/sdk/latest/import-export/io/import_csv",
+                          "docs/sdk/latest/import-export/io/import_excel",
+                          "docs/sdk/latest/import-export/io/import_huggingface_dataset",
+                          "docs/sdk/latest/import-export/io/import_json",
+                          "docs/sdk/latest/import-export/io/import_pandas",
+                          "docs/sdk/latest/import-export/io/import_parquet",
+                          "docs/sdk/latest/import-export/io/import_rows"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Extensions",
+                    "pages": [
+                      {
+                        "group": "mod|pixeltable.ext.functions.yolox",
+                        "pages": [
+                          "docs/sdk/latest/extensions/yolox",
+                          {
+                            "group": "class|pixeltable.io.ExternalStore",
+                            "pages": [
+                              "docs/sdk/latest/import-export/io/externalstore",
+                              "docs/sdk/latest/import-export/io/externalstore/as_dict",
+                              "docs/sdk/latest/import-export/io/externalstore/from_dict",
+                              "docs/sdk/latest/import-export/io/externalstore/get_local_columns",
+                              "docs/sdk/latest/import-export/io/externalstore/link",
+                              "docs/sdk/latest/import-export/io/externalstore/sync",
+                              "docs/sdk/latest/import-export/io/externalstore/unlink"
+                            ]
+                          },
+                          "docs/sdk/latest/extensions/yolox/yolo_to_coco",
+                          "docs/sdk/latest/extensions/yolox/yolox"
+                        ]
+                      },
+                      {
+                        "group": "mod|pixeltable.ext.functions.whisperx",
+                        "pages": [
+                          "docs/sdk/latest/extensions/whisperx",
+                          {
+                            "group": "class|pixeltable.io.ExternalStore",
+                            "pages": [
+                              "docs/sdk/latest/import-export/io/externalstore",
+                              "docs/sdk/latest/import-export/io/externalstore/as_dict",
+                              "docs/sdk/latest/import-export/io/externalstore/from_dict",
+                              "docs/sdk/latest/import-export/io/externalstore/get_local_columns",
+                              "docs/sdk/latest/import-export/io/externalstore/link",
+                              "docs/sdk/latest/import-export/io/externalstore/sync",
+                              "docs/sdk/latest/import-export/io/externalstore/unlink"
+                            ]
+                          },
+                          "docs/sdk/latest/extensions/whisperx/transcribe"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dropdown": "v0.4.9",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.9/index"
+            ]
+          },
+          {
+            "dropdown": "v0.4.8",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.8/index"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "\ud83e\uddea Test Nestin'",
+        "groups": [
+          {
+            "group": "Test Navigation",
+            "pages": [
+              "docs/testnestin/overview",
+              {
+                "group": "Built In",
+                "pages": [
+                  "docs/testnestin/builtin-alpha",
+                  "docs/testnestin/builtin-beta"
+                ]
+              },
+              {
+                "group": "Bring Your Own",
+                "pages": [
+                  "docs/testnestin/byo-widget"
+                ]
+              },
+              "docs/testnestin/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "\ud83d\udc80 Examples (Boneyard)",
+        "groups": [
+          {
+            "group": "Explore",
+            "pages": [
+              "docs/examples-boneyard/examples/use-cases",
+              "docs/examples-boneyard/examples/interactive-demos",
+              "docs/examples-boneyard/examples/sample-apps"
+            ]
+          },
+          {
+            "group": "Chatbot",
+            "pages": [
+              "docs/examples-boneyard/examples/chat/multimodal",
+              "docs/examples-boneyard/examples/chat/memory",
+              "docs/examples-boneyard/examples/chat/tools",
+              "docs/examples-boneyard/examples/chat/evals"
+            ]
+          },
+          {
+            "group": "Computer Vision",
+            "pages": [
+              "docs/examples-boneyard/examples/vision/label-studio",
+              "docs/examples-boneyard/examples/vision/voxel51",
+              "docs/examples-boneyard/examples/vision/yolox"
+            ]
+          },
+          {
+            "group": "Semantic Search",
+            "pages": [
+              "docs/examples-boneyard/examples/search/audio",
+              "docs/examples-boneyard/examples/search/images",
+              "docs/examples-boneyard/examples/search/PDF",
+              "docs/examples-boneyard/examples/search/website",
+              "docs/examples-boneyard/examples/search/video"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "\ud83d\udc80 Integrations (Boneyard)",
+        "groups": [
+          {
+            "group": "Built-in Integrations",
+            "pages": [
+              "docs/integrations-boneyard/frameworks",
+              "docs/integrations-boneyard/models"
+            ]
+          },
+          {
+            "group": "Bring Your Own",
+            "pages": [
+              "docs/integrations-boneyard/embedding-model"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/QPyqFYx2UN"
+      },
+      {
+        "label": "Book a Demo",
+        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+      },
+      {
+        "label": "Hiring",
+        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pixeltable/pixeltable"
+    }
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs..."
+  },
+  "footer": {
+    "socials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}

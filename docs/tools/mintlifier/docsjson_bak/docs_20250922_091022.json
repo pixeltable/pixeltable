@@ -1,0 +1,351 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pixeltable Documentation",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Developer's Guide",
+            "pages": [
+              "docs/developers/introduction",
+              "docs/developers/quick-start",
+              "docs/developers/installation",
+              "docs/developers/configuration",
+              "docs/developers/building-pixeltable-with-llms",
+              "docs/developers/production-deployment",
+              {
+                "group": "Sample Application Walkthroughs",
+                "pages": [
+                  "docs/developers/sample-app-introduction",
+                  "docs/developers/interactive-demos",
+                  "docs/developers/sample-apps",
+                  {
+                    "group": "Chatbot",
+                    "pages": [
+                      "docs/developers/chat/multimodal",
+                      "docs/developers/chat/memory",
+                      "docs/developers/chat/tools",
+                      "docs/developers/chat/evals"
+                    ]
+                  },
+                  {
+                    "group": "Computer Vision",
+                    "pages": [
+                      "docs/developers/vision/label-studio",
+                      "docs/developers/vision/voxel51"
+                    ]
+                  },
+                  {
+                    "group": "Semantic Search",
+                    "pages": [
+                      "docs/developers/search/audio",
+                      "docs/developers/search/images",
+                      "docs/developers/search/PDF",
+                      "docs/developers/search/website",
+                      "docs/developers/search/video"
+                    ]
+                  }
+                ]
+              },
+              "docs/developers/understanding-pixeltable"
+            ]
+          },
+          {
+            "group": "Platform Guide",
+            "pages": [
+              "docs/platform/intro",
+              {
+                "group": "Tables and Schemas",
+                "pages": [
+                  "docs/platform/tables-and-schemas/schemas",
+                  "docs/platform/tables-and-schemas/tables",
+                  "docs/platform/tables-and-schemas/computed-columns"
+                ]
+              },
+              {
+                "group": "Data Operations",
+                "pages": [
+                  "docs/platform/data-operations/data-operations",
+                  "docs/platform/data-operations/table-history"
+                ]
+              },
+              {
+                "group": "Query Syntax",
+                "pages": [
+                  "docs/platform/query-syntax/building-queries",
+                  "docs/platform/query-syntax/sampling"
+                ]
+              },
+              {
+                "group": "Views and Snapshots",
+                "pages": [
+                  "docs/platform/views-and-snapshots/views",
+                  "docs/platform/views-and-snapshots/time-travel",
+                  "docs/platform/views-and-snapshots/iterators",
+                  "docs/platform/views-and-snapshots/iterator-views"
+                ]
+              },
+              "docs/platform/importing-data",
+              "docs/platform/error-handling",
+              "docs/platform/indexing-and-vector-embeddings",
+              "docs/platform/vector-databases",
+              "docs/platform/custom-functions",
+              "docs/platform/udfs-and-uda",
+              "docs/platform/file-caching-and-storage"
+            ]
+          },
+          {
+            "group": "Notebooks and Tutorials",
+            "pages": [
+              "docs/notebooks/notebook-intro",
+              {
+                "group": "Fundamentals",
+                "pages": [
+                  "docs/notebooks/pixeltable-basics",
+                  "docs/notebooks/fundamentals/tables-and-data-operations",
+                  "docs/notebooks/fundamentals/computed-columns",
+                  "docs/notebooks/fundamentals/queries-and-expressions"
+                ]
+              },
+              {
+                "group": "Feature Guides",
+                "pages": [
+                  "docs/notebooks/feature-guides/time-zones",
+                  "docs/notebooks/feature-guides/udfs-in-pixeltable",
+                  "docs/notebooks/feature-guides/working-with-external-files"
+                ]
+              },
+              {
+                "group": "Cloud LLM API Integrations",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-anthropic",
+                  "docs/notebooks/integrations/working-with-bedrock",
+                  "docs/notebooks/integrations/working-with-deepseek",
+                  "docs/notebooks/integrations/working-with-fireworks",
+                  "docs/notebooks/integrations/working-with-gemini",
+                  "docs/notebooks/integrations/working-with-groq",
+                  "docs/notebooks/integrations/working-with-mistralai",
+                  "docs/notebooks/integrations/working-with-openai",
+                  "docs/notebooks/integrations/working-with-together"
+                ]
+              },
+              {
+                "group": "Local LLM Integrations",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-llama-cpp",
+                  "docs/notebooks/integrations/working-with-ollama"
+                ]
+              },
+              {
+                "group": "Model Hub Integrations",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-hugging-face",
+                  "docs/notebooks/integrations/working-with-replicate",
+                  "docs/tutorials/hugging-face-models"
+                ]
+              },
+              {
+                "group": "Computer Vision",
+                "pages": [
+                  "docs/notebooks/integrations/working-with-fiftyone",
+                  "docs/tutorials/label-studio",
+                  "docs/tutorials/voxel51"
+                ]
+              },
+              {
+                "group": "Audio",
+                "pages": []
+              },
+              {
+                "group": "Annotation & Data Tools",
+                "pages": [
+                  "docs/notebooks/integrations/using-label-studio-with-pixeltable"
+                ]
+              },
+              {
+                "group": "Embedding Models and Indexes",
+                "pages": [
+                  "docs/notebooks/feature-guides/embedding-indexes",
+                  "docs/tutorials/custom-embedding-models"
+                ]
+              },
+              {
+                "group": "Use Cases",
+                "pages": [
+                  "docs/notebooks/use-cases/audio-transcriptions",
+                  "docs/notebooks/use-cases/object-detection-in-videos",
+                  "docs/notebooks/use-cases/rag-demo",
+                  "docs/notebooks/use-cases/rag-operations"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Sample Applications and Libraries",
+            "pages": [
+              "docs/examples/examples-intro",
+              {
+                "group": "Libraries",
+                "pages": [
+                  "docs/libraries/pixelagent",
+                  "docs/libraries/mcp",
+                  "docs/libraries/yolox"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Pixeltable SDK",
+        "dropdowns": [
+          {
+            "dropdown": "latest",
+            "icon": "rocket",
+            "groups": [
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  {
+                    "group": "Core API",
+                    "pages": [
+                      "docs/sdk/latest/core-api/pixeltable",
+                      "docs/sdk/latest/core-api/table",
+                      "docs/sdk/latest/core-api/dataframe"
+                    ]
+                  },
+                  {
+                    "group": "Built-in Functions and Operators",
+                    "pages": [
+                      "docs/sdk/latest/built-in-functions-and-operators/audio",
+                      "docs/sdk/latest/built-in-functions-and-operators/date",
+                      "docs/sdk/latest/built-in-functions-and-operators/image",
+                      "docs/sdk/latest/built-in-functions-and-operators/json",
+                      "docs/sdk/latest/built-in-functions-and-operators/math",
+                      "docs/sdk/latest/built-in-functions-and-operators/string",
+                      "docs/sdk/latest/built-in-functions-and-operators/timestamp",
+                      "docs/sdk/latest/built-in-functions-and-operators/video"
+                    ]
+                  },
+                  {
+                    "group": "AI Integrations",
+                    "pages": [
+                      "docs/sdk/latest/ai-integrations/openai",
+                      "docs/sdk/latest/ai-integrations/anthropic",
+                      "docs/sdk/latest/ai-integrations/huggingface",
+                      "docs/sdk/latest/ai-integrations/gemini",
+                      "docs/sdk/latest/ai-integrations/bedrock",
+                      "docs/sdk/latest/ai-integrations/groq",
+                      "docs/sdk/latest/ai-integrations/replicate",
+                      "docs/sdk/latest/ai-integrations/together",
+                      "docs/sdk/latest/ai-integrations/fireworks",
+                      "docs/sdk/latest/ai-integrations/mistralai",
+                      "docs/sdk/latest/ai-integrations/deepseek",
+                      "docs/sdk/latest/ai-integrations/ollama",
+                      "docs/sdk/latest/ai-integrations/llama_cpp",
+                      "docs/sdk/latest/ai-integrations/whisper",
+                      "docs/sdk/latest/ai-integrations/vision",
+                      "docs/sdk/latest/ai-integrations/yolox",
+                      "docs/sdk/latest/ai-integrations/whisperx"
+                    ]
+                  },
+                  {
+                    "group": "Iterators",
+                    "pages": [
+                      "docs/sdk/latest/iterators/iterators",
+                      "docs/sdk/latest/iterators/iterators/audiosplitter",
+                      "docs/sdk/latest/iterators/iterators/componentiterator",
+                      "docs/sdk/latest/iterators/iterators/documentsplitter",
+                      "docs/sdk/latest/iterators/iterators/frameiterator",
+                      "docs/sdk/latest/iterators/iterators/stringsplitter",
+                      "docs/sdk/latest/iterators/iterators/tileiterator",
+                      "docs/sdk/latest/iterators/iterators/videosplitter"
+                    ]
+                  },
+                  {
+                    "group": "Import/Export",
+                    "pages": [
+                      "docs/sdk/latest/import-export/io",
+                      "docs/sdk/latest/import-export/io/externalstore"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dropdown": "v0.4.9",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.9/index"
+            ]
+          },
+          {
+            "dropdown": "v0.4.8",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.8/index"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/QPyqFYx2UN"
+      },
+      {
+        "label": "Book a Demo",
+        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+      },
+      {
+        "label": "Hiring",
+        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pixeltable/pixeltable"
+    }
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs..."
+  },
+  "footer": {
+    "socials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}

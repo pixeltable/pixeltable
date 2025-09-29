@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Pixeltable SDK Documentation Structure</title>
+    <description>Module-first OPML with top-level grouping for Mintlify SDK documentation</description>
+    <dateCreated>Mon, 19 Aug 2025 00:00:00 GMT</dateCreated>
+  </head>
+  <body>
+    
+    <outline text="tab|Pixeltable SDK">
+      
+      <!-- Core API group with main module -->
+      <outline text="group|Core API">
+        <outline text="module|pixeltable">
+          <!-- Core functions at module level -->
+          <outline text="func|pixeltable.create_table" />
+          <outline text="func|pixeltable.create_view" />
+          <outline text="func|pixeltable.create_snapshot" />
+          <outline text="func|pixeltable.drop_table" />
+          <outline text="func|pixeltable.get_table" />
+          <outline text="func|pixeltable.create_dir" />
+          <outline text="func|pixeltable.drop_dir" />
+          <outline text="func|pixeltable.get_dir_contents" />
+          <outline text="func|pixeltable.ls" />
+          <outline text="func|pixeltable.move" />
+          <outline text="func|pixeltable.configure_logging" />
+          <outline text="func|pixeltable.init" />
+          <outline text="func|pixeltable.udf" />
+          <outline text="func|pixeltable.query" />
+          
+          <!-- Core classes with ALL their methods (no sub-grouping) -->
+          <outline text="class|pixeltable.Table">
+            <outline text="method|pixeltable.Table.add_column" />
+            <outline text="method|pixeltable.Table.drop_column" />
+            <outline text="method|pixeltable.Table.rename_column" />
+            <outline text="method|pixeltable.Table.recompute_columns" />
+            <outline text="method|pixeltable.Table.insert" />
+            <outline text="method|pixeltable.Table.update" />
+            <outline text="method|pixeltable.Table.delete" />
+            <outline text="method|pixeltable.Table.add_embedding_index" />
+            <outline text="method|pixeltable.Table.drop_embedding_index" />
+            <outline text="method|pixeltable.Table.drop_index" />
+            <outline text="method|pixeltable.Table.revert" />
+          </outline>
+          
+          <outline text="class|pixeltable.DataFrame">
+            <outline text="method|pixeltable.DataFrame.select" />
+            <outline text="method|pixeltable.DataFrame.where" />
+            <outline text="method|pixeltable.DataFrame.join" />
+            <outline text="method|pixeltable.DataFrame.group_by" />
+            <outline text="method|pixeltable.DataFrame.order_by" />
+            <outline text="method|pixeltable.DataFrame.limit" />
+            <outline text="method|pixeltable.DataFrame.distinct" />
+            <outline text="method|pixeltable.DataFrame.sample" />
+            <outline text="method|pixeltable.DataFrame.collect" />
+            <outline text="method|pixeltable.DataFrame.show" />
+            <outline text="method|pixeltable.DataFrame.head" />
+            <outline text="method|pixeltable.DataFrame.tail" />
+            <outline text="method|pixeltable.DataFrame.to_pytorch_dataset" />
+            <outline text="method|pixeltable.DataFrame.to_coco_dataset" />
+          </outline>
+        </outline>
+      </outline>
+
+      <!-- Data Types as a separate group -->
+      <outline text="group|Data Types">
+        <outline text="class|pixeltable.Image" />
+        <outline text="class|pixeltable.Video" />
+        <outline text="class|pixeltable.Audio" />
+        <outline text="class|pixeltable.Document" />
+        <outline text="class|pixeltable.Array" />
+        <outline text="class|pixeltable.Json" />
+        <outline text="class|pixeltable.String" />
+        <outline text="class|pixeltable.Int" />
+        <outline text="class|pixeltable.Float" />
+        <outline text="class|pixeltable.Bool" />
+        <outline text="class|pixeltable.Timestamp" />
+      </outline>
+
+      <!-- Media Processing group -->
+      <outline text="group|Media Processing">
+        <outline text="module|pixeltable.functions.image" />
+        <outline text="module|pixeltable.functions.video" />
+        <outline text="module|pixeltable.functions.audio" />
+      </outline>
+
+      <!-- AI Integrations group -->
+      <outline text="group|AI Integrations">
+        <outline text="module|pixeltable.functions.openai" />
+        <outline text="module|pixeltable.functions.anthropic" />
+        <outline text="module|pixeltable.functions.huggingface" />
+        <outline text="module|pixeltable.functions.gemini" />
+        <outline text="module|pixeltable.functions.bedrock" />
+        <outline text="module|pixeltable.functions.groq" />
+        <outline text="module|pixeltable.functions.replicate" />
+        <outline text="module|pixeltable.functions.together" />
+        <outline text="module|pixeltable.functions.fireworks" />
+        <outline text="module|pixeltable.functions.mistralai" />
+        <outline text="module|pixeltable.functions.deepseek" />
+        <outline text="module|pixeltable.functions.ollama" />
+        <outline text="module|pixeltable.functions.llama_cpp" />
+        <outline text="module|pixeltable.functions.whisper" />
+        <outline text="module|pixeltable.functions.vision" />
+      </outline>
+
+      <!-- Utilities group -->
+      <outline text="group|Utilities">
+        <outline text="module|pixeltable.functions.string" />
+        <outline text="module|pixeltable.functions.math" />
+        <outline text="module|pixeltable.functions.json" />
+        <outline text="module|pixeltable.functions.date" />
+        <outline text="module|pixeltable.functions.timestamp" />
+      </outline>
+
+      <!-- Iterators group -->
+      <outline text="group|Iterators">
+        <outline text="module|pixeltable.iterators" />
+      </outline>
+
+      <!-- Import/Export group -->
+      <outline text="group|Import/Export">
+        <outline text="module|pixeltable.io" />
+      </outline>
+
+      <!-- Extensions group -->
+      <outline text="group|Extensions">
+        <outline text="module|pixeltable.ext.functions.yolox" />
+        <outline text="module|pixeltable.ext.functions.whisperx" />
+      </outline>
+      
+    </outline>
+  </body>
+</opml>

@@ -1,0 +1,570 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pixeltable Documentation",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Welcome to Pixeltable",
+            "pages": [
+              "docs/overview/pixeltable",
+              "docs/overview/installation",
+              "docs/overview/configuration",
+              "docs/overview/quick-start",
+              "docs/overview/building-pixeltable-with-llms"
+            ]
+          },
+          {
+            "group": "Multimodal AI Datastore",
+            "pages": [
+              "docs/datastore/tables-and-operations",
+              "docs/datastore/views",
+              "docs/datastore/iterators",
+              "docs/datastore/bringing-data",
+              "docs/datastore/filtering-and-selecting",
+              "docs/datastore/computed-columns",
+              "docs/datastore/vector-database",
+              "docs/datastore/custom-functions",
+              "docs/datastore/sampling"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "docs/tutorials/fundamentals",
+              "docs/tutorials/feature-guide"
+            ]
+          },
+          {
+            "group": "Libraries",
+            "pages": [
+              "docs/libraries/pixelagent",
+              "docs/libraries/mcp",
+              "docs/libraries/yolox"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Explore",
+            "pages": [
+              "docs/examples/use-cases",
+              "docs/examples/interactive-demos",
+              "docs/examples/sample-apps"
+            ]
+          },
+          {
+            "group": "Chatbot",
+            "pages": [
+              "docs/examples/chat/multimodal",
+              "docs/examples/chat/memory",
+              "docs/examples/chat/tools",
+              "docs/examples/chat/evals"
+            ]
+          },
+          {
+            "group": "Computer Vision",
+            "pages": [
+              "docs/examples/vision/label-studio",
+              "docs/examples/vision/voxel51",
+              "docs/examples/vision/yolox"
+            ]
+          },
+          {
+            "group": "Semantic Search",
+            "pages": [
+              "docs/examples/search/audio",
+              "docs/examples/search/images",
+              "docs/examples/search/PDF",
+              "docs/examples/search/website",
+              "docs/examples/search/video"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Pixeltable SDK",
+        "dropdowns": [
+          {
+            "dropdown": "latest",
+            "icon": "rocket",
+            "groups": [
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  {
+                    "group": "Core API",
+                    "pages": [
+                      {
+                        "group": "Table Management",
+                        "pages": [
+                          "docs/sdk/latest/core-api/table-management/create_table",
+                          "docs/sdk/latest/core-api/table-management/create_view",
+                          "docs/sdk/latest/core-api/table-management/create_snapshot",
+                          "docs/sdk/latest/core-api/table-management/drop_table",
+                          "docs/sdk/latest/core-api/table-management/get_table"
+                        ]
+                      },
+                      {
+                        "group": "Directory Management",
+                        "pages": [
+                          "docs/sdk/latest/core-api/directory-management/create_dir",
+                          "docs/sdk/latest/core-api/directory-management/drop_dir",
+                          "docs/sdk/latest/core-api/directory-management/get_dir_contents"
+                        ]
+                      },
+                      {
+                        "group": "Utilities",
+                        "pages": [
+                          "docs/sdk/latest/core-api/utilities/ls",
+                          "docs/sdk/latest/core-api/utilities/move",
+                          "docs/sdk/latest/core-api/utilities/configure_logging",
+                          "docs/sdk/latest/core-api/utilities/init"
+                        ]
+                      },
+                      {
+                        "group": "Decorators",
+                        "pages": [
+                          "docs/sdk/latest/core-api/decorators/udf",
+                          "docs/sdk/latest/core-api/decorators/query"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Table",
+                    "pages": [
+                      "docs/sdk/latest/table/Table",
+                      {
+                        "group": "Column Operations",
+                        "pages": [
+                          "docs/sdk/latest/table/column-operations/add_column",
+                          "docs/sdk/latest/table/column-operations/drop_column",
+                          "docs/sdk/latest/table/column-operations/rename_column",
+                          "docs/sdk/latest/table/column-operations/recompute_columns"
+                        ]
+                      },
+                      {
+                        "group": "Data Operations",
+                        "pages": [
+                          "docs/sdk/latest/table/data-operations/insert",
+                          "docs/sdk/latest/table/data-operations/update",
+                          "docs/sdk/latest/table/data-operations/delete"
+                        ]
+                      },
+                      {
+                        "group": "Indexing",
+                        "pages": [
+                          "docs/sdk/latest/table/indexing/add_embedding_index",
+                          "docs/sdk/latest/table/indexing/drop_embedding_index",
+                          "docs/sdk/latest/table/indexing/drop_index"
+                        ]
+                      },
+                      {
+                        "group": "Versioning",
+                        "pages": [
+                          "docs/sdk/latest/table/versioning/revert"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "DataFrame",
+                    "pages": [
+                      "docs/sdk/latest/dataframe/DataFrame",
+                      {
+                        "group": "Query Construction",
+                        "pages": [
+                          "docs/sdk/latest/dataframe/query-construction/select",
+                          "docs/sdk/latest/dataframe/query-construction/where",
+                          "docs/sdk/latest/dataframe/query-construction/join",
+                          "docs/sdk/latest/dataframe/query-construction/group_by",
+                          "docs/sdk/latest/dataframe/query-construction/order_by",
+                          "docs/sdk/latest/dataframe/query-construction/limit",
+                          "docs/sdk/latest/dataframe/query-construction/distinct",
+                          "docs/sdk/latest/dataframe/query-construction/sample"
+                        ]
+                      },
+                      {
+                        "group": "Query Execution",
+                        "pages": [
+                          "docs/sdk/latest/dataframe/query-execution/collect",
+                          "docs/sdk/latest/dataframe/query-execution/show",
+                          "docs/sdk/latest/dataframe/query-execution/head",
+                          "docs/sdk/latest/dataframe/query-execution/tail"
+                        ]
+                      },
+                      {
+                        "group": "Data Export",
+                        "pages": [
+                          "docs/sdk/latest/dataframe/data-export/to_pytorch_dataset",
+                          "docs/sdk/latest/dataframe/data-export/to_coco_dataset"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Functions",
+                    "pages": [
+                      {
+                        "group": "Media Processing",
+                        "pages": [
+                          "docs/sdk/latest/functions/media-processing/alpha_composite.mdx",
+                          "docs/sdk/latest/functions/media-processing/b64_encode.mdx",
+                          "docs/sdk/latest/functions/media-processing/blend.mdx",
+                          "docs/sdk/latest/functions/media-processing/composite.mdx",
+                          "docs/sdk/latest/functions/media-processing/convert.mdx",
+                          "docs/sdk/latest/functions/media-processing/crop.mdx",
+                          "docs/sdk/latest/functions/media-processing/effect_spread.mdx",
+                          "docs/sdk/latest/functions/media-processing/entropy.mdx",
+                          "docs/sdk/latest/functions/media-processing/get_metadata.mdx",
+                          "docs/sdk/latest/functions/media-processing/getbands.mdx",
+                          "docs/sdk/latest/functions/media-processing/getbbox.mdx",
+                          "docs/sdk/latest/functions/media-processing/getchannel.mdx",
+                          "docs/sdk/latest/functions/media-processing/getcolors.mdx",
+                          "docs/sdk/latest/functions/media-processing/getextrema.mdx",
+                          "docs/sdk/latest/functions/media-processing/getpalette.mdx",
+                          "docs/sdk/latest/functions/media-processing/getpixel.mdx",
+                          "docs/sdk/latest/functions/media-processing/getprojection.mdx",
+                          "docs/sdk/latest/functions/media-processing/height.mdx",
+                          "docs/sdk/latest/functions/media-processing/histogram.mdx",
+                          "docs/sdk/latest/functions/media-processing/mode.mdx",
+                          "docs/sdk/latest/functions/media-processing/point.mdx",
+                          "docs/sdk/latest/functions/media-processing/quantize.mdx",
+                          "docs/sdk/latest/functions/media-processing/reduce.mdx",
+                          "docs/sdk/latest/functions/media-processing/resize.mdx",
+                          "docs/sdk/latest/functions/media-processing/rotate.mdx",
+                          "docs/sdk/latest/functions/media-processing/transpose.mdx",
+                          "docs/sdk/latest/functions/media-processing/width.mdx",
+                          "docs/sdk/latest/functions/media-processing/extract_audio.mdx",
+                          "docs/sdk/latest/functions/media-processing/get_metadata.mdx",
+                          "docs/sdk/latest/functions/media-processing/make_video.mdx",
+                          "docs/sdk/latest/functions/media-processing/get_metadata.mdx"
+                        ]
+                      },
+                      {
+                        "group": "AI Integrations",
+                        "pages": [
+                          "docs/sdk/latest/functions/ai-integrations/chat_completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/embeddings.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/image_generations.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/invoke_tools.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/moderations.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/speech.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/transcriptions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/translations.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/vision.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/invoke_tools.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/messages.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/clip.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/cross_encoder.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/cross_encoder_list.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/detr_for_object_detection.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/detr_to_coco.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/sentence_transformer.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/sentence_transformer_list.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/speech2text_for_conditional_generation.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/vit_for_image_classification.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/TempStore.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/generate_content.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/generate_images.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/generate_videos.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/invoke_tools.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/converse.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/invoke_tools.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/chat_completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/invoke_tools.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/run.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/chat_completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/embeddings.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/image_generations.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/chat_completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/chat_completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/embeddings.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/fim_completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/chat_completions.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/chat.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/embed.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/generate.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/cleanup.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/create_chat_completion.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/Env.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/transcribe.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/draw_bounding_boxes.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/eval_detections.mdx",
+                          "docs/sdk/latest/functions/ai-integrations/mean_ap.mdx"
+                        ]
+                      },
+                      {
+                        "group": "Utilities",
+                        "pages": [
+                          "docs/sdk/latest/functions/utilities/capitalize.mdx",
+                          "docs/sdk/latest/functions/utilities/casefold.mdx",
+                          "docs/sdk/latest/functions/utilities/center.mdx",
+                          "docs/sdk/latest/functions/utilities/contains.mdx",
+                          "docs/sdk/latest/functions/utilities/contains_re.mdx",
+                          "docs/sdk/latest/functions/utilities/count.mdx",
+                          "docs/sdk/latest/functions/utilities/endswith.mdx",
+                          "docs/sdk/latest/functions/utilities/fill.mdx",
+                          "docs/sdk/latest/functions/utilities/find.mdx",
+                          "docs/sdk/latest/functions/utilities/findall.mdx",
+                          "docs/sdk/latest/functions/utilities/format.mdx",
+                          "docs/sdk/latest/functions/utilities/fullmatch.mdx",
+                          "docs/sdk/latest/functions/utilities/index.mdx",
+                          "docs/sdk/latest/functions/utilities/isalnum.mdx",
+                          "docs/sdk/latest/functions/utilities/isalpha.mdx",
+                          "docs/sdk/latest/functions/utilities/isascii.mdx",
+                          "docs/sdk/latest/functions/utilities/isdecimal.mdx",
+                          "docs/sdk/latest/functions/utilities/isdigit.mdx",
+                          "docs/sdk/latest/functions/utilities/isidentifier.mdx",
+                          "docs/sdk/latest/functions/utilities/islower.mdx",
+                          "docs/sdk/latest/functions/utilities/isnumeric.mdx",
+                          "docs/sdk/latest/functions/utilities/isspace.mdx",
+                          "docs/sdk/latest/functions/utilities/istitle.mdx",
+                          "docs/sdk/latest/functions/utilities/isupper.mdx",
+                          "docs/sdk/latest/functions/utilities/join.mdx",
+                          "docs/sdk/latest/functions/utilities/len.mdx",
+                          "docs/sdk/latest/functions/utilities/ljust.mdx",
+                          "docs/sdk/latest/functions/utilities/lower.mdx",
+                          "docs/sdk/latest/functions/utilities/lstrip.mdx",
+                          "docs/sdk/latest/functions/utilities/match.mdx",
+                          "docs/sdk/latest/functions/utilities/normalize.mdx",
+                          "docs/sdk/latest/functions/utilities/pad.mdx",
+                          "docs/sdk/latest/functions/utilities/partition.mdx",
+                          "docs/sdk/latest/functions/utilities/removeprefix.mdx",
+                          "docs/sdk/latest/functions/utilities/removesuffix.mdx",
+                          "docs/sdk/latest/functions/utilities/repeat.mdx",
+                          "docs/sdk/latest/functions/utilities/replace.mdx",
+                          "docs/sdk/latest/functions/utilities/replace_re.mdx",
+                          "docs/sdk/latest/functions/utilities/reverse.mdx",
+                          "docs/sdk/latest/functions/utilities/rfind.mdx",
+                          "docs/sdk/latest/functions/utilities/rindex.mdx",
+                          "docs/sdk/latest/functions/utilities/rjust.mdx",
+                          "docs/sdk/latest/functions/utilities/rpartition.mdx",
+                          "docs/sdk/latest/functions/utilities/rstrip.mdx",
+                          "docs/sdk/latest/functions/utilities/slice.mdx",
+                          "docs/sdk/latest/functions/utilities/slice_replace.mdx",
+                          "docs/sdk/latest/functions/utilities/startswith.mdx",
+                          "docs/sdk/latest/functions/utilities/strip.mdx",
+                          "docs/sdk/latest/functions/utilities/swapcase.mdx",
+                          "docs/sdk/latest/functions/utilities/title.mdx",
+                          "docs/sdk/latest/functions/utilities/upper.mdx",
+                          "docs/sdk/latest/functions/utilities/wrap.mdx",
+                          "docs/sdk/latest/functions/utilities/zfill.mdx",
+                          "docs/sdk/latest/functions/utilities/abs.mdx",
+                          "docs/sdk/latest/functions/utilities/bitwise_and.mdx",
+                          "docs/sdk/latest/functions/utilities/bitwise_or.mdx",
+                          "docs/sdk/latest/functions/utilities/bitwise_xor.mdx",
+                          "docs/sdk/latest/functions/utilities/ceil.mdx",
+                          "docs/sdk/latest/functions/utilities/floor.mdx",
+                          "docs/sdk/latest/functions/utilities/pow.mdx",
+                          "docs/sdk/latest/functions/utilities/round.mdx",
+                          "docs/sdk/latest/functions/utilities/make_list.mdx",
+                          "docs/sdk/latest/functions/utilities/add_days.mdx",
+                          "docs/sdk/latest/functions/utilities/day.mdx",
+                          "docs/sdk/latest/functions/utilities/isocalendar.mdx",
+                          "docs/sdk/latest/functions/utilities/isoformat.mdx",
+                          "docs/sdk/latest/functions/utilities/isoweekday.mdx",
+                          "docs/sdk/latest/functions/utilities/make_date.mdx",
+                          "docs/sdk/latest/functions/utilities/month.mdx",
+                          "docs/sdk/latest/functions/utilities/strftime.mdx",
+                          "docs/sdk/latest/functions/utilities/toordinal.mdx",
+                          "docs/sdk/latest/functions/utilities/weekday.mdx",
+                          "docs/sdk/latest/functions/utilities/year.mdx",
+                          "docs/sdk/latest/functions/utilities/astimezone.mdx",
+                          "docs/sdk/latest/functions/utilities/day.mdx",
+                          "docs/sdk/latest/functions/utilities/hour.mdx",
+                          "docs/sdk/latest/functions/utilities/isocalendar.mdx",
+                          "docs/sdk/latest/functions/utilities/isoformat.mdx",
+                          "docs/sdk/latest/functions/utilities/isoweekday.mdx",
+                          "docs/sdk/latest/functions/utilities/make_timestamp.mdx",
+                          "docs/sdk/latest/functions/utilities/microsecond.mdx",
+                          "docs/sdk/latest/functions/utilities/minute.mdx",
+                          "docs/sdk/latest/functions/utilities/month.mdx",
+                          "docs/sdk/latest/functions/utilities/posix_timestamp.mdx",
+                          "docs/sdk/latest/functions/utilities/replace.mdx",
+                          "docs/sdk/latest/functions/utilities/second.mdx",
+                          "docs/sdk/latest/functions/utilities/strftime.mdx",
+                          "docs/sdk/latest/functions/utilities/toordinal.mdx",
+                          "docs/sdk/latest/functions/utilities/weekday.mdx",
+                          "docs/sdk/latest/functions/utilities/year.mdx"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Iterators",
+                    "pages": [
+                      "docs/sdk/latest/iterators/AudioSplitter.mdx",
+                      "docs/sdk/latest/iterators/ComponentIterator.mdx",
+                      "docs/sdk/latest/iterators/DocumentSplitter.mdx",
+                      "docs/sdk/latest/iterators/FrameIterator.mdx",
+                      "docs/sdk/latest/iterators/StringSplitter.mdx",
+                      "docs/sdk/latest/iterators/TileIterator.mdx"
+                    ]
+                  },
+                  {
+                    "group": "Import/Export",
+                    "pages": [
+                      "docs/sdk/latest/import-export/ExternalStore.mdx",
+                      "docs/sdk/latest/import-export/create_label_studio_project.mdx",
+                      "docs/sdk/latest/import-export/export_images_as_fo_dataset.mdx",
+                      "docs/sdk/latest/import-export/export_parquet.mdx",
+                      "docs/sdk/latest/import-export/import_csv.mdx",
+                      "docs/sdk/latest/import-export/import_excel.mdx",
+                      "docs/sdk/latest/import-export/import_huggingface_dataset.mdx",
+                      "docs/sdk/latest/import-export/import_json.mdx",
+                      "docs/sdk/latest/import-export/import_pandas.mdx",
+                      "docs/sdk/latest/import-export/import_parquet.mdx",
+                      "docs/sdk/latest/import-export/import_rows.mdx"
+                    ]
+                  },
+                  {
+                    "group": "Extensions",
+                    "pages": [
+                      "docs/sdk/latest/extensions/yolo_to_coco.mdx",
+                      "docs/sdk/latest/extensions/yolox.mdx",
+                      "docs/sdk/latest/extensions/transcribe.mdx"
+                    ]
+                  },
+                  {
+                    "group": "Data Types",
+                    "pages": [
+                      "docs/sdk/latest/data-types/Image",
+                      "docs/sdk/latest/data-types/Video",
+                      "docs/sdk/latest/data-types/Audio",
+                      "docs/sdk/latest/data-types/Document",
+                      "docs/sdk/latest/data-types/Array",
+                      "docs/sdk/latest/data-types/Json",
+                      "docs/sdk/latest/data-types/String",
+                      "docs/sdk/latest/data-types/Int",
+                      "docs/sdk/latest/data-types/Float",
+                      "docs/sdk/latest/data-types/Bool",
+                      "docs/sdk/latest/data-types/Timestamp"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dropdown": "v0.4.9",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.9/index"
+            ]
+          },
+          {
+            "dropdown": "v0.4.8",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.8/index"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Built-in Integrations",
+            "pages": [
+              "docs/integrations/frameworks",
+              "docs/integrations/models"
+            ]
+          },
+          {
+            "group": "Bring Your Own",
+            "pages": [
+              "docs/integrations/embedding-model"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Changelog",
+        "groups": [
+          {
+            "group": "Changelog",
+            "pages": [
+              "docs/changelog/product-updates"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Support",
+        "groups": [
+          {
+            "group": "Support",
+            "pages": [
+              "docs/support/getting-help",
+              "docs/support/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/QPyqFYx2UN"
+      },
+      {
+        "label": "Book a Demo",
+        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+      },
+      {
+        "label": "Hiring",
+        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pixeltable/pixeltable"
+    }
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs..."
+  },
+  "footer": {
+    "socials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}
