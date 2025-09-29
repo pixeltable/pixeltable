@@ -1,3 +1,4 @@
+"""Iterators for splitting media and documents into components."""
 # ruff: noqa: F401
 
 from .audio import AudioSplitter

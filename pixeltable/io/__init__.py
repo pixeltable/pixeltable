@@ -1,3 +1,4 @@
+"""Functions for importing and exporting Pixeltable data."""
 # ruff: noqa: F401
 
 from .datarows import import_json, import_rows
