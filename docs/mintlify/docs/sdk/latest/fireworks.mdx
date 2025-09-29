@@ -31,9 +31,11 @@ Request throttling: Applies the rate limit set in the config (section `fireworks
 **Signature:**
 
 ```python
-chat_completions(messages: Json,
-     model: String,
-     model_kwargs: Optional[Json]) -> Json
+chat_completions(
+    messages: Json,
+    model: String,
+    model_kwargs: Optional[Json]
+)-> Json
 ```
 
 **Parameters:**
@@ -53,16 +55,9 @@ chat_completions(messages: Json,
 
 **Example:**
 
-<Tip>
-
 Add a computed column that applies the model `accounts/fireworks/models/mixtral-8x22b-instruct` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 ```python
 messages = [{'role': 'user', 'content': tbl.prompt}]
-tbl.add_computed_column(
-response=chat_completions(messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
-)
+tbl.add_computed_column(response=chat_completions(messages, model='accounts/fireworks/models/mixtral-8x22b-instruct'))
 ```
-
-
-</Tip>
 

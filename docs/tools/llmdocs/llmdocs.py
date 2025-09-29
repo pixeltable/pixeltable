@@ -29,23 +29,20 @@ def get_project_root():
 def main():
     """Generate complete LLM documentation suite."""
 
-    print("=== Pixeltable LLM Documentation Generator ===\n")
+    print('=== Pixeltable LLM Documentation Generator ===\n')
 
     # Get paths from config
     project_root = get_project_root()
-    opml_path = project_root / config["public_api_opml"].lstrip("/")
-    notebooks_dir = project_root / config["notebooks_dir"].lstrip("/")
-    output_dir = project_root / config["output_dir"].lstrip("/")
+    opml_path = project_root / config['public_api_opml'].lstrip('/')
+    notebooks_dir = project_root / config['notebooks_dir'].lstrip('/')
+    output_dir = project_root / config['output_dir'].lstrip('/')
 
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Generate LLM map from OPML
-    print("1. Generating llm_map.jsonld from OPML...")
-    llm_map_gen = LLMApiMapGenerator(
-        Path(__file__).parent,
-        version=config["version"]
-    )
+    print('1. Generating llm_map.jsonld from OPML...')
+    llm_map_gen = LLMApiMapGenerator(Path(__file__).parent, version=config['version'])
 
     # Load and process OPML to build the map
     opml_reader = OPMLReader(opml_path)
@@ -64,36 +61,33 @@ def main():
             llm_map_gen.add_type(page.module_path)
 
     # Save the map
-    llm_map_path = output_dir / config["llm_map_file"]
+    llm_map_path = output_dir / config['llm_map_file']
     llm_map_gen.save(llm_map_path, flatten=False)
-    print(f"   ✓ Generated {llm_map_path.name}")
+    print(f'   ✓ Generated {llm_map_path.name}')
 
     # Step 2: Extract patterns from notebooks
-    print("\n2. Generating llm_dev_patterns.jsonld from notebooks...")
-    extractor = NotebookPatternExtractor(
-        opml_path=str(opml_path),
-        notebooks_dir=str(notebooks_dir)
-    )
-    patterns_path = output_dir / config["llm_patterns_file"]
+    print('\n2. Generating llm_dev_patterns.jsonld from notebooks...')
+    extractor = NotebookPatternExtractor(opml_path=str(opml_path), notebooks_dir=str(notebooks_dir))
+    patterns_path = output_dir / config['llm_patterns_file']
     extractor.save_patterns(str(patterns_path))
-    print(f"   ✓ Generated {patterns_path.name}")
+    print(f'   ✓ Generated {patterns_path.name}')
 
     # Step 3: Generate quick reference
-    print("\n3. Generating llm_quick_reference.md...")
+    print('\n3. Generating llm_quick_reference.md...')
     generate_quick_reference(output_dir)
-    reference_path = output_dir / config["llm_reference_file"]
-    print(f"   ✓ Generated {reference_path.name}")
+    reference_path = output_dir / config['llm_reference_file']
+    print(f'   ✓ Generated {reference_path.name}')
 
     # Summary
-    print(f"\n✅ Complete! LLM docs generated in {output_dir.relative_to(project_root)}")
-    print("\nFiles created:")
-    print(f"  - {config['llm_map_file']:<30} # Public API reference")
-    print(f"  - {config['llm_patterns_file']:<30} # Developer patterns from notebooks")
-    print(f"  - {config['llm_reference_file']:<30} # Guide to using the files")
-    print("\nLLMs can now use these files to understand Pixeltable completely.")
+    print(f'\n✅ Complete! LLM docs generated in {output_dir.relative_to(project_root)}')
+    print('\nFiles created:')
+    print(f'  - {config["llm_map_file"]:<30} # Public API reference')
+    print(f'  - {config["llm_patterns_file"]:<30} # Developer patterns from notebooks')
+    print(f'  - {config["llm_reference_file"]:<30} # Guide to using the files')
+    print('\nLLMs can now use these files to understand Pixeltable completely.')
 
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

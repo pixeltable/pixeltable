@@ -25,7 +25,7 @@ Converts the output of a YOLOX object detection model to COCO format.
 **Signature:**
 
 ```python
-yolo_to_coco(detections: Json) -> Json
+yolo_to_coco(detections: Json)-> Json
 ```
 
 **Parameters:**
@@ -41,16 +41,11 @@ yolo_to_coco(detections: Json) -> Json
 
 **Example:**
 
-<Tip>
-
 Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image` is the image for which detections were computed:
 ```python
 tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
 tbl.add_computed_column(detections_coco=yolo_to_coco(tbl.detections))
 ```
-
-
-</Tip>
 
 
 ---
@@ -70,9 +65,11 @@ defined in the [YOLOX documentation](https://github.com/Megvii-BaseDetection/YOL
 **Signature:**
 
 ```python
-yolox(images: Image,
-     model_id: String,
-     threshold: Float) -> Json
+yolox(
+    images: Image,
+    model_id: String,
+    threshold: Float
+)-> Json
 ```
 
 **Parameters:**
@@ -90,13 +87,8 @@ yolox(images: Image,
 
 **Example:**
 
-<Tip>
-
 Add a computed column that applies the model `yolox_m` to an existing Pixeltable column `tbl.image` of the table `tbl`:
 ```python
 tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
 ```
-
-
-</Tip>
 

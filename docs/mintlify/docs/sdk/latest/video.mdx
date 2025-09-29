@@ -29,10 +29,12 @@ If `start_time` is beyond the end of the video, returns None. Can only specify o
 **Signature:**
 
 ```python
-clip(video: Video,
-     start_time: Float,
-     end_time: Optional[Float],
-     duration: Optional[Float]) -> Optional[Video]
+clip(
+    video: Video,
+    start_time: Float,
+    end_time: Optional[Float],
+    duration: Optional[Float]
+)-> Optional[Video]
 ```
 
 **Parameters:**
@@ -67,7 +69,7 @@ Merge multiple videos into a single video.
 **Signature:**
 
 ```python
-concat_videos(videos: Json) -> Video
+concat_videos(videos: Json)-> Video
 ```
 
 **Parameters:**
@@ -91,10 +93,12 @@ Extract an audio stream from a video.
 **Signature:**
 
 ```python
-extract_audio(video_path: Video,
-     stream_idx: Int,
-     format: String,
-     codec: Optional[String]) -> Audio
+extract_audio(
+    video_path: Video,
+    stream_idx: Int,
+    format: String,
+    codec: Optional[String]
+)-> Audio
 ```
 
 **Parameters:**
@@ -114,17 +118,10 @@ extract_audio(video_path: Video,
 
 **Example:**
 
-<Tip>
-
 Add a computed column to a table `tbl` that extracts audio from an existing column `video_col`:
 ```python
-tbl.add_computed_column(
-extracted_audio=tbl.video_col.extract_audio(format='flac')
-)
+tbl.add_computed_column(extracted_audio=tbl.video_col.extract_audio(format='flac'))
 ```
-
-
-</Tip>
 
 
 ---
@@ -137,8 +134,10 @@ Extract a single frame from a video at a specific timestamp.
 **Signature:**
 
 ```python
-extract_frame(video: Video,
-     timestamp: Float) -> Optional[Image]
+extract_frame(
+    video: Video,
+    timestamp: Float
+)-> Optional[Image]
 ```
 
 **Parameters:**
@@ -156,8 +155,6 @@ extract_frame(video: Video,
 
 **Example:**
 
-<Tip>
-
 Extract the first frame from each video in the `video` column of the table `tbl`:
 ```python
 tbl.select(tbl.video.extract_frame(0.0)).collect()
@@ -167,9 +164,6 @@ Extract a frame close to the end of each video in the `video` column of the tabl
 ```python
 tbl.select(tbl.video.extract_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
 ```
-
-
-</Tip>
 
 
 ---
@@ -182,7 +176,7 @@ Get video duration in seconds.
 **Signature:**
 
 ```python
-get_duration(video: Video) -> Optional[Float]
+get_duration(video: Video)-> Optional[Float]
 ```
 
 **Parameters:**
@@ -206,7 +200,7 @@ Gets various metadata associated with a video file and returns it as a dictionar
 **Signature:**
 
 ```python
-get_metadata(video: Video) -> Json
+get_metadata(video: Video)-> Json
 ```
 
 **Parameters:**
@@ -257,15 +251,10 @@ get_metadata(video: Video) -> Json
 
 **Example:**
 
-<Tip>
-
 Extract metadata for files in the `video_col` column of the table `tbl`:
 ```python
 tbl.select(tbl.video_col.get_metadata()).collect()
 ```
-
-
-</Tip>
 
 
 ---
@@ -283,20 +272,22 @@ Overlay text on a video with customizable positioning and styling.
 **Signature:**
 
 ```python
-overlay_text(video: Video,
-     text: String,
-     font: Optional[String],
-     font_size: Int,
-     color: String,
-     opacity: Float,
-     horizontal_align: String,
-     horizontal_margin: Int,
-     vertical_align: String,
-     vertical_margin: Int,
-     box: Bool,
-     box_color: String,
-     box_opacity: Float,
-     box_border: Optional[Json]) -> Video
+overlay_text(
+    video: Video,
+    text: String,
+    font: Optional[String],
+    font_size: Int,
+    color: String,
+    opacity: Float,
+    horizontal_align: String,
+    horizontal_margin: Int,
+    vertical_align: String,
+    vertical_margin: Int,
+    box: Bool,
+    box_color: String,
+    box_opacity: Float,
+    box_border: Optional[Json]
+)-> Video
 ```
 
 **Parameters:**
@@ -343,8 +334,6 @@ overlay_text(video: Video,
 
 **Example:**
 
-<Tip>
-
 Add a simple text overlay to videos in a table:
 ```python
 tbl.select(tbl.video.overlay_text('Sample Text')).collect()
@@ -353,39 +342,36 @@ tbl.select(tbl.video.overlay_text('Sample Text')).collect()
 Add a YouTube-style caption:
 ```python
 tbl.select(
-tbl.video.overlay_text(
-'Caption text',
-font_size=32,
-color='white',
-opacity=1.0,
-box=True,
-box_color='black',
-box_opacity=0.8,
-box_border=[6, 14],
-horizontal_margin=10,
-vertical_align='bottom',
-vertical_margin=70
-)
+    tbl.video.overlay_text(
+        'Caption text',
+        font_size=32,
+        color='white',
+        opacity=1.0,
+        box=True,
+        box_color='black',
+        box_opacity=0.8,
+        box_border=[6, 14],
+        horizontal_margin=10,
+        vertical_align='bottom',
+        vertical_margin=70,
+    )
 ).collect()
 ```
 
 Add text with a semi-transparent background box:
 ```python
 tbl.select(
-tbl.video.overlay_text(
-'Important Message',
-font_size=32,
-color='yellow',
-box=True,
-box_color='black',
-box_opacity=0.6,
-box_border=[20, 10]
-)
+    tbl.video.overlay_text(
+        'Important Message',
+        font_size=32,
+        color='yellow',
+        box=True,
+        box_color='black',
+        box_opacity=0.6,
+        box_border=[20, 10],
+    )
 ).collect()
 ```
-
-
-</Tip>
 
 
 ---
@@ -403,8 +389,10 @@ Split a video into fixed-size segments.
 **Signature:**
 
 ```python
-segment_video(video: Video,
-     duration: Float) -> Json
+segment_video(
+    video: Video,
+    duration: Float
+)-> Json
 ```
 
 **Parameters:**
@@ -422,8 +410,6 @@ segment_video(video: Video,
 
 **Example:**
 
-<Tip>
-
 Split a video at 1 minute intervals
 ```python
 tbl.select(segment_paths=tbl.video.segment_video(duration=60)).collect()
@@ -434,7 +420,4 @@ Split video into two parts at the midpoint:
 duration = tbl.video.get_duration()
 tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()
 ```
-
-
-</Tip>
 

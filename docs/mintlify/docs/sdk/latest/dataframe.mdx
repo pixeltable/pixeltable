@@ -19,7 +19,7 @@ Represents a query for retrieving and transforming data from Pixeltable tables.
 **Signature:**
 
 ```python
-collect() -> 'DataFrameResultSet'
+collect()-> DataFrameResultSet
 ```
 
 
@@ -36,29 +36,24 @@ Note that grouping will be applied to the rows based on the select clause of thi
 **Signature:**
 
 ```python
-distinct() -> 'DataFrame'
+distinct()-> DataFrame
 ```
 
 
 **Example:**
 
-<Tip>
-
 Select unique addresses from table `addresses`.
 ```python
- results = addresses.distinct()
+results = addresses.distinct()
 ```
 Select unique cities in table `addresses`
 ```python
- results = addresses.city.distinct()
+results = addresses.city.distinct()
 ```
 Select unique locations (street, city) in the state of `CA`
 ```python
- results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
+results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
 ```
-
-</Tip>
-
 
 ---
 
@@ -78,7 +73,7 @@ Note, that grouping will be applied to the rows and take effect when used with a
 **Signature:**
 
 ```python
-group_by(*grouping_items: 'Any') -> 'DataFrame'
+group_by(*grouping_items: Any)-> DataFrame
 ```
 
 **Parameters:**
@@ -94,29 +89,24 @@ group_by(*grouping_items: 'Any') -> 'DataFrame'
 
 **Example:**
 
-<Tip>
-
 Given the DataFrame book from a table t with all its columns and rows:
 ```python
- book = t.select()
+book = t.select()
 ```
 Group the above DataFrame book by the 'genre' column (referenced in table t):
 ```python
- df = book.group_by(t.genre)
+df = book.group_by(t.genre)
 ```
 Use the above DataFrame df grouped by genre to count the number of
 books for each 'genre':
 ```python
- df = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+df = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
 ```
 Use the above DataFrame df grouped by genre to the total price of
 books for each 'genre':
 ```python
- df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
+df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
 ```
-
-</Tip>
-
 
 ---
 
@@ -131,7 +121,7 @@ head() is not supported for joins.
 **Signature:**
 
 ```python
-head(n: 'int' = 10) -> 'DataFrameResultSet'
+head(n: int = 10)-> DataFrameResultSet
 ```
 
 **Parameters:**
@@ -155,9 +145,11 @@ Join this DataFrame with a table.
 **Signature:**
 
 ```python
-join(other: 'catalog.Table',
-     on: 'exprs.Expr | Sequence[exprs.ColumnRef] | None' = None,
-     how: 'plan.JoinType.LiteralType' = 'inner') -> 'DataFrame'
+join(
+    other: catalog.Table,
+    on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
+    how: plan.JoinType.LiteralType = 'inner'
+)-> DataFrame
 ```
 
 **Parameters:**
@@ -190,29 +182,24 @@ join(other: 'catalog.Table',
 
 **Example:**
 
-<Tip>
-
 Perform an inner join between t1 and t2 on the column id:
 ```python
- join1 = t1.join(t2, on=t2.id)
+join1 = t1.join(t2, on=t2.id)
 ```
 Perform a left outer join of join1 with t3, also on id (note that we can't specify `on=t3.id` here,
 because that would be ambiguous, since both t1 and t2 have a column named id):
 ```python
- join2 = join1.join(t3, on=t2.id, how='left')
+join2 = join1.join(t3, on=t2.id, how='left')
 ```
 Do the same, but now with an explicit join predicate:
 ```python
- join2 = join1.join(t3, on=t2.id == t3.id, how='left')
+join2 = join1.join(t3, on=t2.id == t3.id, how='left')
 ```
 Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
 key columns d1 and d2 in t):
 ```python
- df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
+df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
 ```
-
-</Tip>
-
 
 ---
 
@@ -224,7 +211,7 @@ Limit the number of rows in the DataFrame.
 **Signature:**
 
 ```python
-limit(n: 'int') -> 'DataFrame'
+limit(n: int)-> DataFrame
 ```
 
 **Parameters:**
@@ -248,8 +235,10 @@ Add an order-by clause to this DataFrame.
 **Signature:**
 
 ```python
-order_by(*expr_list: 'exprs.Expr',
-     asc: 'bool' = True) -> 'DataFrame'
+order_by(
+    *expr_list: exprs.Expr,
+    asc: bool = True
+)-> DataFrame
 ```
 
 **Parameters:**
@@ -267,24 +256,19 @@ order_by(*expr_list: 'exprs.Expr',
 
 **Example:**
 
-<Tip>
-
 Given the DataFrame book from a table t with all its columns and rows:
 ```python
- book = t.select()
+book = t.select()
 ```
 Order the above DataFrame book by two columns (price, pages) in descending order:
 ```python
- df = book.order_by(t.price, t.pages, asc=False)
+df = book.order_by(t.price, t.pages, asc=False)
 ```
 Order the above DataFrame book by price in descending order, but order the pages
 in ascending order:
 ```python
- df = book.order_by(t.price, asc=False).order_by(t.pages)
+df = book.order_by(t.price, asc=False).order_by(t.pages)
 ```
-
-</Tip>
-
 
 ---
 
@@ -307,11 +291,13 @@ The data is shuffled before creating the sample.
 **Signature:**
 
 ```python
-sample(n: 'Optional[int]' = None,
-     n_per_stratum: 'Optional[int]' = None,
-     fraction: 'Optional[float]' = None,
-     seed: 'Optional[int]' = None,
-     stratify_by: 'Any' = None) -> 'DataFrame'
+sample(
+    n: Optional[int] = None,
+    n_per_stratum: Optional[int] = None,
+    fraction: Optional[float] = None,
+    seed: Optional[int] = None,
+    stratify_by: Any = None
+)-> DataFrame
 ```
 
 **Parameters:**
@@ -335,32 +321,27 @@ sample(n: 'Optional[int]' = None,
 
 **Example:**
 
-<Tip>
-
 Given the Table `person` containing the field 'age', we can create samples of the table in various ways:
 Sample 100 rows from the above Table:
 ```python
- df = person.sample(n=100)
+df = person.sample(n=100)
 ```
 Sample 10% of the rows from the above Table:
 ```python
- df = person.sample(fraction=0.1)
+df = person.sample(fraction=0.1)
 ```
 Sample 10% of the rows from the above Table, stratified by the column 'age':
 ```python
- df = person.sample(fraction=0.1, stratify_by=t.age)
+df = person.sample(fraction=0.1, stratify_by=t.age)
 ```
 Equal allocation sampling: Sample 2 rows from each age present in the above Table:
 ```python
- df = person.sample(n_per_stratum=2, stratify_by=t.age)
+df = person.sample(n_per_stratum=2, stratify_by=t.age)
 ```
 Sampling is compatible with the where clause, so we can also sample from a filtered DataFrame:
 ```python
- df = person.where(t.age > 30).sample(n=100)
+df = person.where(t.age > 30).sample(n=100)
 ```
-
-</Tip>
-
 
 ---
 
@@ -372,8 +353,10 @@ Select columns or expressions from the DataFrame.
 **Signature:**
 
 ```python
-select(*items: 'Any',
-     **named_items: 'Any') -> 'DataFrame'
+select(
+    *items: Any,
+    **named_items: Any
+)-> DataFrame
 ```
 
 **Parameters:**
@@ -391,25 +374,20 @@ select(*items: 'Any',
 
 **Example:**
 
-<Tip>
-
 Given the DataFrame person from a table t with all its columns and rows:
 ```python
- person = t.select()
+person = t.select()
 ```
 Select the columns 'name' and 'age' (referenced in table t) from the DataFrame person:
 ```python
- df = person.select(t.name, t.age)
+df = person.select(t.name, t.age)
 ```
 Select the columns 'name' (referenced in table t) from the DataFrame person,
 and a named column 'is_adult' from the expression `age >= 18` where 'age' is
 another column in table t:
 ```python
- df = person.select(t.name, is_adult=(t.age >= 18))
+df = person.select(t.name, is_adult=(t.age >= 18))
 ```
-
-</Tip>
-
 
 ---
 
@@ -418,7 +396,7 @@ another column in table t:
 **Signature:**
 
 ```python
-show(n: 'int' = 20) -> 'DataFrameResultSet'
+show(n: int = 20)-> DataFrameResultSet
 ```
 
 
@@ -435,7 +413,7 @@ tail() is not supported for joins.
 **Signature:**
 
 ```python
-tail(n: 'int' = 10) -> 'DataFrameResultSet'
+tail(n: int = 10)-> DataFrameResultSet
 ```
 
 **Parameters:**
@@ -462,7 +440,7 @@ This dataframe must return a single json-typed output column in the following fo
 **Signature:**
 
 ```python
-to_coco_dataset() -> 'Path'
+to_coco_dataset()-> Path
 ```
 
 **Returns:**
@@ -488,7 +466,7 @@ This method serializes data so it can be read from disk efficiently and repeated
 **Signature:**
 
 ```python
-to_pytorch_dataset(image_format: 'str' = 'pt') -> "'torch.utils.data.IterableDataset'"
+to_pytorch_dataset(image_format: str = 'pt')-> torch.utils.data.IterableDataset
 ```
 
 **Parameters:**
@@ -512,7 +490,7 @@ Filter rows based on a predicate.
 **Signature:**
 
 ```python
-where(pred: 'exprs.Expr') -> 'DataFrame'
+where(pred: exprs.Expr)-> DataFrame
 ```
 
 **Parameters:**
@@ -528,20 +506,15 @@ where(pred: 'exprs.Expr') -> 'DataFrame'
 
 **Example:**
 
-<Tip>
-
 Given the DataFrame person from a table t with all its columns and rows:
 ```python
- person = t.select()
+person = t.select()
 ```
 Filter the above DataFrame person to only include rows where the column 'age'
 (referenced in table t) is greater than 30:
 ```python
- df = person.where(t.age > 30)
+df = person.where(t.age > 30)
 ```
-
-</Tip>
-
 ## Attributes
 
 ### `schema` *property*

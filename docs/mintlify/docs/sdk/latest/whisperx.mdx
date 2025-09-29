@@ -34,20 +34,22 @@ If `diarize=True`, then speaker diarization will also be performed. Several of t
 **Signature:**
 
 ```python
-transcribe(audio: Audio,
-     model: String,
-     diarize: Bool,
-     compute_type: Optional[String],
-     language: Optional[String],
-     task: Optional[String],
-     chunk_size: Optional[Int],
-     alignment_model_name: Optional[String],
-     interpolate_method: Optional[String],
-     return_char_alignments: Optional[Bool],
-     diarization_model_name: Optional[String],
-     num_speakers: Optional[Int],
-     min_speakers: Optional[Int],
-     max_speakers: Optional[Int]) -> Json
+transcribe(
+    audio: Audio,
+    model: String,
+    diarize: Bool,
+    compute_type: Optional[String],
+    language: Optional[String],
+    task: Optional[String],
+    chunk_size: Optional[Int],
+    alignment_model_name: Optional[String],
+    interpolate_method: Optional[String],
+    return_char_alignments: Optional[Bool],
+    diarization_model_name: Optional[String],
+    num_speakers: Optional[Int],
+    min_speakers: Optional[Int],
+    max_speakers: Optional[Int]
+)-> Json
 ```
 
 **Parameters:**
@@ -89,8 +91,6 @@ transcribe(audio: Audio,
 
 **Example:**
 
-<Tip>
-
 Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`:
 ```python
 tbl.add_computed_column(result=transcribe(tbl.audio, model='tiny.en'))
@@ -98,13 +98,6 @@ tbl.add_computed_column(result=transcribe(tbl.audio, model='tiny.en'))
 
 Add a computed column that applies the model `tiny.en` to an existing Pixeltable column `tbl.audio` of the table `tbl`, with speaker diarization enabled, expecting at least 2 speakers:
 ```python
-tbl.add_computed_column(
-result=transcribe(
-tbl.audio, model='tiny.en', diarize=True, min_speakers=2
-)
-)
+tbl.add_computed_column(result=transcribe(tbl.audio, model='tiny.en', diarize=True, min_speakers=2))
 ```
-
-
-</Tip>
 

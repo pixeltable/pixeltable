@@ -22,7 +22,7 @@ Close the iterator and release all resources
 **Signature:**
 
 ```python
-close() -> None
+close()-> None
 ```
 
 
@@ -33,8 +33,7 @@ close() -> None
 **Signature:**
 
 ```python
-create(**kwargs: 'Any') -> 'tuple[type[ComponentIterator],
-     dict[str, Any]]'
+create(**kwargs: Any)-> tuple[type[ComponentIterator], dict[str, Any]]
 ```
 
 
@@ -51,9 +50,10 @@ The keys need to match the names of the init() parameters. This is equivalent to
 **Signature:**
 
 ```python
-input_schema(*args: Any,
-     **kwargs: Any) -> dict[str,
-     pixeltable.type_system.ColumnType]
+input_schema(
+    *args: Any,
+    **kwargs: Any
+)-> dict[str, pixeltable.type_system.ColumnType]
 ```
 
 
@@ -67,9 +67,10 @@ Specify the dictionary returned by next() and a list of unstored column names
 **Signature:**
 
 ```python
-output_schema(*args: Any,
-     **kwargs: Any) -> tuple[dict[str, pixeltable.type_system.ColumnType],
-     list[str]]
+output_schema(
+    *args: Any,
+    **kwargs: Any
+)-> tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]
 ```
 
 **Returns:**
@@ -88,6 +89,6 @@ Set the iterator position to pos
 **Signature:**
 
 ```python
-set_pos(pos: int) -> None
+set_pos(pos: int)-> None
 ```
 

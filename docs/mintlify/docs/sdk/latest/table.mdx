@@ -24,9 +24,11 @@ Adds an ordinary (non-computed) column to the table.
 **Signature:**
 
 ```python
-add_column(*,
-     if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error',
-     **kwargs: 'ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr') -> 'UpdateStatus'
+add_column(
+    *,
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+    **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr
+)-> UpdateStatus
 ```
 
 **Parameters:**
@@ -48,19 +50,14 @@ add_column(*,
 
 **Example:**
 
-<Tip>
-
 Add an int column:
 ```python
- tbl.add_column(new_col=pxt.Int)
+tbl.add_column(new_col=pxt.Int)
 ```
 Alternatively, this can also be expressed as:
 ```python
- tbl.add_columns({'new_col': pxt.Int})
+tbl.add_columns({'new_col': pxt.Int})
 ```
-
-</Tip>
-
 
 ---
 
@@ -87,14 +84,16 @@ If the embedding UDF is a multimodal embedding (supporting more than one data ty
 **Signature:**
 
 ```python
-add_embedding_index(column: 'str | ColumnRef',
-     *,
-     idx_name: 'Optional[str]' = None,
-     embedding: 'Optional[pxt.Function]' = None,
-     string_embed: 'Optional[pxt.Function]' = None,
-     image_embed: 'Optional[pxt.Function]' = None,
-     metric: 'str' = 'cosine',
-     if_exists: "Literal['error', 'ignore', 'replace', 'replace_force']" = 'error') -> 'None'
+add_embedding_index(
+    column: str | ColumnRef,
+    *,
+    idx_name: Optional[str] = None,
+    embedding: Optional[pxt.Function] = None,
+    string_embed: Optional[pxt.Function] = None,
+    image_embed: Optional[pxt.Function] = None,
+    metric: str = 'cosine',
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
+)-> None
 ```
 
 **Parameters:**
@@ -121,23 +120,21 @@ add_embedding_index(column: 'str | ColumnRef',
 
 **Example:**
 
-<Tip>
-
 Add an index to the `img` column of the table `my_table`:
 ```python
- from pixeltable.functions.huggingface import clip
+from pixeltable.functions.huggingface import clip
     tbl = pxt.get_table('my_table')
     embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
     tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
 ```
 Alternatively, the `img` column may be specified by name:
 ```python
- tbl.add_embedding_index('img', embedding=embedding_fn)
+tbl.add_embedding_index('img', embedding=embedding_fn)
 ```
 Add a second index to the `img` column, using the inner product as the distance metric,
 and with a specific name:
 ```python
- tbl.add_embedding_index(
+tbl.add_embedding_index(
         tbl.img,
         idx_name='ip_idx',
         embedding=embedding_fn,
@@ -146,15 +143,12 @@ and with a specific name:
 ```
 Add an index using separately specified string and image embeddings:
 ```python
- tbl.add_embedding_index(
+tbl.add_embedding_index(
         tbl.img,
         string_embed=string_embedding_fn,
         image_embed=image_embedding_fn
     )
 ```
-
-</Tip>
-
 
 ---
 
@@ -166,7 +160,7 @@ Delete rows in this table.
 **Signature:**
 
 ```python
-delete(where: "Optional['exprs.Expr']" = None) -> 'UpdateStatus'
+delete(where: Optional['exprs.Expr'] = None)-> UpdateStatus
 ```
 
 **Parameters:**
@@ -177,19 +171,14 @@ delete(where: "Optional['exprs.Expr']" = None) -> 'UpdateStatus'
 
 **Example:**
 
-<Tip>
-
 Delete all rows in a table:
 ```python
- tbl.delete()
+tbl.delete()
 ```
 Delete all rows in a table where column `a` is greater than 5:
 ```python
- tbl.delete(tbl.a > 5)
+tbl.delete(tbl.a > 5)
 ```
-
-</Tip>
-
 
 ---
 
@@ -201,8 +190,10 @@ Drop a column from the table.
 **Signature:**
 
 ```python
-drop_column(column: 'str | ColumnRef',
-     if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
+drop_column(
+    column: str | ColumnRef,
+    if_not_exists: Literal['error', 'ignore'] = 'error'
+)-> None
 ```
 
 **Parameters:**
@@ -218,26 +209,21 @@ drop_column(column: 'str | ColumnRef',
 
 **Example:**
 
-<Tip>
-
 Drop the column `col` from the table `my_table` by column name:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_column('col')
 ```
 Drop the column `col` from the table `my_table` by column reference:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_column(tbl.col)
 ```
 Drop the column `col` from the table `my_table` if it exists, otherwise do nothing:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_col(tbl.col, if_not_exists='ignore')
 ```
-
-</Tip>
-
 
 ---
 
@@ -252,10 +238,12 @@ specified. If a column name or reference is specified, it must be a column conta
 **Signature:**
 
 ```python
-drop_embedding_index(*,
-     column: 'str | ColumnRef | None' = None,
-     idx_name: 'Optional[str]' = None,
-     if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
+drop_embedding_index(
+    *,
+    column: str | ColumnRef | None = None,
+    idx_name: Optional[str] = None,
+    if_not_exists: Literal['error', 'ignore'] = 'error'
+)-> None
 ```
 
 **Parameters:**
@@ -275,31 +263,26 @@ Note that `if_not_exists` parameter is only applicable when an `idx_name` is spe
 
 **Example:**
 
-<Tip>
-
 Drop the embedding index on the `img` column of the table `my_table` by column name:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_embedding_index(column='img')
 ```
 Drop the embedding index on the `img` column of the table `my_table` by column reference:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_embedding_index(column=tbl.img)
 ```
 Drop the embedding index `idx1` of the table `my_table` by index name:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_embedding_index(idx_name='idx1')
 ```
 Drop the embedding index `idx1` of the table `my_table` by index name, if it exists, otherwise do nothing:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_embedding_index(idx_name='idx1', if_not_exists='ignore')
 ```
-
-</Tip>
-
 
 ---
 
@@ -314,10 +297,12 @@ specified. If a column name or reference is specified, it must be a column conta
 **Signature:**
 
 ```python
-drop_index(*,
-     column: 'str | ColumnRef | None' = None,
-     idx_name: 'Optional[str]' = None,
-     if_not_exists: "Literal['error', 'ignore']" = 'error') -> 'None'
+drop_index(
+    *,
+    column: str | ColumnRef | None = None,
+    idx_name: Optional[str] = None,
+    if_not_exists: Literal['error', 'ignore'] = 'error'
+)-> None
 ```
 
 **Parameters:**
@@ -337,31 +322,26 @@ Note that `if_not_exists` parameter is only applicable when an `idx_name` is spe
 
 **Example:**
 
-<Tip>
-
 Drop the index on the `img` column of the table `my_table` by column name:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_index(column_name='img')
 ```
 Drop the index on the `img` column of the table `my_table` by column reference:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_index(tbl.img)
 ```
 Drop the index `idx1` of the table `my_table` by index name:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_index(idx_name='idx1')
 ```
 Drop the index `idx1` of the table `my_table` by index name, if it exists, otherwise do nothing:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.drop_index(idx_name='idx1', if_not_exists='ignore')
 ```
-
-</Tip>
-
 
 ---
 
@@ -397,14 +377,16 @@ insert(
 **Signature:**
 
 ```python
-insert(source: 'Optional[TableDataSource]' = None,
-     /,
-     *,
-     source_format: "Optional[Literal['csv', 'excel', 'parquet', 'json']]" = None,
-     schema_overrides: 'Optional[dict[str, ts.ColumnType]]' = None,
-     on_error: "Literal['abort', 'ignore']" = 'abort',
-     print_stats: 'bool' = False,
-     **kwargs: 'Any') -> 'UpdateStatus'
+insert(
+    source: Optional[TableDataSource] = None,
+    /,
+    *,
+    source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+    schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+    on_error: Literal['abort', 'ignore'] = 'abort',
+    print_stats: bool = False,
+    **kwargs: Any
+)-> UpdateStatus
 ```
 
 **Parameters:**
@@ -433,34 +415,29 @@ insert(source: 'Optional[TableDataSource]' = None,
 
 **Example:**
 
-<Tip>
-
 Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.
 Column ``c`` is nullable:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.insert([{'a': 1, 'b': 1, 'c': 1}, {'a': 2, 'b': 2}])
 ```
 Insert a single row using the alternative syntax:
 ```python
- tbl.insert(a=3, b=3, c=3)
+tbl.insert(a=3, b=3, c=3)
 ```
 Insert rows from a CSV file:
 ```python
- tbl.insert(source='path/to/file.csv')
+tbl.insert(source='path/to/file.csv')
 ```
 Insert Pydantic model instances into a table with two `pxt.Int` columns `a` and `b`:
 ```python
- class MyModel(pydantic.BaseModel):
+class MyModel(pydantic.BaseModel):
         a: int
         b: int
 
     models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
     tbl.insert(models)
 ```
-
-</Tip>
-
 
 ---
 
@@ -472,10 +449,12 @@ Recompute the values in one or more computed columns of this table.
 **Signature:**
 
 ```python
-recompute_columns(*columns: 'str | ColumnRef',
-     where: "'exprs.Expr' | None" = None,
-     errors_only: 'bool' = False,
-     cascade: 'bool' = True) -> 'UpdateStatus'
+recompute_columns(
+    *columns: str | ColumnRef,
+    where: exprs.Expr | None = None,
+    errors_only: bool = False,
+    cascade: bool = True
+)-> UpdateStatus
 ```
 
 **Parameters:**
@@ -492,29 +471,24 @@ recompute_columns(*columns: 'str | ColumnRef',
 
 **Example:**
 
-<Tip>
-
 Recompute computed columns `c1` and `c2` for all rows in this table, and everything that transitively
 depends on them:
 ```python
- tbl.recompute_columns('c1', 'c2')
+tbl.recompute_columns('c1', 'c2')
 ```
 Recompute computed column `c1` for all rows in this table, but don't recompute other columns that depend on
 it:
 ```python
- tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
+tbl.recompute_columns(tbl.c1, tbl.c2, cascade=False)
 ```
 Recompute column `c1` and its dependents, but only for rows with `c2` == 0:
 ```python
- tbl.recompute_columns('c1', where=tbl.c2 == 0)
+tbl.recompute_columns('c1', where=tbl.c2 == 0)
 ```
 Recompute column `c1` and its dependents, but only for rows that have errors in it:
 ```python
- tbl.recompute_columns('c1', errors_only=True)
+tbl.recompute_columns('c1', errors_only=True)
 ```
-
-</Tip>
-
 
 ---
 
@@ -526,8 +500,10 @@ Rename a column.
 **Signature:**
 
 ```python
-rename_column(old_name: 'str',
-     new_name: 'str') -> 'None'
+rename_column(
+    old_name: str,
+    new_name: str
+)-> None
 ```
 
 **Parameters:**
@@ -540,16 +516,11 @@ rename_column(old_name: 'str',
 
 **Example:**
 
-<Tip>
-
 Rename the column `col1` to `col2` of the table `my_table`:
 ```python
- tbl = pxt.get_table('my_table')
+tbl = pxt.get_table('my_table')
     tbl.rename_column('col1', 'col2')
 ```
-
-</Tip>
-
 
 ---
 
@@ -564,7 +535,7 @@ Reverts the table to the previous version.
 **Signature:**
 
 ```python
-revert() -> 'None'
+revert()-> None
 ```
 
 
@@ -578,9 +549,11 @@ Update rows in this table.
 **Signature:**
 
 ```python
-update(value_spec: 'dict[str, Any]',
-     where: "Optional['exprs.Expr']" = None,
-     cascade: 'bool' = True) -> 'UpdateStatus'
+update(
+    value_spec: dict[str, Any],
+    where: Optional['exprs.Expr'] = None,
+    cascade: bool = True
+)-> UpdateStatus
 ```
 
 **Parameters:**
@@ -600,24 +573,19 @@ update(value_spec: 'dict[str, Any]',
 
 **Example:**
 
-<Tip>
-
 Set column `int_col` to 1 for all rows:
 ```python
- tbl.update({'int_col': 1})
+tbl.update({'int_col': 1})
 ```
 Set column `int_col` to 1 for all rows where `int_col` is 0:
 ```python
- tbl.update({'int_col': 1}, where=tbl.int_col == 0)
+tbl.update({'int_col': 1}, where=tbl.int_col == 0)
 ```
 Set `int_col` to the value of `other_int_col` + 1:
 ```python
- tbl.update({'int_col': tbl.other_int_col + 1})
+tbl.update({'int_col': tbl.other_int_col + 1})
 ```
 Increment `int_col` by 1 for all rows where `int_col` is 0:
 ```python
- tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
+tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
 ```
-
-</Tip>
-

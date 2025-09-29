@@ -158,12 +158,35 @@
 
       <!-- Iterators group -->
       <outline text="group|Iterators">
-        <outline text="module|pixeltable.iterators" />
+        <outline text="module|pixeltable.iterators">
+          <!-- Iterator classes listed alphabetically -->
+          <outline text="class|pixeltable.iterators.AudioSplitter" />
+          <outline text="class|pixeltable.iterators.ComponentIterator" />
+          <outline text="class|pixeltable.iterators.DocumentSplitter" />
+          <outline text="class|pixeltable.iterators.FrameIterator" />
+          <outline text="class|pixeltable.iterators.StringSplitter" />
+          <outline text="class|pixeltable.iterators.TileIterator" />
+          <outline text="class|pixeltable.iterators.VideoSplitter" />
+        </outline>
       </outline>
 
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
-        <outline text="module|pixeltable.io" />
+        <outline text="module|pixeltable.io">
+          <!-- Import functions -->
+          <outline text="func|pixeltable.io.import_csv" />
+          <outline text="func|pixeltable.io.import_excel" />
+          <outline text="func|pixeltable.io.import_json" />
+          <outline text="func|pixeltable.io.import_pandas" />
+          <outline text="func|pixeltable.io.import_parquet" />
+          <outline text="func|pixeltable.io.import_rows" />
+          <outline text="func|pixeltable.io.import_huggingface_dataset" />
+          <!-- Export functions -->
+          <outline text="func|pixeltable.io.export_parquet" />
+          <outline text="func|pixeltable.io.export_lancedb" />
+          <outline text="func|pixeltable.io.export_images_as_fo_dataset" />
+          <outline text="func|pixeltable.io.create_label_studio_project" />
+        </outline>
       </outline>
       
     </outline>

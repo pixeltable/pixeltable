@@ -8,7 +8,6 @@ Creates 3 files in llm_output/:
 3. llm_quick_reference.md - Guide explaining how to use the files
 """
 
-import json
 from pathlib import Path
 from datetime import datetime
 from llm_dev_pattern_gen import NotebookPatternExtractor
@@ -17,7 +16,7 @@ from llm_api_map_gen import LLMApiMapGenerator
 
 def generate_quick_reference(output_dir: Path):
     """Generate the quick reference guide that explains how to use the LLM docs."""
-    
+
     guide_content = f"""# Pixeltable LLM Quick Reference
 
 Generated: {datetime.now().isoformat()}
@@ -194,36 +193,36 @@ Pixeltable includes integrations with:
 - Documentation: https://docs.pixeltable.com
 - Examples: See llm_dev_patterns.jsonld for 27 working notebooks
 """
-    
-    output_path = output_dir / "llm_quick_reference.md"
+
+    output_path = output_dir / 'llm_quick_reference.md'
     with open(output_path, 'w') as f:
         f.write(guide_content)
-    
-    print(f"Generated LLM quick reference at {output_path}")
+
+    print(f'Generated LLM quick reference at {output_path}')
 
 
 def main():
     """Generate complete LLM documentation suite."""
-    
-    print("=== Pixeltable LLM Documentation Generator ===\n")
-    
+
+    print('=== Pixeltable LLM Documentation Generator ===\n')
+
     # Ensure output directory exists
     output_dir = Path(__file__).parent / 'llm_output'
     output_dir.mkdir(exist_ok=True)
-    
+
     # Step 1: Generate LLM map from OPML
-    print("1. Generating llm_map.jsonld from OPML...")
+    print('1. Generating llm_map.jsonld from OPML...')
     from opml_reader import OPMLReader
-    
+
     mintlifier_dir = Path(__file__).parent
     llm_map_gen = LLMApiMapGenerator(mintlifier_dir, version='main')
-    
+
     # Load and process OPML to build the map
     opml_path = mintlifier_dir.parent / 'public_api.opml'
     opml_reader = OPMLReader(opml_path)
     tab_structure = opml_reader.load()
     all_pages = opml_reader.get_all_pages()
-    
+
     # Process each page through the LLM map generator
     for page in all_pages:
         if page.item_type == 'module':
@@ -234,29 +233,28 @@ def main():
             llm_map_gen.add_function(page.module_path)
         elif page.item_type == 'type':
             llm_map_gen.add_type(page.module_path)
-    
+
     # Save the map to llm_output with correct name
     llm_map_gen.save(output_dir / 'llm_map.jsonld', flatten=False)
-    
+
     # Step 2: Extract patterns from notebooks
-    print("2. Generating llm_dev_patterns.jsonld from notebooks...")
+    print('2. Generating llm_dev_patterns.jsonld from notebooks...')
     extractor = NotebookPatternExtractor(
-        opml_path=str(opml_path),
-        notebooks_dir=str(Path(__file__).parent.parent.parent / 'notebooks')
+        opml_path=str(opml_path), notebooks_dir=str(Path(__file__).parent.parent.parent / 'notebooks')
     )
     extractor.save_patterns(str(output_dir / 'llm_dev_patterns.jsonld'))
-    
+
     # Step 3: Generate quick reference
-    print("3. Generating llm_quick_reference.md...")
+    print('3. Generating llm_quick_reference.md...')
     generate_quick_reference(output_dir)
-    
-    print(f"\n✅ Complete! LLM docs generated in {output_dir}")
-    print("\nFiles created:")
-    print("  - llm_map.jsonld          # Public API reference")
-    print("  - llm_dev_patterns.jsonld # Developer patterns from notebooks")
-    print("  - llm_quick_reference.md  # Guide to using the files")
-    print("\nLLMs can now use these files to understand Pixeltable completely.")
+
+    print(f'\n✅ Complete! LLM docs generated in {output_dir}')
+    print('\nFiles created:')
+    print('  - llm_map.jsonld          # Public API reference')
+    print('  - llm_dev_patterns.jsonld # Developer patterns from notebooks')
+    print('  - llm_quick_reference.md  # Guide to using the files')
+    print('\nLLMs can now use these files to understand Pixeltable completely.')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

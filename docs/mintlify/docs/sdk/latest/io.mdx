@@ -12,10 +12,6 @@ Documentation for `pixeltable.io` is not available.
 
 <a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/io/__init__.py#L0" target="_blank">View source on GitHub</a>
 
-## Classes
-
-- [ExternalStore](./externalstore)
-
 ## Functions
 
 
@@ -50,15 +46,17 @@ The API key and URL for a valid Label Studio server must be specified in Pixelta
 **Signature:**
 
 ```python
-create_label_studio_project(t: 'Table',
-     label_config: 'str',
-     name: 'Optional[str]' = None,
-     title: 'Optional[str]' = None,
-     media_import_method: "Literal['post', 'file', 'url']" = 'post',
-     col_mapping: 'Optional[dict[str, str]]' = None,
-     sync_immediately: 'bool' = True,
-     s3_configuration: 'Optional[dict[str, Any]]' = None,
-     **kwargs: 'Any') -> 'UpdateStatus'
+create_label_studio_project(
+    t: Table,
+    label_config: str,
+    name: Optional[str] = None,
+    title: Optional[str] = None,
+    media_import_method: Literal['post', 'file', 'url'] = 'post',
+    col_mapping: Optional[dict[str, str]] = None,
+    sync_immediately: bool = True,
+    s3_configuration: Optional[dict[str, Any]] = None,
+    **kwargs: Any
+)-> UpdateStatus
 ```
 
 **Parameters:**
@@ -96,8 +94,6 @@ The items in the `s3_configuration` dictionary correspond to kwarg parameters of
 
 **Example:**
 
-<Tip>
-
 Create a Label Studio project whose tasks correspond to videos stored in the `video_col` column of the table `tbl`:
 ```python
 config = """
@@ -116,15 +112,9 @@ create_label_studio_project(tbl, config)
 Create a Label Studio project with the same configuration, using `media_import_method='url'`, whose media are stored in an S3 bucket:
 ```python
 create_label_studio_project(
-tbl,
-config,
-media_import_method='url',
-s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
+    tbl, config, media_import_method='url', s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
 )
 ```
-
-
-</Tip>
 
 
 ---
@@ -150,11 +140,13 @@ The label parameters accept one or more sets of labels of each type. If a single
 **Signature:**
 
 ```python
-export_images_as_fo_dataset(tbl: 'pxt.Table',
-     images: 'exprs.Expr',
-     image_format: 'str' = 'webp',
-     classifications: 'exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None' = None,
-     detections: 'exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None' = None) -> "'fo.Dataset'"
+export_images_as_fo_dataset(
+    tbl: pxt.Table,
+    images: exprs.Expr,
+    image_format: str = 'webp',
+    classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
+    detections: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None
+)-> fo.Dataset
 ```
 
 **Parameters:**
@@ -194,19 +186,10 @@ If multiple `Expr`s are provided, each one must evaluate to a list of such dicti
 
 **Example:**
 
-<Tip>
-
 Export the images in the `image` column of the table `tbl` as a Voxel51 dataset, using classification labels from `tbl.classifications`:
 ```python
-export_images_as_fo_dataset(
-tbl,
-tbl.image,
-classifications=tbl.classifications
-)
+export_images_as_fo_dataset(tbl, tbl.image, classifications=tbl.classifications)
 ```
-
-
-</Tip>
 
 
 ---
@@ -222,10 +205,12 @@ It additionally writes the pixeltable metadata in a json file, which would other
 **Signature:**
 
 ```python
-export_parquet(table_or_df: 'pxt.Table | pxt.DataFrame',
-     parquet_path: 'Path',
-     partition_size_bytes: 'int' = 100000000,
-     inline_images: 'bool' = False) -> 'None'
+export_parquet(
+    table_or_df: pxt.Table | pxt.DataFrame,
+    parquet_path: Path,
+    partition_size_bytes: int = 100000000,
+    inline_images: bool = False
+)-> None
 ```
 
 **Parameters:**
@@ -253,13 +238,15 @@ to calling `import_pandas(table_path, pd.read_csv(filepath_or_buffer, **kwargs),
 **Signature:**
 
 ```python
-import_csv(tbl_name: str,
-     filepath_or_buffer: str | os.PathLike,
-     schema_overrides: Optional[dict[str, Any]] = None,
-     primary_key: str | list[str] | None = None,
-     num_retained_versions: int = 10,
-     comment: str = '',
-     **kwargs: Any) -> pixeltable.catalog.table.Table
+import_csv(
+    tbl_name: str,
+    filepath_or_buffer: str | os.PathLike,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    **kwargs: Any
+)-> pixeltable.catalog.table.Table
 ```
 
 **Returns:**
@@ -281,14 +268,16 @@ equivalent to calling `import_pandas(table_path, pd.read_excel(io, *args, **kwar
 **Signature:**
 
 ```python
-import_excel(tbl_name: str,
-     io: str | os.PathLike,
-     *,
-     schema_overrides: Optional[dict[str, Any]] = None,
-     primary_key: str | list[str] | None = None,
-     num_retained_versions: int = 10,
-     comment: str = '',
-     **kwargs: Any) -> pixeltable.catalog.table.Table
+import_excel(
+    tbl_name: str,
+    io: str | os.PathLike,
+    *,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    **kwargs: Any
+)-> pixeltable.catalog.table.Table
 ```
 
 **Returns:**
@@ -310,12 +299,14 @@ Requires `datasets` library to be installed.
 **Signature:**
 
 ```python
-import_huggingface_dataset(table_path: 'str',
-     dataset: 'datasets.Dataset | datasets.DatasetDict',
-     *,
-     schema_overrides: 'Optional[dict[str, Any]]' = None,
-     primary_key: 'str | list[str] | None' = None,
-     **kwargs: 'Any') -> 'pxt.Table'
+import_huggingface_dataset(
+    table_path: str,
+    dataset: datasets.Dataset | datasets.DatasetDict,
+    *,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    **kwargs: Any
+)-> pxt.Table
 ```
 
 **Parameters:**
@@ -350,14 +341,16 @@ equivalent to calling `import_data(table_path, json.loads(file_contents, **kwarg
 **Signature:**
 
 ```python
-import_json(tbl_path: 'str',
-     filepath_or_url: 'str',
-     *,
-     schema_overrides: 'Optional[dict[str, Any]]' = None,
-     primary_key: 'str | list[str] | None' = None,
-     num_retained_versions: 'int' = 10,
-     comment: 'str' = '',
-     **kwargs: 'Any') -> 'pxt.Table'
+import_json(
+    tbl_path: str,
+    filepath_or_url: str,
+    *,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    **kwargs: Any
+)-> pxt.Table
 ```
 
 **Parameters:**
@@ -402,13 +395,15 @@ The column names of the new table will be identical to those in the DataFrame, a
 **Signature:**
 
 ```python
-import_pandas(tbl_name: str,
-     df: pandas.core.frame.DataFrame,
-     *,
-     schema_overrides: Optional[dict[str, Any]] = None,
-     primary_key: str | list[str] | None = None,
-     num_retained_versions: int = 10,
-     comment: str = '') -> pixeltable.catalog.table.Table
+import_pandas(
+    tbl_name: str,
+    df: pandas.core.frame.DataFrame,
+    *,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    num_retained_versions: int = 10,
+    comment: str = ''
+)-> pixeltable.catalog.table.Table
 ```
 
 **Parameters:**
@@ -436,12 +431,14 @@ Creates a new base table from a Parquet file or set of files. Requires pyarrow t
 **Signature:**
 
 ```python
-import_parquet(table: 'str',
-     *,
-     parquet_path: 'str',
-     schema_overrides: 'Optional[dict[str, Any]]' = None,
-     primary_key: 'str | list[str] | None' = None,
-     **kwargs: 'Any') -> 'pxt.Table'
+import_parquet(
+    table: str,
+    *,
+    parquet_path: str,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    **kwargs: Any
+)-> pxt.Table
 ```
 
 **Parameters:**
@@ -480,13 +477,15 @@ All column types of the new table will be nullable unless explicitly specified a
 **Signature:**
 
 ```python
-import_rows(tbl_path: 'str',
-     rows: 'list[dict[str, Any]]',
-     *,
-     schema_overrides: 'Optional[dict[str, Any]]' = None,
-     primary_key: 'str | list[str] | None' = None,
-     num_retained_versions: 'int' = 10,
-     comment: 'str' = '') -> 'pxt.Table'
+import_rows(
+    tbl_path: str,
+    rows: list[dict[str, Any]],
+    *,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: str | list[str] | None = None,
+    num_retained_versions: int = 10,
+    comment: str = ''
+)-> pxt.Table
 ```
 
 **Parameters:**

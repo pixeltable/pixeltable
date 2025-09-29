@@ -21,7 +21,7 @@ Provides integration with llama.cpp for running quantized language models locall
 **Signature:**
 
 ```python
-cleanup() -> None
+cleanup()-> None
 ```
 
 
@@ -40,11 +40,13 @@ For additional details, see the [llama_cpp create_chat_completions documentation
 **Signature:**
 
 ```python
-create_chat_completion(messages: Json,
-     model_path: Optional[String],
-     repo_id: Optional[String],
-     repo_filename: Optional[String],
-     model_kwargs: Optional[Json]) -> Json
+create_chat_completion(
+    messages: Json,
+    model_path: Optional[String],
+    repo_id: Optional[String],
+    repo_filename: Optional[String],
+    model_kwargs: Optional[Json]
+)-> Json
 ```
 
 **Parameters:**

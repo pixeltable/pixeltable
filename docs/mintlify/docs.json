@@ -280,8 +280,7 @@
                   {
                     "group": "Import/Export",
                     "pages": [
-                      "docs/sdk/latest/io",
-                      "docs/sdk/latest/externalstore"
+                      "docs/sdk/latest/io"
                     ]
                   }
                 ]
