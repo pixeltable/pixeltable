@@ -51,7 +51,7 @@ class CellMaterializationNode(ExecNode):
 
     # execution state
     inlined_obj_files: list[Path]  # only [-1] is open for writing
-    _buffered_writer: io.BufferedWriter | None  # BufferedWriter for inlined_obj_files[-1]
+    buffered_writer: io.BufferedWriter | None  # BufferedWriter for inlined_obj_files[-1]
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
     MAX_DB_ARRAY_SIZE = 512  # max size of array stored in table column; in bytes
@@ -64,7 +64,7 @@ class CellMaterializationNode(ExecNode):
             if slot_idx is not None and (col.col_type.is_json_type() or col.col_type.is_array_type())
         }
         self.inlined_obj_files = []
-        self._buffered_writer = None
+        self.buffered_writer = None
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:
@@ -97,18 +97,16 @@ class CellMaterializationNode(ExecNode):
 
         self._flush_buffer(finalize=True)
 
-    @property
-    def buffered_writer(self) -> io.BufferedWriter:
-        if self._buffered_writer is None:
+    def init_writer(self) -> None:
+        if self.buffered_writer is None:
             self._reset_buffer()
-            assert self._buffered_writer is not None
-        return self._buffered_writer
+            assert self.buffered_writer is not None
 
     def close(self) -> None:
-        if self._buffered_writer is not None:
+        if self.buffered_writer is not None:
             # there must have been an error, otherwise _flush_full_buffer(finalize=True) would have set this to None
-            self._buffered_writer.close()
-            self._buffered_writer = None
+            self.buffered_writer.close()
+            self.buffered_writer = None
 
     def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, val: Any) -> None:
         if self._json_has_inlined_objs(val):
@@ -137,6 +135,7 @@ class CellMaterializationNode(ExecNode):
                 ar = np.packbits(val)
             else:
                 ar = val
+            self.init_writer()
             start = self.buffered_writer.tell()
             np.save(self.buffered_writer, ar, allow_pickle=False)
             end = self.buffered_writer.tell()
@@ -188,6 +187,7 @@ class CellMaterializationNode(ExecNode):
         Write an ndarray to buffered_writer and return:
         index into inlined_obj_files, start offset, end offset, is_bool flag, shape
         """
+        self.init_writer()
         url_idx = len(self.inlined_obj_files) - 1
         start = self.buffered_writer.tell()
         shape: tuple[int, ...] | None
@@ -206,6 +206,7 @@ class CellMaterializationNode(ExecNode):
 
     def _write_inlined_image(self, img: PIL.Image.Image) -> tuple[int, int, int]:
         """Write a PIL image to buffered_writer and return: index into inlined_obj_files, start offset, end offset"""
+        self.init_writer()
         url_idx = len(self.inlined_obj_files) - 1
         start = self.buffered_writer.tell()
         format = 'webp' if img.has_transparency_data else 'jpeg'
@@ -221,18 +222,18 @@ class CellMaterializationNode(ExecNode):
         self.inlined_obj_files.append(local_path)
         fh = open(local_path, 'wb', buffering=self.MIN_FILE_SIZE * 2)  # noqa: SIM115
         assert isinstance(fh, io.BufferedWriter)
-        self._buffered_writer = fh
+        self.buffered_writer = fh
 
     def _flush_buffer(self, finalize: bool = False) -> None:
         """Flush buffered_writer to storage if it exceeds its minimum size or finalize is True."""
-        if self._buffered_writer is None:
+        if self.buffered_writer is None:
             return
-        if self._buffered_writer.tell() < self.MIN_FILE_SIZE and not finalize:
+        if self.buffered_writer.tell() < self.MIN_FILE_SIZE and not finalize:
             return
-        self._buffered_writer.flush()
-        os.fsync(self._buffered_writer.fileno())  # needed to force bytes cached by OS to storage
-        self._buffered_writer.close()
+        self.buffered_writer.flush()
+        os.fsync(self.buffered_writer.fileno())  # needed to force bytes cached by OS to storage
+        self.buffered_writer.close()
         if finalize:
-            self._buffered_writer = None
+            self.buffered_writer = None
         else:
             self._reset_buffer()
