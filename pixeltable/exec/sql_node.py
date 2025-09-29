@@ -65,7 +65,7 @@ def print_order_by_clause(clause: OrderByClause) -> str:
 
 class SqlNode(ExecNode):
     """
-    Materializes data from the store via an SQL statement.
+    Materializes data from the store via a SQL statement.
     This only provides the select list. The subclasses are responsible for the From clause and any additional clauses.
     The pk columns are not included in the select list.
     If set_pk is True, they are added to the end of the result set when creating the SQL statement
@@ -92,9 +92,9 @@ class SqlNode(ExecNode):
     sql_elements: exprs.SqlElementCache
 
     # execution state
-    cellmd_item_idxs: exprs.ExprDict[int] | None  # cellmd expr -> idx in sql select list
-    column_item_idxs: dict[catalog.Column, int] | None  # column -> idx in sql select list
-    column_cellmd_item_idxs: dict[catalog.Column, int] | None  # column -> idx in sql select list
+    cellmd_item_idxs: exprs.ExprDict[int]  # cellmd expr -> idx in sql select list
+    column_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
+    column_cellmd_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
     result_cursor: sql.engine.CursorResult | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
@@ -147,9 +147,9 @@ class SqlNode(ExecNode):
             assert self.num_pk_cols > 1
 
         # additional state
-        self.cellmd_item_idxs = None
-        self.column_item_idxs = None
-        self.column_cellmd_item_idxs = None
+        self.cellmd_item_idxs = exprs.ExprDict()
+        self.column_item_idxs = {}
+        self.column_cellmd_item_idxs = {}
         self.result_cursor = None
         # the filter is provided by the subclass
         self.py_filter = None
@@ -188,9 +188,14 @@ class SqlNode(ExecNode):
         self.cellmd_item_idxs = exprs.ExprDict((ref, sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
         column_refs = [exprs.ColumnRef(col) for col in self.columns]
         self.column_item_idxs = {col_ref.col: sql_select_list_exprs.add(col_ref) for col_ref in column_refs}
-        column_cellmd_refs = [exprs.ColumnPropertyRef(col_ref, exprs.ColumnPropertyRef.Property.CELLMD)
-                               for col_ref in column_refs if col_ref.col.stores_cellmd]
-        self.column_cellmd_item_idxs = {cellmd_ref.col_ref.col: sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs}
+        column_cellmd_refs = [
+            exprs.ColumnPropertyRef(col_ref, exprs.ColumnPropertyRef.Property.CELLMD)
+            for col_ref in column_refs
+            if col_ref.col.stores_cellmd
+        ]
+        self.column_cellmd_item_idxs = {
+            cellmd_ref.col_ref.col: sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs
+        }
         sql_select_list = [self.sql_elements.get(e) for e in sql_select_list_exprs] + self._pk_col_items()
         stmt = sql.select(*sql_select_list)
 
@@ -446,7 +451,15 @@ class SqlScanNode(SqlNode):
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ):
         sql_elements = exprs.SqlElementCache()
-        super().__init__(tbl, row_builder, select_list, columns=columns, sql_elements=sql_elements, set_pk=set_pk, cell_md_col_refs=cell_md_col_refs)
+        super().__init__(
+            tbl,
+            row_builder,
+            select_list,
+            columns=columns,
+            sql_elements=sql_elements,
+            set_pk=set_pk,
+            cell_md_col_refs=cell_md_col_refs,
+        )
         # create Select stmt
         if exact_version_only is None:
             exact_version_only = []
@@ -478,12 +491,21 @@ class SqlLookupNode(SqlNode):
         tbl: catalog.TableVersionPath,
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
+        columns: list[catalog.Column],
         sa_key_cols: list[sql.Column],
         key_vals: list[tuple],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
-        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=True, cell_md_col_refs=cell_md_col_refs)
+        super().__init__(
+            tbl,
+            row_builder,
+            select_list,
+            columns=columns,
+            sql_elements=sql_elements,
+            set_pk=True,
+            cell_md_col_refs=cell_md_col_refs,
+        )
         # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
         self.where_clause_element = sql.tuple_(*sa_key_cols).in_(key_vals)
 
@@ -519,7 +541,7 @@ class SqlAggregationNode(SqlNode):
         assert len(input.cell_md_refs) == 0  # there's no aggregation over json or arrays in SQL
         self.input_cte, input_col_map = input.to_cte()
         sql_elements = exprs.SqlElementCache(input_col_map)
-        super().__init__(None, row_builder, select_list, sql_elements)
+        super().__init__(None, row_builder, select_list, columns=[], sql_elements=sql_elements)
         self.group_by_items = group_by_items
 
     def _create_stmt(self) -> sql.Select:
@@ -556,7 +578,9 @@ class SqlJoinNode(SqlNode):
             self.input_ctes.append(input_cte)
             sql_elements.extend(input_col_map)
         cell_md_col_refs = [cell_md_ref.col_ref for input in inputs for cell_md_ref in input.cell_md_refs]
-        super().__init__(None, row_builder, select_list, sql_elements, cell_md_col_refs=cell_md_col_refs)
+        super().__init__(
+            None, row_builder, select_list, columns=[], sql_elements=sql_elements, cell_md_col_refs=cell_md_col_refs
+        )
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable import plan
@@ -612,7 +636,13 @@ class SqlSampleNode(SqlNode):
         assert sql_elements.contains_all(stratify_exprs)
         cell_md_col_refs = [cell_md_ref.col_ref for cell_md_ref in input.cell_md_refs]
         super().__init__(
-            input.tbl, row_builder, select_list, sql_elements, cell_md_col_refs=cell_md_col_refs, set_pk=True
+            input.tbl,
+            row_builder,
+            select_list,
+            columns=[],
+            sql_elements=sql_elements,
+            cell_md_col_refs=cell_md_col_refs,
+            set_pk=True,
         )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause

@@ -47,7 +47,9 @@ class DataRow:
     """
     Encapsulates all data and execution state needed by RowBuilder and DataRowBatch:
     - state for in-memory computation
-    - state for storing the data
+    - state needed for expression evaluation
+    - containers for output column values
+
     This is not meant to be a black-box abstraction.
 
     In-memory representations by column type:
@@ -66,7 +68,6 @@ class DataRow:
     """
 
     # expr evaluation state; indexed by slot idx
-
     vals: np.ndarray  # of object
     has_val: np.ndarray  # of bool
     excs: np.ndarray  # of object
@@ -81,11 +82,13 @@ class DataRow:
     # - stored url of file for media in vals[i]
     # - None if vals[i] is not media type
     # - not None if file_paths[i] is not None
+    # TODO: this is a sparse vector; should it be a dict[int, str]?
     file_urls: np.ndarray  # of str
 
     # file_paths:
     # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
     # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
+    # TODO: this is a sparse vector; should it be a dict[int, str]?
     file_paths: np.ndarray  # of str
 
     # If `may_have_exc` is False, then we guarantee that no slot has an exception set. This is used to optimize

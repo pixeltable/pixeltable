@@ -277,7 +277,7 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     return tbl
 
 
-def create_arrays(
+def inf_array_iterator(
     shapes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]
 ) -> Iterator[np.ndarray]:
     """Generate random arrays of different sizes and dtypes."""
@@ -386,7 +386,7 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
     return __IMAGE_FILES_WITH_BAD_IMAGE if include_bad_image else __IMAGE_FILES
 
 
-def image_iterator(include_bad_image: bool = False) -> Iterator[PIL.Image.Image]:
+def inf_image_iterator(include_bad_image: bool = False) -> Iterator[PIL.Image.Image]:
     for f in itertools.cycle(get_image_files(include_bad_image)):
         yield PIL.Image.open(f)
 
@@ -467,13 +467,6 @@ def __file_comparer(x: str, y: str) -> bool:
     return sha256sum(x) == sha256sum(y)
 
 
-def __img_comparer(img1: PIL.Image.Image, img2: PIL.Image.Image) -> bool:
-    if img1.mode != img2.mode or img1.size != img2.size:
-        return False
-    diff = PIL.ImageChops.difference(img1, img2)  # type: ignore[attr-defined]
-    return diff.getbbox() is None
-
-
 def __equality_comparer(x: Any, y: Any) -> bool:
     return x == y
 
@@ -489,8 +482,6 @@ def __json_comparer(x: Any, y: Any) -> bool:
         return __float_comparer(x, y)
     if isinstance(x, np.ndarray):
         return __array_comparer(x, y)
-    if isinstance(x, PIL.Image.Image):
-        return __img_comparer(x, y)
     return x == y
 
 

@@ -70,7 +70,7 @@ class RowBuilder:
 
     tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
     table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
-    #table_columns: list[ColumnSlotIdx]
+    # table_columns: list[ColumnSlotIdx]
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
 
@@ -95,8 +95,6 @@ class RowBuilder:
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
     json_slot_idxs: list[int]  # Indices of json slots
-    #stored_img_cols: list[exprs.ColumnSlotIdx]
-    #stored_media_cols: list[exprs.ColumnSlotIdx]
 
     @dataclasses.dataclass
     class EvalCtx:
@@ -116,8 +114,6 @@ class RowBuilder:
     ):
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
-        self.stored_img_cols = []
-        self.stored_media_cols = []
 
         # record input and output exprs; make copies to avoid reusing execution state
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
@@ -251,18 +247,24 @@ class RowBuilder:
         self.json_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_json_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
-        """Record a column that is part of the table row"""
+        """Record an output column for which the value is produced via expr evaluation"""
         assert self.tbl is not None
         assert col.is_stored
         self.table_columns[col] = slot_idx
-        # if col.col_type.is_media_type():
-        #     self.stored_media_cols.append(info)
-        #     if col.col_type.is_image_type():
-        #         self.stored_img_cols.append(info)
 
     def add_table_columns(self, cols: list[catalog.Column]) -> None:
+        """Record output columns whose values have been materialized into DataRow.cell_vals"""
         for col in cols:
             self.table_columns[col] = None
+
+    @property
+    def media_output_col_info(self) -> list[ColumnSlotIdx]:
+        """Return slot idxs for media output columns whose values are produced by expr evaluation"""
+        return [
+            ColumnSlotIdx(col, slot_idx)
+            for col, slot_idx in self.table_columns.items()
+            if col.col_type.is_media_type() and slot_idx is not None
+        ]
 
     @property
     def num_materialized(self) -> int:
@@ -515,7 +517,7 @@ class RowBuilder:
         assert self.tbl is not None, self.table_columns
         store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
 
-        for col in self.table_columns.keys():
+        for col in self.table_columns:
             store_col_names.append(col.store_name())
             if col.stores_cellmd:
                 store_col_names.append(col.cellmd_store_name())

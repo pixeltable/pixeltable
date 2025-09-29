@@ -9,7 +9,7 @@ import numpy as np
 import PIL.Image
 
 import pixeltable.type_system as ts
-from pixeltable import exprs, catalog
+from pixeltable import exprs
 from pixeltable.utils import parse_local_file_path
 
 from .data_row_batch import DataRowBatch
@@ -88,7 +88,6 @@ class CellReconstructionNode(ExecNode):
 
     json_refs: list[exprs.ColumnRef]
     array_refs: list[exprs.ColumnRef]
-    excluded_cols: list[catalog.Column]
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
@@ -101,13 +100,7 @@ class CellReconstructionNode(ExecNode):
         super().__init__(row_builder, [], [], input)
         self.json_refs = json_refs
         self.array_refs = array_refs
-        self.excluded_col_ids = []
         self.file_handles = {}
-
-    def exclude_columns(self, cols: list[catalog.Column]) -> None:
-        excluded_cols = set(cols)
-        self.json_refs = [ref for ref in self.json_refs if ref.col not in excluded_cols]
-        self.array_refs = [ref for ref in self.array_refs if ref.col not in excluded_cols]
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:

@@ -35,14 +35,14 @@ from .utils import (
     assert_json_eq,
     assert_resultset_eq,
     assert_table_metadata_eq,
-    create_arrays,
     create_table_data,
     get_audio_files,
     get_documents,
     get_image_files,
     get_multimedia_commons_video_uris,
     get_video_files,
-    image_iterator,
+    inf_array_iterator,
+    inf_image_iterator,
     make_tbl,
     read_data_file,
     reload_catalog,
@@ -1549,7 +1549,7 @@ class TestTable:
             'test', {'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array}
         )
 
-        vals = create_arrays(
+        vals = inf_array_iterator(
             shapes=[(4, 4), (40, 40), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
         rows = [
@@ -1594,10 +1594,10 @@ class TestTable:
         }
         t = pxt.create_table('test', schema)
 
-        array_vals = create_arrays(
+        array_vals = inf_array_iterator(
             shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
-        imgs = image_iterator()
+        imgs = inf_image_iterator()
         rng = np.random.default_rng(0)
         rows: list[dict[str, Any]] = []
         for _ in range(10):
@@ -1663,10 +1663,10 @@ class TestTable:
             }
         )
 
-        array_vals = create_arrays(
+        array_vals = inf_array_iterator(
             shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
-        imgs = image_iterator()
+        imgs = inf_image_iterator()
         rows = [
             {
                 'id': i,
@@ -2593,7 +2593,7 @@ class TestTable:
         TestTable.recompute_udf_error_val = 10
         status = t.recompute_columns('i1')
         assert status.num_rows == 100 + 20
-        assert status.num_excs == 4 * 10  # c1 and c2 plus their index value cols
+        assert status.num_excs == 4 * 10  # i1 and i2 plus their index value cols
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         _ = t.select(t.i2.errormsg).where(t.i2.errormsg != None).collect()
         assert t.where(t.i1.errortype != None).count() == 10
