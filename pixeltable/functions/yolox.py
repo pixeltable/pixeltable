@@ -1,4 +1,5 @@
 """YOLOX object detection functions."""
+
 import logging
 from typing import TYPE_CHECKING
 
