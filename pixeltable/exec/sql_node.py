@@ -177,13 +177,6 @@ class SqlNode(ExecNode):
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
-        # sql_select_list = (
-        #     [self.sql_elements.get(e) for e in self.select_list]
-        #     + [self.sql_elements.get(e) for e in self.cell_md_refs]
-        #     + self._pk_col_items()
-        # )
-        # stmt = sql.select(*sql_select_list)
-
         sql_select_list_exprs = exprs.ExprSet(self.select_list)
         self.cellmd_item_idxs = exprs.ExprDict((ref, sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
         column_refs = [exprs.ColumnRef(col) for col in self.columns]
@@ -372,11 +365,6 @@ class SqlNode(ExecNode):
                 output_row.cell_md[col.id] = exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
 
             # populate DataRow.slot_cellmd, where requested
-            # for i, cell_md_ref in enumerate(self.cell_md_refs[::-1]):
-            #     cell_md_dict = sql_row[-i - self.num_pk_cols - 1]
-            #     output_row.slot_cellmd[cell_md_ref.col_ref.slot_idx] = (
-            #         exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
-            #     )
             for cellmd_ref, item_idx in self.cellmd_item_idxs.items():
                 cell_md_dict = sql_row[item_idx]
                 output_row.slot_cellmd[cellmd_ref.col_ref.slot_idx] = (

@@ -70,7 +70,6 @@ class RowBuilder:
 
     tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
     table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
-    # table_columns: list[ColumnSlotIdx]
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
 
@@ -253,7 +252,7 @@ class RowBuilder:
         self.table_columns[col] = slot_idx
 
     def add_table_columns(self, cols: list[catalog.Column]) -> None:
-        """Record output columns whose values have been materialized into DataRow.cell_vals"""
+        """Record output columns whose values are materialized into DataRow.cell_vals"""
         for col in cols:
             self.table_columns[col] = None
 
@@ -485,7 +484,7 @@ class RowBuilder:
                         )
                         assert len(md) > 0
                         table_row.append(md)
-                if data_row.has_exc(slot_idx):
+                if slot_idx is not None and data_row.has_exc(slot_idx):
                     num_excs += 1
                     if cols_with_excs is not None:
                         cols_with_excs.add(col.id)

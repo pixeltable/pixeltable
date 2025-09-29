@@ -26,7 +26,7 @@ class ExprSet(Generic[T]):
                 self.add(e)
 
     def add(self, expr: T) -> int:
-        """Returns offset into iteration order"""
+        """Returns offset corresponding to iteration order"""
         offset = self.expr_offsets.get(expr.id)
         if offset is not None:
             return offset
