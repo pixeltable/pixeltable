@@ -49,7 +49,7 @@ def main():
 
     # Load and process OPML to build the map
     opml_reader = OPMLReader(opml_path)
-    tab_structure = opml_reader.load()
+    opml_reader.load()
     all_pages = opml_reader.get_all_pages()
 
     # Process each page through the LLM map generator
