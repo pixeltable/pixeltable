@@ -2,7 +2,7 @@
 
 import inspect
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Optional, List
 from page_base import PageBase
 from docstring_parser import parse as parse_docstring
 from section_method import MethodSectionGenerator
@@ -90,12 +90,11 @@ class ClassPageGenerator(PageBase):
         """Build MDX frontmatter."""
         doc = inspect.getdoc(cls)
         parsed = parse_docstring(doc) if doc else None
-        description = ''
         if parsed and parsed.short_description:
-            description = self._escape_yaml(parsed.short_description[:200])
+            self._escape_yaml(parsed.short_description[:200])
 
         # Use full path for title, but just class name for sidebar
-        class_name = full_path.split('.')[-1]
+        class_name = full_path.rsplit('.', maxsplit=1)[-1]
         return f"""---
 title: "{full_path}"
 sidebarTitle: "{class_name}"
@@ -112,10 +111,9 @@ icon: "square-c"
         if doc:
             # Add the full docstring as the class description
             content += f'\n{self._escape_mdx(doc)}\n\n'
-        else:
-            if self.show_errors:
-                content += f'\n## ⚠️ No Documentation\n\n'
-                content += f'<Warning>\nDocumentation for `{name}` is not available.\n</Warning>\n\n'
+        elif self.show_errors:
+            content += '\n## ⚠️ No Documentation\n\n'
+            content += f'<Warning>\nDocumentation for `{name}` is not available.\n</Warning>\n\n'
 
         # Skip constructor per Marcel's feedback - no longer documenting __init__
 
@@ -165,7 +163,7 @@ icon: "square-c"
         content += '## Methods\n\n'
 
         # Get class name for inline sections
-        class_name = full_path.split('.')[-1]
+        class_name = full_path.rsplit('.', maxsplit=1)[-1]
 
         # Generate inline method documentation
         for method_name, method in sorted(methods):
@@ -280,7 +278,7 @@ icon: "square-c"
             # Add default value if present
             if default is not None:
                 if callable(default):
-                    content += f'**Default:** Factory function\n\n'
+                    content += '**Default:** Factory function\n\n'
                 else:
                     content += f'**Default:** `{default!r}`\n\n'
 

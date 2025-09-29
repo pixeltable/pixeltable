@@ -20,7 +20,7 @@ class ModulePageGenerator(PageBase):
         show_errors: bool = True,
         github_repo: str = 'pixeltable/pixeltable',
         github_package_path: str = 'pixeltable',
-        internal_blacklist: List[str] = None,
+        internal_blacklist: List[str] | None = None,
     ):
         """Initialize with output directory, version, and error display setting."""
         super().__init__(output_dir, version, show_errors, github_repo, github_package_path)
@@ -31,7 +31,7 @@ class ModulePageGenerator(PageBase):
         self.internal_blacklist = set(internal_blacklist) if internal_blacklist else set()
 
     def generate_page(
-        self, module_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] = None
+        self, module_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] | None = None
     ) -> Optional[dict]:
         """Generate module documentation page.
 
@@ -47,7 +47,7 @@ class ModulePageGenerator(PageBase):
             return self._generate_error_page(module_path, parent_groups, str(e))
 
         # Get module info
-        module_name = module_path.split('.')[-1]
+        module_name = module_path.rsplit('.', maxsplit=1)[-1]
         docstring = inspect.getdoc(module) or ''
 
         # Check for explicit children (classes only) - either from OPML or module attribute
@@ -59,7 +59,7 @@ class ModulePageGenerator(PageBase):
 
         if not docstring:
             if self.show_errors:
-                content += f'\n## ⚠️ No Documentation\n\n'
+                content += '\n## ⚠️ No Documentation\n\n'
                 content += f'<Warning>\nDocumentation for `{module_path}` is not available.\n</Warning>\n\n'
         else:
             # Add the full docstring as the module description
@@ -94,7 +94,7 @@ class ModulePageGenerator(PageBase):
         if nav_children:
             # Module with children - return as a flat list
             # Module page comes first, then classes (no grouping)
-            return [module_page] + nav_children
+            return [module_page, *nav_children]
         else:
             # Module with no children - just return the page
             return module_page
@@ -116,7 +116,7 @@ class ModulePageGenerator(PageBase):
         content = ''
 
         # Get module name for parent groups
-        module_name = module_path.split('.')[-1]
+        module_name = module_path.rsplit('.', maxsplit=1)[-1]
         parent_groups = self.current_parent_groups if hasattr(self, 'current_parent_groups') else []
 
         # Handle classes - only document explicitly listed ones
@@ -132,9 +132,9 @@ class ModulePageGenerator(PageBase):
             if classes_to_generate:
                 content += '## Classes\n\n'
                 self._generated_classes = []
-                class_parent_groups = parent_groups + [module_name]
+                class_parent_groups = [*parent_groups, module_name]
 
-                for name, obj in sorted(classes_to_generate):
+                for name, _obj in sorted(classes_to_generate):
                     class_path = f'{module_path}.{name}'
                     print(f'      📄 Generating class: {name}')
                     class_result = self.class_gen.generate_page(class_path, class_parent_groups, 'class')
@@ -169,11 +169,11 @@ class ModulePageGenerator(PageBase):
                         and 'CallableFunction' in obj.__class__.__name__
                     )
 
-                    if is_from_this_module or is_from_submodule or is_pixeltable_udf:
-                        if inspect.isfunction(obj) or (
-                            hasattr(obj, '__class__') and 'CallableFunction' in obj.__class__.__name__
-                        ):
-                            functions_to_generate.append((name, obj))
+                    if (is_from_this_module or is_from_submodule or is_pixeltable_udf) and (
+                        inspect.isfunction(obj)
+                        or (hasattr(obj, '__class__') and 'CallableFunction' in obj.__class__.__name__)
+                    ):
+                        functions_to_generate.append((name, obj))
             except AttributeError:
                 continue
 
@@ -194,7 +194,7 @@ class ModulePageGenerator(PageBase):
         content = ''
 
         # Get module name for parent groups
-        module_name = module_path.split('.')[-1]
+        module_name = module_path.rsplit('.', maxsplit=1)[-1]
         parent_groups = self.current_parent_groups if hasattr(self, 'current_parent_groups') else []
 
         # Separate children by type
@@ -221,9 +221,9 @@ class ModulePageGenerator(PageBase):
         if classes_to_generate:
             content += '## Classes\n\n'
             self._generated_classes = []
-            class_parent_groups = parent_groups + [module_name]
+            class_parent_groups = [*parent_groups, module_name]
 
-            for name, obj in sorted(classes_to_generate):
+            for name, _obj in sorted(classes_to_generate):
                 # Generate the class page
                 class_path = f'{module_path}.{name}'
                 print(f'      📄 Generating class: {name}')
@@ -289,7 +289,7 @@ class ModulePageGenerator(PageBase):
                         and hasattr(obj, '__class__')
                         and 'CallableFunction' in obj.__class__.__name__
                     )
-                    is_stdlib = obj_module.startswith('builtins') or not '.' in obj_module
+                    is_stdlib = obj_module.startswith('builtins') or '.' not in obj_module
 
                     if not (is_from_this_module or is_from_submodule or is_pixeltable_udf) or is_stdlib:
                         continue
@@ -318,13 +318,13 @@ class ModulePageGenerator(PageBase):
         # Document classes - list with links and generate their pages
         if classes:
             content += '## Classes\n\n'
-            module_name = module_path.split('.')[-1]
-            class_parent_groups = parent_groups + [module_name]
+            module_name = module_path.rsplit('.', maxsplit=1)[-1]
+            class_parent_groups = [*parent_groups, module_name]
 
             # Track generated class pages
             self._generated_classes = []
 
-            for name, obj in sorted(classes):
+            for name, _obj in sorted(classes):
                 # Generate the class page
                 class_path = f'{module_path}.{name}'
                 print(f'      📄 Generating class: {name}')
@@ -358,7 +358,7 @@ class ModulePageGenerator(PageBase):
             content += '### Constants\n\n'
             for name, obj in sorted(constants):
                 content += f'#### `{name}`\n\n'
-                content += f'```python\n{name} = {repr(obj)}\n```\n\n'
+                content += f'```python\n{name} = {obj!r}\n```\n\n'
 
         return content
 
@@ -369,7 +369,7 @@ class ModulePageGenerator(PageBase):
         elif inspect.isfunction(obj):
             return self._document_function_summary(obj, name, module_path)
         else:
-            return f'### `{name}`\n\n```python\n{name} = {repr(obj)}\n```\n\n'
+            return f'### `{name}`\n\n```python\n{name} = {obj!r}\n```\n\n'
 
     def _document_class_summary(self, cls: type, name: str, module_path: str) -> str:
         """Generate class summary documentation."""
@@ -408,7 +408,7 @@ class ModulePageGenerator(PageBase):
                 try:
                     sig = inspect.signature(func.__wrapped__)
                     content += f'```python\n{self._format_signature(name, sig)}\n```\n\n'
-                except:
+                except Exception:
                     content += f'```python\n{name}(...)\n```\n\n'
             else:
                 content += f'```python\n{name}(...)\n```\n\n'
@@ -446,12 +446,11 @@ class ModulePageGenerator(PageBase):
     def _build_frontmatter(self, module_path: str, docstring: str) -> str:
         """Build MDX frontmatter."""
         parsed = parse_docstring(docstring) if docstring else None
-        description = ''
         if parsed and parsed.short_description:
-            description = self._escape_yaml(parsed.short_description[:200])
+            self._escape_yaml(parsed.short_description[:200])
 
         # Use full module path for title, but just module name for sidebar
-        module_name = module_path.split('.')[-1]
+        module_name = module_path.rsplit('.', maxsplit=1)[-1]
         return f"""---
 title: "{module_path}"
 sidebarTitle: "{module_name}"
@@ -461,7 +460,7 @@ icon: "square-m"
 
     def _generate_error_page(self, module_path: str, parent_groups: List[str], error: str) -> str:
         """Generate error page when module can't be imported."""
-        module_name = module_path.split('.')[-1]
+        module_name = module_path.rsplit('.', maxsplit=1)[-1]
         content = f"""---
 title: "{module_name}"
 icon: "triangle-exclamation"
@@ -483,9 +482,7 @@ Failed to import module `{module_path}`:
         """Get link to class documentation page."""
         # This would be generated by the class page generator
         path_parts = module_path.split('.')
-        if len(path_parts) > 2:
+        if len(path_parts) > 2 and path_parts[0] == 'pixeltable' and path_parts[1] == 'functions':
             # Remove 'pixeltable.functions' prefix for cleaner URLs
-            if path_parts[0] == 'pixeltable' and path_parts[1] == 'functions':
-                group = path_parts[2]
-                return f'../{class_name.lower()}'
+            return f'../{class_name.lower()}'
         return f'./{class_name.lower()}'

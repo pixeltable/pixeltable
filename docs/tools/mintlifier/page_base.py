@@ -6,7 +6,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, Any, List
-from docstring_parser import parse as parse_docstring
 
 try:
     import pypandoc
@@ -133,16 +132,16 @@ class PageBase:
         """
         try:
             # Create a temporary Python file with the code
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            with tempfile.NamedTemporaryFile(encoding='utf-8', mode='w', suffix='.py', delete=False) as f:
                 f.write(code)
                 temp_path = f.name
 
             try:
                 # Run ruff format on the temp file
-                result = subprocess.run(['ruff', 'format', temp_path], capture_output=True, text=True, timeout=5)
+                subprocess.run(['ruff', 'format', temp_path], check=False, capture_output=True, text=True, timeout=5)
 
                 # Read back the formatted content
-                with open(temp_path, 'r') as f:
+                with open(temp_path, 'r', encoding='utf-8') as f:
                     formatted = f.read()
 
                 return formatted.strip()
@@ -167,7 +166,7 @@ class PageBase:
         filename = f'{self._sanitize_path(name)}.mdx'
         output_path = output_dir / filename
 
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
 
         # Return path for docs.json (just the filename, no subdirectories)
@@ -179,7 +178,7 @@ class PageBase:
         # Always return flat structure path (no subdirectories)
         return f'{base_path}/{self._sanitize_path(name)}'
 
-    def _build_nav_structure(self, page_path: str, children: List = None, group_name: str = None) -> dict:
+    def _build_nav_structure(self, page_path: str, children: List | None = None, group_name: str | None = None) -> dict:
         """Build navigation structure for this page.
 
         Args:
@@ -194,10 +193,10 @@ class PageBase:
             # When there are children, we need a group structure
             if group_name:
                 # Create a group with the page as first item, then children
-                return {'group': group_name, 'pages': [page_path] + children}
+                return {'group': group_name, 'pages': [page_path, *children]}
             else:
                 # Return just the children with the main page first
-                return [page_path] + children
+                return [page_path, *children]
         return page_path  # Simple page, no children
 
     def _build_nav_group(self, group_name: str, pages: List) -> dict:
@@ -276,7 +275,7 @@ Documentation for `{name}` is not available.
             if not source_file:
                 return None
 
-            source_lines, line_number = inspect.getsourcelines(obj)
+            _source_lines, line_number = inspect.getsourcelines(obj)
 
             # Get the module name from the object
             module = inspect.getmodule(obj)

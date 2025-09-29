@@ -1,8 +1,7 @@
 """Generate documentation sections for functions within module pages."""
 
 import inspect
-import importlib
-from typing import Any, List, Optional
+from typing import Any
 from docstring_parser import parse as parse_docstring
 from page_base import PageBase
 
@@ -26,7 +25,6 @@ class FunctionSectionGenerator(PageBase):
         Returns:
             Markdown string for the function documentation
         """
-        full_path = f'{module_path}.{func_name}'
 
         # Build section content with elegant visual separation
         content = '\n---\n\n'  # Beautiful horizontal divider
@@ -135,10 +133,10 @@ class FunctionSectionGenerator(PageBase):
                 if '(' in sig_str and ')' in sig_str:
                     params_str = sig_str[sig_str.index('(') + 1 : sig_str.index(')')]
                     if params_str:
-                        for param in params_str.split(','):
-                            param = param.strip()
-                            if ':' in param:
-                                name, type_str = param.split(':', 1)
+                        for raw_param in params_str.split(','):
+                            param_str = raw_param.strip()
+                            if ':' in param_str:
+                                name, type_str = param_str.split(':', 1)
                                 params_with_types[name.strip()] = type_str.strip()
             else:
                 # Standard introspection
@@ -214,7 +212,7 @@ class FunctionSectionGenerator(PageBase):
 
         return line
 
-    def _run_doctest(self, code: str, module_context: dict = None) -> dict:
+    def _run_doctest(self, code: str, module_context: dict | None = None) -> dict:
         """
         Stub method for running doctest examples and validating their output.
 
@@ -266,7 +264,6 @@ class FunctionSectionGenerator(PageBase):
 
         Returns a list of dicts with 'description', 'code', and 'output' keys.
         """
-        import re
 
         examples = []
         lines = text.split('\n')

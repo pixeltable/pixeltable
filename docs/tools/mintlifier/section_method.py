@@ -1,7 +1,7 @@
 """Generate documentation sections for methods within class pages."""
 
 import inspect
-from typing import Any, List, Optional
+from typing import Any
 from docstring_parser import parse as parse_docstring
 from page_base import PageBase
 
