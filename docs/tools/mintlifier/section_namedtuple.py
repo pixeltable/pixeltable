@@ -23,9 +23,9 @@ class NamedTupleSection(SectionBase):
             Markdown string for the fields section
         """
         if not hasattr(obj, '_fields'):
-            return ""
+            return ''
 
-        content = "## Attributes\n\n"
+        content = '## Attributes\n\n'
 
         # Get field information
         fields = obj._fields
@@ -34,32 +34,32 @@ class NamedTupleSection(SectionBase):
 
         # Document each field
         for field_name in fields:
-            content += f"### `{field_name}`\n\n"
+            content += f'### `{field_name}`\n\n'
 
             # Format type if available
             if field_name in types:
                 type_str = self._format_type(types[field_name])
-                content += f"**Type:** `{type_str}`\n\n"
+                content += f'**Type:** `{type_str}`\n\n'
 
             # Show default value if present
             if field_name in defaults:
-                content += f"**Default:** `{defaults[field_name]!r}`\n\n"
+                content += f'**Default:** `{defaults[field_name]!r}`\n\n'
 
             # Note that NamedTuples are immutable
-            content += "**Immutable:** This field cannot be modified after creation\n\n"
+            content += '**Immutable:** This field cannot be modified after creation\n\n'
 
             # Try to extract field documentation
             field_doc = self._extract_field_doc(obj, field_name)
             if field_doc:
-                content += f"{self._escape_mdx(field_doc)}\n\n"
+                content += f'{self._escape_mdx(field_doc)}\n\n'
 
         # Add note about tuple behavior
-        content += "## Usage\n\n"
-        content += f"`{name}` is a NamedTuple and supports:\n\n"
-        content += "- Accessing fields by name: `instance.field_name`\n"
-        content += "- Accessing fields by index: `instance[0]`\n"
-        content += "- Unpacking: `field1, field2 = instance`\n"
-        content += "- Iteration: `for value in instance`\n\n"
+        content += '## Usage\n\n'
+        content += f'`{name}` is a NamedTuple and supports:\n\n'
+        content += '- Accessing fields by name: `instance.field_name`\n'
+        content += '- Accessing fields by index: `instance[0]`\n'
+        content += '- Unpacking: `field1, field2 = instance`\n'
+        content += '- Iteration: `for value in instance`\n\n'
 
         return content
 
@@ -81,6 +81,7 @@ class NamedTupleSection(SectionBase):
 
         # Look for field documentation
         import re
+
         pattern = rf'^\s*{re.escape(field_name)}\s*:\s*(.+?)(?=^\s*\w+\s*:|^\s*$)'
         match = re.search(pattern, doc, re.MULTILINE | re.DOTALL)
 

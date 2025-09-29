@@ -11,14 +11,19 @@ from docstring_parser import parse as parse_docstring
 class TypePageGenerator(PageBase):
     """Generate documentation pages for Pixeltable types (Image, Video, etc.)."""
 
-    def __init__(self, output_dir: Path, version: str = "main", show_errors: bool = True,
-                 github_repo: str = "pixeltable/pixeltable", github_package_path: str = "pixeltable"):
+    def __init__(
+        self,
+        output_dir: Path,
+        version: str = 'main',
+        show_errors: bool = True,
+        github_repo: str = 'pixeltable/pixeltable',
+        github_package_path: str = 'pixeltable',
+    ):
         """Initialize with output directory, version, and error display setting."""
         super().__init__(output_dir, version, show_errors, github_repo, github_package_path)
 
     def generate_page(
-        self, type_path: str, parent_groups: List[str], item_type: str,
-        opml_children: List[str] | None = None
+        self, type_path: str, parent_groups: List[str], item_type: str, opml_children: List[str] | None = None
     ) -> Optional[str]:
         """Generate type documentation page.
 
@@ -40,13 +45,13 @@ class TypePageGenerator(PageBase):
 
             module = importlib.import_module(module_path)
             if not hasattr(module, type_name):
-                return self._generate_error_page(type_name, parent_groups, f"Type {type_name} not found")
+                return self._generate_error_page(type_name, parent_groups, f'Type {type_name} not found')
 
             type_cls = getattr(module, type_name)
             # Check if it's a class OR a type alias (like String, Int, etc.)
             # These are typing._AnnotatedAlias objects in Pixeltable
             if not (inspect.isclass(type_cls) or hasattr(type_cls, '__class__')):
-                return self._generate_error_page(type_name, parent_groups, f"{type_name} is not a type")
+                return self._generate_error_page(type_name, parent_groups, f'{type_name} is not a type')
 
         except ImportError as e:
             return self._generate_error_page(type_name, parent_groups, str(e))
@@ -68,14 +73,14 @@ class TypePageGenerator(PageBase):
         parsed = parse_docstring(doc) if doc else None
 
         # Extract short description for frontmatter
-        description = ""
+        description = ''
         if parsed and parsed.short_description:
             # Clean up the description - remove extra line breaks and clean whitespace
             desc_text = parsed.short_description[:200]
             desc_text = ' '.join(desc_text.split())  # Normalize whitespace
             description = self._escape_yaml(desc_text)
         elif not description:
-            description = f"Pixeltable column type for {type_name.lower()} data"
+            description = f'Pixeltable column type for {type_name.lower()} data'
 
         # Types get circle-t icon
         return f"""---
@@ -89,7 +94,7 @@ icon: "circle-t"
 
     def _build_type_documentation(self, type_cls, type_name: str, full_path: str) -> str:
         """Build complete type documentation."""
-        content = ""
+        content = ''
 
         # Get docstring - handle type aliases gracefully
         try:
@@ -100,16 +105,16 @@ icon: "circle-t"
 
         # Add long description if available (short is in frontmatter)
         if parsed and parsed.long_description:
-            content += f"{self._escape_mdx(parsed.long_description)}\n\n"
+            content += f'{self._escape_mdx(parsed.long_description)}\n\n'
         elif not doc and self.show_errors:
-            content += "## ⚠️ No Documentation\n\n"
-            content += f"<Warning>\nDocumentation for type `{full_path}` is not available.\n</Warning>\n\n"
+            content += '## ⚠️ No Documentation\n\n'
+            content += f'<Warning>\nDocumentation for type `{full_path}` is not available.\n</Warning>\n\n'
 
         # Add GitHub link (may not work for type aliases)
         try:
             github_link = self._get_github_link(type_cls)
             if github_link:
-                content += f"<a href=\"{github_link}\" target=\"_self\">View source on GitHub</a>\n\n"
+                content += f'<a href="{github_link}" target="_self">View source on GitHub</a>\n\n'
         except Exception:
             # Type aliases might not have inspectable source
             pass
@@ -127,7 +132,7 @@ icon: "circle-t"
 
     def _add_usage_section(self, type_name: str) -> str:
         """Add usage examples for the type."""
-        content = "## Usage\n\n"
+        content = '## Usage\n\n'
 
         # Type-specific usage examples
         if type_name == 'Image':
@@ -250,38 +255,38 @@ table = pxt.create_table('my_table', {{
 ```
 """
 
-        content += "\n"
+        content += '\n'
         return content
 
     def _add_properties_section(self, type_name: str) -> str:
         """Add properties section if the type has notable properties."""
-        content = ""
+        content = ''
 
         # For media types, mention error handling
         if type_name in ['Image', 'Video', 'Audio', 'Document']:
-            content += "## Media Validation\n\n"
-            content += f"When a column has type `{type_name}`, Pixeltable validates the media files. "
-            content += "If validation fails, you can access error information:\n\n"
-            content += f"- `table.{type_name.lower()}_column.errortype` - The type of error\n"
-            content += f"- `table.{type_name.lower()}_column.errormsg` - The error message\n\n"
+            content += '## Media Validation\n\n'
+            content += f'When a column has type `{type_name}`, Pixeltable validates the media files. '
+            content += 'If validation fails, you can access error information:\n\n'
+            content += f'- `table.{type_name.lower()}_column.errortype` - The type of error\n'
+            content += f'- `table.{type_name.lower()}_column.errormsg` - The error message\n\n'
 
         # For Array type, mention shape specification
         if type_name == 'Array':
-            content += "## Array Shapes\n\n"
-            content += "Arrays can have specified shapes and data types:\n\n"
-            content += "```python\n"
-            content += "# Fixed shape array\n"
-            content += "pxt.Array[(768,), pxt.Float]  # 768-dimensional float array\n"
-            content += "pxt.Array[(224, 224, 3), pxt.Int]  # 224x224x3 image array\n\n"
-            content += "# Variable shape array\n"
-            content += "pxt.Array[pxt.Float]  # Float array of any shape\n"
-            content += "```\n\n"
+            content += '## Array Shapes\n\n'
+            content += 'Arrays can have specified shapes and data types:\n\n'
+            content += '```python\n'
+            content += '# Fixed shape array\n'
+            content += 'pxt.Array[(768,), pxt.Float]  # 768-dimensional float array\n'
+            content += 'pxt.Array[(224, 224, 3), pxt.Int]  # 224x224x3 image array\n\n'
+            content += '# Variable shape array\n'
+            content += 'pxt.Array[pxt.Float]  # Float array of any shape\n'
+            content += '```\n\n'
 
         return content
 
     def _add_see_also_section(self, type_name: str) -> str:
         """Add see also section with related functions."""
-        content = ""
+        content = ''
 
         related = {
             'Image': ['pixeltable.functions.image', 'pixeltable.functions.vision'],
@@ -294,19 +299,19 @@ table = pxt.create_table('my_table', {{
         }
 
         if type_name in related:
-            content += "## See Also\n\n"
+            content += '## See Also\n\n'
             for item in related[type_name]:
                 # Convert to documentation link format
                 link_parts = item.split('.')
                 if 'iterators' in item:
                     # Link to iterator page
                     class_name = link_parts[-1]
-                    content += f"- [{class_name}](../iterators/{self._camel_to_kebab(class_name)})\n"
+                    content += f'- [{class_name}](../iterators/{self._camel_to_kebab(class_name)})\n'
                 elif 'functions' in item:
                     # Link to functions module
                     module_name = link_parts[-1]
-                    content += f"- [{module_name} functions](../media-processing/{module_name})\n"
-            content += "\n"
+                    content += f'- [{module_name} functions](../media-processing/{module_name})\n'
+            content += '\n'
 
         return content
 

@@ -45,32 +45,36 @@ class AttributesSection(SectionBase):
             try:
                 attr_value = getattr(obj, attr_name)
                 # Check if it's a class attribute (not instance method or property)
-                if (not callable(attr_value) and not isinstance(attr_value, property) and
-                        hasattr(obj, attr_name) and not hasattr(obj.__init__, attr_name)):
+                if (
+                    not callable(attr_value)
+                    and not isinstance(attr_value, property)
+                    and hasattr(obj, attr_name)
+                    and not hasattr(obj.__init__, attr_name)
+                ):
                     attributes.append((attr_name, attr_value))
             except AttributeError:
                 continue
 
         if not attributes:
-            return ""
+            return ''
 
-        content = "## Class Attributes\n\n"
+        content = '## Class Attributes\n\n'
 
         for attr_name, attr_value in sorted(attributes):
-            content += f"### `{attr_name}`\n\n"
+            content += f'### `{attr_name}`\n\n'
 
             # Try to get type from annotations
             if hasattr(obj, '__annotations__') and attr_name in obj.__annotations__:
                 type_str = self._format_type(obj.__annotations__[attr_name])
-                content += f"**Type:** `{type_str}`\n\n"
+                content += f'**Type:** `{type_str}`\n\n'
 
             # Show the value
-            content += f"**Value:** `{attr_value!r}`\n\n"
+            content += f'**Value:** `{attr_value!r}`\n\n'
 
             # Try to extract attribute documentation
             attr_doc = self._extract_attr_doc(obj, attr_name)
             if attr_doc:
-                content += f"{self._escape_mdx(attr_doc)}\n\n"
+                content += f'{self._escape_mdx(attr_doc)}\n\n'
 
         return content
 
@@ -90,6 +94,7 @@ class AttributesSection(SectionBase):
 
         # Look for attribute documentation in docstring
         import re
+
         # Try various documentation patterns
         patterns = [
             # "Attributes:" section format

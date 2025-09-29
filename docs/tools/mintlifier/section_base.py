@@ -67,7 +67,7 @@ class SectionBase(ABC):
             Formatted type string
         """
         if type_annotation is None:
-            return "Any"
+            return 'Any'
 
         # Handle string annotations
         if isinstance(type_annotation, str):
@@ -79,7 +79,7 @@ class SectionBase(ABC):
             if type_annotation.__module__ == 'builtins':
                 return type_annotation.__name__
             # For other types, include the module
-            return f"{type_annotation.__module__}.{type_annotation.__name__}"
+            return f'{type_annotation.__module__}.{type_annotation.__name__}'
 
         # Get the string representation
         type_str = str(type_annotation)
@@ -87,7 +87,8 @@ class SectionBase(ABC):
         # Clean up common patterns that break MDX
         # Remove <class '...'> format
         import re
-        type_str = re.sub(r"<class '([^']+)'>", r"\1", type_str)
+
+        type_str = re.sub(r"<class '([^']+)'>", r'\1', type_str)
 
         # Clean up typing module references
         type_str = type_str.replace('typing.', '')

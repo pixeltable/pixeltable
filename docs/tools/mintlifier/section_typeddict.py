@@ -10,8 +10,7 @@ class TypedDictSection(SectionBase):
     def can_handle(self, obj: Any) -> bool:
         """Check if the object is a TypedDict."""
         # TypedDicts have a special metaclass
-        return (hasattr(obj, '__annotations__') and
-                type(obj).__name__ == '_TypedDictMeta')
+        return hasattr(obj, '__annotations__') and type(obj).__name__ == '_TypedDictMeta'
 
     def generate_section(self, obj: Any, name: str) -> str:
         """Generate TypedDict fields documentation section.
@@ -24,9 +23,9 @@ class TypedDictSection(SectionBase):
             Markdown string for the fields section
         """
         if not hasattr(obj, '__annotations__'):
-            return ""
+            return ''
 
-        content = "## Attributes\n\n"
+        content = '## Attributes\n\n'
 
         # Get annotations
         annotations = obj.__annotations__
@@ -47,24 +46,24 @@ class TypedDictSection(SectionBase):
             is_required = field_name in required_keys
             is_optional = field_name in optional_keys
 
-            content += f"### `{field_name}`\n\n"
+            content += f'### `{field_name}`\n\n'
 
             # Format type
             type_str = self._format_type(field_type)
-            content += f"**Type:** `{type_str}`\n\n"
+            content += f'**Type:** `{type_str}`\n\n'
 
             # Add required/optional indicator
             if is_optional:
-                content += "**Optional:** This field is optional\n\n"
+                content += '**Optional:** This field is optional\n\n'
             elif is_required:
-                content += "**Required:** This field is required\n\n"
+                content += '**Required:** This field is required\n\n'
 
             # Try to get field documentation from docstring
             # TypedDicts don't typically have per-field docs, but we could
             # parse them from the class docstring if formatted consistently
             field_doc = self._extract_field_doc(obj, field_name)
             if field_doc:
-                content += f"{self._escape_mdx(field_doc)}\n\n"
+                content += f'{self._escape_mdx(field_doc)}\n\n'
 
         return content
 
@@ -92,6 +91,7 @@ class TypedDictSection(SectionBase):
         # Simple pattern matching for field documentation
         # Look for "field_name:" or "field_name :" patterns
         import re
+
         pattern = rf'^\s*{re.escape(field_name)}\s*:\s*(.+?)(?=^\s*\w+\s*:|$)'
         match = re.search(pattern, doc, re.MULTILINE | re.DOTALL)
 

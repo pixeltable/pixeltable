@@ -15,9 +15,10 @@ import shutil
 @dataclass
 class PageItem:
     """Represents a documentation page."""
+
     module_path: str  # e.g., "pixeltable.create_table"
     parent_groups: List[str]  # Hierarchy of parent groups
-    item_type: str = "page"  # "page" or "module"
+    item_type: str = 'page'  # "page" or "module"
     children: Optional[List[str]] = None  # For modules/classes, list of specific children to document
 
     @property
@@ -29,6 +30,7 @@ class PageItem:
 @dataclass
 class GroupItem:
     """Represents a documentation group."""
+
     name: str
     pages: List[PageItem]
     subgroups: List['GroupItem']
@@ -37,6 +39,7 @@ class GroupItem:
 @dataclass
 class TabItem:
     """Represents a documentation tab."""
+
     name: str
     groups: List[GroupItem]
 
@@ -47,7 +50,7 @@ class OPMLReader:
     def __init__(self, opml_path: Path, backup_dir: Path | None = None):
         """Initialize with path to OPML file."""
         self.opml_path = opml_path
-        self.backup_dir = backup_dir or (Path(__file__).parent / "opml_bak")
+        self.backup_dir = backup_dir or (Path(__file__).parent / 'opml_bak')
         self.tree = None
         self.root = None
         self.structure = None
@@ -69,12 +72,12 @@ class OPMLReader:
         """Create timestamped backup of OPML file."""
         self.backup_dir.mkdir(exist_ok=True, parents=True)
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_name = f"public_api_{timestamp}.opml"
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_name = f'public_api_{timestamp}.opml'
         backup_path = self.backup_dir / backup_name
 
         shutil.copy2(self.opml_path, backup_path)
-        print(f"📋 Created OPML backup: {backup_path}")
+        print(f'📋 Created OPML backup: {backup_path}')
 
     def _process_root(self) -> Optional[TabItem]:
         """Process the root OPML structure to find SDK tab."""
@@ -134,12 +137,14 @@ class OPMLReader:
                                                 class_children.append(method_name)
 
                                         # Store class pages to add after module
-                                        class_pages.append(PageItem(
-                                            module_path=child_path,
-                                            parent_groups=new_hierarchy,
-                                            item_type='class',
-                                            children=class_children
-                                        ))
+                                        class_pages.append(
+                                            PageItem(
+                                                module_path=child_path,
+                                                parent_groups=new_hierarchy,
+                                                item_type='class',
+                                                children=class_children,
+                                            )
+                                        )
                                     elif child_type == 'func':
                                         # Add function name to module's children list
                                         child_name = child_path.split('.')[-1]
@@ -156,12 +161,14 @@ class OPMLReader:
                                     children.append(child_name)
 
                         # Add module page first
-                        pages.append(PageItem(
-                            module_path=module_path,
-                            parent_groups=new_hierarchy,
-                            item_type=item_type,
-                            children=children
-                        ))
+                        pages.append(
+                            PageItem(
+                                module_path=module_path,
+                                parent_groups=new_hierarchy,
+                                item_type=item_type,
+                                children=children,
+                            )
+                        )
 
                         # Then add any class pages that were found
                         if item_type == 'module' and class_pages:
@@ -200,28 +207,24 @@ class OPMLReader:
                                             child_name = child_path.split('.')[-1]
                                             children.append(child_name)
 
-                                subgroup_pages.append(PageItem(
-                                    module_path=module_path,
-                                    parent_groups=subgroup_hierarchy,
-                                    item_type=item_type,
-                                    children=children
-                                ))
+                                subgroup_pages.append(
+                                    PageItem(
+                                        module_path=module_path,
+                                        parent_groups=subgroup_hierarchy,
+                                        item_type=item_type,
+                                        children=children,
+                                    )
+                                )
                             elif nested_text.startswith('group|'):
                                 # For deeper nesting, we would need to recurse
                                 # For now, this handles 2 levels which is what we have
                                 pass
 
-                        subgroups.append(GroupItem(
-                            name=subgroup_name,
-                            pages=subgroup_pages,
-                            subgroups=nested_subgroups
-                        ))
+                        subgroups.append(
+                            GroupItem(name=subgroup_name, pages=subgroup_pages, subgroups=nested_subgroups)
+                        )
 
-                groups.append(GroupItem(
-                    name=group_name,
-                    pages=pages,
-                    subgroups=subgroups
-                ))
+                groups.append(GroupItem(name=group_name, pages=pages, subgroups=subgroups))
 
         return groups
 
@@ -248,26 +251,20 @@ class OPMLReader:
 
         def process_group(group: GroupItem, base_path: str) -> Dict:
             group_path = self._sanitize_path(group.name)
-            full_path = f"{base_path}/{group_path}" if base_path else group_path
+            full_path = f'{base_path}/{group_path}' if base_path else group_path
 
             result = {
                 'group': group.name,
-                'pages': [f"docs/sdk/latest/{full_path}/{page.name}" for page in group.pages]
+                'pages': [f'docs/sdk/latest/{full_path}/{page.name}' for page in group.pages],
             }
 
             # Add subgroups if they exist
             if group.subgroups:
-                result['groups'] = [
-                    process_group(subgroup, full_path)
-                    for subgroup in group.subgroups
-                ]
+                result['groups'] = [process_group(subgroup, full_path) for subgroup in group.subgroups]
 
             return result
 
-        return {
-            'tab': self.structure.name,
-            'groups': [process_group(group, '') for group in self.structure.groups]
-        }
+        return {'tab': self.structure.name, 'groups': [process_group(group, '') for group in self.structure.groups]}
 
     def _sanitize_path(self, text: str) -> str:
         """Convert text to valid file path."""

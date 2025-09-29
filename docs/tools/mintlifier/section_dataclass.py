@@ -24,37 +24,36 @@ class DataclassSection(SectionBase):
         """
         fields = dataclasses.fields(obj)
         if not fields:
-            return ""
+            return ''
 
-        content = "## Attributes\n\n"
+        content = '## Attributes\n\n'
 
         for field in fields:
-            content += f"### `{field.name}`\n\n"
+            content += f'### `{field.name}`\n\n'
 
             # Format type
             type_str = self._format_type(field.type)
-            content += f"**Type:** `{type_str}`\n\n"
+            content += f'**Type:** `{type_str}`\n\n'
 
             # Show default value if present
             if field.default is not dataclasses.MISSING:
-                content += f"**Default:** `{field.default!r}`\n\n"
+                content += f'**Default:** `{field.default!r}`\n\n'
             elif field.default_factory is not dataclasses.MISSING:
-                content += "**Default:** Factory function\n\n"
+                content += '**Default:** Factory function\n\n'
 
             # Field metadata
             if field.metadata:
-                content += f"**Metadata:** {field.metadata}\n\n"
+                content += f'**Metadata:** {field.metadata}\n\n'
 
             # Check if field is required (no default)
-            is_required = (field.default is dataclasses.MISSING and
-                          field.default_factory is dataclasses.MISSING)
+            is_required = field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING
             if is_required:
-                content += "**Required:** This field must be provided at initialization\n\n"
+                content += '**Required:** This field must be provided at initialization\n\n'
 
             # Try to extract field documentation
             field_doc = self._extract_field_doc(obj, field.name)
             if field_doc:
-                content += f"{self._escape_mdx(field_doc)}\n\n"
+                content += f'{self._escape_mdx(field_doc)}\n\n'
 
         return content
 
@@ -76,6 +75,7 @@ class DataclassSection(SectionBase):
 
         # Look for field documentation in various formats
         import re
+
         # Try "Attributes:" section format
         pattern = rf'^\s*{re.escape(field_name)}\s*:\s*(.+?)(?=^\s*\w+\s*:|^\s*$)'
         match = re.search(pattern, doc, re.MULTILINE | re.DOTALL)
