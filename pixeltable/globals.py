@@ -409,7 +409,7 @@ def publish(
 
     Args:
         source: Path or table handle of the local table to be published.
-        destination_uri: Remote URI where the replica will be published, such as `'pxt://org_name/my_dir.my_table'`.
+        destination_uri: Remote URI where the replica will be published, such as `'pxt://org_name/my_dir/my_table'`.
         bucket_name: The name of the bucket to use to store replica's data. The bucket must be registered with
             Pixeltable cloud. If no `bucket_name` is provided, the default storage bucket for the destination
             database will be used.
@@ -434,7 +434,7 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     queried offline just as any other Pixeltable table.
 
     Args:
-        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir.my_table'`.
+        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
         local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
             the same or different from the cloud table name.
 
