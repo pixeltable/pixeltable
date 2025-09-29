@@ -169,7 +169,7 @@ class Catalog:
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
-    _current_tx_undo_actions: list[Callable[[], None]]
+    _undo_actions: list[Callable[[], None]]
     _in_retry_loop: bool
 
     # cached column dependencies
@@ -202,7 +202,7 @@ class Catalog:
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._modified_tvs = set()
-        self._current_tx_undo_actions = []
+        self._undo_actions = []
         self._in_retry_loop = False
         self._column_dependencies = {}
         self._column_dependents = None
@@ -414,16 +414,20 @@ class Catalog:
 
     @contextmanager
     def __begin_guarded_xact(self, *, for_write: bool) -> Iterator[sql.Connection]:
-        assert not self._current_tx_undo_actions
+        """
+        Wraps Env.begin_xact() with a handler to execute any undo actions in the event a transaction fails.
+        This should only be called by Catalog.begin_xact().
+        """
+        assert not self._undo_actions
         with Env.get().begin_xact(for_write=for_write) as conn:
             try:
                 yield conn
             except:
-                for hook in reversed(self._current_tx_undo_actions):
+                for hook in reversed(self._undo_actions):
                     run_cleanup(hook, raise_error=False)
                 raise
             finally:
-                self._current_tx_undo_actions.clear()
+                self._undo_actions.clear()
 
     def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
         """Registers a function to be called if the current transaction fails.
@@ -435,7 +439,7 @@ class Catalog:
         The function should not raise exceptions; if it does, they are logged and ignored.
         """
         assert Env.get().in_xact
-        self._current_tx_undo_actions.append(func)
+        self._undo_actions.append(func)
         return func
 
     def convert_sql_exc(
