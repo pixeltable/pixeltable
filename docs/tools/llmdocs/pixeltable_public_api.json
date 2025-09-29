@@ -1,12 +1,12 @@
 {
   "version": "main",
-  "generated": "2025-09-22T07:11:41.246036",
+  "generated": "2025-09-28T23:40:03.204784",
   "counts": {
-    "functions": 30,
-    "classes": 9,
-    "methods": 62,
+    "functions": 31,
+    "classes": 16,
+    "methods": 69,
     "types": 11,
-    "total": 112
+    "total": 127
   },
   "functions": [
     "pixeltable.configure_logging",
@@ -27,6 +27,7 @@
     "pixeltable.init",
     "pixeltable.io.create_label_studio_project",
     "pixeltable.io.export_images_as_fo_dataset",
+    "pixeltable.io.export_lancedb",
     "pixeltable.io.export_parquet",
     "pixeltable.io.import_csv",
     "pixeltable.io.import_excel",
@@ -41,15 +42,22 @@
     "pixeltable.udf"
   ],
   "classes": [
+    "pixeltable.ColumnMetadata",
     "pixeltable.DataFrame",
+    "pixeltable.DirContents",
+    "pixeltable.IndexMetadata",
     "pixeltable.Table",
+    "pixeltable.TableMetadata",
+    "pixeltable.UpdateStatus",
+    "pixeltable.VersionMetadata",
     "pixeltable.io.ExternalStore",
     "pixeltable.iterators.AudioSplitter",
     "pixeltable.iterators.ComponentIterator",
     "pixeltable.iterators.DocumentSplitter",
     "pixeltable.iterators.FrameIterator",
     "pixeltable.iterators.StringSplitter",
-    "pixeltable.iterators.TileIterator"
+    "pixeltable.iterators.TileIterator",
+    "pixeltable.iterators.VideoSplitter"
   ],
   "methods": [
     "pixeltable.DataFrame.collect",
@@ -77,6 +85,8 @@
     "pixeltable.Table.rename_column",
     "pixeltable.Table.revert",
     "pixeltable.Table.update",
+    "pixeltable.UpdateStatus.insert_to_update",
+    "pixeltable.UpdateStatus.to_cascade",
     "pixeltable.io.ExternalStore.as_dict",
     "pixeltable.io.ExternalStore.from_dict",
     "pixeltable.io.ExternalStore.get_local_columns",
@@ -113,7 +123,12 @@
     "pixeltable.iterators.TileIterator.create",
     "pixeltable.iterators.TileIterator.input_schema",
     "pixeltable.iterators.TileIterator.output_schema",
-    "pixeltable.iterators.TileIterator.set_pos"
+    "pixeltable.iterators.TileIterator.set_pos",
+    "pixeltable.iterators.VideoSplitter.close",
+    "pixeltable.iterators.VideoSplitter.create",
+    "pixeltable.iterators.VideoSplitter.input_schema",
+    "pixeltable.iterators.VideoSplitter.output_schema",
+    "pixeltable.iterators.VideoSplitter.set_pos"
   ],
   "types": [
     "pixeltable.Array",

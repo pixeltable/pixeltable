@@ -10,7 +10,6 @@ This script walks through notebooks and extracts:
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import re
@@ -33,15 +32,15 @@ class NotebookPatternExtractor:
         self.notebooks_dir = Path(notebooks_dir)
         self.public_api = public_api or self._load_public_api_from_opml()
         self.patterns = []
-        
+
     def _load_public_api_from_opml(self) -> set:
         """Load public API identifiers from OPML."""
         public_api = set()
-        
+
         try:
             tree = ET.parse(self.opml_path)
             root = tree.getroot()
-            
+
             # Walk the OPML structure to extract API elements
             for outline in root.iter('outline'):
                 # Extract module, class, function names
@@ -51,12 +50,12 @@ class NotebookPatternExtractor:
                     if ' - ' in api_element:
                         api_element = api_element.split(' - ')[0]
                     public_api.add(api_element.strip())
-                    
+
         except Exception as e:
             print(f"Warning: Could not load OPML: {e}")
-            
+
         return public_api
-    
+
     def extract_patterns_from_notebook(self, notebook_path: Path) -> Dict[str, Any]:
         """
         Extract patterns from a single notebook.
@@ -66,7 +65,7 @@ class NotebookPatternExtractor:
         """
         with open(notebook_path, 'r', encoding='utf-8') as f:
             nb = nbformat.read(f, as_version=4)
-            
+
         patterns = {
             'notebook': str(notebook_path.relative_to(self.notebooks_dir)),
             'title': self._extract_title(nb),
@@ -75,10 +74,10 @@ class NotebookPatternExtractor:
             'key_concepts': [],
             'code_snippets': []
         }
-        
+
         current_pattern = None
         current_explanation = []
-        
+
         for cell in nb.cells:
             if cell.cell_type == 'markdown':
                 # Look for pattern headers
@@ -91,16 +90,15 @@ class NotebookPatternExtractor:
                         'code_blocks': []
                     }
                     current_explanation = []
+                # Accumulate explanation text
+                elif current_pattern:
+                    current_pattern['explanation'].append(cell.source)
                 else:
-                    # Accumulate explanation text
-                    if current_pattern:
-                        current_pattern['explanation'].append(cell.source)
-                    else:
-                        current_explanation.append(cell.source)
-                        
+                    current_explanation.append(cell.source)
+
             elif cell.cell_type == 'code':
                 code = cell.source
-                
+
                 # Add to current pattern if exists
                 if current_pattern:
                     current_pattern['code_blocks'].append({
@@ -116,16 +114,16 @@ class NotebookPatternExtractor:
                         'context': '\n'.join(current_explanation[-2:]) if current_explanation else '',
                         'output': self._extract_output(cell)
                     })
-        
+
         # Don't forget the last pattern
         if current_pattern:
             patterns['developer_patterns'].append(current_pattern)
-            
+
         # Extract key concepts from the patterns
         patterns['key_concepts'] = self._extract_key_concepts(patterns)
-        
+
         return patterns
-    
+
     def _extract_title(self, nb: nbformat.NotebookNode) -> str:
         """Extract notebook title from first markdown cell."""
         for cell in nb.cells:
@@ -135,7 +133,7 @@ class NotebookPatternExtractor:
                     if line.startswith('#'):
                         return line.strip('#').strip()
         return "Untitled"
-    
+
     def _extract_description(self, nb: nbformat.NotebookNode) -> str:
         """Extract description from early markdown cells, removing badge links."""
         description_lines = []
@@ -155,7 +153,7 @@ class NotebookPatternExtractor:
                 if len(description_lines) >= 3:
                     break
         return ' '.join(description_lines)
-    
+
     def _is_pattern_header(self, text: str) -> bool:
         """Check if markdown text is a pattern section header."""
         patterns = [
@@ -167,7 +165,7 @@ class NotebookPatternExtractor:
             if re.search(pattern, text.lower(), re.MULTILINE):
                 return True
         return False
-    
+
     def _extract_header_text(self, text: str) -> str:
         """Extract clean header text."""
         lines = text.split('\n')
@@ -175,26 +173,25 @@ class NotebookPatternExtractor:
             if line.startswith('#'):
                 return line.strip('#').strip()
         return text.split('\n')[0]
-    
-    
+
     def _extract_output(self, cell) -> Optional[str]:
         """Extract relevant output from a code cell."""
         if not hasattr(cell, 'outputs') or not cell.outputs:
             return None
-            
+
         for output in cell.outputs:
             if output.output_type == 'execute_result':
                 if 'text/plain' in output.data:
                     return output.data['text/plain']
             elif output.output_type == 'stream':
                 return output.text
-                
+
         return None
-    
+
     def _extract_key_concepts(self, patterns: Dict) -> List[str]:
         """Extract key concepts from the patterns."""
         concepts = set()
-        
+
         # Look for common Pixeltable concepts
         concept_keywords = {
             'computed column': ['add_computed_column', 'computed', 'automatic'],
@@ -205,7 +202,7 @@ class NotebookPatternExtractor:
             'incremental': ['incremental', 'recompute', 'update'],
             'tool calling': ['tool', 'invoke_tools', 'agent'],
         }
-        
+
         # Check in code and explanations
         all_text = json.dumps(patterns).lower()
         for concept, keywords in concept_keywords.items():
@@ -213,52 +210,52 @@ class NotebookPatternExtractor:
                 if keyword in all_text:
                     concepts.add(concept)
                     break
-                    
+
         return list(concepts)
-    
+
     def extract_all_patterns(self) -> Dict[str, Any]:
         """Extract patterns from all notebooks."""
         all_patterns = {
             'generated': datetime.now().isoformat(),
             'notebooks': []
         }
-        
+
         notebook_files = list(self.notebooks_dir.rglob('*.ipynb'))
         print(f"Found {len(notebook_files)} notebooks")
-        
+
         for nb_path in notebook_files:
             # Skip checkpoint notebooks
             if '.ipynb_checkpoints' in str(nb_path):
                 continue
-                
+
             print(f"Processing {nb_path.name}...")
             try:
                 patterns = self.extract_patterns_from_notebook(nb_path)
                 all_patterns['notebooks'].append(patterns)
             except Exception as e:
                 print(f"  Error processing {nb_path}: {e}")
-                
+
         return all_patterns
-    
+
     def save_patterns(self, output_path: str):
         """Save extracted patterns to JSON-LD file."""
         patterns = self.extract_all_patterns()
-        
+
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Convert to JSON-LD format with proper structure
         jsonld_patterns = self._convert_to_jsonld(patterns)
-        
+
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(jsonld_patterns, f, indent=2)
-            
+
         print(f"Saved developer patterns to {output_path}")
-    
+
     def _convert_to_jsonld(self, patterns: Dict) -> Dict:
         """Convert patterns to JSON-LD format with GitHub links."""
         base_github_url = "https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks"
-        
+
         return {
             "@context": {
                 "@vocab": "https://schema.org/",
@@ -303,43 +300,43 @@ class NotebookPatternExtractor:
                 for i, nb in enumerate(patterns['notebooks'], 1)
             ]
         }
-        
+
     def _old_create_summary(self, patterns: Dict, summary_path: Path):
         """Create a markdown summary of extracted patterns for LLM consumption."""
         with open(summary_path, 'w') as f:
             f.write("# Pixeltable Developer Patterns\n\n")
             f.write(f"> A curated collection of {len(patterns['notebooks'])} working examples demonstrating Pixeltable capabilities\n\n")
-            
+
             f.write("## Key Concepts Covered\n\n")
-            
+
             # Collect all concepts with counts
             concept_counts = {}
             for nb in patterns['notebooks']:
                 for concept in nb['key_concepts']:
                     concept_counts[concept] = concept_counts.get(concept, 0) + 1
-            
+
             for concept, count in sorted(concept_counts.items(), key=lambda x: -x[1]):
                 f.write(f"- **{concept}** ({count} examples)\n")
             f.write("\n")
-            
+
             f.write("## Pattern Categories\n\n")
-            
+
             # Group by category with better descriptions
             category_descriptions = {
                 '': 'Getting Started',
                 'feature-guides': 'Core Features',
-                'fundamentals': 'Fundamentals', 
+                'fundamentals': 'Fundamentals',
                 'integrations': 'AI Model Integrations',
                 'use-cases': 'Real-World Applications'
             }
-            
+
             categories = {}
             for nb in patterns['notebooks']:
                 category = Path(nb['notebook']).parent.name
                 if category not in categories:
                     categories[category] = []
                 categories[category].append(nb)
-            
+
             for category, notebooks in sorted(categories.items()):
                 category_name = category_descriptions.get(category, category.title())
                 f.write(f"### {category_name}\n\n")
@@ -355,7 +352,7 @@ class NotebookPatternExtractor:
                         f.write(f"  *{len(nb['developer_patterns'])} code patterns*\n")
                     f.write("\n")
                 f.write("\n")
-                
+
         print(f"Created summary at {summary_path}")
 
 
@@ -365,7 +362,7 @@ if __name__ == "__main__":
         opml_path="mintlifier.opml",
         notebooks_dir="../notebooks"
     )
-    
+
     # Save to llm_output directory with correct name
     output_dir = Path("llm_output")
     output_dir.mkdir(exist_ok=True)
