@@ -27,6 +27,7 @@ class TestDestination:
     USE_GS_DEST = 'gcs_store'
     USE_S3_DEST = 's3'
     USE_R2_DEST = 'r2'
+    USE_B2_DEST = 'b2'
     USE_AZURE_DEST = 'az'
 
     @staticmethod
@@ -51,6 +52,10 @@ class TestDestination:
         elif dest_id == 'r2_bad':
             r2_uri = f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
             return r2_uri, r2_uri
+        elif dest_id == 'b2':
+            # Example B2 endpoint - will be skipped in CI if credentials not present
+            b2_uri = f'https://s3.us-west-004.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
+            return b2_uri, b2_uri
         elif dest_id == 'az':
             return None, None
         raise AssertionError(f'Invalid dest_id: {dest_id}')
@@ -139,6 +144,7 @@ class TestDestination:
             f'wasb://container@{a_name}.blob.core.windows.net',
             f'https://{a_name}.blob.core.windows.net/container',
             f'https://{a_name}.r2.cloudflarestorage.com/container',
+            'https://s3.us-west-004.backblazeb2.com/container',
             'https://raw.github.com',
             'file://dir1/dir2/dir3',
             'dir1/dir2/dir3',
