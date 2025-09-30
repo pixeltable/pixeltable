@@ -5,15 +5,15 @@ import logging
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import numpy as np
 import PIL.Image
+import numpy as np
 
 import pixeltable.type_system as ts
 from pixeltable import exprs
 from pixeltable.utils import parse_local_file_path
-
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
+from .globals import INLINED_OBJECT_MD_KEY, InlinedObjectMd
 
 _logger = logging.getLogger('pixeltable')
 
@@ -23,10 +23,7 @@ def json_has_inlined_objs(element: Any) -> bool:
     if isinstance(element, list):
         return any(json_has_inlined_objs(v) for v in element)
     if isinstance(element, dict):
-        if '__pxturlidx__' in element:
-            assert '__pxttype__' in element
-            assert '__pxtstart__' in element
-            assert '__pxtend__' in element
+        if INLINED_OBJECT_MD_KEY in element:
             return True
         return any(json_has_inlined_objs(v) for v in element.values())
     return False
@@ -37,13 +34,10 @@ def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.
     if isinstance(element, list):
         return [reconstruct_json(v, urls, file_handles) for v in element]
     if isinstance(element, dict):
-        if '__pxttype__' in element:
-            assert '__pxturlidx__' in element
-            url_idx, start, end = element['__pxturlidx__'], element['__pxtstart__'], element['__pxtend__']
-            assert isinstance(url_idx, int) and url_idx < len(urls)
-            assert isinstance(start, int)
-            assert isinstance(end, int)
-            url = urls[url_idx]
+        if INLINED_OBJECT_MD_KEY in element:
+            #url_idx, start, end = element['__pxturlidx__'], element['__pxtstart__'], element['__pxtend__']
+            obj_md = InlinedObjectMd(**element[INLINED_OBJECT_MD_KEY])
+            url = urls[obj_md.url_idx]
             local_path = parse_local_file_path(url)
             if local_path not in file_handles:
                 file_handles[local_path] = open(local_path, 'rb')  # noqa: SIM115
@@ -109,13 +103,13 @@ class CellReconstructionNode(ExecNode):
                     val = row[col_ref.slot_idx]
                     if val is None:
                         continue
-                    cell_md = row.slot_cellmd.get(col_ref.slot_idx)
+                    cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(row[col_ref.slot_idx]):
                         continue
                     row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
 
                 for col_ref in self.array_refs:
-                    cell_md = row.slot_cellmd.get(col_ref.slot_idx)
+                    cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is not None and cell_md.array_start is not None:
                         assert row[col_ref.slot_idx] is None
                         assert cell_md.array_end is not None

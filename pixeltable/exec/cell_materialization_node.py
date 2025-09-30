@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import io
 import logging
 import os
@@ -12,12 +13,14 @@ import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
+from .globals import INLINED_OBJECT_MD_KEY, InlinedObjectMd
 
 _logger = logging.getLogger('pixeltable')
 
@@ -140,10 +143,12 @@ class CellMaterializationNode(ExecNode):
             np.save(self.buffered_writer, ar, allow_pickle=False)
             end = self.buffered_writer.tell()
             row.cell_vals[col.id] = None
-            cell_md = exprs.CellMd(file_urls=[self.inlined_obj_files[-1].as_uri()], array_start=start, array_end=end)
+            cell_md = exprs.CellMd(
+                file_urls=[self.inlined_obj_files[-1].as_uri()], array_md=exprs.ArrayMd(start=start, end=end)
+            )
             if np.issubdtype(val.dtype, np.bool_):
-                cell_md.array_is_bool = True
-                cell_md.array_shape = val.shape
+                cell_md.array_md.is_bool = True
+                cell_md.array_md.shape = val.shape
             row.cell_md[col.id] = cell_md
             self._flush_buffer()
 
@@ -163,30 +168,15 @@ class CellMaterializationNode(ExecNode):
         if isinstance(element, dict):
             return {k: self._rewrite_json(v) for k, v in element.items()}
         if isinstance(element, np.ndarray):
-            url_idx, start, end, is_bool_array, shape = self._write_inlined_array(element)
-            return {
-                '__pxttype__': ts.ColumnType.Type.ARRAY.name,
-                '__pxturlidx__': url_idx,
-                '__pxtstart__': start,
-                '__pxtend__': end,
-                '__pxtisboolarray__': is_bool_array,
-                '__pxtarrayshape__': shape,
-            }
+            obj_md = self._write_inlined_array(element)
+            return {INLINED_OBJECT_MD_KEY: dataclasses.asdict(obj_md)}
         if isinstance(element, PIL.Image.Image):
-            url_idx, start, end = self._write_inlined_image(element)
-            return {
-                '__pxttype__': ts.ColumnType.Type.IMAGE.name,
-                '__pxturlidx__': url_idx,
-                '__pxtstart__': start,
-                '__pxtend__': end,
-            }
+            obj_md = self._write_inlined_image(element)
+            return {INLINED_OBJECT_MD_KEY: dataclasses.asdict(obj_md)}
         return element
 
-    def _write_inlined_array(self, ar: np.ndarray) -> tuple[int, int, int, bool, tuple[int, ...] | None]:
-        """
-        Write an ndarray to buffered_writer and return:
-        index into inlined_obj_files, start offset, end offset, is_bool flag, shape
-        """
+    def _write_inlined_array(self, ar: np.ndarray) -> InlinedObjectMd:
+        """Write an ndarray to buffered_writer and return its metadata."""
         self.init_writer()
         url_idx = len(self.inlined_obj_files) - 1
         start = self.buffered_writer.tell()
@@ -202,18 +192,21 @@ class CellMaterializationNode(ExecNode):
         np.save(self.buffered_writer, ar, allow_pickle=False)
         end = self.buffered_writer.tell()
         self._flush_buffer()
-        return url_idx, start, end, is_bool_array, shape
+        return InlinedObjectMd(
+            type=ts.ColumnType.Type.ARRAY,
+            url_idx=url_idx,
+            array_md=exprs.ArrayMd(start=start, end=end, is_bool=is_bool_array, shape=shape),
+        )
 
-    def _write_inlined_image(self, img: PIL.Image.Image) -> tuple[int, int, int]:
+    def _write_inlined_image(self, img: PIL.Image.Image) -> InlinedObjectMd:
         """Write a PIL image to buffered_writer and return: index into inlined_obj_files, start offset, end offset"""
         self.init_writer()
         url_idx = len(self.inlined_obj_files) - 1
         start = self.buffered_writer.tell()
-        format = 'webp' if img.has_transparency_data else 'jpeg'
-        img.save(self.buffered_writer, format=format)
+        img.save(self.buffered_writer, format=image_utils.default_format(img))
         end = self.buffered_writer.tell()
         self._flush_buffer()
-        return url_idx, start, end
+        return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE, url_idx=url_idx, start=start, end=end)
 
     def _reset_buffer(self) -> None:
         local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(

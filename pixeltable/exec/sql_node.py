@@ -367,7 +367,7 @@ class SqlNode(ExecNode):
             # populate DataRow.slot_cellmd, where requested
             for cellmd_ref, item_idx in self.cellmd_item_idxs.items():
                 cell_md_dict = sql_row[item_idx]
-                output_row.slot_cellmd[cellmd_ref.col_ref.slot_idx] = (
+                output_row.slot_md[cellmd_ref.col_ref.slot_idx] = (
                     exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
                 )
 

@@ -6,7 +6,7 @@ from .column_property_ref import ColumnPropertyRef
 from .column_ref import ColumnRef
 from .comparison import Comparison
 from .compound_predicate import CompoundPredicate
-from .data_row import CellMd, DataRow
+from .data_row import ArrayMd, CellMd, DataRow
 from .expr import Expr
 from .expr_dict import ExprDict
 from .expr_set import ExprSet

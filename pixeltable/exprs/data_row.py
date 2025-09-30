@@ -14,8 +14,23 @@ import PIL
 import PIL.Image
 import sqlalchemy as sql
 
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, env
 from pixeltable.utils.local_store import TempStore
+
+
+@dataclass
+class ArrayMd:
+    """
+    Metadata for array cells that are stored externally.
+    """
+
+    start: int
+    end: int
+
+    # we store bool arrays as packed bits (uint8 arrays), and need to record the shape to reconstruct the array
+    is_bool: bool = False
+    shape: tuple[int, ...] | None = None
 
 
 @dataclass
@@ -34,13 +49,7 @@ class CellMd:
     # for array columns: a single url
     file_urls: list[str] | None = None
 
-    # for array cells that are stored externally, the start and end offsets
-    array_start: int | None = None
-    array_end: int | None = None
-
-    # we store bool arrays as packed bits (uint8 arrays), and need to record the shape to reconstruct the array
-    array_is_bool: bool | None = None
-    array_shape: tuple[int, ...] | None = None
+    array_md: ArrayMd | None = None
 
 
 class DataRow:
@@ -75,8 +84,8 @@ class DataRow:
     missing_dependents: np.ndarray  # of int16; number of missing dependents
     is_scheduled: np.ndarray  # of bool; True if this slot is scheduled for evaluation
 
-    # cell md needed for query execution; needs to be indexed by slot idx, not column id, to work for joins
-    slot_cellmd: dict[int, CellMd]
+    # CellMd needed for query execution; needs to be indexed by slot idx, not column id, to work for joins
+    slot_md: dict[int, CellMd]
 
     # file_urls:
     # - stored url of file for media in vals[i]
@@ -136,7 +145,7 @@ class DataRow:
         self.missing_slots = np.zeros(size, dtype=bool)
         self.missing_dependents = np.zeros(size, dtype=np.int16)
         self.is_scheduled = np.zeros(size, dtype=bool)
-        self.slot_cellmd = {}
+        self.slot_md = {}
         self.file_urls = np.full(size, None, dtype=object)
         self.file_paths = np.full(size, None, dtype=object)
         self._may_have_exc = False
@@ -333,9 +342,7 @@ class DataRow:
         val = self.vals[index]
         format = None
         if isinstance(val, PIL.Image.Image):
-            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-            # In that case, use WebP instead.
-            format = 'webp' if val.has_transparency_data else 'jpeg'
+            format = image_utils.default_format(val)
         filepath, url = TempStore.save_media_object(val, col, format=format)
         self.file_paths[index] = str(filepath) if filepath is not None else None
         self.vals[index] = None
