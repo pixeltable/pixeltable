@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
@@ -26,12 +26,19 @@ class TestTimestamp:
         # Insert test data
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+        # Trivial validation that rows were inserted correctly
+        r = t.collect()
+        for irow, rrow in zip(test_dts, r['dt']):
+            x = irow.astimezone(timezone.utc)
+            y = rrow.astimezone(timezone.utc)
+            assert x == y, (irow, rrow)
         return test_dts, t
 
     def test_timestamp_methods(self, reset_db: None) -> None:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
+        default_tz = Env.get().default_time_zone
         test_dts, t = self.make_test_table()
 
         from pixeltable.functions.timestamp import (

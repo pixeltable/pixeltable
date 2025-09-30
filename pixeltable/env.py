@@ -222,6 +222,7 @@ class Env:
         if tz is None:
             tz_name = self._get_tz_name()
         else:
+            assert isinstance(tz, ZoneInfo)
             tz_name = tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
@@ -459,6 +460,7 @@ class Env:
         http_logger.propagate = False
 
         self.clear_tmp_dir()
+        tz_name = self._get_tz_name()
 
         # configure pixeltable database
         self._init_db(config)
@@ -472,7 +474,6 @@ class Env:
             self._drop_store_db()
 
         create_db = not self._store_db_exists()
-
         if create_db:
             self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
@@ -480,7 +481,6 @@ class Env:
             self._logger.info(f'found database at: {self.db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
-        tz_name = self._get_tz_name()
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
         # Create catalog tables and system metadata
@@ -553,7 +553,7 @@ class Env:
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
-    def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
+    def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
         self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
         self._sa_engine = sql.create_engine(
@@ -561,6 +561,8 @@ class Env:
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        self._logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
+        self._logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
