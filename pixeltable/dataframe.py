@@ -19,7 +19,6 @@ from typing import (
     Optional,
     Sequence,
     TypeVar,
-    Union,
 )
 
 import pandas as pd
@@ -766,7 +765,7 @@ class DataFrame:
         )
 
     def _create_join_predicate(
-        self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
+        self, other: catalog.TableVersionPath, on: exprs.Expr | Sequence[exprs.ColumnRef]
     ) -> exprs.Expr:
         """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
@@ -796,19 +795,19 @@ class DataFrame:
         assert len(col_refs) > 0 and len(joined_tbls) >= 2
         for col_ref in col_refs:
             # identify the referenced column by name in 'other'
-            rhs_col = other.get_column(col_ref.col.name, include_bases=True)
+            rhs_col = other.get_column(col_ref.col.name)
             if rhs_col is None:
                 raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
             rhs_col_ref = exprs.ColumnRef(rhs_col)
 
             lhs_col_ref: Optional[exprs.ColumnRef] = None
-            if any(tbl.has_column(col_ref.col, include_bases=True) for tbl in self._from_clause.tbls):
+            if any(tbl.has_column(col_ref.col) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
             else:
                 # col_ref comes from other, we need to look for a match in the existing from_clause by name
                 for tbl in self._from_clause.tbls:
-                    col = tbl.get_column(col_ref.col.name, include_bases=True)
+                    col = tbl.get_column(col_ref.col.name)
                     if col is None:
                         continue
                     if lhs_col_ref is not None:
@@ -829,7 +828,7 @@ class DataFrame:
     def join(
         self,
         other: catalog.Table,
-        on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
+        on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: plan.JoinType.LiteralType = 'inner',
     ) -> DataFrame:
         """
@@ -1211,16 +1210,41 @@ class DataFrame:
             Via the above DataFrame person, update the column 'city' to 'Oakland'
             and 'state' to 'CA' in the table t:
 
-            >>> df = person.update({'city': 'Oakland', 'state': 'CA'})
+            >>> person.update({'city': 'Oakland', 'state': 'CA'})
 
             Via the above DataFrame person, update the column 'age' to 30 for any
             rows where 'year' is 2014 in the table t:
 
-            >>> df = person.where(t.year == 2014).update({'age': 30})
+            >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
+
+    def recompute_columns(
+        self, *columns: str | exprs.ColumnRef, errors_only: bool = False, cascade: bool = True
+    ) -> UpdateStatus:
+        """Recompute one or more computed columns of the underlying table of the DataFrame.
+
+        Args:
+            columns: The names or references of the computed columns to recompute.
+            errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
+                `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
+            cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
+
+        Returns:
+            UpdateStatus: the status of the operation.
+
+        Example:
+            For table `person` with column `age` and computed column `height`, recompute the value of `height` for all
+            rows where `age` is less than 18:
+
+            >>> df = person.where(t.age < 18).recompute_columns(person.height)
+        """
+        self._validate_mutable('recompute_columns', False)
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+            tbl = Catalog.get().get_table_by_id(self._first_tbl.tbl_id)
+            return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the DataFrame.
@@ -1231,13 +1255,9 @@ class DataFrame:
             UpdateStatus: the status of the delete operation.
 
         Example:
-            Given the DataFrame person from a table t with all its columns and rows:
+            For a table `person` with column `age`, delete all rows where 'age' is less than 18:
 
-            >>> person = t.select()
-
-            Via the above DataFrame person, delete all rows from the table t where the column 'age' is less than 18:
-
-            >>> df = person.where(t.age < 18).delete()
+            >>> person.where(t.age < 18).delete()
         """
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
@@ -1256,10 +1276,11 @@ class DataFrame:
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
-        if self._first_tbl.is_snapshot():
-            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
+        # First check if it's a replica, since every replica handle is also a snapshot
         if self._first_tbl.is_replica():
             raise excs.Error(f'Cannot use `{op_name}` on a replica.')
+        if self._first_tbl.is_snapshot():
+            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
         """Tests whether the sequence of operations on this DataFrame is valid for a mutation operation."""

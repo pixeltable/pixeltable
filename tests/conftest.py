@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+import shutil
 from typing import Callable, Iterator
 
 import pytest
@@ -12,16 +13,17 @@ from filelock import FileLock
 from sqlalchemy import orm
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
-from pixeltable import catalog, exprs, func
+from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import LocalStore, TempStore
 
 from .utils import (
+    IN_CI,
     ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
@@ -51,7 +53,11 @@ def pxt_test_harness() -> Iterator[None]:
     _logger.info(f'Running Pixeltable test: {current_test}')
     pxtf.huggingface._model_cache.clear()
     pxtf.huggingface._processor_cache.clear()
+
     yield
+
+    if IN_CI:
+        _free_disk_space()
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
@@ -69,9 +75,21 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
+    os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    reinit_db = True
+    if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
+        print('Using external database connection for test configuration')
+        reinit_db = False
 
-    for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA'):
-        print(f'{var:17} = {os.environ[var]}')
+    for var in (
+        'PIXELTABLE_HOME',
+        'PIXELTABLE_CONFIG',
+        'PIXELTABLE_DB',
+        'PIXELTABLE_PGDATA',
+        'FIFTYONE_DATABASE_DIR',
+        'PIXELTABLE_DB_CONNECT_STR',
+    ):
+        print(f'{var:25} = {os.environ.get(var)}')
 
     # Ensure the shared home directory exists.
     shared_home.mkdir(parents=True, exist_ok=True)
@@ -83,7 +101,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
-        Env._init_env(reinit_db=True)
+        Env._init_env(reinit_db=reinit_db)
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
@@ -91,18 +109,72 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
 
 @pytest.fixture(scope='function')
 def reset_db(init_env: None) -> None:
-    from pixeltable.env import Env
-
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
-    # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
-    # Env.get().clear_tmp_dir()
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+
+def _free_disk_space() -> None:
+    assert IN_CI
+
+    # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
+    # tests.
+
+    # Clear the temp store and media store
+    # If the LocalStore is actually an object store, this will NOT clear the object store.
+    try:
+        TempStore.clear()
+        LocalStore(Env.get().object_soa).clear()
+        _logger.info('Cleared TempStore and LocalStore.')
+    except PermissionError:
+        # Sometimes this happens on Windows if a file is held open by a concurrent process.
+        _logger.info('PermissionError trying to clear TempStore and LocalStore.')
+
+    try:
+        _clear_hf_caches()
+    except ImportError:
+        pass  # huggingface_hub not installed in this CI environment
+
+
+def _clear_hf_caches() -> None:
+    from huggingface_hub import scan_cache_dir
+    from huggingface_hub.constants import HF_HOME, HUGGINGFACE_HUB_CACHE
+
+    assert IN_CI
+
+    if pathlib.Path(HUGGINGFACE_HUB_CACHE).exists():
+        try:
+            # Scan the cache directory for all revisions of all models
+            cache_info = scan_cache_dir()
+            revisions_to_delete = [
+                revision.commit_hash
+                for repo in cache_info.repos
+                # Keep around models that are used by multiple tests
+                if repo.repo_id not in ('openai/clip-vit-base-patch32', 'intfloat/e5-large-v2')
+                for revision in repo.revisions
+            ]
+            cache_info.delete_revisions(*revisions_to_delete).execute()
+            _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface hub cache directory.')
+        except (OSError, PermissionError) as exc:
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface hub cache directory: {HUGGINGFACE_HUB_CACHE}'
+            )
+
+    huggingface_xet_cache = pathlib.Path(HF_HOME) / 'xet'
+    if huggingface_xet_cache.exists():
+        try:
+            shutil.rmtree(huggingface_xet_cache)
+            huggingface_xet_cache.mkdir()
+            _logger.info(f'Deleted xet cache directory: {huggingface_xet_cache}')
+        except (OSError, PermissionError) as exc:
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface xet cache directory: {huggingface_xet_cache}'
+            )
 
 
 def clean_db(restore_md_tables: bool = True) -> None:
@@ -137,7 +209,7 @@ def clean_db(restore_md_tables: bool = True) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(reset_db: None) -> catalog.Table:
+def test_tbl(reset_db: None) -> pxt.Table:
     return create_test_tbl()
 
 
@@ -147,7 +219,7 @@ def reload_tester(init_env: None) -> ReloadTester:
 
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
+def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
     t = test_tbl
     return [
         t.c1,
@@ -182,17 +254,17 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(reset_db: None) -> catalog.Table:
+def all_datatypes_tbl(reset_db: None) -> pxt.Table:
     return create_all_datatypes_tbl()
 
 
 @pytest.fixture(scope='function')
-def img_tbl(reset_db: None) -> catalog.Table:
+def img_tbl(reset_db: None) -> pxt.Table:
     return create_img_tbl('test_img_tbl')
 
 
 @pytest.fixture(scope='function')
-def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
+def img_tbl_exprs(indexed_img_tbl: pxt.Table) -> list[exprs.Expr]:
     t = indexed_img_tbl
     return [
         t.img.width,
@@ -206,18 +278,18 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def multi_img_tbl_exprs(multi_idx_img_tbl: catalog.Table) -> list[exprs.Expr]:
+def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
     t = multi_idx_img_tbl
     return [t.img.similarity('red truck', idx='img_idx1'), t.img.similarity('red truck', idx='img_idx2')]
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(reset_db: None) -> catalog.Table:
+def small_img_tbl(reset_db: None) -> pxt.Table:
     return create_img_tbl('small_img_tbl', num_rows=40)
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
+def indexed_img_tbl(reset_db: None, clip_embed: pxt.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
@@ -225,7 +297,7 @@ def indexed_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
+def multi_idx_img_tbl(reset_db: None, clip_embed: pxt.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
     t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
@@ -247,17 +319,26 @@ def _retry_hf(fn: Callable) -> Callable:
 
 @pytest.fixture(scope='session')
 @_retry_hf
-def clip_embed() -> func.Function:
-    return clip.using(model_id='openai/clip-vit-base-patch32')
+def clip_embed() -> pxt.Function:
+    try:
+        return clip.using(model_id='openai/clip-vit-base-patch32')
+    except ImportError:
+        return None  # Any time this happens, the test wil be skipped anyway.
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
-def e5_embed() -> func.Function:
-    return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+def e5_embed() -> pxt.Function:
+    try:
+        return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    except ImportError:
+        return None
 
 
 @pytest.fixture(scope='session')
 @_retry_hf
-def all_mpnet_embed() -> func.Function:
-    return sentence_transformer.using(model_id='all-mpnet-base-v2')
+def all_mpnet_embed() -> pxt.Function:
+    try:
+        return sentence_transformer.using(model_id='all-mpnet-base-v2')
+    except ImportError:
+        return None

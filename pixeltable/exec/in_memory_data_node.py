@@ -2,7 +2,7 @@ import logging
 from typing import Any, AsyncIterator, Optional
 
 from pixeltable import catalog, exprs
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.local_store import TempStore
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -67,8 +67,7 @@ class InMemoryDataNode(ExecNode):
                 col = col_info.col
                 if col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal media file, ie, a sequence of bytes; save it as a binary file and store the path
-                    assert col.tbl.id == self.tbl.id
-                    filepath, _ = MediaStore.save_media_object(val, col, format=None)
+                    filepath, _ = TempStore.save_media_object(val, col, format=None)
                     output_row[col_info.slot_idx] = str(filepath)
                 else:
                     output_row[col_info.slot_idx] = val

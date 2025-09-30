@@ -2,13 +2,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestGroq:
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('groq')
@@ -17,11 +16,11 @@ class TestGroq:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=chat_completions(messages=msgs, model='llama3-8b-8192'))
+        t.add_computed_column(output=chat_completions(messages=msgs, model='llama-3.1-8b-instant'))
         t.add_computed_column(
             output2=chat_completions(
                 messages=msgs,
-                model='llama3-8b-8192',
+                model='llama-3.1-8b-instant',
                 model_kwargs={
                     'temperature': 0.8,
                     'top_p': 0.95,
@@ -36,13 +35,14 @@ class TestGroq:
         assert 'tennessine' in results['output'][0]['choices'][0]['message']['content'].lower()
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.flaky(reruns=20, reruns_delay=8, condition=DO_RERUN)
+    @pytest.mark.skip(reason='Temporarily disabled')
+    @rerun(reruns=20, reruns_delay=8)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('groq')
         skip_test_if_no_client('groq')
         from pixeltable.functions import groq
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(

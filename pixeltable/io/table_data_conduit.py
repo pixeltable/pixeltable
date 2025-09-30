@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, cast
 
 import pandas as pd
 from pyarrow.parquet import ParquetDataset
@@ -325,7 +325,7 @@ class JsonTableDataConduit(TableDataConduit):
 
 
 class HFTableDataConduit(TableDataConduit):
-    hf_ds: Optional[Union[datasets.Dataset, datasets.DatasetDict]] = None
+    hf_ds: datasets.Dataset | datasets.DatasetDict | None = None
     column_name_for_split: Optional[str] = None
     categorical_features: dict[str, dict[int, str]]
     dataset_dict: dict[str, datasets.Dataset] = None
@@ -469,12 +469,12 @@ class ParquetTableDataConduit(TableDataConduit):
         return t
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        from pixeltable.utils.arrow import ar_infer_schema
+        from pixeltable.utils.arrow import to_pxt_schema
 
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
-            self.src_schema = ar_infer_schema(self.pq_ds.schema, self.src_schema_overrides, self.src_pk)
+            self.src_schema = to_pxt_schema(self.pq_ds.schema, self.src_schema_overrides, self.src_pk)
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
                 self.src_schema, self.src_pk, self.src_schema_overrides
             )

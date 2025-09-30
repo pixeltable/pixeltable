@@ -25,6 +25,7 @@ from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
+    from pixeltable.catalog.table import TableMetadata
     from pixeltable.globals import TableDataSource
 
 _logger = logging.getLogger('pixeltable')
@@ -46,17 +47,13 @@ class View(Table):
             self._tbl_version = tbl_version_path.tbl_version
 
     def _display_name(self) -> str:
-        name: str
-        if self._tbl_version_path.is_snapshot():
-            name = 'snapshot'
-        elif self._tbl_version_path.is_view():
-            name = 'view'
-        else:
-            assert self._tbl_version_path.is_replica()
-            name = 'table'
         if self._tbl_version_path.is_replica():
-            name = f'{name}-replica'
-        return name
+            return 'replica'
+        if self._tbl_version_path.is_snapshot():
+            return 'snapshot'
+        if self._tbl_version_path.is_view():
+            return 'view'
+        return 'table'
 
     @classmethod
     def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:
@@ -261,7 +258,7 @@ class View(Table):
         """
         return self._snapshot_only and self._id == self._tbl_version_path.tbl_id
 
-    def _get_metadata(self) -> dict[str, Any]:
+    def _get_metadata(self) -> 'TableMetadata':
         md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
@@ -269,12 +266,12 @@ class View(Table):
             # Update name and path with version qualifiers.
             md['name'] = f'{self._name}:{self._tbl_version_path.version()}'
             md['path'] = f'{self._path()}:{self._tbl_version_path.version()}'
-        base_tbl = self._get_base_table()
-        if base_tbl is None:
-            md['base'] = None
-        else:
+        base_tbl_id = self._base_tbl_id
+        if base_tbl_id is not None:
+            base_tbl = self._get_base_table()
+            base_path = '<anonymous base table>' if base_tbl is None else base_tbl._path()
             base_version = self._effective_base_versions[0]
-            md['base'] = base_tbl._path() if base_version is None else f'{base_tbl._path()}:{base_version}'
+            md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
         return md
 
     def insert(
@@ -293,17 +290,21 @@ class View(Table):
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
         raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
 
-    def _get_base_table(self) -> Optional['Table']:
+    @property
+    def _base_tbl_id(self) -> Optional[UUID]:
         if self._tbl_version_path.tbl_id != self._id:
             # _tbl_version_path represents a different schema object from this one. This can only happen if this is a
             # named pure snapshot.
-            base_id = self._tbl_version_path.tbl_id
-        elif self._tbl_version_path.base is None:
+            return self._tbl_version_path.tbl_id
+        if self._tbl_version_path.base is None:
             return None
-        else:
-            base_id = self._tbl_version_path.base.tbl_id
-        with catalog.Catalog.get().begin_xact(tbl_id=base_id, for_write=False):
-            return catalog.Catalog.get().get_table_by_id(base_id)
+        return self._tbl_version_path.base.tbl_id
+
+    def _get_base_table(self) -> Optional['Table']:
+        """Returns None if there is no base table, or if the base table is hidden."""
+        base_tbl_id = self._base_tbl_id
+        with catalog.Catalog.get().begin_xact(tbl_id=base_tbl_id, for_write=False):
+            return catalog.Catalog.get().get_table_by_id(base_tbl_id)
 
     @property
     def _effective_base_versions(self) -> list[Optional[int]]:
@@ -322,7 +323,9 @@ class View(Table):
             else:
                 base_descr = f'{base._path()}:{effective_version}'
                 bases_descrs.append(f'{base_descr!r}')
-        result.append(f' (of {", ".join(bases_descrs)})')
+        if len(bases_descrs) > 0:
+            # bases_descrs can be empty in the case of a table-replica
+            result.append(f' (of {", ".join(bases_descrs)})')
 
         if self._tbl_version_path.tbl_version.get().predicate is not None:
             result.append(f'\nWhere: {self._tbl_version_path.tbl_version.get().predicate!s}')

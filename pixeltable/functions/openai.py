@@ -23,6 +23,7 @@ import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
     import openai
@@ -91,35 +92,6 @@ def _rate_limits_pool(model: str) -> str:
     return f'rate-limits:openai:{model}'
 
 
-class OpenAIRateLimitsInfo(env.RateLimitsInfo):
-    retryable_errors: tuple[Type[Exception], ...]
-
-    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
-        super().__init__(get_request_resources)
-        import openai
-
-        self.retryable_errors = (
-            # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
-            # expired connections
-            # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
-            # 'await connection.aclose()', which is very likely a bug in AsyncConnectionPool)
-            openai.APIConnectionError,
-            # the following errors are retryable according to OpenAI's API documentation
-            openai.RateLimitError,
-            openai.APITimeoutError,
-            openai.UnprocessableEntityError,
-            openai.InternalServerError,
-        )
-
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
-        import openai
-
-        if not isinstance(exc, self.retryable_errors):
-            return None
-        assert isinstance(exc, openai.APIError)
-        return 1.0
-
-
 # RE pattern for duration in '*-reset' headers;
 # examples: 1d2h3ms, 4m5.6s; # fractional seconds can be reported as 0.5s or 500ms
 _header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
@@ -140,32 +112,70 @@ def _parse_header_duration(duration_str: str) -> datetime.timedelta:
 
 
 def _get_header_info(
-    headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
-) -> tuple[Optional[tuple[int, int, datetime.datetime]], Optional[tuple[int, int, datetime.datetime]]]:
-    assert requests or tokens
+    headers: httpx.Headers,
+) -> tuple[tuple[int, int, datetime.datetime] | None, tuple[int, int, datetime.datetime] | None]:
     now = datetime.datetime.now(tz=datetime.timezone.utc)
 
-    requests_info: Optional[tuple[int, int, datetime.datetime]] = None
-    if requests:
-        requests_limit_str = headers.get('x-ratelimit-limit-requests')
-        requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
-        requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
-        requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
-        requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
-        requests_reset_ts = now + _parse_header_duration(requests_reset_str)
-        requests_info = (requests_limit, requests_remaining, requests_reset_ts)
+    requests_limit_str = headers.get('x-ratelimit-limit-requests')
+    requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
+    requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
+    requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
+    requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
+    requests_reset_ts = now + _parse_header_duration(requests_reset_str)
+    requests_info = (requests_limit, requests_remaining, requests_reset_ts) if requests_remaining is not None else None
 
-    tokens_info: Optional[tuple[int, int, datetime.datetime]] = None
-    if tokens:
-        tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
-        tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
-        tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
-        tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
-        tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
-        tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
-        tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
+    tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
+    tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
+    tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
+    tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
+    tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
+    tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
+    tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts) if tokens_remaining is not None else None
+
+    if requests_info is None or tokens_info is None:
+        _logger.debug(f'get_header_info(): incomplete rate limit info: {headers}')
 
     return requests_info, tokens_info
+
+
+class OpenAIRateLimitsInfo(env.RateLimitsInfo):
+    retryable_errors: tuple[Type[Exception], ...]
+
+    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
+        super().__init__(get_request_resources)
+        import openai
+
+        self.retryable_errors = (
+            # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
+            # expired connections
+            # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
+            # 'await connection.aclose()', which is very likely a bug in AsyncConnectionPool)
+            openai.APIConnectionError,
+            # the following errors are retryable according to OpenAI's API documentation
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.UnprocessableEntityError,
+            openai.InternalServerError,
+        )
+
+    def record_exc(self, exc: Exception) -> None:
+        import openai
+
+        _ = isinstance(exc, openai.APIError)
+        if not isinstance(exc, openai.APIError) or not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
+            return
+        requests_info, tokens_info = _get_header_info(exc.response.headers)
+        _logger.debug(f'record_exc(): requests_info={requests_info} tokens_info={tokens_info}')
+        self.record(requests=requests_info, tokens=tokens_info)
+        self.has_exc = True
+
+    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+        import openai
+
+        if not isinstance(exc, self.retryable_errors):
+            return None
+        assert isinstance(exc, openai.APIError)
+        return super().get_retry_delay(exc)
 
 
 #####################################
@@ -210,7 +220,7 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[d
 
     content = await _openai_client().audio.speech.create(input=input, model=model, voice=voice, **model_kwargs)
     ext = model_kwargs.get('response_format', 'mp3')
-    output_filename = str(env.Env.get().create_tmp_path(f'.{ext}'))
+    output_filename = str(TempStore.create_path(extension=f'.{ext}'))
     content.write_to_file(output_filename)
     return output_filename
 
@@ -355,6 +365,7 @@ async def chat_completions(
     model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
+    _runtime_ctx: Optional[env.RuntimeCtx] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -418,7 +429,8 @@ async def chat_completions(
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     return json.loads(result.text)
 
@@ -461,7 +473,12 @@ def _vision_get_request_resources(
 
 @pxt.udf
 async def vision(
-    prompt: str, image: PIL.Image.Image, *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    prompt: str,
+    image: PIL.Image.Image,
+    *,
+    model: str,
+    model_kwargs: Optional[dict[str, Any]] = None,
+    _runtime_ctx: Optional[env.RuntimeCtx] = None,
 ) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
@@ -521,8 +538,10 @@ async def vision(
         **model_kwargs,
     )
 
+    # _logger.debug(f'vision(): headers={result.headers}')
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     result = json.loads(result.text)
     return result['choices'][0]['message']['content']
@@ -545,7 +564,11 @@ def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
 
 @pxt.udf(batch_size=32)
 async def embeddings(
-    input: Batch[str], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    input: Batch[str],
+    *,
+    model: str,
+    model_kwargs: Optional[dict[str, Any]] = None,
+    _runtime_ctx: Optional[env.RuntimeCtx] = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -592,7 +615,8 @@ async def embeddings(
         input=input, model=model, encoding_format='float', **model_kwargs
     )
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
 

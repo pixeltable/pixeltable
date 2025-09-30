@@ -394,9 +394,6 @@ class Planner:
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
 
-        stored_col_info = row_builder.output_slot_idxs()
-        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
-        plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(
             exec.ExecContext(
                 row_builder,
@@ -406,6 +403,8 @@ class Planner:
                 ignore_errors=ignore_errors,
             )
         )
+        plan = cls._insert_save_node(tbl.id, row_builder.stored_media_cols, input_node=plan)
+
         return plan
 
     @classmethod
@@ -427,10 +426,6 @@ class Planner:
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
-
-        stored_col_info = plan.row_builder.output_slot_idxs()
-        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
-        plan.set_stored_img_cols(stored_img_col_info)
 
         plan.set_ctx(
             exec.ExecContext(
@@ -506,6 +501,9 @@ class Planner:
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         plan.ctx.num_computed_exprs = len(recomputed_exprs)
+
+        plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
@@ -604,6 +602,7 @@ class Planner:
         # we're returning everything to the user, so we might as well do it in a single batch
         ctx.batch_size = 0
         plan.set_ctx(ctx)
+        plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return (
             plan,
@@ -657,10 +656,8 @@ class Planner:
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
-        stored_img_col_info = [
-            info for info in plan.row_builder.output_slot_idxs() if info.col.col_type.is_image_type()
-        ]
-        plan.set_stored_img_cols(stored_img_col_info)
+        plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+
         return plan
 
     @classmethod
@@ -727,10 +724,10 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
-        stored_img_col_info = [info for info in row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
-        plan.set_stored_img_cols(stored_img_col_info)
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
+        plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+
         return plan, len(row_builder.default_eval_ctx.target_exprs)
 
     @classmethod
@@ -776,6 +773,17 @@ class Planner:
         return combined_ordering
 
     @classmethod
+    def _insert_save_node(
+        cls, tbl_id: UUID, stored_media_cols: list[exprs.ColumnSlotIdx], input_node: exec.ExecNode
+    ) -> exec.ExecNode:
+        """Return an ObjectStoreSaveNode if stored media columns are present, otherwise return input"""
+        if len(stored_media_cols) == 0:
+            return input_node
+        save_node = exec.ObjectStoreSaveNode(tbl_id, stored_media_cols, input_node)
+        save_node.set_ctx(input_node.ctx)
+        return save_node
+
+    @classmethod
     def _is_contained_in(cls, l1: Iterable[exprs.Expr], l2: Iterable[exprs.Expr]) -> bool:
         """Returns True if l1 is contained in l2"""
         return {e.id for e in l1} <= {e.id for e in l2}
@@ -784,7 +792,7 @@ class Planner:
     def _insert_prefetch_node(
         cls, tbl_id: UUID, expressions: Iterable[exprs.Expr], input_node: exec.ExecNode
     ) -> exec.ExecNode:
-        """Return a CachePrefetchNode if needed, otherwise return input"""
+        """Return a node to prefetch data if needed, otherwise return input"""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
         # aren't explicitly captured as dependencies
@@ -1002,6 +1010,7 @@ class Planner:
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
+                plan = cls._insert_save_node(tbl.tbl_version.id, row_builder.stored_media_cols, input_node=plan)
         else:
             if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
@@ -1047,13 +1056,13 @@ class Planner:
         plan = cls._create_query_plan(
             row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True
         )
+
         plan.ctx.batch_size = 16
         plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
 
-        # we want to flush images
-        if col.is_computed and col.is_stored and col.col_type.is_image_type():
-            plan.set_stored_img_cols(row_builder.output_slot_idxs())
+        plan = cls._insert_save_node(tbl.tbl_version.id, row_builder.stored_media_cols, input_node=plan)
+
         return plan

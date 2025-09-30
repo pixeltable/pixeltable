@@ -138,15 +138,12 @@ class EmbeddingIndex(IndexBase):
 
     def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Create the index on the index value column"""
-        idx = sql.Index(
-            index_name,
-            index_value_col.sa_col,
-            postgresql_using='hnsw',
-            postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]},
+        Env.get().dbms.create_vector_index(
+            index_name=index_name,
+            index_value_sa_col=index_value_col.sa_col,
+            conn=Env.get().conn,
+            metric=self.PGVECTOR_OPS[self.metric],
         )
-        conn = Env.get().conn
-        idx.create(bind=conn)
 
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Drop the index on the index value column"""

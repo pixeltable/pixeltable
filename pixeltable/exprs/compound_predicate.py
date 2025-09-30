@@ -36,7 +36,8 @@ class CompoundPredicate(Expr):
         return f' {self.operator} '.join([f'({e})' for e in self.components])
 
     @classmethod
-    def make_conjunction(cls, operands: list[Expr]) -> Optional[Expr]:
+    def make_conjunction(cls, operands: list[Expr | None]) -> Expr | None:
+        operands = [e for e in operands if e is not None]
         if len(operands) == 0:
             return None
         if len(operands) == 1:

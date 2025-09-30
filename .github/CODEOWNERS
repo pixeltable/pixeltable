@@ -1,6 +1,7 @@
 # Global owners
 * @mkornacker @aaron-siegel
+pixeltable/catalog/** @mkornacker
 
 # Docs owners
-/docs/mintlify/** @mkornacker @aaron-siegel @pierrebrunelle @jacobweiss2305
-/docs/sample-apps/** @mkornacker @aaron-siegel @pierrebrunelle @jacobweiss2305
+/docs/mintlify/** @mkornacker @aaron-siegel @pierrebrunelle @goodlux
+/docs/sample-apps/** @mkornacker @aaron-siegel @pierrebrunelle @goodlux

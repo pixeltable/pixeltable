@@ -11,13 +11,12 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import threading
 import types
 import typing
-import uuid
 import warnings
-from abc import abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +28,8 @@ import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from sqlalchemy import orm
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -36,6 +37,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
+from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
 
 if TYPE_CHECKING:
     import spacy
@@ -58,7 +60,8 @@ class Env:
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Optional[Path]
-    _file_cache_dir: Optional[Path]  # cached media files with external URL
+    _object_soa: Optional[StorageObjectAddress]
+    _file_cache_dir: Optional[Path]  # cached object files with external URL
     _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
     _log_dir: Optional[Path]  # log files
     _tmp_dir: Optional[Path]  # any tmp files
@@ -83,11 +86,12 @@ class Env:
     _file_cache_size_g: float
     _pxt_api_key: Optional[str]
     _stdout_handler: logging.StreamHandler
+    _default_video_encoder: str | None
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
-    _current_session: Optional[sql.orm.Session]
+    _current_session: Optional[orm.Session]
     _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
@@ -102,18 +106,25 @@ class Env:
     def _init_env(cls, reinit_db: bool = False) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
+        if cls._instance is not None:
+            cls._instance._clean_up()
         cls._instance = None
         env = Env()
-        env._set_up(reinit_db=reinit_db)
-        env._upgrade_metadata()
-        cls._instance = env
-        cls.__initializing = False
+        try:
+            env._set_up(reinit_db=reinit_db)
+            env._upgrade_metadata()
+            cls._instance = env
+        finally:
+            # Reset the initializing flag, even if setup fails.
+            # This prevents the environment from being left in a broken state.
+            cls.__initializing = False
 
     def __init__(self) -> None:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
-        self._file_cache_dir = None  # cached media files with external URL
+        self._object_soa = None  # computed object files in StorageObjectAddress format
+        self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
         self._tmp_dir = None  # any tmp files
@@ -127,6 +138,7 @@ class Env:
         self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
+        self._default_video_encoder = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -216,7 +228,7 @@ class Env:
         return self._current_conn
 
     @property
-    def session(self) -> Optional[sql.orm.Session]:
+    def session(self) -> Optional[orm.Session]:
         assert self._current_session is not None
         return self._current_session
 
@@ -247,10 +259,10 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE' if for_write else 'REPEATABLE_READ'
+                self._current_isolation_level = 'SERIALIZABLE'
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
-                    sql.orm.Session(conn) as session,
+                    orm.Session(conn) as session,
                     conn.begin(),
                 ):
                     self._current_conn = conn
@@ -355,6 +367,7 @@ class Env:
 
         if not self._media_dir.exists():
             self._media_dir.mkdir()
+        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), may_contain_object_name=False)
         if not self._file_cache_dir.exists():
             self._file_cache_dir.mkdir()
         if not self._dataset_cache_dir.exists():
@@ -486,7 +499,7 @@ class Env:
                 raise excs.Error(error)
             self._logger.info(f'Using database at: {self.db_url}')
         else:
-            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+            self._db_name = config.get_string_value('db') or 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             # cleanup_mode=None will leave the postgres process running after Python exits
             # cleanup_mode='stop' will terminate the postgres process when Python exits
@@ -500,14 +513,24 @@ class Env:
         assert self._db_url is not None
         assert self._db_name is not None
 
+    @retry(
+        stop=stop_after_attempt(3),  # Stop after 3 attempts
+        wait=wait_exponential_jitter(initial=0.2, max=1.0, jitter=0.2),  # Exponential backoff with jitter
+    )
     def _init_metadata(self) -> None:
         """
         Create pixeltable metadata tables and system metadata.
         This is an idempotent operation.
+
+        Retry logic handles race conditions when multiple Pixeltable processes
+        attempt to initialize metadata tables simultaneously. The first process may succeed
+        in creating tables while others encounter database constraints (e.g., "table already exists").
+        Exponential backoff with jitter reduces contention between competing processes.
         """
         assert self._sa_engine is not None
         from pixeltable import metadata
 
+        self._logger.debug('Creating pixeltable metadata')
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
@@ -558,6 +581,14 @@ class Env:
         finally:
             engine.dispose()
 
+    def _pgserver_terminate_connections_stmt(self) -> str:
+        return f"""
+                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                FROM pg_stat_activity
+                WHERE pg_stat_activity.datname = '{self._db_name}'
+                AND pid <> pg_backend_pid()
+            """
+
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
@@ -566,13 +597,7 @@ class Env:
             with engine.begin() as conn:
                 # terminate active connections
                 if self._db_server is not None:
-                    stmt = f"""
-                        SELECT pg_terminate_backend(pg_stat_activity.pid)
-                        FROM pg_stat_activity
-                        WHERE pg_stat_activity.datname = '{self._db_name}'
-                        AND pid <> pg_backend_pid()
-                    """
-                    conn.execute(sql.text(stmt))
+                    conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
                 # drop db
                 stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
@@ -585,12 +610,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> str:
-        if self._pxt_api_key is None:
-            raise excs.Error(
-                'No API key is configured. Set the PIXELTABLE_API_KEY environment variable, or add an entry to '
-                'config.toml as described here:\nhttps://pixeltable.github.io/pixeltable/config/'
-            )
+    def pxt_api_key(self) -> Optional[str]:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
@@ -600,15 +620,17 @@ class Env:
         Args:
             - name: The name of the client
         """
-        cl = _registered_clients[name]
-        if cl.client_obj is not None:
-            return cl.client_obj  # Already initialized
+        # Return the existing client if it has already been constructed
+        with _registered_clients_lock:
+            cl = _registered_clients[name]
+            if cl.client_obj is not None:
+                return cl.client_obj  # Already initialized
 
-        # Construct a client, retrieving each parameter from config.
-
+        # Retrieve parameters required to construct the requested client.
         init_kwargs: dict[str, Any] = {}
         for param in cl.params.values():
             # Determine the type of the parameter for proper config parsing.
+            pname = param.name
             t = param.annotation
             # Deference Optional[T]
             if typing.get_origin(t) in (typing.Union, types.UnionType):
@@ -618,27 +640,31 @@ class Env:
                 elif args[1] is type(None):
                     t = args[0]
             assert isinstance(t, type), t
-            arg: Any = Config.get().get_value(param.name, t, section=name)
+            arg: Any = Config.get().get_value(pname, t, section=name)
             if arg is not None:
-                init_kwargs[param.name] = arg
+                init_kwargs[pname] = arg
             elif param.default is inspect.Parameter.empty:
                 raise excs.Error(
-                    f'`{name}` client not initialized: parameter `{param.name}` is not configured.\n'
-                    f'To fix this, specify the `{name.upper()}_{param.name.upper()}` environment variable, '
-                    f'or put `{param.name.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
+                    f'`{name}` client not initialized: parameter `{pname}` is not configured.\n'
+                    f'To fix this, specify the `{name.upper()}_{pname.upper()}` environment variable, '
+                    f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
-        cl.client_obj = cl.init_fn(**init_kwargs)
-        self._logger.info(f'Initialized `{name}` client.')
-        return cl.client_obj
+        # Construct the requested client
+        with _registered_clients_lock:
+            if cl.client_obj is not None:
+                return cl.client_obj  # Already initialized
+            cl.client_obj = cl.init_fn(**init_kwargs)
+            self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+            return cl.client_obj
 
     def _start_web_server(self) -> None:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
         On Windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
-        This arrangement enables serving media hosted within _home,
-        as well as external media inserted into pixeltable or produced by pixeltable.
+        This arrangement enables serving objects hosted within _home,
+        as well as external objects inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
@@ -660,13 +686,50 @@ class Env:
         self._start_web_server()
         self.__register_packages()
 
+    @property
+    def default_video_encoder(self) -> str | None:
+        if self._default_video_encoder is None:
+            self._default_video_encoder = self._determine_default_video_encoder()
+        return self._default_video_encoder
+
+    def _determine_default_video_encoder(self) -> str | None:
+        """
+        Returns the first available encoder from a list of candidates.
+
+        TODO:
+        - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
+        - allow user override via a config option 'video_encoder'
+        """
+        # look for available encoders, in this order
+        candidates = [
+            'libx264',  # GPL, best quality
+            'libopenh264',  # BSD
+        ]
+
+        try:
+            # Get list of available encoders
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+
+            if result.returncode == 0:
+                available_encoders = result.stdout
+                for encoder in candidates:
+                    # ffmpeg -encoders output format: " V..... encoder_name  description"
+                    if f' {encoder} ' in available_encoders:
+                        _logger.debug(f'Using H.264 encoder: {encoder}')
+                        return encoder
+        except Exception:
+            pass
+        return None
+
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
         self.__register_package('anthropic')
+        self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
         self.__register_package('boto3')
         self.__register_package('datasets')
         self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
+        self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
@@ -693,6 +756,7 @@ class Env:
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
+        self.__register_package('lancedb')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         is_installed: bool
@@ -750,12 +814,6 @@ class Env:
             else:
                 os.remove(path)
 
-    def num_tmp_files(self) -> int:
-        return len(glob.glob(f'{self._tmp_dir}/*'))
-
-    def create_tmp_path(self, extension: str = '') -> Path:
-        return self._tmp_dir / f'{uuid.uuid4()}{extension}'
-
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
@@ -769,6 +827,12 @@ class Env:
     def media_dir(self) -> Path:
         assert self._media_dir is not None
         return self._media_dir
+
+    @property
+    def object_soa(self) -> StorageObjectAddress:
+        assert self._media_dir is not None
+        assert self._object_soa is not None
+        return self._object_soa
 
     @property
     def file_cache_dir(self) -> Path:
@@ -816,6 +880,63 @@ class Env:
         except Exception as exc:
             raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
+    def _clean_up(self) -> None:
+        """
+        Internal cleanup method that properly closes all resources and resets state.
+        This is called before destroying the singleton instance.
+        """
+        assert self._current_session is None
+        assert self._current_conn is None
+
+        # Stop HTTP server
+        if self._httpd is not None:
+            try:
+                self._httpd.shutdown()
+                self._httpd.server_close()
+            except Exception as e:
+                _logger.warning(f'Error stopping HTTP server: {e}')
+
+        # First terminate all connections to the database
+        if self._db_server is not None:
+            assert self._dbms is not None
+            assert self._db_name is not None
+            try:
+                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+                try:
+                    with temp_engine.begin() as conn:
+                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
+                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
+                except Exception as e:
+                    _logger.warning(f'Error terminating database connections: {e}')
+                finally:
+                    temp_engine.dispose()
+            except Exception as e:
+                _logger.warning(f'Error stopping database server: {e}')
+
+        # Dispose of SQLAlchemy engine (after stopping db server)
+        if self._sa_engine is not None:
+            try:
+                self._sa_engine.dispose()
+            except Exception as e:
+                _logger.warning(f'Error disposing engine: {e}')
+
+        # Close event loop
+        if self._event_loop is not None:
+            try:
+                if self._event_loop.is_running():
+                    self._event_loop.stop()
+                self._event_loop.close()
+            except Exception as e:
+                _logger.warning(f'Error closing event loop: {e}')
+
+        # Remove logging handlers
+        for handler in self._logger.handlers[:]:
+            try:
+                handler.close()
+                self._logger.removeHandler(handler)
+            except Exception as e:
+                _logger.warning(f'Error removing handler: {e}')
+
 
 def register_client(name: str) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.
@@ -845,11 +966,13 @@ def register_client(name: str) -> Callable:
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
-        _registered_clients[name] = ApiClient(init_fn=fn, params=params)
+        with _registered_clients_lock:
+            _registered_clients[name] = ApiClient(init_fn=fn, params=params)
 
     return decorator
 
 
+_registered_clients_lock: threading.Lock = threading.Lock()
 _registered_clients: dict[str, ApiClient] = {}
 
 
@@ -890,6 +1013,10 @@ class RateLimitsInfo:
     get_request_resources: Callable[..., dict[str, int]]
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
+    has_exc: bool = False
+
+    def debug_str(self) -> str:
+        return ','.join(info.debug_str() for info in self.resource_limits.values())
 
     def is_initialized(self) -> bool:
         return len(self.resource_limits) > 0
@@ -897,7 +1024,7 @@ class RateLimitsInfo:
     def reset(self) -> None:
         self.resource_limits.clear()
 
-    def record(self, **kwargs: Any) -> None:
+    def record(self, reset_exc: bool = False, **kwargs: Any) -> None:
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         if len(self.resource_limits) == 0:
             self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items() if v is not None}
@@ -908,14 +1035,30 @@ class RateLimitsInfo:
                     f'reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}'
                 )
         else:
+            if self.has_exc and not reset_exc:
+                # ignore updates until we're asked to reset
+                _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
+                return
+            self.has_exc = False
             for k, v in kwargs.items():
                 if v is not None:
                     self.resource_limits[k].update(now, *v)
 
-    @abstractmethod
+    def record_exc(self, exc: Exception) -> None:
+        """Update self.resource_limits based on the exception headers"""
+        self.has_exc = True
+
     def get_retry_delay(self, exc: Exception) -> Optional[float]:
         """Returns number of seconds to wait before retry, or None if not retryable"""
-        pass
+        if len(self.resource_limits) == 0:
+            return 1.0
+        # we're looking for the maximum delay across all depleted resources
+        max_delay = 0.0
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        for limit_info in self.resource_limits.values():
+            if limit_info.remaining < 0.05 * limit_info.limit:
+                max_delay = max(max_delay, (limit_info.reset_at - now).total_seconds())
+        return max_delay if max_delay > 0 else None
 
 
 @dataclass
@@ -928,9 +1071,15 @@ class RateLimitInfo:
     remaining: int
     reset_at: datetime.datetime
 
+    def debug_str(self) -> str:
+        return (
+            f'{self.resource}@{self.recorded_at.strftime(TIME_FORMAT)}: '
+            f'{self.limit}/{self.remaining}/{self.reset_at.strftime(TIME_FORMAT)}'
+        )
+
     def update(self, recorded_at: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None:
         # we always update everything, even though responses may come back out-of-order: we can't use reset_at to
-        # determine order, because it doesn't increase monotonically (the reeset duration shortens as output_tokens
+        # determine order, because it doesn't increase monotonically (the reset duration shortens as output_tokens
         # are freed up - going from max to actual)
         self.recorded_at = recorded_at
         self.limit = limit
@@ -942,3 +1091,16 @@ class RateLimitInfo:
             f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} '
             f'reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}'
         )
+
+
+@dataclass
+class RuntimeCtx:
+    """
+    Container for runtime data provided by the execution system to udfs.
+
+    Udfs that accept the special _runtime_ctx parameter receive an instance of this class.
+    """
+
+    # Indicates a retry attempt following a rate limit error (error code: 429). Requires a 'rate-limits' resource pool.
+    # If True, call RateLimitsInfo.record() with reset_exc=True.
+    is_retry: bool = False

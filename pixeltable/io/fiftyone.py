@@ -1,5 +1,5 @@
 import os
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional
 
 import fiftyone as fo  # type: ignore[import-untyped]
 import fiftyone.utils.data as foud  # type: ignore[import-untyped]
@@ -9,7 +9,7 @@ import puremagic
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import exprs
-from pixeltable.env import Env
+from pixeltable.utils.local_store import TempStore
 
 
 class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
@@ -28,11 +28,11 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         tbl: pxt.Table,
         image: exprs.Expr,
         image_format: str,
-        classifications: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
-        detections: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
+        classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
+        detections: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
         dataset_dir: Optional[os.PathLike] = None,
         shuffle: bool = False,
-        seed: Union[int, float, str, bytes, bytearray, None] = None,
+        seed: int | float | str | bytes | bytearray | None = None,
         max_samples: Optional[int] = None,
     ):
         super().__init__(dataset_dir=dataset_dir, shuffle=shuffle, seed=seed, max_samples=max_samples)
@@ -100,7 +100,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             assert isinstance(file, str)
         else:
             # Write the dynamically created image to a temp file
-            file = str(Env.get().create_tmp_path(f'.{self.__image_format}'))
+            file = TempStore.create_path(extension=f'.{self.__image_format}')
             img.save(file, format=self.__image_format)
 
         metadata = fo.ImageMetadata(
@@ -108,7 +108,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             mime_type=puremagic.from_file(file, mime=True),
             width=img.width,
             height=img.height,
-            filepath=file,
+            filepath=str(file),
             num_channels=len(img.getbands()),
         )
 

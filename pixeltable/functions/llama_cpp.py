@@ -93,8 +93,16 @@ def _lookup_pretrained_model(repo_id: str, filename: Optional[str], n_gpu_layers
     return _model_cache[key]
 
 
-_model_cache: dict[tuple[str, str, int], Any] = {}
+_model_cache: dict[tuple[str, str, int], 'llama_cpp.Llama'] = {}
 _IS_GPU_AVAILABLE: Optional[bool] = None
+
+
+def cleanup() -> None:
+    for model in _model_cache.values():
+        if model._sampler is not None:
+            model._sampler.close()
+        model.close()
+    _model_cache.clear()
 
 
 __all__ = local_public_names(__name__)

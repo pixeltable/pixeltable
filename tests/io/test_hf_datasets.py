@@ -7,10 +7,8 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_not_installed
+from ..utils import rerun, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -19,9 +17,7 @@ if TYPE_CHECKING:
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
-@pytest.mark.flaky(
-    reruns=3, reruns_delay=15, condition=DO_RERUN
-)  # Guard against connection errors downloading datasets
+@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
     def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
@@ -210,6 +206,6 @@ class TestHfDatasets:
 
     def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
         assert 'Unsupported data source type' in str(exc_info.value)

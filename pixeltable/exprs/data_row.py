@@ -14,7 +14,7 @@ import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import catalog, env
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.local_store import TempStore
 
 
 class DataRow:
@@ -257,29 +257,48 @@ class DataRow:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def flush_img(self, index: int, col: Optional[catalog.Column] = None) -> None:
-        """Save or discard the in-memory value (required to be a PIL.Image.Image)"""
+    def prepare_col_val_for_save(self, index: int, col: Optional[catalog.Column] = None) -> bool:
+        """
+        Prepare to save a column's value into the appropriate store. Discard unneeded values.
+
+        Return:
+            True if the media object in the column needs to be saved.
+        """
         if self.vals[index] is None:
-            return
+            return False
+
+        if self.file_urls[index] is not None:
+            return False
+
         assert self.excs[index] is None
         if self.file_paths[index] is None:
             if col is not None:
-                image = self.vals[index]
-                format = None
-                if isinstance(image, PIL.Image.Image):
-                    # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-                    # In that case, use WebP instead.
-                    format = 'webp' if image.has_transparency_data else 'jpeg'
-                filepath, url = MediaStore.save_media_object(image, col, format=format)
-                self.file_paths[index] = str(filepath)
-                self.file_urls[index] = url
+                # This is a media object that needs to be saved
+                return True
             else:
-                # we discard the content of this cell
+                # This is a media object that we don't care about, so we discard it
                 self.has_val[index] = False
         else:
             # we already have a file for this image, nothing left to do
             pass
+
         self.vals[index] = None
+        return False
+
+    def save_media_to_temp(self, index: int, col: catalog.Column) -> str:
+        """Save the media object in the column to the TempStore.
+        Objects cannot be saved directly to general destinations."""
+        assert col.col_type.is_media_type()
+        val = self.vals[index]
+        format = None
+        if isinstance(val, PIL.Image.Image):
+            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
+            # In that case, use WebP instead.
+            format = 'webp' if val.has_transparency_data else 'jpeg'
+        filepath, url = TempStore.save_media_object(val, col, format=format)
+        self.file_paths[index] = str(filepath) if filepath is not None else None
+        self.vals[index] = None
+        return url
 
     @property
     def rowid(self) -> tuple[int, ...]:

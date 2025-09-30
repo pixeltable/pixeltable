@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
 
 
 class TestConfig:
@@ -56,7 +55,7 @@ class TestConfig:
         pxt.init()
         pxt.init()  # Ok to do a parameterless init() a second time
         with pytest.raises(
-            excs.Error,
+            pxt.Error,
             match='Pixeltable has already been initialized; cannot specify new config values in the same session',
         ):
             pxt.init({'pixeltable.home': '.'})  # Not ok to specify new config values after init()

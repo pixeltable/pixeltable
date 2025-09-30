@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, NamedTuple, Optional, Sequence
 from uuid import UUID
 
 import numpy as np
@@ -34,8 +34,7 @@ class ExecProfile:
             )
 
 
-@dataclass
-class ColumnSlotIdx:
+class ColumnSlotIdx(NamedTuple):
     """Info for how to locate materialized column in DataRow
     TODO: can this be integrated into RowBuilder directly?
     """
@@ -49,6 +48,12 @@ class RowBuilder:
 
     For ColumnRefs to unstored iterator columns:
     - in order for them to be executable, we also record the iterator args and pass them to the ColumnRef
+
+    Args:
+        output_exprs: list of Exprs to be evaluated
+        columns: list of columns to be materialized
+        input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
+    TODO: enforce that output_exprs doesn't overlap with input_exprs?
     """
 
     unique_exprs: ExprSet
@@ -87,6 +92,8 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
+    stored_img_cols: list[exprs.ColumnSlotIdx]
+    stored_media_cols: list[exprs.ColumnSlotIdx]
 
     @dataclass
     class EvalCtx:
@@ -104,15 +111,10 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: Optional[catalog.TableVersion] = None,
     ):
-        """
-        Args:
-            output_exprs: list of Exprs to be evaluated
-            columns: list of columns to be materialized
-            input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
-        TODO: enforce that output_exprs doesn't overlap with input_exprs?
-        """
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
+        self.stored_img_cols = []
+        self.stored_media_cols = []
 
         # record input and output exprs; make copies to avoid reusing execution state
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
@@ -127,7 +129,7 @@ class RowBuilder:
         )
 
         # if init(columns):
-        # - we are creating table rows and need to record columns for create_table_row()
+        # - we are creating table rows and need to record columns for create_store_table_row()
         # - output_exprs materialize those columns
         # - input_exprs are ColumnRefs of the non-computed columns (ie, what needs to be provided as input)
         # - media validation:
@@ -247,11 +249,13 @@ class RowBuilder:
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
         """Record a column that is part of the table row"""
         assert self.tbl is not None
-        self.table_columns.append(ColumnSlotIdx(col, slot_idx))
-
-    def output_slot_idxs(self) -> list[ColumnSlotIdx]:
-        """Return ColumnSlotIdx for output columns"""
-        return self.table_columns
+        assert col.is_stored
+        info = ColumnSlotIdx(col, slot_idx)
+        self.table_columns.append(info)
+        if col.col_type.is_media_type():
+            self.stored_media_cols.append(info)
+            if col.col_type.is_image_type():
+                self.stored_img_cols.append(info)
 
     @property
     def num_materialized(self) -> int:
@@ -445,20 +449,20 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(
+    def create_store_table_row(
         self, data_row: DataRow, cols_with_excs: Optional[set[int]], pk: tuple[int, ...]
     ) -> tuple[list[Any], int]:
-        """Create a table row from the slots that have an output column assigned
+        """Create a store table row from the slots that have an output column assigned
 
         Return tuple[list of row values in `self.table_columns` order, # of exceptions]
             This excludes system columns.
+            Row values are converted to their store type.
         """
         from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 
         num_excs = 0
         table_row: list[Any] = list(pk)
-        for info in self.table_columns:
-            col, slot_idx = info.col, info.slot_idx
+        for col, slot_idx in self.table_columns:
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
@@ -469,9 +473,6 @@ class RowBuilder:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
-                    # we have yet to store this image
-                    data_row.flush_img(slot_idx, col)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
@@ -479,7 +480,7 @@ class RowBuilder:
 
         return table_row, num_excs
 
-    def store_column_names(self) -> tuple[list[str], dict[int, catalog.Column]]:
+    def store_column_names(self) -> list[str]:
         """
         Returns the list of store column names corresponding to the table_columns of this RowBuilder.
         The second tuple element of the return value is a dictionary containing all media columns in the
@@ -487,16 +488,13 @@ class RowBuilder:
         """
         assert self.tbl is not None, self.table_columns
         store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
-        media_cols: dict[int, catalog.Column] = {}
 
         for col in self.table_columns:
-            if col.col.col_type.is_media_type():
-                media_cols[len(store_col_names)] = col.col
             store_col_names.append(col.col.store_name())
             if col.col.stores_cellmd:
                 store_col_names.append(col.col.cellmd_store_name())
 
-        return store_col_names, media_cols
+        return store_col_names
 
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""

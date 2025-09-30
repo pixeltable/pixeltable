@@ -5,7 +5,8 @@ from typing import Any, ClassVar, Optional
 
 import av
 
-from pixeltable import env, exceptions as excs, type_system as ts
+from pixeltable import exceptions as excs, type_system as ts
+from pixeltable.utils.local_store import TempStore
 
 from .base import ComponentIterator
 
@@ -149,7 +150,7 @@ class AudioSplitter(ComponentIterator):
         target_chunk_start, target_chunk_end = self.chunks_to_extract_in_pts[self.next_pos]
         chunk_start_pts = 0
         chunk_end_pts = 0
-        chunk_file = str(env.Env.get().create_tmp_path(self.audio_path.suffix))
+        chunk_file = str(TempStore.create_path(extension=self.audio_path.suffix))
         output_container = av.open(chunk_file, mode='w')
         input_stream = self.container.streams.audio[0]
         codec_name = AudioSplitter.__codec_map.get(input_stream.codec_context.name, input_stream.codec_context.name)

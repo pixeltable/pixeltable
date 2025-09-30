@@ -27,6 +27,8 @@ from . import (
     video,
     vision,
     whisper,
+    whisperx,
+    yolox,
 )
 from .globals import count, map, max, mean, min, sum
 

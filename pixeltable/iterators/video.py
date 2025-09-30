@@ -1,5 +1,7 @@
 import logging
 import math
+import shutil
+import subprocess
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional
@@ -8,8 +10,11 @@ import av
 import pandas as pd
 import PIL.Image
 
+import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+import pixeltable.utils.av as av_utils
+from pixeltable.utils.local_store import TempStore
 
 from .base import ComponentIterator
 
@@ -29,12 +34,29 @@ class FrameIterator(ComponentIterator):
             extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+        all_frame_attrs:
+            If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes
+            (for more information, see `pyav`'s documentation on
+            [VideoFrame](https://pyav.org/docs/develop/api/video.html#module-av.video.frame) and
+            [Frame](https://pyav.org/docs/develop/api/frame.html)):
+
+            * `index` (`int`)
+            * `pts` (`Optional[int]`)
+            * `dts` (`Optional[int]`)
+            * `time` (`Optional[float]`)
+            * `is_corrupt` (`bool`)
+            * `key_frame` (`bool`)
+            * `pict_type` (`int`)
+            * `interlaced_frame` (`bool`)
+
+            If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
     """
 
     # Input parameters
     video_path: Path
     fps: Optional[float]
     num_frames: Optional[int]
+    all_frame_attrs: bool
 
     # Video info
     container: av.container.input.InputContainer
@@ -50,7 +72,14 @@ class FrameIterator(ComponentIterator):
     # frame index in the video. Otherwise, the corresponding video index is `frames_to_extract[next_pos]`.
     next_pos: int
 
-    def __init__(self, video: str, *, fps: Optional[float] = None, num_frames: Optional[int] = None):
+    def __init__(
+        self,
+        video: str,
+        *,
+        fps: Optional[float] = None,
+        num_frames: Optional[int] = None,
+        all_frame_attrs: bool = False,
+    ):
         if fps is not None and num_frames is not None:
             raise excs.Error('At most one of `fps` or `num_frames` may be specified')
 
@@ -60,6 +89,7 @@ class FrameIterator(ComponentIterator):
         self.container = av.open(str(video_path))
         self.fps = fps
         self.num_frames = num_frames
+        self.all_frame_attrs = all_frame_attrs
 
         self.video_framerate = self.container.streams.video[0].average_rate
         self.video_time_base = self.container.streams.video[0].time_base
@@ -115,16 +145,17 @@ class FrameIterator(ComponentIterator):
             'video': ts.VideoType(nullable=False),
             'fps': ts.FloatType(nullable=True),
             'num_frames': ts.IntType(nullable=True),
+            'all_frame_attrs': ts.BoolType(nullable=False),
         }
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        return {
-            'frame_idx': ts.IntType(),
-            'pos_msec': ts.FloatType(),
-            'pos_frame': ts.IntType(),
-            'frame': ts.ImageType(),
-        }, ['frame']
+        attrs: dict[str, ts.ColumnType]
+        if kwargs.get('all_frame_attrs'):
+            attrs = {'frame_attrs': ts.JsonType()}
+        else:
+            attrs = {'frame_idx': ts.IntType(), 'pos_msec': ts.FloatType(), 'pos_frame': ts.IntType()}
+        return {**attrs, 'frame': ts.ImageType()}, ['frame']
 
     def __next__(self) -> dict[str, Any]:
         # Determine the frame index in the video corresponding to the iterator index `next_pos`;
@@ -164,8 +195,22 @@ class FrameIterator(ComponentIterator):
                 raise excs.Error(f'Frame {next_video_idx} is missing from the video (video file is corrupt)')
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
-            pos_msec = float(pts * self.video_time_base * 1000)
-            result = {'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx, 'frame': img}
+            pts_msec = float(pts * self.video_time_base * 1000)
+            result: dict[str, Any] = {'frame': img}
+            if self.all_frame_attrs:
+                attrs = {
+                    'index': video_idx,
+                    'pts': frame.pts,
+                    'dts': frame.dts,
+                    'time': frame.time,
+                    'is_corrupt': frame.is_corrupt,
+                    'key_frame': frame.key_frame,
+                    'pict_type': frame.pict_type,
+                    'interlaced_frame': frame.interlaced_frame,
+                }
+                result['frame_attrs'] = attrs
+            else:
+                result.update({'frame_idx': self.next_pos, 'pos_msec': pts_msec, 'pos_frame': video_idx})
             self.next_pos += 1
             return result
 
@@ -184,3 +229,136 @@ class FrameIterator(ComponentIterator):
         # then the iterator will step forward to the desired frame on the subsequent call to next().
         self.container.seek(seek_pos, backward=True, stream=self.container.streams.video[0])
         self.next_pos = pos
+
+
+class VideoSplitter(ComponentIterator):
+    """
+    Iterator over segments of a video file, which is split into fixed-size segments of length `segment_duration`
+    seconds.
+
+    Args:
+        segment_duration: Video segment duration in seconds
+        overlap: Overlap between consecutive segments in seconds.
+        min_segment_duration: Drop the last segment if it is smaller than min_segment_duration
+    """
+
+    # Input parameters
+    video_path: Path
+    segment_duration: float
+    overlap: float
+    min_segment_duration: float
+
+    # Video metadata
+    video_duration: float
+    video_time_base: Fraction
+    video_start_time: int
+
+    # position tracking
+    next_segment_start: float
+    next_segment_start_pts: int
+
+    def __init__(self, video: str, segment_duration: float, *, overlap: float = 0.0, min_segment_duration: float = 0.0):
+        assert segment_duration > 0.0
+        assert segment_duration >= min_segment_duration
+        assert overlap < segment_duration
+
+        video_path = Path(video)
+        assert video_path.exists() and video_path.is_file()
+
+        if not shutil.which('ffmpeg'):
+            raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use VideoSplitter.')
+
+        self.video_path = video_path
+        self.segment_duration = segment_duration
+        self.overlap = overlap
+        self.min_segment_duration = min_segment_duration
+
+        with av.open(str(video_path)) as container:
+            video_stream = container.streams.video[0]
+            self.video_time_base = video_stream.time_base
+            self.video_start_time = video_stream.start_time or 0
+
+        self.next_segment_start = float(self.video_start_time * self.video_time_base)
+        self.next_segment_start_pts = self.video_start_time
+
+    @classmethod
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
+        return {
+            'video': ts.VideoType(nullable=False),
+            'segment_duration': ts.FloatType(nullable=False),
+            'overlap': ts.FloatType(nullable=True),
+            'min_segment_duration': ts.FloatType(nullable=True),
+        }
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        param_names = ['segment_duration', 'overlap', 'min_segment_duration']
+        params = dict(zip(param_names, args))
+        params.update(kwargs)
+
+        segment_duration = params['segment_duration']
+        min_segment_duration = params.get('min_segment_duration', 0.0)
+        overlap = params.get('overlap', 0.0)
+
+        if segment_duration <= 0.0:
+            raise excs.Error('segment_duration must be a positive number')
+        if segment_duration < min_segment_duration:
+            raise excs.Error('segment_duration must be at least min_segment_duration')
+        if overlap >= segment_duration:
+            raise excs.Error('overlap must be less than segment_duration')
+
+        return {
+            'segment_start': ts.FloatType(nullable=False),
+            'segment_start_pts': ts.IntType(nullable=False),
+            'segment_end': ts.FloatType(nullable=False),
+            'segment_end_pts': ts.IntType(nullable=False),
+            'video_segment': ts.VideoType(nullable=False),
+        }, []
+
+    def __next__(self) -> dict[str, Any]:
+        segment_path = str(TempStore.create_path(extension='.mp4'))
+        try:
+            cmd = av_utils.ffmpeg_clip_cmd(
+                str(self.video_path), segment_path, self.next_segment_start, self.segment_duration
+            )
+            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            # use the actual duration
+            segment_duration = av_utils.get_video_duration(segment_path)
+            if segment_duration - self.overlap == 0.0:
+                # we're done
+                Path(segment_path).unlink()
+                raise StopIteration
+
+            if segment_duration < self.min_segment_duration:
+                Path(segment_path).unlink()
+                raise StopIteration
+
+            segment_end = self.next_segment_start + segment_duration
+            segment_end_pts = self.next_segment_start_pts + round(segment_duration / self.video_time_base)
+
+            result = {
+                'segment_start': self.next_segment_start,
+                'segment_start_pts': self.next_segment_start_pts,
+                'segment_end': segment_end,
+                'segment_end_pts': segment_end_pts,
+                'video_segment': segment_path,
+            }
+            self.next_segment_start = segment_end - self.overlap
+            self.next_segment_start_pts = segment_end_pts - round(self.overlap / self.video_time_base)
+
+            return result
+
+        except subprocess.CalledProcessError as e:
+            if Path(segment_path).exists():
+                Path(segment_path).unlink()
+            error_msg = f'ffmpeg failed with return code {e.returncode}'
+            if e.stderr:
+                error_msg += f': {e.stderr.strip()}'
+            raise pxt.Error(error_msg) from e
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int) -> None:
+        pass

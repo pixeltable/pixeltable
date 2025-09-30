@@ -20,7 +20,7 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.object_stores import ObjectOps
 
 from .tbl_ops import TableOp
 
@@ -327,7 +327,7 @@ class TableVersion:
             from .table_version_path import TableVersionPath
 
             # clear out any remaining media files from an aborted previous attempt
-            MediaStore.delete(self.id)
+            self.delete_media()
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
@@ -356,13 +356,22 @@ class TableVersion:
         cat = pxt.catalog.Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
         # TableVersion instance before.
-        assert tbl_version.effective_version is not None
-        assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
+        # Actually this isn't true, because we might be re-creating a dropped replica.
+        # TODO: Understand why old TableVersions are kept around even for a dropped table.
+        # assert tbl_version.effective_version is not None
+        # assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
         tbl_version.store_tbl.ensure_columns_exist(col for col in tbl_version.cols if col.is_stored)
         return tbl_version
+
+    def delete_media(self, tbl_version: Optional[int] = None) -> None:
+        # Assemble a set of column destinations and delete objects from all of them
+        # None is a valid column destination which refers to the default object location
+        destinations = {col.destination for col in self.cols if col.is_stored}
+        for dest in destinations:
+            ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
     def drop(self) -> None:
         # if self.is_view and self.is_mutable:
@@ -374,7 +383,7 @@ class TableVersion:
         #     if self.base.get().is_mutable:
         #         self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        MediaStore.delete(self.id)
+        self.delete_media()
         FileCache.get().clear(tbl_id=self.id)
         self.store_tbl.drop()
 
@@ -827,14 +836,17 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
-        assert self.is_mutable
-        if old_name not in self.cols_by_name:
+        if not self.is_mutable:
+            raise excs.Error(f'Cannot rename column for immutable table {self.name!r}')
+        col = self.path.get_column(old_name)
+        if col is None:
             raise excs.Error(f'Unknown column: {old_name}')
+        if col.tbl.id != self.id:
+            raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
             raise excs.Error(f"Invalid column name: '{new_name}'")
         if new_name in self.cols_by_name:
             raise excs.Error(f'Column {new_name} already exists')
-        col = self.cols_by_name[old_name]
         del self.cols_by_name[old_name]
         col.name = new_name
         self.cols_by_name[new_name] = col
@@ -1024,10 +1036,11 @@ class TableVersion:
                 for el in val:
                     assert isinstance(el, int)
                 continue
-            col = self.path.get_column(col_name, include_bases=False)
+            col = self.path.get_column(col_name)
             if col is None:
-                # TODO: return more informative error if this is trying to update a base column
                 raise excs.Error(f'Column {col_name} unknown')
+            if col.tbl.id != self.id:
+                raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
@@ -1061,21 +1074,28 @@ class TableVersion:
 
         return update_targets
 
-    def recompute_columns(self, col_names: list[str], errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
+    def recompute_columns(
+        self, col_names: list[str], where: exprs.Expr | None = None, errors_only: bool = False, cascade: bool = True
+    ) -> UpdateStatus:
         assert self.is_mutable
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
 
+        from pixeltable.exprs import CompoundPredicate
         from pixeltable.plan import Planner
 
         target_columns = [self.cols_by_name[name] for name in col_names]
         where_clause: Optional[exprs.Expr] = None
+        if where is not None:
+            self._validate_where_clause(where, error_prefix="'where' argument")
+            where_clause = where
         if errors_only:
-            where_clause = (
+            errortype_pred = (
                 exprs.ColumnPropertyRef(exprs.ColumnRef(target_columns[0]), exprs.ColumnPropertyRef.Property.ERRORTYPE)
                 != None
             )
+            where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(
             self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
         )
@@ -1138,40 +1158,30 @@ class TableVersion:
             self._write_md(new_version=True, new_schema_version=False)
         return result
 
-    def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
-        """Delete rows in this table.
-        Args:
-            where: a predicate to filter rows to delete.
-
-        Returns:
-            UpdateStatus: an object containing the number of deleted rows and other statistics.
-        """
+    def _validate_where_clause(self, pred: exprs.Expr, error_prefix: str) -> None:
+        """Validates that pred can be expressed as a SQL Where clause"""
         assert self.is_insertable
         from pixeltable.exprs import Expr
         from pixeltable.plan import Planner
 
-        sql_where_clause: Optional[Expr] = None
-        if where is not None:
-            if not isinstance(where, Expr):
-                raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
-            analysis_info = Planner.analyze(self.path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
-            sql_where_clause = analysis_info.sql_where_clause
+        if not isinstance(pred, Expr):
+            raise excs.Error(f'{error_prefix} must be a predicate, got {type(pred)}')
+        analysis_info = Planner.analyze(self.path, pred)
+        # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
+        if analysis_info.filter is not None:
+            raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
-        status = self.propagate_delete(sql_where_clause, base_versions=[], timestamp=time.time())
+    def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
+        assert self.is_insertable
+        if where is not None:
+            self._validate_where_clause(where, error_prefix="'where' argument")
+        status = self.propagate_delete(where, base_versions=[], timestamp=time.time())
         return status
 
     def propagate_delete(
         self, where: Optional[exprs.Expr], base_versions: list[Optional[int]], timestamp: float
     ) -> UpdateStatus:
-        """Delete rows in this table and propagate to views.
-        Args:
-            where: a predicate to filter rows to delete.
-        Returns:
-            number of deleted rows
-        """
+        """Delete rows in this table and propagate to views"""
         # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         # #print(f'sql_where_clause={str(sql_where_clause) if sql_where_clause is not None else None}')
@@ -1235,7 +1245,7 @@ class TableVersion:
             )
 
         # delete newly-added data
-        MediaStore.delete(self.id, tbl_version=self.version)
+        self.delete_media(tbl_version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions

@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 
 import pydantic
 
@@ -100,7 +100,7 @@ class Tools(pydantic.BaseModel):
         self,
         auto: bool = False,
         required: bool = False,
-        tool: Union[str, Function, None] = None,
+        tool: str | Function | None = None,
         parallel_tool_calls: bool = True,
     ) -> ToolChoice:
         if sum([auto, required, tool is not None]) != 1:
