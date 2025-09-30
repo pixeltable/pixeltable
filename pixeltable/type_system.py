@@ -27,6 +27,8 @@ from typing_extensions import _AnnotatedAlias
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
 
+from pydantic import BaseModel, GetCoreSchemaHandler
+from pydantic_core import CoreSchema, core_schema
 
 class ColumnType:
     @enum.unique
@@ -549,6 +551,31 @@ class ColumnType:
     def _to_json_schema(self) -> dict[str, Any]:
         raise excs.Error(f'Pixeltable type {self} is not a valid JSON type')
 
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+            cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        """Let Pydantic use existing to_dict/from_dict methods"""
+
+        def validate(value: dict) -> 'MyCustomClass':
+            """Deserialize using existing from_dict method"""
+
+            if isinstance(value, dict):
+                return cls.from_dict(value)
+            raise ValueError(f'Expected dict or {cls.__name__}, got {type(value)}')
+
+        def serialize(obj: ColumnType) -> dict:
+            """Serialize using existing to_dict method"""
+            return obj.as_dict()
+
+        return core_schema.no_info_plain_validator_function(
+            validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                serialize,
+                return_schema=core_schema.dict_schema()
+            )
+        )
 
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):

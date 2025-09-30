@@ -35,7 +35,7 @@ class RemoteClient:
             Result from remote server
 
         Raises:
-                ConnectionError: If remote call fails
+            ConnectionError: If remote call fails
             RuntimeError: If remote operation fails
         """
         _logger.debug(f'Making remote call to {func.__name__} with {len(kwargs)} arguments')

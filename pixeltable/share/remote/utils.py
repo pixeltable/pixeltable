@@ -104,8 +104,7 @@ def serialize_to_remote(obj: Any) -> Any:
 @serialize_to_remote.register
 def _(obj: catalog.Table) -> dict[str, str]:
     """Serialize catalog.Table to remote format."""
-    path = obj.path if hasattr(obj, 'path') else obj._path()
-    return {'remote_table_path': convert_local_path_to_remote(path)}
+    raise NotImplementedError("catalog.Table can not used for remote operations")
 
 
 @serialize_to_remote.register
@@ -139,7 +138,7 @@ def _serialize_column_type(obj: ColumnType | _PxtType | Annotated[Any, ColumnTyp
     # Handle ColumnType directly
     if isinstance(obj, ColumnType):
         try:
-            return obj.to_json_schema()
+            return obj.as_dict()
         except Exception:
             # Fallback to as_dict for types that don't support JSON schema (like Image)
             return obj.as_dict()
@@ -148,7 +147,7 @@ def _serialize_column_type(obj: ColumnType | _PxtType | Annotated[Any, ColumnTyp
     if obj in ALL_PIXELTABLE_TYPES:
         col_type = obj.as_col_type(nullable=False)  # Fix: pass required nullable parameter
         try:
-            return col_type.to_json_schema()
+            return col_type.as_dict()
         except Exception:
             # Fallback to as_dict for types that don't support JSON schema (like Image)
             return col_type.as_dict()
@@ -160,7 +159,7 @@ def _deserialize_column_type(value: dict[str, Any]) -> Any:
     """Deserialize ColumnType objects using from_json_schema() or from_dict()."""
     try:
         # First try JSON schema format
-        result = ColumnType.from_json_schema(value)
+        result = ColumnType.from_dict(value)
         if result is not None:
             return result
     except Exception:
