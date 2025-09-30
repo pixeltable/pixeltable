@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import io
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,7 +19,7 @@ from pixeltable import catalog, env
 from pixeltable.utils.local_store import TempStore
 
 
-@dataclass
+@dataclasses.dataclass
 class ArrayMd:
     """
     Metadata for array cells that are stored externally.
@@ -32,8 +32,13 @@ class ArrayMd:
     is_bool: bool = False
     shape: tuple[int, ...] | None = None
 
+    def as_dict(self) -> dict:
+        # dict_factory: suppress Nones
+        x = dataclasses.asdict(self, dict_factory=lambda d: {k: v for (k, v) in d if v is not None})
+        return x
 
-@dataclass
+
+@dataclasses.dataclass
 class CellMd:
     """
     Content of the cellmd column.
@@ -50,6 +55,21 @@ class CellMd:
     file_urls: list[str] | None = None
 
     array_md: ArrayMd | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> CellMd:
+        x: CellMd
+        if 'array_md' in d:
+            d2 = d.copy()
+            del d2['array_md']
+            x = cls(**d2, array_md=ArrayMd(**d['array_md']))
+        else:
+            x = cls(**d)
+        return x
+
+    def as_dict(self) -> dict:
+        x = dataclasses.asdict(self, dict_factory=lambda d: {k: v for (k, v) in d if v is not None})
+        return x
 
 
 class DataRow:

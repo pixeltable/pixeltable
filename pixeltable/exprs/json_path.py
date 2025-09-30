@@ -189,6 +189,7 @@ class JsonPath(Expr):
             # TODO: have the planner pass that fact into ExprEvalNode explicitly to streamline this path a bit more
             return
 
+        # defer import until it's needed
         from pixeltable.exec.cell_reconstruction_node import json_has_inlined_objs, reconstruct_json
 
         cell_md = row.slot_md[self.anchor.slot_idx]

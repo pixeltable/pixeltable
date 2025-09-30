@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import io
 import logging
 import os
@@ -169,10 +168,10 @@ class CellMaterializationNode(ExecNode):
             return {k: self._rewrite_json(v) for k, v in element.items()}
         if isinstance(element, np.ndarray):
             obj_md = self._write_inlined_array(element)
-            return {INLINED_OBJECT_MD_KEY: dataclasses.asdict(obj_md)}
+            return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
         if isinstance(element, PIL.Image.Image):
             obj_md = self._write_inlined_image(element)
-            return {INLINED_OBJECT_MD_KEY: dataclasses.asdict(obj_md)}
+            return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
         return element
 
     def _write_inlined_array(self, ar: np.ndarray) -> InlinedObjectMd:
@@ -193,7 +192,7 @@ class CellMaterializationNode(ExecNode):
         end = self.buffered_writer.tell()
         self._flush_buffer()
         return InlinedObjectMd(
-            type=ts.ColumnType.Type.ARRAY,
+            type=ts.ColumnType.Type.ARRAY.name,
             url_idx=url_idx,
             array_md=exprs.ArrayMd(start=start, end=end, is_bool=is_bool_array, shape=shape),
         )
@@ -206,7 +205,7 @@ class CellMaterializationNode(ExecNode):
         img.save(self.buffered_writer, format=image_utils.default_format(img))
         end = self.buffered_writer.tell()
         self._flush_buffer()
-        return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE, url_idx=url_idx, start=start, end=end)
+        return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE.name, url_idx=url_idx, img_start=start, img_end=end)
 
     def _reset_buffer(self) -> None:
         local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(

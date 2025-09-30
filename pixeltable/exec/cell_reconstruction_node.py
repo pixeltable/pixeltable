@@ -5,12 +5,13 @@ import logging
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import PIL.Image
 import numpy as np
+import PIL.Image
 
 import pixeltable.type_system as ts
 from pixeltable import exprs
 from pixeltable.utils import parse_local_file_path
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 from .globals import INLINED_OBJECT_MD_KEY, InlinedObjectMd
@@ -35,27 +36,25 @@ def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.
         return [reconstruct_json(v, urls, file_handles) for v in element]
     if isinstance(element, dict):
         if INLINED_OBJECT_MD_KEY in element:
-            #url_idx, start, end = element['__pxturlidx__'], element['__pxtstart__'], element['__pxtend__']
-            obj_md = InlinedObjectMd(**element[INLINED_OBJECT_MD_KEY])
+            obj_md = InlinedObjectMd.from_dict(element[INLINED_OBJECT_MD_KEY])
             url = urls[obj_md.url_idx]
             local_path = parse_local_file_path(url)
             if local_path not in file_handles:
                 file_handles[local_path] = open(local_path, 'rb')  # noqa: SIM115
             fp = file_handles[local_path]
 
-            fp.seek(start)
-            assert fp.tell() == start
-            if element['__pxttype__'] == ts.ColumnType.Type.ARRAY.name:
-                assert '__pxtisboolarray__' in element and '__pxtarrayshape__' in element
-                is_bool_array, array_shape = element['__pxtisboolarray__'], element['__pxtarrayshape__']
-                ar = load_array(fp, start, end, is_bool_array, array_shape)
+            if obj_md.type == ts.ColumnType.Type.ARRAY.name:
+                fp.seek(obj_md.array_md.start)
+                ar = load_array(
+                    fp, obj_md.array_md.start, obj_md.array_md.end, obj_md.array_md.is_bool, obj_md.array_md.shape
+                )
                 return ar
             else:
-                assert element['__pxttype__'] == ts.ColumnType.Type.IMAGE.name
-                bytesio = io.BytesIO(fp.read(end - start))
+                fp.seek(obj_md.img_start)
+                bytesio = io.BytesIO(fp.read(obj_md.img_end - obj_md.img_start))
                 img = PIL.Image.open(bytesio)
                 img.load()
-                assert fp.tell() == end, f'{fp.tell()} != {end} / {start}'
+                assert fp.tell() == obj_md.img_end, f'{fp.tell()} != {obj_md.img_end} / {obj_md.img_start}'
                 return img
         else:
             return {k: reconstruct_json(v, urls, file_handles) for k, v in element.items()}
@@ -110,9 +109,8 @@ class CellReconstructionNode(ExecNode):
 
                 for col_ref in self.array_refs:
                     cell_md = row.slot_md.get(col_ref.slot_idx)
-                    if cell_md is not None and cell_md.array_start is not None:
+                    if cell_md is not None and cell_md.array_md is not None:
                         assert row[col_ref.slot_idx] is None
-                        assert cell_md.array_end is not None
                         assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
                         row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
                     else:
@@ -125,10 +123,13 @@ class CellReconstructionNode(ExecNode):
             fp.close()
 
     def _reconstruct_array(self, cell_md: exprs.CellMd) -> np.ndarray:
+        assert cell_md.array_md is not None
         local_path = parse_local_file_path(cell_md.file_urls[0])
         assert local_path is not None
         if local_path not in self.file_handles:
             self.file_handles[local_path] = open(str(local_path), 'rb')  # noqa: SIM115
         fp = self.file_handles[local_path]
-        ar = load_array(fp, cell_md.array_start, cell_md.array_end, bool(cell_md.array_is_bool), cell_md.array_shape)
+        ar = load_array(
+            fp, cell_md.array_md.start, cell_md.array_md.end, bool(cell_md.array_md.is_bool), cell_md.array_md.shape
+        )
         return ar

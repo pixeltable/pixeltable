@@ -368,7 +368,7 @@ class SqlNode(ExecNode):
             for cellmd_ref, item_idx in self.cellmd_item_idxs.items():
                 cell_md_dict = sql_row[item_idx]
                 output_row.slot_md[cellmd_ref.col_ref.slot_idx] = (
-                    exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
+                    exprs.CellMd.from_dict(cell_md_dict) if cell_md_dict is not None else None
                 )
 
             # copy the output of the SQL query into the output row

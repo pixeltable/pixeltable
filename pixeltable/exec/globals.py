@@ -1,15 +1,31 @@
-from dataclasses import dataclass
+from __future__ import annotations
 
-import pixeltable.type_system as ts
+import dataclasses
+
 from pixeltable.exprs import ArrayMd
 
-INLINED_OBJECT_MD_KEY = '__pxt_inlined_obj_md__'
+INLINED_OBJECT_MD_KEY = '__pxtinlinedobjmd__'
 
 
-@dataclass
+@dataclasses.dataclass
 class InlinedObjectMd:
-    type: ts.ColumnType.Type
+    type: str  # corresponds to ts.ColumnType.Type
     url_idx: int
-    start: int | None = None
-    end: int | None = None
+    img_start: int | None = None
+    img_end: int | None = None
     array_md: ArrayMd | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> InlinedObjectMd:
+        if 'array_md' in d:
+            array_md = ArrayMd(**d['array_md'])
+            del d['array_md']
+            return cls(**d, array_md=array_md)
+        else:
+            return cls(**d)
+
+    def as_dict(self) -> dict:
+        result = dataclasses.asdict(self, dict_factory=lambda d: {k: v for (k, v) in d if v is not None})
+        if self.array_md is not None:
+            result['array_md'] = self.array_md.as_dict()
+        return result
