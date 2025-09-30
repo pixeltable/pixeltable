@@ -528,6 +528,122 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         filelist_path.unlink()
 
 
+@pxt.udf
+def add_audio(
+    video: pxt.Video,
+    audio: pxt.Audio,
+    *,
+    video_offset: float = 0.0,
+    video_length: float | None = None,
+    audio_offset: float = 0.0,
+    audio_length: float | None = None,
+) -> pxt.Video:
+    """
+    Add an audio track to a video file with specified offsets and durations.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        audio: Input audio.
+        video_offset: Start time in the video file (in seconds).
+        video_length: Duration of video (in seconds). If None, uses the remainder of the video after `video_offset`.
+            `video_length` determines the length of the output video.
+        audio_offset: Start time in the audio file (in seconds).
+        audio_length: Duration of audio (in seconds). If None, uses the remainder of the audio after `audio_offset`
+            or `video_length`, whichever is shorter.
+
+
+    Returns:
+        A new video file with the audio track added.
+
+    Examples:
+        Add background music to a video:
+
+        >>> tbl.select(tbl.video.add_audio(tbl.music_track)).collect()
+
+        Add audio starting 5 seconds into both files:
+
+        >>> tbl.select(
+        ...     tbl.video.add_audio(
+        ...         tbl.music_track,
+        ...         video_offset=5.0,
+        ...         audio_offset=5.0
+        ...     )
+        ... ).collect()
+
+        Use a 10-second clip from the middle of both files:
+
+        >>> tbl.select(
+        ...     tbl.video.add_audio(
+        ...         tbl.music_track,
+        ...         video_offset=30.0,
+        ...         video_length=10.0,
+        ...         audio_offset=15.0,
+        ...         audio_length=10.0
+        ...     )
+        ... ).collect()
+    """
+    if not shutil.which('ffmpeg'):
+        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use add_audio().')
+    if video_offset < 0:
+        raise pxt.Error(f'video_offset must be non-negative, got {video_offset}')
+    if audio_offset < 0:
+        raise pxt.Error(f'audio_offset must be non-negative, got {audio_offset}')
+    if video_length is not None and video_length <= 0:
+        raise pxt.Error(f'video_length must be positive, got {video_length}')
+    if audio_length is not None and audio_length <= 0:
+        raise pxt.Error(f'audio_length must be positive, got {audio_length}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    cmd = ['ffmpeg']
+    if video_offset > 0:
+        # fast seek, must precede -i
+        cmd.extend(['-ss', str(video_offset)])
+    if video_length is not None:
+        cmd.extend(['-t', str(video_length)])
+    cmd.extend(['-i', str(video)])
+
+    if audio_offset > 0:
+        cmd.extend(['-ss', str(audio_offset)])
+    if audio_length is not None:
+        cmd.extend(['-t', str(audio_length)])
+    cmd.extend(['-i', str(audio)])
+
+    cmd.extend(
+        [
+            '-map',
+            '0:v:0',  # video from first input
+            '-map',
+            '1:a:0',  # audio from second input
+            '-c:v',
+            'copy',  # avoid re-encoding
+            '-c:a',
+            'copy',  # avoid re-encoding
+            '-shortest',  # stop when shortest stream ends
+            '-y',  # Overwrite output
+            '-loglevel',
+            'error',  # only show errors
+            output_path,
+        ]
+    )
+
+    _logger.debug(f'add_audio(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
 @pxt.udf(is_method=True)
 def overlay_text(
     video: pxt.Video,
