@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Literal, Optional, TypeVar
 
 import PIL.Image
 
@@ -470,7 +470,7 @@ def text_generation(text: Batch[str], *, model_id: str, model_kwargs: Optional[d
         text: The input text to continue/complete.
         model_id: The pretrained model to use for text generation.
         model_kwargs: Additional keyword arguments to pass to the model's `generate` method, such as `max_length`,
-            `temperature`, `do_sample`, etc. See the
+            `temperature`, etc. See the
             [Hugging Face text_generation documentation](https://huggingface.co/docs/inference-providers/en/tasks/text-generation)
             for details.
 
@@ -655,12 +655,6 @@ def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dic
     import torch
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-    if max_length <= min_length:
-        raise excs.Error(f'max_length ({max_length}) must be greater than min_length ({min_length})')
-
-    if min_length < 1:
-        raise excs.Error(f'min_length must be at least 1, got {min_length}')
-
     model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
 
@@ -676,12 +670,12 @@ def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dic
 
 @pxt.udf(batch_size=16)
 def token_classification(
-    text: Batch[str], *, model_id: str, aggregation_strategy: str = 'simple'
+    text: Batch[str], *, model_id: str, aggregation_strategy: Literal['simple', 'first', 'average', 'max'] = 'simple'
 ) -> Batch[list[dict[str, Any]]]:
     """
     Extracts named entities from text using a pretrained named entity recognition (NER) model.
     `model_id` should be a reference to a pretrained
-    [token classification model](https://huggingface.co/models?pipeline_tag=token-classification) for NER.
+    [token classification model](https://huggingface.co/models?pipeline_tag=token-classification).
 
     __Requirements:__
 
@@ -689,8 +683,8 @@ def token_classification(
 
     Args:
         text: The text to analyze for named entities.
-        model_id: The pretrained NER model to use.
-        aggregation_strategy: How to aggregate tokens ('simple', 'first', 'average', 'max').
+        model_id: The pretrained model to use.
+        aggregation_strategy: Method used to aggregate tokens.
 
     Returns:
         A list of dictionaries containing entity information (text, label, confidence, start, end).
@@ -698,7 +692,7 @@ def token_classification(
     Examples:
         Add a computed column that extracts named entities:
 
-        >>> tbl.add_computed_column(entities=named_entity_recognition(
+        >>> tbl.add_computed_column(entities=token_classification(
         ...     tbl.text,
         ...     model_id='dbmdz/bert-large-cased-finetuned-conll03-english'
         ... ))
@@ -716,7 +710,7 @@ def token_classification(
     valid_strategies = {'simple', 'first', 'average', 'max'}
     if aggregation_strategy not in valid_strategies:
         raise excs.Error(
-            f"Invalid aggregation_strategy '{aggregation_strategy}'. Must be one of: {', '.join(valid_strategies)}"
+            f"Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {', '.join(valid_strategies)}"
         )
 
     results = []
