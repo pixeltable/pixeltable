@@ -554,7 +554,7 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
+        connect_args = {'options': f'-c timezone={time_zone_name}'}
         self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
         self._sa_engine = sql.create_engine(
             self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args

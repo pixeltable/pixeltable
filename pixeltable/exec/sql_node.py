@@ -345,7 +345,9 @@ class SqlNode(ExecNode):
                     # convert to the session time zone with correct tzinfo for DST handling
                     if e.col_type.is_timestamp_type():
                         if isinstance(sql_row[i].tzinfo, datetime.timezone):
+                            utc_in = sql_row[i].astimezone(datetime.timezone.utc)
                             output_row[slot_idx] = sql_row[i].replace(tzinfo=tzinfo)
+                            assert output_row[slot_idx].astimezone(datetime.timezone.utc) == utc_in
                         else:
                             output_row[slot_idx] = sql_row[i]
                     else:

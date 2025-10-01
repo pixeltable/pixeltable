@@ -4565,6 +4565,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "toml" },
     { name = "tqdm" },
+    { name = "tzlocal" },
 ]
 
 [package.dev-dependencies]
@@ -4673,6 +4674,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.2" },
     { name = "toml", specifier = ">=0.10" },
     { name = "tqdm", specifier = ">=4.64" },
+    { name = "tzlocal", specifier = ">=5.0" },
 ]
 
 [package.metadata.requires-dev]
