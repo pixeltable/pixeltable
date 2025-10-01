@@ -21,7 +21,7 @@ def _(api_key: str, site_url: Optional[str] = None, app_name: Optional[str] = No
     import openai
 
     # Create default headers for OpenRouter
-    default_headers = {}
+    default_headers: dict[str, Any] = {}
     if site_url:
         default_headers['HTTP-Referer'] = site_url
     if app_name:
