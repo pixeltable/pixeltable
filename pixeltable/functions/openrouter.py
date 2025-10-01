@@ -21,14 +21,6 @@ if TYPE_CHECKING:
 
 @register_client('openrouter')
 def _(api_key: str, site_url: Optional[str] = None, app_name: Optional[str] = None) -> 'openai.AsyncOpenAI':
-    """
-    Register the OpenRouter client with Pixeltable's configuration system.
-
-    Args:
-        api_key: Your OpenRouter API key
-        site_url: Optional URL for your application (for OpenRouter analytics)
-        app_name: Optional name for your application (for OpenRouter analytics)
-    """
     import openai
 
     # Create default headers for OpenRouter
@@ -42,7 +34,6 @@ def _(api_key: str, site_url: Optional[str] = None, app_name: Optional[str] = No
 
 
 def _openrouter_client() -> 'openai.AsyncOpenAI':
-    """Get the registered OpenRouter client."""
     return Env.get().get_client('openrouter')
 
 
