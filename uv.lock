@@ -3661,7 +3661,7 @@ wheels = [
 
 [[package]]
 name = "nbmake"
-version = "1.4.6"
+version = "1.5.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ipykernel" },
@@ -3670,9 +3670,9 @@ dependencies = [
     { name = "pygments" },
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/b7/69206084d99046c5f9153dbc1329a6039c7e9234f3d1ea11e0dbd0bb293c/nbmake-1.4.6.tar.gz", hash = "sha256:874c5b9d99922f88bf0c92a3b869e75bff154edba2538efef0a1d7ad2263f5fb", size = 13996, upload-time = "2023-10-16T10:14:37.712Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/9a/aae201cee5639e1d562b3843af8fd9f8d018bb323e776a2b973bdd5fc64b/nbmake-1.5.5.tar.gz", hash = "sha256:239dc868ea13a7c049746e2aba2c229bd0f6cdbc6bfa1d22f4c88638aa4c5f5c", size = 85929, upload-time = "2024-12-23T18:33:46.774Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/06/c4d83f6eeb9a3624902b9bb619beeed593a9eb304f5246b784d91bfe1623/nbmake-1.4.6-py3-none-any.whl", hash = "sha256:233603c9186c659cb42524de36b556197c352ede1f9daeaa1b1141dfad226218", size = 13378, upload-time = "2023-10-16T10:14:36.372Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/be/b257e12f9710819fde40adc972578bee6b72c5992da1bc8369bef2597756/nbmake-1.5.5-py3-none-any.whl", hash = "sha256:c6fbe6e48b60cacac14af40b38bf338a3b88f47f085c54ac5b8639ff0babaf4b", size = 12818, upload-time = "2024-12-23T18:33:44.566Z" },
 ]
 
 [[package]]
@@ -4699,7 +4699,7 @@ dev = [
     { name = "mkdocs-material", specifier = ">=9.5.23,<10" },
     { name = "mkdocstrings-python", specifier = ">=1.10.2,<2" },
     { name = "mypy", specifier = ">=1.16" },
-    { name = "nbmake", specifier = ">=1.4.6,<2" },
+    { name = "nbmake", specifier = ">=1.5,<2" },
     { name = "notebook", specifier = ">=7.1.0,<8" },
     { name = "ollama", specifier = ">=0.5.1" },
     { name = "openai", specifier = ">=1.86.0" },

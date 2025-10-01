@@ -4,7 +4,7 @@ IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
 PY_VERSION="$1"
-TEST_PATH="target/nb-tests"
+TEST_PATH="tests/target/nb-tests"
 
 if [ -z "$PY_VERSION" ]; then
     echo "Usage: run-isolated-nb-tests.sh <python-version>"
