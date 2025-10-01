@@ -318,7 +318,8 @@ class Catalog:
                 self._column_dependents = None
                 has_exc = False
 
-                with self.__begin_guarded_xact(for_write=for_write) as conn:
+                assert not self._undo_actions
+                with Env.get().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
                             target: Optional[TableVersionHandle] = None
@@ -369,10 +370,12 @@ class Catalog:
                                 num_retries += 1
                                 _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                                 time.sleep(random.uniform(0.1, 0.5))
+                                assert not self._undo_actions  # We should not have any undo actions at this point
                                 continue
                             else:
                                 raise
 
+                    assert not self._undo_actions
                     yield conn
                     return
 
@@ -390,13 +393,9 @@ class Catalog:
                 self.convert_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
-            except KeyboardInterrupt:
+            except Exception as e:
                 has_exc = True
-                _logger.debug('Caught KeyboardInterrupt')
-                raise
-
-            except:
-                has_exc = True
+                _logger.debug(f'Caught {e.__class__}')
                 raise
 
             finally:
@@ -411,32 +410,19 @@ class Catalog:
                         tv.is_validated = False
 
                 if has_exc:
+                    # Execute undo actions in reverse order (LIFO)
+                    for hook in reversed(self._undo_actions):
+                        run_cleanup(hook, raise_error=False)
                     # purge all modified TableVersion instances; we can't guarantee they are still consistent with the
                     # stored metadata
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.id, handle.effective_version)
-                    # Clear potentially corrupted cached metadata after error
+                    # Clear potentially corrupted cached metadata
                     if tbl is not None:
                         tbl.clear_cached_md()
 
-                self._modified_tvs.clear()
-
-    @contextmanager
-    def __begin_guarded_xact(self, *, for_write: bool) -> Iterator[sql.Connection]:
-        """
-        Wraps Env.begin_xact() with a handler to execute any undo actions in the event a transaction fails.
-        This should only be called by Catalog.begin_xact().
-        """
-        assert not self._undo_actions
-        with Env.get().begin_xact(for_write=for_write) as conn:
-            try:
-                yield conn
-            except:
-                for hook in reversed(self._undo_actions):
-                    run_cleanup(hook, raise_error=False)
-                raise
-            finally:
                 self._undo_actions.clear()
+                self._modified_tvs.clear()
 
     def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
         """Registers a function to be called if the current transaction fails.
