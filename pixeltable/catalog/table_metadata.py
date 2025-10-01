@@ -38,6 +38,7 @@ class IndexMetadata(TypedDict):
     index_type: Literal['embedding']
     """The type of index (currently only `'embedding'` is supported, but others will be added in the future)."""
     parameters: EmbeddingIndexParams
+    """Parameters specific to the index type."""
 
 
 class TableMetadata(TypedDict):
