@@ -4,7 +4,6 @@ Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 
 import logging
 import pathlib
-import shutil
 import subprocess
 from typing import Literal, NoReturn
 
@@ -327,6 +326,7 @@ def clip(
     Returns:
         New video containing only the specified time range or None if start_time is beyond the end of the video.
     """
+    Env.get().require_binary('ffmpeg')
     if start_time < 0:
         raise pxt.Error(f'start_time must be non-negative, got {start_time}')
     if end_time is not None and end_time <= start_time:
@@ -335,8 +335,6 @@ def clip(
         raise pxt.Error(f'duration must be positive, got {duration}')
     if end_time is not None and duration is not None:
         raise pxt.Error('end_time and duration cannot both be specified')
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_clip().')
 
     video_duration = av_utils.get_video_duration(video)
     if video_duration is not None and start_time > video_duration:
@@ -388,10 +386,9 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
         >>> duration = tbl.video.get_duration()
         >>> tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()
     """
+    Env.get().require_binary('ffmpeg')
     if duration <= 0:
         raise pxt.Error(f'duration must be positive, got {duration}')
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use segment_video().')
 
     base_path = TempStore.create_path(extension='')
 
@@ -436,10 +433,9 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     Returns:
         A new video containing the merged videos.
     """
+    Env.get().require_binary('ffmpeg')
     if len(videos) == 0:
         raise pxt.Error('concat_videos(): empty argument list')
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use concat_videos().')
 
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
@@ -529,7 +525,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
 
 
 @pxt.udf
-def add_audio(
+def with_audio(
     video: pxt.Video,
     audio: pxt.Audio,
     *,
@@ -539,7 +535,10 @@ def add_audio(
     audio_duration: float | None = None,
 ) -> pxt.Video:
     """
-    Add an audio track to a video file with specified offsets and durations.
+    Creates a new video that combines the video stream from `video` and the audio stream from `audio`.
+    The `start_time` and `duration` parameters can be used to select a specific time range from each input.
+    If the audio input (or selected time range) is longer than the video, the audio will be truncated.
+
 
     __Requirements:__
 
@@ -548,11 +547,11 @@ def add_audio(
     Args:
         video: Input video.
         audio: Input audio.
-        video_start_time: Start time in the video file (in seconds).
-        video_duration: Duration of video (in seconds). If None, uses the remainder of the video after
+        video_start_time: Start time in the video input (in seconds).
+        video_duration: Duration of video segment (in seconds). If None, uses the remainder of the video after
             `video_start_time`. `video_duration` determines the duration of the output video.
-        audio_start_time: Start time in the audio file (in seconds).
-        audio_duration: Duration of audio (in seconds). If None, uses the remainder of the audio after
+        audio_start_time: Start time in the audio input (in seconds).
+        audio_duration: Duration of audio segment (in seconds). If None, uses the remainder of the audio after
             `audio_start_time`. If the audio is longer than the output video, it will be truncated.
 
     Returns:
@@ -561,12 +560,12 @@ def add_audio(
     Examples:
         Add background music to a video:
 
-        >>> tbl.select(tbl.video.add_audio(tbl.music_track)).collect()
+        >>> tbl.select(tbl.video.with_audio(tbl.music_track)).collect()
 
         Add audio starting 5 seconds into both files:
 
         >>> tbl.select(
-        ...     tbl.video.add_audio(
+        ...     tbl.video.with_audio(
         ...         tbl.music_track,
         ...         video_start_time=5.0,
         ...         audio_start_time=5.0
@@ -576,7 +575,7 @@ def add_audio(
         Use a 10-second clip from the middle of both files:
 
         >>> tbl.select(
-        ...     tbl.video.add_audio(
+        ...     tbl.video.with_audio(
         ...         tbl.music_track,
         ...         video_start_time=30.0,
         ...         video_duration=10.0,
@@ -585,8 +584,7 @@ def add_audio(
         ...     )
         ... ).collect()
     """
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use add_audio().')
+    Env.get().require_binary('ffmpeg')
     if video_start_time < 0:
         raise pxt.Error(f'video_offset must be non-negative, got {video_start_time}')
     if audio_start_time < 0:
@@ -632,7 +630,7 @@ def add_audio(
         ]
     )
 
-    _logger.debug(f'add_audio(): {" ".join(cmd)}')
+    _logger.debug(f'with_audio(): {" ".join(cmd)}')
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -731,8 +729,7 @@ def overlay_text(
         ...     )
         ... ).collect()
     """
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use overlay_text().')
+    Env.get().require_binary('ffmpeg')
     if font_size <= 0:
         raise pxt.Error(f'font_size must be positive, got {font_size}')
     if opacity < 0.0 or opacity > 1.0:
