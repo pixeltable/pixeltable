@@ -1,7 +1,7 @@
 import pytest
 
 import pixeltable as pxt
-from tests.functions.tool_utils import run_tool_invocations_test, stock_price
+from tests.functions.tool_utils import run_tool_invocations_test
 
 from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 

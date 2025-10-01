@@ -8,10 +8,7 @@ as described in the Working with OpenRouter tutorial.
 
 from typing import TYPE_CHECKING, Any, Optional
 
-import httpx
-
 import pixeltable as pxt
-from pixeltable import exprs
 from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
 
