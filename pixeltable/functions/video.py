@@ -533,10 +533,10 @@ def add_audio(
     video: pxt.Video,
     audio: pxt.Audio,
     *,
-    video_offset: float = 0.0,
-    video_length: float | None = None,
-    audio_offset: float = 0.0,
-    audio_length: float | None = None,
+    video_start_time: float = 0.0,
+    video_duration: float | None = None,
+    audio_start_time: float = 0.0,
+    audio_duration: float | None = None,
 ) -> pxt.Video:
     """
     Add an audio track to a video file with specified offsets and durations.
@@ -548,13 +548,12 @@ def add_audio(
     Args:
         video: Input video.
         audio: Input audio.
-        video_offset: Start time in the video file (in seconds).
-        video_length: Duration of video (in seconds). If None, uses the remainder of the video after `video_offset`.
-            `video_length` determines the length of the output video.
-        audio_offset: Start time in the audio file (in seconds).
-        audio_length: Duration of audio (in seconds). If None, uses the remainder of the audio after `audio_offset`
-            or `video_length`, whichever is shorter.
-
+        video_start_time: Start time in the video file (in seconds).
+        video_duration: Duration of video (in seconds). If None, uses the remainder of the video after
+            `video_start_time`. `video_duration` determines the duration of the output video.
+        audio_start_time: Start time in the audio file (in seconds).
+        audio_duration: Duration of audio (in seconds). If None, uses the remainder of the audio after
+            `audio_start_time`. If the audio is longer than the output video, it will be truncated.
 
     Returns:
         A new video file with the audio track added.
@@ -569,8 +568,8 @@ def add_audio(
         >>> tbl.select(
         ...     tbl.video.add_audio(
         ...         tbl.music_track,
-        ...         video_offset=5.0,
-        ...         audio_offset=5.0
+        ...         video_start_time=5.0,
+        ...         audio_start_time=5.0
         ...     )
         ... ).collect()
 
@@ -579,38 +578,40 @@ def add_audio(
         >>> tbl.select(
         ...     tbl.video.add_audio(
         ...         tbl.music_track,
-        ...         video_offset=30.0,
-        ...         video_length=10.0,
-        ...         audio_offset=15.0,
-        ...         audio_length=10.0
+        ...         video_start_time=30.0,
+        ...         video_duration=10.0,
+        ...         audio_start_time=15.0,
+        ...         audio_duration=10.0
         ...     )
         ... ).collect()
     """
     if not shutil.which('ffmpeg'):
         raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use add_audio().')
-    if video_offset < 0:
-        raise pxt.Error(f'video_offset must be non-negative, got {video_offset}')
-    if audio_offset < 0:
-        raise pxt.Error(f'audio_offset must be non-negative, got {audio_offset}')
-    if video_length is not None and video_length <= 0:
-        raise pxt.Error(f'video_length must be positive, got {video_length}')
-    if audio_length is not None and audio_length <= 0:
-        raise pxt.Error(f'audio_length must be positive, got {audio_length}')
+    if video_start_time < 0:
+        raise pxt.Error(f'video_offset must be non-negative, got {video_start_time}')
+    if audio_start_time < 0:
+        raise pxt.Error(f'audio_offset must be non-negative, got {audio_start_time}')
+    if video_duration is not None and video_duration <= 0:
+        raise pxt.Error(f'video_duration must be positive, got {video_duration}')
+    if audio_duration is not None and audio_duration <= 0:
+        raise pxt.Error(f'audio_duration must be positive, got {audio_duration}')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
 
     cmd = ['ffmpeg']
-    if video_offset > 0:
+    if video_start_time > 0:
         # fast seek, must precede -i
-        cmd.extend(['-ss', str(video_offset)])
-    if video_length is not None:
-        cmd.extend(['-t', str(video_length)])
+        cmd.extend(['-ss', str(video_start_time)])
+    if video_duration is not None:
+        cmd.extend(['-t', str(video_duration)])
+    else:
+        video_duration = av_utils.get_video_duration(video)
     cmd.extend(['-i', str(video)])
 
-    if audio_offset > 0:
-        cmd.extend(['-ss', str(audio_offset)])
-    if audio_length is not None:
-        cmd.extend(['-t', str(audio_length)])
+    if audio_start_time > 0:
+        cmd.extend(['-ss', str(audio_start_time)])
+    if audio_duration is not None:
+        cmd.extend(['-t', str(audio_duration)])
     cmd.extend(['-i', str(audio)])
 
     cmd.extend(
@@ -623,8 +624,8 @@ def add_audio(
             'copy',  # avoid re-encoding
             '-c:a',
             'copy',  # avoid re-encoding
-            '-shortest',  # stop when shortest stream ends
-            '-y',  # Overwrite output
+            '-t',
+            str(video_duration),  # limit output duration to video duration
             '-loglevel',
             'error',  # only show errors
             output_path,
