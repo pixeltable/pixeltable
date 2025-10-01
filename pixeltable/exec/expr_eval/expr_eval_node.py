@@ -393,6 +393,17 @@ class ExprEvalNode(ExecNode):
         # end the main loop if we had an unhandled exception
         try:
             t.result()
+        except KeyboardInterrupt:
+            # ExprEvalNode instances are long-running and reused across multiple operations.
+            # When a user interrupts an operation (Ctrl+C), the main evaluation loop properly
+            # handles the KeyboardInterrupt and terminates the current operation. However,
+            # background tasks spawned by evaluators may complete asynchronously after the
+            # operation has ended, and their done callbacks will fire during subsequent
+            # operations. These "phantom" KeyboardInterrupt exceptions from previous
+            # operations' background tasks should not interfere with new operations, so we
+            # absorb them here rather than propagating them via self.error/self.exc_event.
+            _logger.debug('Task completed with KeyboardInterrupt (user cancellation)')
+            pass
         except asyncio.CancelledError:
             pass
         except Exception as exc:

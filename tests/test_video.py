@@ -1,3 +1,4 @@
+import math
 import os
 from pathlib import Path
 from typing import Optional
@@ -824,3 +825,55 @@ class TestVideo:
 
         with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
+
+    def test_with_audio(self, reset_db: None) -> None:
+        from pixeltable.functions.video import with_audio
+
+        from .utils import get_audio_files
+
+        video_filepaths = get_video_files()
+        audio_filepaths = get_audio_files()
+        num_rows = min(len(video_filepaths), len(audio_filepaths))
+
+        t = pxt.create_table('test_add_audio', {'video': pxt.Video, 'audio': pxt.Audio})
+        validate_update_status(
+            t.insert({'video': video_filepaths[i], 'audio': audio_filepaths[i]} for i in range(num_rows)),
+            expected_rows=num_rows,
+        )
+
+        validate_update_status(t.add_computed_column(with_audio=with_audio(t.video, t.audio)))
+        result = t.select(reference=t.video.get_duration(), duration=t.with_audio.get_duration()).collect()
+        assert len(result) == num_rows
+        assert all(row['reference'] == row['duration'] for row in result)
+
+        # test with offsets
+        validate_update_status(
+            t.add_computed_column(with_offset=with_audio(t.video, t.audio, video_start_time=1.0, audio_start_time=0.5))
+        )
+        result = t.select(reference=t.video.get_duration() - 1.0, duration=t.with_offset.get_duration()).collect()
+        assert all(math.isclose(row['reference'], row['duration'], abs_tol=0.05) for row in result)
+
+        # test with offsets and duration
+        validate_update_status(
+            t.add_computed_column(
+                with_duration=with_audio(
+                    t.video, t.audio, video_duration=5.0, video_start_time=1.0, audio_duration=4.0, audio_start_time=0.5
+                )
+            )
+        )
+        result = t.select(duration=t.with_duration.get_duration()).collect()
+        assert all(math.isclose(5.0, row['duration'], abs_tol=0.25) for row in result)
+
+        # error conditions
+        with pytest.raises(pxt.Error, match='video_offset must be non-negative'):
+            t.add_computed_column(invalid=with_audio(t.video, t.audio, video_start_time=-1.0))
+        with pytest.raises(pxt.Error, match='audio_offset must be non-negative'):
+            t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_start_time=-1.0))
+        with pytest.raises(pxt.Error, match='video_duration must be positive'):
+            t.add_computed_column(invalid=with_audio(t.video, t.audio, video_duration=0.0))
+        with pytest.raises(pxt.Error, match='video_duration must be positive'):
+            t.add_computed_column(invalid=with_audio(t.video, t.audio, video_duration=-1.0))
+        with pytest.raises(pxt.Error, match='audio_duration must be positive'):
+            t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=0.0))
+        with pytest.raises(pxt.Error, match='audio_duration must be positive'):
+            t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))

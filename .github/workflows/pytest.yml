@@ -175,7 +175,7 @@ jobs:
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
           ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-          pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
+          pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb
       - name: Run random table ops
         if: ${{ matrix.test-category == 'random-tbl-ops' }}
         run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
