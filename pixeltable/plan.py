@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import random
 from textwrap import dedent
 from typing import Any, Iterable, Literal, Optional, Sequence
 from uuid import UUID
@@ -92,18 +93,17 @@ class SampleClause:
     seed: Optional[int]
     stratify_exprs: Optional[list[exprs.Expr]]
 
-    # This seed value is used if one is not supplied
-    DEFAULT_SEED = 0
-
     # The version of the hashing algorithm used for ordering and fractional sampling.
     CURRENT_VERSION = 1
 
     def __post_init__(self) -> None:
-        """If no version was provided, provide the default version"""
+        # If no version was provided, provide the default version
         if self.version is None:
             self.version = self.CURRENT_VERSION
+        # If no seed was specified, pick a random one. (This will ensure that separate calls to sample() will be
+        # nondeterministic, but once a DataFrame is constructed it will be internally consistent.)
         if self.seed is None:
-            self.seed = self.DEFAULT_SEED
+            self.seed = random.randint(0, 1 << 32)
 
     @property
     def is_stratified(self) -> bool:

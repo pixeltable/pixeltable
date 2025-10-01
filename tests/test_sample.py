@@ -278,21 +278,21 @@ class TestSample:
     def test_sample_view(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, False)
 
-        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
+        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
         with pytest.raises(pxt.Error, match='cannot be created with'):
             _ = pxt.create_view('v1', df)
 
-        df = t.select().sample(n=20)
+        df = t.select().sample(n=20, seed=0)
         with pytest.raises(pxt.Error, match='cannot be created with'):
             _ = pxt.create_view('v1', df)
 
-        df = t.select().sample(fraction=0.01)
+        df = t.select().sample(fraction=0.01, seed=0)
         n = len(df.collect())
         v = pxt.create_view('v1', df)
         assert v.count() == n
 
         t.insert(t.select())
-        n = len(t.select().sample(fraction=0.01).collect())
+        n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
     def test_sample_iterator(self, test_tbl: pxt.Table) -> None:
