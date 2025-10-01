@@ -274,7 +274,7 @@ class StoreBase:
                 self.sa_md.remove(tmp_tbl)
                 tmp_tbl.drop(bind=conn)
 
-            run_cleanup(remove_tmp_tbl, raise_error=True)
+            run_cleanup(remove_tmp_tbl, raise_error=False)
 
         return num_excs
 

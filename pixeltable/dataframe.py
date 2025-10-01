@@ -456,6 +456,7 @@ class DataFrame:
 
     @property
     def schema(self) -> dict[str, ColumnType]:
+        """Column names and types in this DataFrame."""
         return self._schema
 
     def bind(self, args: dict[str, Any]) -> DataFrame:

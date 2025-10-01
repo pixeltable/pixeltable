@@ -605,7 +605,6 @@ class TableVersion:
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self._tbl_md.index_md[idx_id] = idx_md
         self.idxs_by_name[idx_name] = idx_info
-
         idx.create_index(self._store_idx_name(idx_id), val_col)
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:

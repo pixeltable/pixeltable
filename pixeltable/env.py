@@ -777,6 +777,10 @@ class Env:
             library_name=library_name or package_name,  # defaults to package_name unless specified otherwise
         )
 
+    def require_binary(self, binary_name: str) -> None:
+        if not shutil.which(binary_name):
+            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
+
     def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception

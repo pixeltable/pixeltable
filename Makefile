@@ -86,7 +86,7 @@ endif
 	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1'
 	@$(TOUCH) .make-install/uv
 
-.make-install/deps: uv.lock
+.make-install/deps: pyproject.toml uv.lock
 	@echo 'Installing dependencies from uv ...'
 	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
 	@$(TOUCH) .make-install/deps
@@ -125,7 +125,7 @@ fullpytest: install
 nbtest: install
 	@echo 'Running `pytest` on notebooks ...'
 	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
+	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) tests/target/nb-tests/*.ipynb
 
 .PHONY: stresstest
 stresstest: install
@@ -176,3 +176,4 @@ clean:
 	@$(RMDIR) .make-install || true
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
+	@$(RMDIR) tests/target || true

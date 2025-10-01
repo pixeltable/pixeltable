@@ -397,40 +397,54 @@ def create_snapshot(
     )
 
 
-def create_replica(
-    destination: str,
+def publish(
     source: str | catalog.Table,
+    destination_uri: str,
     bucket_name: str | None = None,
     access: Literal['public', 'private'] = 'private',
-) -> Optional[catalog.Table]:
+) -> None:
     """
-    Create a replica of a table. Can be used either to create a remote replica of a local table, or to create a local
-    replica of a remote table. A given table can have at most one replica per Pixeltable instance.
+    Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be published to at most one
+    URI per Pixeltable cloud database.
 
     Args:
-        destination: Path where the replica will be created. Can be either a local path such as `'my_dir.my_table'`, or
-            a remote URI such as `'pxt://username/mydir.my_table'`.
-        source: Path to the source table, or (if the source table is a local table) a handle to the source table.
-        bucket_name: The name of the pixeltable cloud-registered bucket to use to store replica's data.
-            If no `bucket_name` is provided, the default Pixeltable storage bucket will be used.
+        source: Path or table handle of the local table to be published.
+        destination_uri: Remote URI where the replica will be published, such as `'pxt://org_name/my_dir/my_table'`.
+        bucket_name: The name of the bucket to use to store replica's data. The bucket must be registered with
+            Pixeltable cloud. If no `bucket_name` is provided, the default storage bucket for the destination
+            database will be used.
         access: Access control for the replica.
 
             - `'public'`: Anyone can access this replica.
-            - `'private'`: Only the owner can access.
+            - `'private'`: Only the host organization can access.
     """
-    remote_dest = destination.startswith('pxt://')
-    remote_source = isinstance(source, str) and source.startswith('pxt://')
-    if remote_dest == remote_source:
-        raise excs.Error('Exactly one of `destination` or `source` must be a remote URI.')
+    if not destination_uri.startswith('pxt://'):
+        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
 
-    if remote_dest:
-        if isinstance(source, str):
-            source = get_table(source)
-        share.push_replica(destination, source, bucket_name, access)
-        return None
-    else:
-        assert isinstance(source, str)
-        return share.pull_replica(destination, source)
+    if isinstance(source, str):
+        source = get_table(source)
+
+    share.push_replica(destination_uri, source, bucket_name, access)
+
+
+def replicate(remote_uri: str, local_path: str) -> catalog.Table:
+    """
+    Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of the replica in a
+    way that preserves the table structure of the original source data. Once replicated, the local table can be
+    queried offline just as any other Pixeltable table.
+
+    Args:
+        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
+        local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
+            the same or different from the cloud table name.
+
+    Returns:
+        A handle to the newly created local replica table.
+    """
+    if not remote_uri.startswith('pxt://'):
+        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+
+    return share.pull_replica(local_path, remote_uri)
 
 
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
@@ -504,10 +518,11 @@ def move(path: str, new_path: str) -> None:
 def drop_table(
     table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
-    """Drop a table, view, or snapshot.
+    """Drop a table, view, snapshot, or replica.
 
     Args:
-        table: Fully qualified name, or handle, of the table to be dropped.
+        table: Fully qualified name or table handle of the table to be dropped; or a remote URI of a cloud replica to
+            be deleted.
         force: If `True`, will also drop all views and sub-views of this table.
         if_not_exists: Directive regarding how to handle if the path does not exist.
             Must be one of the following:
@@ -547,13 +562,17 @@ def drop_table(
         assert isinstance(table, str)
         tbl_path = table
 
+    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+
     if tbl_path.startswith('pxt://'):
         # Remote table
+        if force:
+            raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
+        # TODO: Handle if_not_exists properly
         share.delete_replica(tbl_path)
     else:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
-        if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
         Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
