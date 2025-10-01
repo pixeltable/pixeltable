@@ -576,6 +576,13 @@ class Env:
             assert isinstance(tz_name, str)
             self._logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
+            if self.is_using_cockroachdb:
+                # This should have been set when the database was created,
+                # but if the db predates the fix or we are running as root, set it now
+                conn.execute(sql.text('SET null_ordered_last = true;'))
+                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
+                assert isinstance(null_ordered_last, str)
+                self._logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -599,6 +606,8 @@ class Env:
             with engine.begin() as conn:
                 stmt = self._dbms.create_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
+                if self.is_using_cockroachdb:
+                    conn.execute(sql.text('ALTER ROLE ALL IN DATABASE mydb SET null_ordered_last = true;'))
         finally:
             engine.dispose()
 
