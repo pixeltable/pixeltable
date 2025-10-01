@@ -490,6 +490,24 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.publish" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;publish
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.replicate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;replicate
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1673,6 +1691,24 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.publish" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;publish
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.replicate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;replicate
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2698,7 +2734,7 @@ Must be one of the following:</p>
 
     <div class="doc doc-contents ">
 
-      <p>Drop a table, view, or snapshot.</p>
+      <p>Drop a table, view, snapshot, or replica.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -2708,7 +2744,8 @@ Must be one of the following:</p>
               (<code>str | <a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>)
           –
           <div class="doc-md-description">
-            <p>Fully qualified name, or handle, of the table to be dropped.</p>
+            <p>Fully qualified name or table handle of the table to be dropped; or a remote URI of a cloud replica to
+be deleted.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3024,6 +3061,133 @@ instead.</p>
     <p>Rename a table:</p>
     <div class="highlight"><pre><span></span><code><span class="go">&gt;&gt;&gt;&gt; pxt.move(&#39;dir1.my_table&#39;, &#39;dir1.new_name&#39;)</span>
 </code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.publish" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">publish</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">publish</span><span class="p">(</span>
+    <span class="n">source</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">,</span>
+    <span class="n">destination_uri</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">bucket_name</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">access</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;public&quot;</span><span class="p">,</span> <span class="s2">&quot;private&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;private&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be published to at most one
+URI per Pixeltable cloud database.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>source</code></b>
+              (<code>str | <a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>)
+          –
+          <div class="doc-md-description">
+            <p>Path or table handle of the local table to be published.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>destination_uri</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>Remote URI where the replica will be published, such as <code>'pxt://org_name/my_dir/my_table'</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>bucket_name</code></b>
+              (<code>str | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The name of the bucket to use to store replica's data. The bucket must be registered with
+Pixeltable cloud. If no <code>bucket_name</code> is provided, the default storage bucket for the destination
+database will be used.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>access</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;public&#39;, &#39;private&#39;]</code>, default:
+                  <code>&#39;private&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Access control for the replica.</p>
+<ul>
+<li><code>'public'</code>: Anyone can access this replica.</li>
+<li><code>'private'</code>: Only the host organization can access.</li>
+</ul>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.replicate" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">replicate</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">replicate</span><span class="p">(</span><span class="n">remote_uri</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">local_path</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of the replica in a
+way that preserves the table structure of the original source data. Once replicated, the local table can be
+queried offline just as any other Pixeltable table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>remote_uri</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>Remote URI of the table to be replicated, such as <code>'pxt://org_name/my_dir/my_table'</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>local_path</code></b>
+              (<code>str</code>)
+          –
+          <div class="doc-md-description">
+            <p>Local table path where the replica will be created, such as <code>'my_new_dir.my_new_tbl'</code>. It can be
+the same or different from the cloud table name.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>
+          –
+          <div class="doc-md-description">
+            <p>A handle to the newly created local replica table.</p>
+          </div>
+        </li>
+    </ul>
 
     </div>
 

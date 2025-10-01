@@ -400,6 +400,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.io.export_lancedb" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;export_lancedb
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.io.export_parquet" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;export_parquet
@@ -1524,6 +1533,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.io.export_lancedb" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;export_lancedb
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.io.export_parquet" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;export_parquet
@@ -1631,6 +1649,8 @@
 </h2>
 
     <div class="doc doc-contents first">
+
+      <p>Functions for importing and exporting Pixeltable data.</p>
 
 
 
@@ -1852,6 +1872,86 @@ whose media are stored in an S3 bucket:</p>
 <span class="go">        s3_configuration={&#39;bucket&#39;: &#39;my-bucket&#39;, &#39;region_name&#39;: &#39;us-east-2&#39;}</span>
 <span class="go">    )</span>
 </code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.io.export_lancedb" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">export_lancedb</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">export_lancedb</span><span class="p">(</span>
+    <span class="n">table_or_df</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span><span class="p">,</span>
+    <span class="n">db_uri</span><span class="p">:</span> <span class="n"><span title="pathlib.Path">Path</span></span><span class="p">,</span>
+    <span class="n">table_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">batch_size_bytes</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">128</span> <span class="o">*</span> <span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">,</span>
+    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;overwrite&quot;</span><span class="p">,</span> <span class="s2">&quot;append&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Exports a dataframe's data to a LanceDB table.</p>
+<p>This utilizes LanceDB's streaming interface for efficient table creation, via a sequence of in-memory pyarrow
+<code>RecordBatches</code>, the size of which can be controlled with the <code>batch_size_bytes</code> parameter.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install lancedb</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>table_or_df</code></b>
+          –
+          <div class="doc-md-description">
+            <p>Table or Dataframe to export.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>db_uri</code></b>
+              (<code><span title="pathlib.Path">Path</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>Local Path to the LanceDB database.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>table_name</code></b>
+          –
+          <div class="doc-md-description">
+            <p>Name of the table in the LanceDB database.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>batch_size_bytes</code></b>
+          –
+          <div class="doc-md-description">
+            <p>Maximum size in bytes for each batch.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;overwrite&#39;, &#39;append&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Determines the behavior if the table already exists. Must be one of the following:</p>
+<ul>
+<li><code>'error'</code>: raise an error</li>
+<li><code>'overwrite'</code>: overwrite the existing table</li>
+<li><code>'append'</code>: append to the existing table</li>
+</ul>
+          </div>
+        </li>
+    </ul>
 
     </div>
 

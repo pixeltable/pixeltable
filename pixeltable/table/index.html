@@ -2379,8 +2379,7 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
 
       <p>Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
 columns, use <a class="autorefs autorefs-internal" href="#pixeltable.Table.add_computed_column"><code>add_computed_column()</code></a> instead.</p>
-<p>The format of the <code>schema</code> argument is identical to the format of the schema in a call to
-<a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_table"><code>create_table()</code></a>.</p>
+<p>The format of the <code>schema</code> argument is a dict mapping column names to their types.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -2465,6 +2464,7 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_computed_column</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">stored</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">destination</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span> <span class="o">|</span> <span class="n"><span title="pathlib.Path">Path</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
@@ -2497,6 +2497,16 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
           –
           <div class="doc-md-description">
             <p>Whether the column is materialized and stored or computed on demand.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>destination</code></b>
+              (<code><span title="typing.Optional">Optional</span>[str | <span title="pathlib.Path">Path</span>]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An object store reference for persisting computed files.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
