@@ -185,6 +185,7 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'OpenRouter API key',
         'site_url': 'Optional URL for your application (for OpenRouter analytics)',
         'app_name': 'Optional name for your application (for OpenRouter analytics)',
+        'rate_limit': 'Rate limit for OpenRouter API requests',
     },
     'replicate': {'api_token': 'Replicate API token'},
     'together': {
