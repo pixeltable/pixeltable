@@ -8,13 +8,12 @@ as described in the Working with OpenRouter tutorial.
 
 from typing import TYPE_CHECKING, Any, Optional
 
+import httpx
+
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
-
-# Import OpenAI response converter since OpenRouter uses OpenAI-compatible format
-from .openai import _openai_response_to_pxt_tool_calls
 
 if TYPE_CHECKING:
     import openai
@@ -62,20 +61,19 @@ async def chat_completions(
     Chat Completion API via OpenRouter.
 
     OpenRouter provides access to multiple LLM providers through a unified API.
-    For additional details, see: https://openrouter.ai/docs
+    For additional details, see: <https://openrouter.ai/docs>
 
-    Supported models can be found at: https://openrouter.ai/models
+    Supported models can be found at: <https://openrouter.ai/models>
 
     __Requirements:__
 
     - `pip install openai`
-    - OpenRouter API key from https://openrouter.ai
 
     Args:
         messages: A list of messages comprising the conversation so far.
         model: ID of the model to use (e.g., 'anthropic/claude-3.5-sonnet', 'openai/gpt-4').
         model_kwargs: Additional OpenAI-compatible parameters.
-        tools: List of tools available to the model (OpenAI format).
+        tools: List of tools available to the model.
         tool_choice: Controls which (if any) tool is called by the model.
         provider: OpenRouter-specific provider preferences (e.g., {'order': ['Anthropic', 'OpenAI']}).
         transforms: List of message transforms to apply (e.g., ['middle-out']).
@@ -124,7 +122,13 @@ async def chat_completions(
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
 
     if tool_choice is not None:
-        model_kwargs['tool_choice'] = tool_choice
+        if tool_choice['auto']:
+            model_kwargs['tool_choice'] = 'auto'
+        elif tool_choice['required']:
+            model_kwargs['tool_choice'] = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
     # Prepare OpenRouter-specific parameters for extra_body
     extra_body: dict[str, Any] = {}
@@ -138,55 +142,6 @@ async def chat_completions(
         messages=messages, model=model, extra_body=extra_body if extra_body else None, **model_kwargs
     )
     return result.model_dump()
-
-
-@pxt.udf(resource_pool='request-rate:openrouter')
-async def models() -> list[dict]:
-    """
-    List available models on OpenRouter.
-
-    Returns a list of model information including pricing, context length,
-    and supported features.
-
-    __Requirements:__
-
-    - `pip install openai`
-    - OpenRouter API key
-
-    Returns:
-        List of dictionaries containing model information.
-
-    Examples:
-        Create a table with available models:
-
-        >>> models_table = pxt.create_table('openrouter_models', {'id': pxt.String})
-        ... models_table.add_computed_column(models_list=models())
-        ... models_table.insert([{'id': '1'}])
-        ...
-        ... # Access model information
-        ... models_df = models_table.select(models_table.models_list).collect()
-    """
-    Env.get().require_package('openai')
-
-    import httpx
-
-    client = _openrouter_client()
-
-    # OpenRouter's models endpoint
-    async with httpx.AsyncClient() as http_client:
-        response = await http_client.get(
-            'https://openrouter.ai/api/v1/models', headers={'Authorization': f'Bearer {client.api_key}'}
-        )
-        response.raise_for_status()
-        data = response.json()
-
-    return data.get('data', [])
-
-
-# Support tool invocation using OpenAI format
-def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:
-    """Converts OpenRouter (OpenAI-compatible) response to Pixeltable tool invocation format."""
-    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
 
 
 __all__ = local_public_names(__name__)
