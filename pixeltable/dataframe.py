@@ -187,6 +187,7 @@ class DataFrameResultSet:
 
 class DataFrame:
     """Represents a query for retrieving and transforming data from Pixeltable tables."""
+
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
