@@ -53,6 +53,10 @@ async def chat_completions(
 
     Supported models can be found at: <https://openrouter.ai/models>
 
+    Request throttling:
+    Applies the rate limit set in the config (section `openrouter`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install openai`
