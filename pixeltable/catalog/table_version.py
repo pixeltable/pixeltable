@@ -21,6 +21,7 @@ from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.pydantic_mixin import PydanticSerializationMixin
 
 from .tbl_ops import TableOp
 
@@ -53,7 +54,7 @@ class TableVersionMd:
     schema_version_md: schema.TableSchemaVersionMd
 
 
-class TableVersion:
+class TableVersion(PydanticSerializationMixin):
     """
     TableVersion represents a particular version of a table/view along with its physical representation:
     - the physical representation is a store table with indices

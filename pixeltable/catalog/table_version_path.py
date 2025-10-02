@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.utils.pydantic_mixin import PydanticSerializationMixin
 
 from .column import Column
 from .globals import MediaValidation
@@ -15,7 +16,7 @@ from .table_version_handle import TableVersionHandle
 _logger = logging.getLogger('pixeltable')
 
 
-class TableVersionPath:
+class TableVersionPath(PydanticSerializationMixin):
     """
     A TableVersionPath represents the sequence of TableVersions from a base table to a particular view:
     - for a base table: only includes that TableVersion

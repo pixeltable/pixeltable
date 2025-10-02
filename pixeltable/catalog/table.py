@@ -15,6 +15,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable.utils.pydantic_mixin import PydanticSerializationMixin
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class Table(SchemaObject):
+class Table(SchemaObject, PydanticSerializationMixin):
     """
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
@@ -1817,3 +1818,37 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a replica.')
         if self._tbl_version_path.is_snapshot():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
+
+    def as_dict(self) -> dict:
+        """Serialize Table to dictionary, capturing the complete version chain."""
+        return {
+            # From SchemaObject base class
+            'id': str(self._id),
+            'name': self._name,
+            'dir_id': str(self._dir_id) if self._dir_id else None,
+            
+            # Table-specific fields
+            'tbl_version_path': self._tbl_version_path.as_dict(),
+            'tbl_version': self._tbl_version.as_dict() if self._tbl_version else None,
+        }
+    
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Table':
+        """Deserialize Table from dictionary."""
+        # Reconstruct TableVersionPath (handles recursive base chain)
+        tbl_version_path = TableVersionPath.from_dict(d['tbl_version_path'])
+        
+        # Reconstruct TableVersionHandle if present
+        tbl_version = None
+        if d.get('tbl_version'):
+            tbl_version = TableVersionHandle.from_dict(d['tbl_version'])
+        
+        # Create Table instance
+        table = cls(
+            id=UUID(d['id']),
+            dir_id=UUID(d['dir_id']) if d['dir_id'] else None,
+            name=d['name'],
+            tbl_version_path=tbl_version_path
+        )
+        table._tbl_version = tbl_version
+        return table

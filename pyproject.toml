@@ -157,7 +157,6 @@ dev = [
     "lancedb>=0.20",
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
-    "psycopg2-binary>=2.9.10"
 ]
 test = [
     "pytest>=8.4",

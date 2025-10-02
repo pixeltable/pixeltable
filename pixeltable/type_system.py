@@ -14,6 +14,8 @@ from typing import Any, ClassVar, Iterable, Literal, Mapping, Optional, Sequence
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
+from pixeltable.utils.pydantic_mixin import PydanticSerializationMixin
+
 import av
 import jsonschema
 import jsonschema.protocols
@@ -28,7 +30,7 @@ import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
 
 
-class ColumnType:
+class ColumnType(PydanticSerializationMixin):
     @enum.unique
     class Type(enum.Enum):
         STRING = 0
