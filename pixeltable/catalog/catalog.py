@@ -393,7 +393,7 @@ class Catalog:
                 self.convert_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
-            except Exception as e:
+            except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
                 _logger.debug(f'Caught {e.__class__}')
                 raise
