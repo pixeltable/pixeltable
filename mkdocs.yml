@@ -33,9 +33,9 @@ nav:
       - VideoSplitter: pixeltable/iterators/video-splitter.md
     - ColumnMetadata: pixeltable/column-metadata.md
     - DataFrame: pixeltable/data-frame.md
+    - DataFrameResultSet: pixeltable/data-frame-result-set.md
     - DirContents: pixeltable/dir-contents.md
     - IndexMetadata: pixeltable/index-metadata.md
-    - DataFrameResultSet: pixeltable/data-frame-result-set.md
     - Table: pixeltable/table.md
     - TableMetadata: pixeltable/table-metadata.md
     - UpdateStatus: pixeltable/update-status.md
