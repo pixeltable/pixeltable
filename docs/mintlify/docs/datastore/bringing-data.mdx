@@ -490,22 +490,6 @@ table.insert(df)
 
 Polars offers high-performance DataFrame operations with Rust-powered columnar processing. Pixeltable provides full support for Polars DataFrames with the same API patterns as Pandas.
 
-### Performance Benefits
-
-```python
-# Polars is often 2-5x faster than Pandas for large datasets
-import polars as pl
-import pixeltable as pxt
-
-# Fast CSV reading
-df = pl.read_csv('large_file.csv')  # Often 2-5x faster than pandas
-table = pxt.create_table('my_table', source=df)
-
-# Memory efficient processing
-df = pl.read_parquet('data.parquet')  # Columnar format, lower memory usage
-table = pxt.create_table('my_table', source=df)
-```
-
 ### Type Mapping Reference
 
 | Polars Type | Pixeltable Type | Notes |
@@ -514,12 +498,11 @@ table = pxt.create_table('my_table', source=df)
 | `pl.UInt8/16/32/64` | `pxt.Int` | Unsigned integers supported |
 | `pl.Float32/64` | `pxt.Float` | Floating point numbers |
 | `pl.Boolean` | `pxt.Bool` | Boolean values |
-| `pl.Utf8/String` | `pxt.String` | Text data |
+| `pl.Utf8/String/Categorical` | `pxt.String` | Text data |
 | `pl.Date` | `pxt.Date` | Date only (no time) |
 | `pl.Datetime` | `pxt.Timestamp` | Date and time with timezone handling |
 | `pl.List` | `pxt.Array` or `pxt.Json` | Arrays for numeric, JSON for complex |
 | `pl.Struct` | `pxt.Json` | Nested structures |
-| `pl.Categorical` | `pxt.String` | Categorical → String conversion |
 
 ### Complex Data Types
 

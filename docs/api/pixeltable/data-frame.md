@@ -25,10 +25,10 @@ Query execution methods like [`collect`][pixeltable.DataFrame.collect], [`show`]
 
 | Query Execution                           |                                                  |
 |-------------------------------------------|--------------------------------------------------|
-| [`collect`][pixeltable.DataFrame.collect] | Return all output rows as DataFrameResultSet     |
-| [`show`][pixeltable.DataFrame.show]       | Return a number of output rows as DataFrameResultSet |
-| [`head`][pixeltable.DataFrame.head]       | Return the oldest rows as DataFrameResultSet     |
-| [`tail`][pixeltable.DataFrame.tail]       | Return the most recently added rows as DataFrameResultSet |
+| [`collect`][pixeltable.DataFrame.collect] | Return all output rows as a DataFrameResultSet     |
+| [`show`][pixeltable.DataFrame.show]       | Return a number of output rows as a DataFrameResultSet |
+| [`head`][pixeltable.DataFrame.head]       | Return the oldest rows as a DataFrameResultSet     |
+| [`tail`][pixeltable.DataFrame.tail]       | Return the most recently added rows as a DataFrameResultSet |
 
 | Data Export                                                     |                                                                                                                                      |
 |-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
