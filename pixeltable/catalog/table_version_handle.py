@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from pixeltable import exceptions as excs
+from pixeltable.utils.pydantic_mixin import PydanticSerializationMixin
 
 from .table_version import TableVersion
 
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class TableVersionHandle:
+class TableVersionHandle(PydanticSerializationMixin):
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
     """
@@ -73,7 +74,7 @@ class TableVersionHandle:
 
 
 @dataclass(frozen=True)
-class ColumnHandle:
+class ColumnHandle(PydanticSerializationMixin):
     tbl_version: TableVersionHandle
     col_id: int
 

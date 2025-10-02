@@ -31,6 +31,7 @@ from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner, SampleClause
 from pixeltable.type_system import ColumnType
+from pixeltable.utils.pydantic_mixin import PydanticSerializationMixin
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
 
@@ -185,7 +186,7 @@ class DataFrameResultSet:
 #             self.filter.release()
 
 
-class DataFrame:
+class DataFrame(PydanticSerializationMixin):
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
