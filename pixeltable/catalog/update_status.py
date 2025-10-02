@@ -57,27 +57,35 @@ class UpdateStatus:
     """
 
     updated_cols: list[str] = field(default_factory=list)
+    """Columns that were updated."""
     cols_with_excs: list[str] = field(default_factory=list)
+    """Columns that encountered exceptions."""
 
     # stats for the rows affected by the operation
     row_count_stats: RowCountStats = field(default_factory=RowCountStats)
+    """Row count statistics for rows affected by this operation."""
 
     # stats for changes cascaded to other tables
     cascade_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
+    """Row count statistics for changes cascaded to other tables."""
 
     # stats for the rows affected by the operation in an external store
     ext_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
+    """Row count statistics for rows affected in an external store."""
 
     @property
     def num_rows(self) -> int:
+        """Total number of rows affected (including cascaded changes)."""
         return self.row_count_stats.num_rows + self.cascade_row_count_stats.num_rows
 
     @property
     def num_excs(self) -> int:
+        """Total number of exceptions encountered (including cascaded changes)."""
         return self.row_count_stats.num_excs + self.cascade_row_count_stats.num_excs
 
     @property
     def num_computed_values(self) -> int:
+        """Total number of computed values affected (including cascaded changes)."""
         return self.row_count_stats.computed_values + self.cascade_row_count_stats.computed_values
 
     def insert_to_update(self) -> 'UpdateStatus':
@@ -164,16 +172,20 @@ class UpdateStatus:
 
     @property
     def external_rows_updated(self) -> int:
+        """Number of rows updated in an external store."""
         return self.ext_row_count_stats.upd_rows
 
     @property
     def external_rows_created(self) -> int:
+        """Number of rows created in an external store."""
         return self.ext_row_count_stats.ins_rows
 
     @property
     def external_rows_deleted(self) -> int:
+        """Number of rows deleted from an external store."""
         return self.ext_row_count_stats.del_rows
 
     @property
     def ext_num_rows(self) -> int:
+        """Total number of rows affected in an external store."""
         return self.ext_row_count_stats.num_rows
