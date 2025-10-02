@@ -17,6 +17,7 @@ import sqlalchemy as sql
 import pixeltable.utils.image as image_utils
 from pixeltable import catalog, env
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.misc import non_none_dict_factory
 
 
 @dataclasses.dataclass
@@ -34,7 +35,7 @@ class ArrayMd:
 
     def as_dict(self) -> dict:
         # dict_factory: suppress Nones
-        x = dataclasses.asdict(self, dict_factory=lambda d: {k: v for (k, v) in d if v is not None})
+        x = dataclasses.asdict(self, dict_factory=non_none_dict_factory)
         return x
 
 
@@ -68,7 +69,7 @@ class CellMd:
         return x
 
     def as_dict(self) -> dict:
-        x = dataclasses.asdict(self, dict_factory=lambda d: {k: v for (k, v) in d if v is not None})
+        x = dataclasses.asdict(self, dict_factory=non_none_dict_factory)
         return x
 
 

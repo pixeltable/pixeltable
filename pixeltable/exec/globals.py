@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 
 from pixeltable.exprs import ArrayMd
+from pixeltable.utils.misc import non_none_dict_factory
 
 INLINED_OBJECT_MD_KEY = '__pxtinlinedobjmd__'
 
@@ -25,7 +26,7 @@ class InlinedObjectMd:
             return cls(**d)
 
     def as_dict(self) -> dict:
-        result = dataclasses.asdict(self, dict_factory=lambda d: {k: v for (k, v) in d if v is not None})
+        result = dataclasses.asdict(self, dict_factory=non_none_dict_factory)
         if self.array_md is not None:
             result['array_md'] = self.array_md.as_dict()
         return result

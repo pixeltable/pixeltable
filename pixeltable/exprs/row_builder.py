@@ -11,6 +11,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exprs, utils
 from pixeltable.env import Env
+from pixeltable.utils.misc import non_none_dict_factory
 
 from .data_row import DataRow
 from .expr import Expr, ExprScope
@@ -479,9 +480,7 @@ class RowBuilder:
                         table_row.append(sql.sql.null())
                     else:
                         # we want to minimize the size of the stored dict and use dict_factory to remove Nones
-                        md = dataclasses.asdict(
-                            data_row.cell_md[col.id], dict_factory=lambda d: {k: v for (k, v) in d if v is not None}
-                        )
+                        md = dataclasses.asdict(data_row.cell_md[col.id], dict_factory=non_none_dict_factory)
                         assert len(md) > 0
                         table_row.append(md)
                 if slot_idx is not None and data_row.has_exc(slot_idx):
