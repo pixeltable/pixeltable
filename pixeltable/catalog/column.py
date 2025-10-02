@@ -48,7 +48,7 @@ class Column:
     - if None: the system chooses for you (at present, this is always False, but this may change in the future)
     """
 
-    name: str
+    name: Optional[str]
     id: Optional[int]
     col_type: ts.ColumnType
     stored: bool
