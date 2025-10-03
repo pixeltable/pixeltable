@@ -179,7 +179,7 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    table = Catalog.get().create_table(
+    table, was_created = Catalog.get().create_table(
         path_obj,
         schema,
         data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
@@ -189,7 +189,7 @@ def create_table(
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
     )
-    if data_source is not None and not is_direct_df:
+    if was_created and data_source is not None and not is_direct_df:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         table.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
@@ -447,11 +447,16 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     return share.pull_replica(local_path, remote_uri)
 
 
-def get_table(path: str) -> catalog.Table:
+def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
     """Get a handle to an existing table, view, or snapshot.
 
     Args:
         path: Path to the table.
+        if_not_exists: Directive regarding how to handle if the path does not exist.
+            Must be one of the following:
+
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return `None`
 
     Returns:
         A handle to the [`Table`][pixeltable.Table].
@@ -476,8 +481,9 @@ def get_table(path: str) -> catalog.Table:
 
         >>> tbl = pxt.get_table('my_table:722')
     """
+    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
-    tbl = Catalog.get().get_table(path_obj)
+    tbl = Catalog.get().get_table(path_obj, if_not_exists_)
     return tbl
 
 

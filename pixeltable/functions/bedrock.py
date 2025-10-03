@@ -1,3 +1,10 @@
+"""
+Pixeltable UDFs for AWS Bedrock AI models.
+
+Provides integration with AWS Bedrock for accessing various foundation models
+including Anthropic Claude, Amazon Titan, and other providers.
+"""
+
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 

@@ -257,7 +257,7 @@ class TestExprs:
             # errortype/errormsg only applies to stored computed and media columns
             with pytest.raises(pxt.Error) as excinfo:
                 _ = t.select(c.errortype).show()
-            assert 'only valid for' in str(excinfo.value)
+            assert 'only valid for' in str(excinfo.value), c.name
             with pytest.raises(pxt.Error) as excinfo:
                 _ = t.select(c.errormsg).show()
             assert 'only valid for' in str(excinfo.value)

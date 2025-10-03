@@ -132,6 +132,12 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
             default_model='anthropic.claude-3-haiku-20240307-v1:0',
             kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
         ),
+        'openrouter': ProviderConfig(
+            prompt_udf=create_chatgpt_prompt,
+            udf=pxtf.openrouter.chat_completions,
+            default_model='anthropic/claude-3.5-sonnet',
+            kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
+        ),
     }
 
 
