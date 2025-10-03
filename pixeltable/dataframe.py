@@ -112,31 +112,34 @@ class DataFrameResultSet:
 
         from pixeltable.io.polars import pxt_to_pl_schema
 
+        pl_schema = pxt_to_pl_schema(self.schema)
         if not self._rows:
-            pl_schema = pxt_to_pl_schema(self.schema)
             return pl.DataFrame({col: [] for col in self._col_names}, schema=pl_schema)
+        print(pl_schema)
 
-#        return pl.from_dicts(self._rows)
+        assert len(pl_schema) == len(self.schema)
 
         # Create the data dictionary, handling None values properly for Polars
         data_dict = {}
-        for col_name, col_data in zip(self._col_names, zip(*self._rows)):
-            # Convert numpy arrays to lists for Polars compatibility
-            processed_data: list[Any] = []
+        for col_name, col_type in self.schema.items():
+            col_data = self[col_name]
+            col_pl_type = pl_schema[col_name]
+            print(col_name, col_type, col_pl_type, col_data)
+
+            new_vals: list[Any] = []
             for val in col_data:
                 if val is None:
-                    processed_data.append(None)
-                elif isinstance(val, np.ndarray):
-                    processed_data.append(val.tolist())
-                elif hasattr(val, 'tolist'):
-                    # Handle numpy arrays
-                    processed_data.append(val.tolist())
+                    new_vals.append(None)
+                elif isinstance(col_type, ts.ArrayType) and isinstance(val, np.ndarray):
+                    new_vals.append(val.tolist())
                 else:
-                    processed_data.append(val)
-            data_dict[col_name] = processed_data
+                    new_vals.append(val)
+            data_dict[col_name] = new_vals
+            print(col_name, col_pl_type, new_vals)
 
         # Use strict=False to allow mixed types and None values
-        return pl.DataFrame(data_dict, strict=False)
+        pl_df = pl.DataFrame(data_dict, schema=pl_schema, strict=False)
+        return pl_df
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 

@@ -1,4 +1,5 @@
 import datetime
+import math
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -42,6 +43,7 @@ class TestPolars:
 
         src_data = self.make_src_data()
         df = pl.DataFrame(src_data)
+        df.glimpse()
         t = pxt.create_table('test_types', source=df)
 
         # Verify the schema matches expected types
@@ -54,15 +56,17 @@ class TestPolars:
             'aware_dt_col': ts.TimestampType(nullable=True),
             'date_col': ts.DateType(nullable=True),
             'array_col_0': ts.ArrayType(shape=(2,), dtype=ts.IntType(), nullable=True),
-            'json_col_1': ts.JsonType(nullable=True),
+            'json_col_1': ts.ArrayType(shape=(None,), dtype=ts.IntType(), nullable=True),
             'json_col_2': ts.JsonType(nullable=True),  # Struct becomes JSON
         }
 
         actual_schema = t._get_schema()
+        print('Actual schema:', actual_schema)
         assert actual_schema == expected_schema
 
         # Verify data was imported correctly
         res = t.select().order_by(t.int_col).collect()
+        print('Data:', res)
         assert res['int_col'] == src_data['int_col']
         assert res['float_col'] == src_data['float_col']
         assert res['bool_col'] == src_data['bool_col']
@@ -76,7 +80,11 @@ class TestPolars:
             datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
         ]
         assert res['date_col'] == src_data['date_col']
-        assert res['json_col_1'] == [[1, 2], [3, 4]]
+        for i in range(len(res)):
+            assert (res['array_col_0'][i] == src_data['array_col_0'][i]).all()
+        # The list column with consistent types becomes a pxt.ArrayType
+        for i in range(len(res)):
+            assert (res['json_col_1'][i] == src_data['array_col_0'][i]).all()
         # polars infers struct schema from first record, so only 'a' field is preserved
         assert res['json_col_2'] == [{'a': 1}, {'a': None}]
         assert t.count() == len(df)
@@ -158,23 +166,27 @@ class TestPolars:
             },
             strict=False,  # Allow mixed types in lists
         )
+        df.glimpse()
 
         t = pxt.create_table('test_complex', source=df)
 
         schema = t._get_schema()
+        print('Schema:', schema)
         assert schema['id'] == ts.IntType(nullable=True)
         # Complex types should map to JSON
         assert schema['struct_col'] == ts.JsonType(nullable=True)
-        assert schema['list_of_lists'] == ts.JsonType(nullable=True)
+        assert schema['list_of_lists'] == ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=True)
         # mixed_list becomes List(String) in polars, so it's an ArrayType
-        assert schema['mixed_list'] == ts.JsonType(nullable=True)  # List of strings with mixed lengths - use JSON
+        assert schema['mixed_list'] == ts.ArrayType(shape=(None,), dtype=ts.StringType(), nullable=True)
 
         # Verify data integrity
         res = t.select().order_by(t.id).collect()
+        print('Data:', res)
         assert res['struct_col'] == data['struct_col']
-        assert res['list_of_lists'] == data['list_of_lists']
-        # polars converts mixed types to strings in lists
-        assert res['mixed_list'] == [['a', '1', 'true'], ['b', '2', 'false']]
+        for i in range(len(res)):
+            assert (res['list_of_lists'][i] == data['list_of_lists'][i]).all()
+            # polars converts mixed types to strings in lists which are in turn converted into pixeltable arrays
+            assert (res['mixed_list'][i] == [['a', '1', 'true'], ['b', '2', 'false']][i]).all()
 
     def test_polars_errors(self, reset_db: None) -> None:
         skip_test_if_not_installed('polars')
@@ -223,6 +235,7 @@ class TestPolars:
         import polars as pl
 
         # Create the most comprehensive polars DataFrame possible
+        print('===================== CREATE COMPREHENSIVE POLARS DF')
         complex_data: dict[str, Any] = {
             # Basic types
             'int8_col': pl.Series([1, 2, 3], dtype=pl.Int8),
@@ -266,12 +279,8 @@ class TestPolars:
                 {'user': {'name': 'Bob', 'scores': [75, 80, 82]}, 'meta': {'region': 'EU'}},
                 {'user': {'name': 'Charlie', 'scores': [95, 92, 89]}, 'meta': {'region': 'ASIA'}},
             ],
-            # Large arrays for testing performance
-            'large_array_col': [
-                np.array(list(range(100))),
-                np.array(list(range(100, 200))),
-                np.array(list(range(200, 300))),
-            ],
+            # fixed size 1d numpy arrays for testing simple array types
+            'array_col': [np.array(list(range(10))), np.array(list(range(100, 110))), np.array(list(range(200, 210)))],
             # Null handling
             'nullable_int': [1, None, 3],
             'nullable_string': ['test', None, 'value'],
@@ -280,14 +289,15 @@ class TestPolars:
 
         # Create polars DataFrame with various casting operations
         df = pl.DataFrame(complex_data)
-        df.glimpse()
 
         # Add categorical column properly
         categorical_data = pl.DataFrame({'categorical_col': ['category_A', 'category_B', 'category_A']})
         categorical_data = categorical_data.with_columns([pl.col('categorical_col').cast(pl.Categorical)])
         df = df.with_columns([categorical_data['categorical_col']])
+        df.glimpse()
 
         # Test 1: Create table with source parameter
+        print('===================== IMPORT INTO PXT TABLE')
         table = pxt.create_table('comprehensive_polars_test', source=df)
 
         # Verify row count
@@ -322,13 +332,11 @@ class TestPolars:
         assert schema['datetime_col'] == ts.TimestampType(nullable=True)
         assert schema['datetime_tz_col'] == ts.TimestampType(nullable=True)
 
-        #### BROKEN: polars makes lists from variable shape np.ndarrays
         # Complex types should map to appropriate Pixeltable types
-        # Lists of integers with consistent length should become ArrayType
-        #        assert schema['list_int_col'] == ts.ArrayType(shape=(None, 3), dtype=ts.IntType(), nullable=True)
-
-        # Lists of mixed length - shape inferred from first element
-        #        assert schema['list_mixed_length'] == ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True)
+        # Lists should become ArrayType
+        assert schema['list_int_col'] == ts.ArrayType(shape=(None,), dtype=ts.IntType(), nullable=True)
+        assert schema['list_float_col'] == ts.ArrayType(shape=(None,), dtype=ts.FloatType(), nullable=True)
+        assert schema['list_mixed_length'] == ts.ArrayType(shape=(None,), dtype=ts.IntType(), nullable=True)
 
         # Structs should become JsonType
         assert schema['struct_col'] == ts.JsonType(nullable=True)
@@ -338,7 +346,7 @@ class TestPolars:
         assert schema['categorical_col'] == ts.StringType(nullable=True)
 
         # Large arrays should be handled
-        assert schema['large_array_col'] == ts.ArrayType(shape=(100,), dtype=ts.IntType(), nullable=True)
+        assert schema['array_col'] == ts.ArrayType(shape=(10,), dtype=ts.IntType(), nullable=True)
 
         # Test 3: Verify data integrity by retrieving and checking values
         results = table.select().order_by(table.int32_col).collect()
@@ -355,29 +363,29 @@ class TestPolars:
 
         # Check complex data integrity
         assert results['struct_col'][0] == {'name': 'Alice', 'age': 30, 'active': True}
-        assert results['list_int_col'][0] == [1, 2, 3]  # Should be numpy array
+        assert (results['list_int_col'][0] == np.array([1, 2, 3])).all()  # Should be numpy array
 
         # Check null handling
         assert results['nullable_int'] == [1, None, 3]
         assert results['nullable_string'] == ['test', None, 'value']
 
         # Test 4: Create table with schema overrides
-        pxt.drop_table('comprehensive_polars_override', if_not_exists='ignore')
+        print('===================== IMPORT INTO TABLE WITH OVERRIDES')
         override_table = pxt.create_table(
             'comprehensive_polars_override',
             source=df,
             schema_overrides={
                 'string_col': pxt.String,  # Should remain string
-                'large_array_col': pxt.Json,  # Override array to JSON
+                'array_col': pxt.Json,  # Override array to JSON
             },
         )
 
         override_schema = override_table._get_schema()
         assert override_schema['string_col'] == ts.StringType(nullable=True)
-        assert override_schema['large_array_col'] == ts.JsonType(nullable=True)
+        assert override_schema['array_col'] == ts.JsonType(nullable=True)
 
         # Test 5: Create table with primary key from complex data
-        pxt.drop_table('comprehensive_polars_pk', if_not_exists='ignore')
+        print('===================== IMPORT INTO TABLE WITH PRIMARY KEY')
         pk_table = pxt.create_table(
             'comprehensive_polars_pk',
             source=df,
@@ -419,7 +427,7 @@ class TestPolars:
                 {'user': {'name': 'David', 'scores': [88, 90, 92]}, 'meta': {'region': 'CA'}},
                 {'user': {'name': 'Eve', 'scores': [78, 85, 88]}, 'meta': {'region': 'AU'}},
             ],
-            'large_array_col': [np.array(range(300, 400)), np.array(range(400, 500))],
+            'array_col': [np.array(range(300, 310)), np.array(range(400, 410))],
             'nullable_int': [4, 5],
             'nullable_string': ['more', 'test'],
             'nullable_list': [[5, 6], [7, 8]],
@@ -449,18 +457,56 @@ class TestPolars:
         # # Test 7: Verify to_polars() method on DataFrameResultSet
         print('Test 7: Testing to_polars() conversion...')
         result_set = table.select().order_by(table.int32_col).collect()
+        print(result_set.schema)
 
         # Convert back to polars DataFrame
         converted_df = result_set.to_polars()
         converted_df.glimpse()
         # BROKEN: Again because of confusion with lists and np.ndarrays
         # # Verify the conversion preserved data integrity
-        # assert len(converted_df) == 5  # Should have all 5 rows
-        # assert converted_df.width == len(schema)  # Should have all columns
-        # assert converted_df.columns == list(schema.keys())  # Column names should match
+        assert len(converted_df) == 5  # Should have all 5 rows
+        assert converted_df.width == len(schema)  # Should have all columns
+        assert converted_df.columns == list(schema.keys())  # Column names should match
 
         # # Verify some key data points
-        # assert converted_df['int32_col'].to_list() == [1000, 2000, 3000, 4000, 5000]
-        # assert converted_df['string_col'].to_list() == ['hello', 'world', 'polars', 'additional', 'data']
+        assert converted_df['int32_col'].to_list() == [1000, 2000, 3000, 4000, 5000]
+        assert converted_df['string_col'].to_list() == ['hello', 'world', 'polars', 'additional', 'data']
 
-        assert False
+    def test_polars_array_list_types(self, reset_db: None) -> None:
+        skip_test_if_not_installed('polars')
+        import polars as pl
+
+        print('===================== CREATE POLARS DF')
+        tshape = (2, 3, 4)
+        n = math.prod(tshape)
+        x = np.array(list(range(n))).reshape(tshape)
+        print(type(x), x.shape, x.dtype)
+
+        df = pl.DataFrame(
+            {
+                'int32_col': [1, 2, 3],
+                'array_3d_col': [x, x + 100, x + 200],
+                'list_3d_col': [x, x + 100, x + 200],
+                'list_mixed_col': [x, x + 100, x + 200],
+            },
+            schema={
+                'int32_col': pl.Int32,
+                'array_3d_col': pl.Array(pl.Int64, tshape),
+                'list_3d_col': pl.List(pl.List(pl.List(pl.Int64))),
+                'list_mixed_col': pl.List(pl.Array(pl.List(pl.Int64), (3,))),
+            },
+        )
+        df.glimpse()
+
+        print('===================== IMPORT INTO PXT TABLE')
+        t = pxt.create_table(
+            'array_table',
+            source=df,
+            primary_key='int32_col',  # Use int32_col as primary key
+        )
+        print(t._get_schema())
+        print(t.select().order_by(t.int32_col).collect())
+
+        print('===================== EXPORT BACK TO POLARS DF')
+        to_p = t.select().order_by(t.int32_col).collect().to_polars()
+        to_p.glimpse()

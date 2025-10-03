@@ -39,6 +39,30 @@ PXT_TO_PL_TYPES2: dict[ts.ColumnType.Type, pl_types.DataType] = {
     ts.ColumnType.Type.DATE: pl_types.Date(),
 }
 
+# Note on polars Array and List types relative to Pixeltable Array types:
+# - Polars types can be nested, so Arrays and Lists can occur within each other.
+# - Polars Array types always have fixed 1d shape. Nesting can create multi-d shapes.
+# - The conversion from a Pixeltable Array type to a polars Array type can result in
+#   a mix of polars Array and List types.
+
+
+def pxt_array_type_to_pl_array_type(pxt_type: ts.ArrayType) -> pl_types.DataType:
+    """Create a polars Array or List type from a Pixeltable ArrayType.
+    This handles nested arrays by creating nested polars types.
+    """
+    print(f'Converting array type: {pxt_type}, {pxt_type.dtype}, {pxt_type.shape}')
+    inner_type = PXT_TO_PL_TYPES2.get(pxt_type.dtype, None)
+    if inner_type is None:
+        raise excs.Error(f'Cannot convert Pixeltable type {pxt_type.dtype} to polars type.')
+
+    for dim in reversed(pxt_type.shape):
+        if dim is None:
+            inner_type = pl_types.List(inner_type)
+        else:
+            inner_type = pl_types.Array(inner=inner_type, shape=(dim,))
+    print(f'Created polars type: {inner_type}')
+    return inner_type
+
 
 def pxt_to_pl_type(pxt_type: ts.ColumnType) -> Optional[pl.DataType]:
     """Convert a pixeltable DataType to a polars datatype if one is defined.
@@ -49,29 +73,45 @@ def pxt_to_pl_type(pxt_type: ts.ColumnType) -> Optional[pl.DataType]:
     elif isinstance(pxt_type, ts.TimestampType):
         return pl_types.Datetime(time_unit='us', time_zone=Env.get().default_time_zone)
     elif isinstance(pxt_type, ts.ArrayType):
-        print(f'Converting array type: {pxt_type}, {pxt_type.dtype}, {pxt_type.shape}')
-        pl_inner = PXT_TO_PL_TYPES2.get(pxt_type.dtype, None)
-        print(f'Inner type converted to: {pl_inner}')
-        if pl_inner is None:
-            return None
-        print(f'Inner type converted to: {pl_inner}')
-        if None in pxt_type.shape:
-            return pl_types.List(pl_inner)
-        print('Returning fixed shape array')
-        return pl_types.Array(inner=pl_inner, shape=pxt_type.shape)
+        return pxt_array_type_to_pl_array_type(pxt_type)
     else:
         return None
 
 
 def pxt_to_pl_schema(pixeltable_schema: dict[str, Any]) -> pl.Schema:
     pl_dict = {name: pxt_to_pl_type(typ) for name, typ in pixeltable_schema.items()}
-    for x in pl_dict.items():
-        print(x)
     return pl.Schema(pl_dict.items())
 
 
-# Function to map polars data types to Pixeltable types
-def _get_pxt_type_for_pl_type(pl_dtype: pl.DataType | pl.DataTypeClass, nullable: bool) -> Optional[ts.ColumnType]:
+def pl_array_type_to_pxt_array_type(pl_type: pl_types.Array | pl_types.List) -> Optional[ts.ArrayType]:
+    """Create a Pixeltable ArrayType from a polars Array or List type.
+    This handles nested arrays by creating nested Pixeltable types.
+    """
+    if not isinstance(pl_type, (pl_types.Array, pl_types.List)):
+        return None
+
+    shape: list[int | None] = []
+    inner_type: pl_types.Array | pl_types.List | pl.DataTypeClass | pl.DataType = pl_type
+
+    while isinstance(inner_type, (pl_types.Array, pl_types.List)):
+        if isinstance(inner_type, pl_types.Array):
+            if len(inner_type.shape) != 1:
+                return None
+            shape.append(inner_type.shape[0])
+            inner_type = inner_type.inner
+        elif isinstance(inner_type, pl_types.List):
+            shape.append(None)
+            inner_type = inner_type.inner
+
+    pxt_dtype = _get_pxt_type_for_pl_type(inner_type, nullable=True)
+    if pxt_dtype is None:
+        return None
+
+    shape.reverse()
+    return ts.ArrayType(dtype=pxt_dtype, shape=tuple(shape), nullable=True)
+
+
+def _get_pxt_type_for_pl_type(pl_dtype: Any, nullable: bool) -> Optional[ts.ColumnType]:
     """Get Pixeltable type for basic polars data types.
     These are the only types which are supported as the inner type of a polars Array.
     """
@@ -118,12 +158,12 @@ def _pl_infer_schema(
     return pl_schema
 
 
-def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullable: bool) -> ts.ColumnType:
+def _pl_dtype_to_pxt_type(pl_type: 'pl.DataType', data_col: 'pl.Series', nullable: bool) -> ts.ColumnType:
     """
     Determines a Pixeltable ColumnType from a polars data type.
 
     Args:
-        pl_dtype: A polars data type
+        pl_type: A polars data type
         data_col: The actual data column for additional inference
         nullable: Whether the column can contain null values
 
@@ -131,20 +171,19 @@ def _pl_dtype_to_pxt_type(pl_dtype: 'pl.DataType', data_col: 'pl.Series', nullab
         ts.ColumnType: A Pixeltable ColumnType
     """
     # Handle basic type mapping
-    basic_type = _get_pxt_type_for_pl_type(pl_dtype, nullable)
+    basic_type = _get_pxt_type_for_pl_type(pl_type, nullable)
     if basic_type is not None:
         return basic_type
 
-    if isinstance(pl_dtype, pl_types.Array):
-        pxt_dtype = _get_pxt_type_for_pl_type(pl_dtype.inner, nullable)
-        if pxt_dtype is not None:
-            return ts.ArrayType(shape=pl_dtype.shape, dtype=pxt_dtype, nullable=nullable)
+    if isinstance(pl_type, (pl_types.Array, pl_types.List)):
+        pxt_type = pl_array_type_to_pxt_array_type(pl_type)
+        if pxt_type is not None:
+            return pxt_type
 
-    if isinstance(pl_dtype, (pl_types.List, pl_types.Struct)):
-        # This is not entirely correct, as polars lists are used to store arrays with variable shapes
+    if isinstance(pl_type, (pl_types.List, pl_types.Struct, pl_types.Array)):
         return ts.JsonType(nullable=nullable)
 
-    raise excs.Error(f'Could not infer Pixeltable type for polars column: {data_col.name} (dtype: {pl_dtype})')
+    raise excs.Error(f'Could not infer Pixeltable type for polars column: {data_col.name} {pl_type}')
 
 
 def _pl_row_to_pxt_row(
