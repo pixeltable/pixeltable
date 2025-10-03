@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exprs, functions as pxtf
+from pixeltable import env, exprs, functions as pxtf
 
 
 class TestMath:
@@ -44,17 +44,25 @@ class TestMath:
 
         for pxt_fn, py_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actual = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
+            actualdb = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
             expected = [py_fn(x, *args, **kwargs) for x in values]
+            if env.Env.get().is_using_cockroachdb and method_type == pxt.Float and pxt_fn == pxtf.math.round and (len(args) == 1):
+                # cockroachdb does not support values of +-Infinity for NUMERIC / DECIMAL types
+                # This means that our implementation of round(x, d) returns NaN if x is +-inf
+                expecteddb = [math.nan if (math.isinf(x)) else y for x, y in zip(values, expected)]
+            else:
+                expecteddb = expected
             print(f'  values:   {values}')
-            print(f'  actual:   {actual}')
+            print(f'  actualdb:   {actualdb}')
             print(f'  expected: {expected}')
-            assert np.array_equal(actual, expected, equal_nan=True), f'{actual} != {expected}'
+            print(f'  expecteddb: {expecteddb}')
+            assert np.array_equal(actualdb, expecteddb, equal_nan=True), f'{actualdb} != {expecteddb}'
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
             actual_py = t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=method_type), *args, **kwargs)).collect()[
                 'out'
             ]
+            print(f'  actualpy: {actual_py}')
             assert np.array_equal(actual_py, expected, equal_nan=True), f'{actual_py} != {expected}'
 
         # Check that they can all be called with method syntax too
