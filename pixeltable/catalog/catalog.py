@@ -12,11 +12,13 @@ from uuid import UUID
 
 import psycopg
 import sqlalchemy as sql
+import sqlalchemy.exc as sql_exc
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+from pixeltable.utils.exception_handler import run_cleanup
 
 from .column import Column
 from .dir import Dir
@@ -101,7 +103,7 @@ def retry_loop(
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
-                except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+                except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -167,6 +169,7 @@ class Catalog:
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
+    _undo_actions: list[Callable[[], None]]
     _in_retry_loop: bool
 
     # cached column dependencies
@@ -199,6 +202,7 @@ class Catalog:
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._modified_tvs = set()
+        self._undo_actions = []
         self._in_retry_loop = False
         self._column_dependencies = {}
         self._column_dependents = None
@@ -244,6 +248,11 @@ class Catalog:
                 # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
                 for v in tbl_version.mutable_views:
                     assert v.effective_version is None, f'{v.id}:{v.effective_version}'
+
+    def mark_modified_tvs(self, *handle: TableVersionHandle) -> None:
+        """Record that the given TableVersion instances were modified in the current transaction"""
+        assert Env.get().in_xact
+        self._modified_tvs.update(handle)
 
     @contextmanager
     def begin_xact(
@@ -309,6 +318,7 @@ class Catalog:
                 self._column_dependents = None
                 has_exc = False
 
+                assert not self._undo_actions
                 with Env.get().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
@@ -352,7 +362,7 @@ class Catalog:
                             # raise to abort the transaction
                             raise
 
-                        except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+                        except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                             has_exc = True
                             if isinstance(
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
@@ -360,10 +370,12 @@ class Catalog:
                                 num_retries += 1
                                 _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                                 time.sleep(random.uniform(0.1, 0.5))
+                                assert not self._undo_actions  # We should not have any undo actions at this point
                                 continue
                             else:
                                 raise
 
+                    assert not self._undo_actions
                     yield conn
                     return
 
@@ -376,44 +388,19 @@ class Catalog:
                     # we got this exception after getting the initial table locks and therefore need to abort
                     raise
 
-            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
-                # we got some db error during the actual operation (not just while trying to get locks on the metadata
-                # records): we convert these into Errors, if asked to do so, and abort
-                # TODO: what other concurrency-related exceptions should we expect?
+                self.convert_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
+                raise  # re-raise the error if it didn't convert to a pxt.Error
 
-                # we always convert UndefinedTable exceptions (they can't be retried)
-                if isinstance(e.orig, psycopg.errors.UndefinedTable):
-                    # the table got dropped in the middle of the table operation
-                    tbl_name = tbl.tbl_name() if tbl is not None else str(tbl_id) if tbl_id is not None else '?'
-                    _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
-                    assert tbl is not None
-                    raise excs.Error(f'Table was dropped: {tbl_name}') from None
-                elif isinstance(e.orig, psycopg.errors.SerializationFailure) and convert_db_excs:
-                    # we still got a serialization error, despite getting x-locks at the beginning
-                    msg: str
-                    if tbl is not None:
-                        msg = f'{tbl.tbl_name()} ({tbl.tbl_id})'
-                    elif tbl_id is not None:
-                        msg = f'{tbl_id}'
-                    else:
-                        msg = ''
-                    _logger.debug(f'Exception: serialization failure: {msg} ({e})')
-                    raise excs.Error(
-                        'That Pixeltable operation could not be completed because it conflicted with another '
-                        'operation that was run on a different process.\n'
-                        'Please re-run the operation.'
-                    ) from None
-                else:
-                    raise
-
-            except:
+            except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
+                _logger.debug(f'Caught {e.__class__}')
                 raise
 
             finally:
                 self._in_write_xact = False
-                self._x_locked_tbl_ids = set()
+                self._x_locked_tbl_ids.clear()
                 self._column_dependents = None
 
                 # invalidate cached current TableVersion instances
@@ -423,11 +410,73 @@ class Catalog:
                         tv.is_validated = False
 
                 if has_exc:
-                    # purge all modified TableVersion instances, we can't guarantee they are still consistent with the
+                    # Execute undo actions in reverse order (LIFO)
+                    for hook in reversed(self._undo_actions):
+                        run_cleanup(hook, raise_error=False)
+                    # purge all modified TableVersion instances; we can't guarantee they are still consistent with the
                     # stored metadata
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.id, handle.effective_version)
-                self._modified_tvs = set()
+                    # Clear potentially corrupted cached metadata
+                    if tbl is not None:
+                        tbl.clear_cached_md()
+
+                self._undo_actions.clear()
+                self._modified_tvs.clear()
+
+    def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
+        """Registers a function to be called if the current transaction fails.
+
+        The function is called only if the current transaction fails due to an exception.
+
+        Rollback functions are called in reverse order of registration (LIFO).
+
+        The function should not raise exceptions; if it does, they are logged and ignored.
+        """
+        assert Env.get().in_xact
+        self._undo_actions.append(func)
+        return func
+
+    def convert_sql_exc(
+        self,
+        e: sql_exc.StatementError,
+        tbl_id: UUID | None = None,
+        tbl: TableVersionHandle | None = None,
+        convert_db_excs: bool = True,
+    ) -> None:
+        # we got some db error during the actual operation (not just while trying to get locks on the metadata
+        # records); we convert these into pxt.Error exceptions if appropriate
+
+        # we always convert UndefinedTable exceptions (they can't be retried)
+        if isinstance(e.orig, psycopg.errors.UndefinedTable) and tbl is not None:
+            # the table got dropped in the middle of the operation
+            tbl_name = tbl.get().name
+            _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
+            raise excs.Error(f'Table was dropped: {tbl_name}') from None
+        elif (
+            isinstance(
+                e.orig,
+                (
+                    psycopg.errors.SerializationFailure,  # serialization error despite getting x-locks
+                    psycopg.errors.InFailedSqlTransaction,  # can happen after tx fails for another reason
+                    psycopg.errors.DuplicateColumn,  # if a different process added a column concurrently
+                ),
+            )
+            and convert_db_excs
+        ):
+            msg: str
+            if tbl is not None:
+                msg = f'{tbl.get().name} ({tbl.id})'
+            elif tbl_id is not None:
+                msg = f'{tbl_id}'
+            else:
+                msg = ''
+            _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
+            raise excs.Error(
+                'That Pixeltable operation could not be completed because it conflicted with another '
+                'operation that was run on a different process.\n'
+                'Please re-run the operation.'
+            ) from None
 
     @property
     def in_write_xact(self) -> bool:
@@ -593,7 +642,7 @@ class Catalog:
                     if op.op_sn == op.num_ops - 1:
                         conn.execute(reset_has_pending_stmt)
 
-            except (sql.exc.DBAPIError, sql.exc.OperationalError) as e:
+            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
@@ -920,11 +969,18 @@ class Catalog:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-    ) -> Table:
+    ) -> tuple[Table, bool]:
+        """
+        Creates a new InsertableTable at the given path.
+
+        If `if_exists == IfExistsParam.IGNORE` and a table `t` already exists at the given path, returns `t, False`.
+
+        Otherwise, creates a new table `t` and returns `t, True` (or raises an exception if the operation fails).
+        """
         existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
         if existing is not None:
             assert isinstance(existing, Table)
-            return existing
+            return existing, False
 
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
@@ -940,7 +996,7 @@ class Catalog:
             media_validation=media_validation,
         )
         self._tbls[tbl._id, None] = tbl
-        return tbl
+        return tbl, True
 
     def create_view(
         self,
@@ -1195,8 +1251,14 @@ class Catalog:
             TableVersion.create_replica(md)
 
     @retry_loop(for_write=False)
-    def get_table(self, path: Path) -> Table:
-        obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
+    def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
+        obj = Catalog.get()._get_schema_object(
+            path, expected=Table, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
+        )
+        if obj is None:
+            _logger.info(f'Skipped table {path!r} (does not exist).')
+            return None
+
         assert isinstance(obj, Table)
         # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
         # by another process.
@@ -1208,7 +1270,7 @@ class Catalog:
         tbl = self._get_schema_object(
             path,
             expected=Table,
-            raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
+            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
             lock_parent=True,
             lock_obj=False,
         )
@@ -1293,7 +1355,7 @@ class Catalog:
             base_id = tvp.base.tbl_id
             base_tv = self.get_tbl_version(base_id, None, validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
-            self._modified_tvs.add(base_tv.handle)
+            self.mark_modified_tvs(base_tv.handle)
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
@@ -1305,7 +1367,7 @@ class Catalog:
             if not is_pure_snapshot:
                 # invalidate the TableVersion instance when we're done so that existing references to it can find out it
                 # has been dropped
-                self._modified_tvs.add(tvp.tbl_version)
+                self.mark_modified_tvs(tvp.tbl_version)
             tv = tvp.tbl_version.get() if tvp.tbl_version is not None else None
             if not is_pure_snapshot:
                 # drop the store table before deleting the Table record
@@ -1997,7 +2059,7 @@ class Catalog:
         self._tbl_versions[tbl_id, effective_version] = tbl_version
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
-        self._modified_tvs.add(tbl_version.handle)
+        self.mark_modified_tvs(tbl_version.handle)
         tbl_version.init()
         return tbl_version
 
