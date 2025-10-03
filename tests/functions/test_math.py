@@ -46,7 +46,12 @@ class TestMath:
             print(f'Testing {pxt_fn.name} ...')
             actualdb = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
             expected = [py_fn(x, *args, **kwargs) for x in values]
-            if env.Env.get().is_using_cockroachdb and method_type == pxt.Float and pxt_fn == pxtf.math.round and (len(args) == 1):
+            if (
+                env.Env.get().is_using_cockroachdb
+                and method_type == pxt.Float
+                and pxt_fn == pxtf.math.round
+                and (len(args) == 1)
+            ):
                 # cockroachdb does not support values of +-Infinity for NUMERIC / DECIMAL types
                 # This means that our implementation of round(x, d) returns NaN if x is +-inf
                 expecteddb = [math.nan if (math.isinf(x)) else y for x, y in zip(values, expected)]

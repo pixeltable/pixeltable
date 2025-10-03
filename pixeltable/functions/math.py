@@ -17,7 +17,6 @@ from typing import Optional
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 
 
