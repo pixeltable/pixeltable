@@ -342,12 +342,10 @@ class SqlNode(ExecNode):
                 elif is_using_cockroachdb and isinstance(sql_row[i], datetime.datetime):
                     # Ensure that the datetime is timezone-aware and in the session time zone
                     # cockroachDB returns timestamps in the session time zone, with numeric offset,
-                    # convert to the session time zone with correct tzinfo for DST handling
+                    # convert to the session time zone with the requested tzinfo for DST handling
                     if e.col_type.is_timestamp_type():
                         if isinstance(sql_row[i].tzinfo, datetime.timezone):
-                            utc_in = sql_row[i].astimezone(datetime.timezone.utc)
-                            output_row[slot_idx] = sql_row[i].replace(tzinfo=tzinfo)
-                            assert output_row[slot_idx].astimezone(datetime.timezone.utc) == utc_in
+                            output_row[slot_idx] = sql_row[i].astimezone(tz=tzinfo)
                         else:
                             output_row[slot_idx] = sql_row[i]
                     else:
