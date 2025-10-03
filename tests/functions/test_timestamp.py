@@ -38,7 +38,7 @@ class TestTimestamp:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
-        default_tz = Env.get().default_time_zone
+        assert default_tz == Env.get().default_time_zone
         test_dts, t = self.make_test_table()
 
         from pixeltable.functions.timestamp import (
