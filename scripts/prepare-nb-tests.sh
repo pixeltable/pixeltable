@@ -3,7 +3,7 @@
 IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
-TEST_PATH="target/nb-tests"
+TEST_PATH="tests/target/nb-tests"
 mkdir -p "$TEST_PATH"
 
 DO_PIP_INSTALL=true

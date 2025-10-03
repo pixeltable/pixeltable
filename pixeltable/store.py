@@ -274,7 +274,7 @@ class StoreBase:
                 self.sa_md.remove(tmp_tbl)
                 tmp_tbl.drop(bind=conn)
 
-            run_cleanup(remove_tmp_tbl, raise_error=True)
+            run_cleanup(remove_tmp_tbl, raise_error=False)
 
         return num_excs
 
@@ -321,7 +321,7 @@ class StoreBase:
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    if show_progress:
+                    if show_progress and Env.get().verbosity >= 1:
                         if progress_bar is None:
                             warnings.simplefilter('ignore', category=TqdmWarning)
                             progress_bar = tqdm(

@@ -253,7 +253,6 @@ def _download_from_presigned_url(
         session.close()
 
 
-# TODO: This will be replaced by drop_table with cloud table uri
 def delete_replica(dest_path: str) -> None:
     """Delete cloud replica"""
     delete_request = DeleteSnapshotRequest(table_uri=PathUri(dest_path))

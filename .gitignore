@@ -12,5 +12,6 @@ docs/local
 local
 site
 target
+tests/target
 .DS_Store
 **/.DS_Store

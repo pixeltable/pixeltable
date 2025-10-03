@@ -48,7 +48,7 @@ class Column:
     - if None: the system chooses for you (at present, this is always False, but this may change in the future)
     """
 
-    name: str
+    name: Optional[str]
     id: Optional[int]
     col_type: ts.ColumnType
     stored: bool
@@ -259,7 +259,12 @@ class Column:
         # default: record errors for computed and media columns
         if self._stores_cellmd is not None:
             return self._stores_cellmd
-        return self.is_stored and (self.is_computed or self.col_type.is_media_type())
+        return self.is_stored and (
+            self.is_computed
+            or self.col_type.is_media_type()
+            or self.col_type.is_json_type()
+            or self.col_type.is_array_type()
+        )
 
     @property
     def qualified_name(self) -> str:
