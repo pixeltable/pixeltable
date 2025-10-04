@@ -14,6 +14,7 @@ from uuid import UUID
 import more_itertools
 import numpy as np
 import PIL.Image
+import pgvector.sqlalchemy as sql_vector
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
@@ -158,6 +159,10 @@ class TablePackager:
             return pa.string()  # JSON will be exported as strings
         if isinstance(col_type, sql.LargeBinary):
             return pa.binary()
+        if isinstance(col_type, sql_vector.Vector):
+            # Parquet/pyarrow do not handle null values properly for fixed_shape_tensor(), so we have to use list_()
+            # here instead.
+            return pa.list_(pa.float32())
         raise AssertionError(f'Unrecognized SQL type: {col_type} (type {type(col_type)})')
 
     def __to_pa_tables(
@@ -416,7 +421,7 @@ class TableRestorer:
         # e.g., pa.string() may hold either VARCHAR or serialized JSONB).
         temp_cols: dict[str, sql.Column] = {}
         for field in parquet_table.schema:
-            assert field.name in store_sa_tbl.columns
+            assert field.name in store_sa_tbl.columns, f'{field.name} not in {list(store_sa_tbl.columns)}'
             col_type = store_sa_tbl.columns[field.name].type
             temp_cols[field.name] = sql.Column(field.name, col_type)
         temp_sa_tbl_name = f'temp_{uuid.uuid4().hex}'
@@ -608,6 +613,11 @@ class TableRestorer:
     ) -> Any:
         if val is None:
             return None
+        if isinstance(sql_type, sql_vector.Vector):
+            if isinstance(val, list):
+                val = np.array(val, dtype=np.float32)
+            assert isinstance(val, np.ndarray) and val.dtype == np.float32 and val.ndim == 1
+            return val
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
         if media_col is not None:

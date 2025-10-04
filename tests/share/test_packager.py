@@ -653,3 +653,14 @@ class TestPackager:
             for j in tables:
                 # Re-check all tables that are still present
                 self.__check_table(bundles[j], f'replica_{j}')
+
+    def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        t = pxt.create_table('tbl', {'image': pxt.Image})
+        images = get_image_files()[:10]
+        t.insert({'image': image} for image in images)
+        t.add_embedding_index('image', embedding=clip_embed)
+
+        bundle = self.__package_table(t)
+        clean_db()
+        reload_catalog()
+        self.__restore_and_check_table(bundle, 'replica')

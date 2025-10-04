@@ -409,7 +409,7 @@ class TableVersion:
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
         self._init_cols()
-        if not self.is_snapshot:
+        if self.is_replica or not self.is_snapshot:
             self._init_idxs()
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
@@ -448,9 +448,9 @@ class TableVersion:
             #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
-        # self.idx_md = tbl_md.index_md
-        self.idxs_by_name = {}
         import pixeltable.index as index_module
+
+        self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}
 
         for md in self.tbl_md.index_md.values():
             if md.schema_version_add > self.schema_version or (
@@ -475,10 +475,10 @@ class TableVersion:
             # fix up the sa column type of the index value and undo columns
             val_col = self.cols_by_id[md.index_val_col_id]
             val_col.sa_col_type = idx.index_sa_type()
-            val_col._stores_cellmd = False
+            # val_col._stores_cellmd = False
             undo_col = self.cols_by_id[md.index_val_undo_col_id]
             undo_col.sa_col_type = idx.index_sa_type()
-            undo_col._stores_cellmd = False
+            # undo_col._stores_cellmd = False
             idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
             self.idxs_by_name[md.name] = idx_info
 
