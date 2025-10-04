@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, cast
 
+import numpy as np
 import pandas as pd
 from pyarrow.parquet import ParquetDataset
 
@@ -340,6 +341,8 @@ class HFTableDataConduit(TableDataConduit):
 
         assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
         t.hf_ds = tds.source
+        # make sure we get numpy arrays for arrays, not Python lists
+        t.hf_ds.set_format(type='numpy')
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
         return t
@@ -422,18 +425,26 @@ class HFTableDataConduit(TableDataConduit):
             new_val = self.categorical_features[col_name][val] if col_name in self.categorical_features else val
             mapped_col_name = self.source_column_map.get(col_name, col_name)
 
-            # Convert values to the appropriate type if needed
-            try:
-                checked_val = self.pxt_schema[mapped_col_name].create_literal(new_val)
-            except TypeError as e:
-                msg = str(e)
-                raise excs.Error(f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
-            output_row[mapped_col_name] = checked_val
+            new_val = self._translate_val(new_val)
+            output_row[mapped_col_name] = new_val
 
         # add split name to output row
         if self.column_name_for_split is not None:
             output_row[self.column_name_for_split] = split_name
         return output_row
+
+    def _translate_val(self, val: Any) -> Any:
+        """Convert numpy scalars to Python types"""
+        if isinstance(val, np.ndarray):
+            if np.ndim(val) == 0:
+                # we want scalars as standard Python types
+                return val.item()
+            else:
+                return val
+        elif isinstance(val, dict):
+            return {k: self._translate_val(v) for k, v in val.items()}
+        else:
+            return val
 
     def valid_row_batch(self) -> Iterator[RowData]:
         for split_name, split_dataset in self.dataset_dict.items():
