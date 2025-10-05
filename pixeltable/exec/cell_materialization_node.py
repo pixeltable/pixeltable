@@ -89,8 +89,6 @@ class CellMaterializationNode(ExecNode):
                         self._materialize_json_cell(row, col, val)
                     else:
                         assert col.col_type.is_array_type()
-                        if not isinstance(val, np.ndarray):
-                            pass
                         assert isinstance(val, np.ndarray)
                         self._materialize_array_cell(row, col, val)
 
