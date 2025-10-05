@@ -332,7 +332,6 @@ class HFTableDataConduit(TableDataConduit):
     - use set_format('arrow') and convert ChunkedArrays to PIL.Image.Image instead of going through numpy, which is slow
     """
 
-    hf_ds: datasets.Dataset | datasets.DatasetDict | None = None
     column_name_for_split: Optional[str] = None
     categorical_features: dict[str, dict[int, str]]
     dataset_dict: dict[str, datasets.Dataset] = None
@@ -349,7 +348,7 @@ class HFTableDataConduit(TableDataConduit):
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # # make sure we get numpy arrays for arrays, not Python lists
+        # make sure we get numpy arrays for arrays, not Python lists
         source = tds.source.with_format(type='numpy')
         if isinstance(source, datasets.Dataset):
             # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
@@ -378,7 +377,6 @@ class HFTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
-            # self.hf_schema_source = _get_hf_schema(self.hf_ds)
             self.hf_schema_source = _get_hf_schema(self.source)
             self.src_schema = huggingface_schema_to_pxt_schema(
                 self.hf_schema_source, self.src_schema_overrides, self.src_pk
