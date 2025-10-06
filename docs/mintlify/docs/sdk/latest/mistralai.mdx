@@ -1,0 +1,142 @@
+---
+title: "pixeltable.functions.mistralai"
+sidebarTitle: "mistralai"
+icon: "square-m"
+---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) that wrap various endpoints from the Mistral AI API. In order to use them, you must first `pip install mistralai` and configure your Mistral AI credentials, as described in the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mistralai) tutorial.
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/mistralai.py#L0" target="_blank">View source on GitHub</a>
+
+## UDFs
+
+
+---
+
+### `chat_completions()` <sub>udf</sub>
+
+Chat Completion API.
+
+
+Equivalent to the Mistral AI `chat/completions` API endpoint. For additional details, see: [https://docs.mistral.ai/api/#tag/chat](https://docs.mistral.ai/api/#tag/chat)
+
+Request throttling: Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install mistralai`
+
+
+**Signature:**
+
+```python
+chat_completions(
+    messages: Json,
+    model: String,
+    model_kwargs: Optional[Json]
+)-> Json
+```
+
+**Parameters:**
+
+- **`messages`** (*Json*): The prompt(s) to generate completions for.
+- **`model`** (*String*): ID of the model to use. (See overview here: [https://docs.mistral.ai/getting-started/models/](https://docs.mistral.ai/getting-started/models/))
+- **`model_kwargs`** (*Optional[Json]*): Additional keyword args for the Mistral `chat/completions` API. For details on the available parameters, see: [https://docs.mistral.ai/api/#tag/chat](https://docs.mistral.ai/api/#tag/chat)
+
+**Returns:**
+
+- *Json*: A dictionary containing the response and other metadata.
+
+
+
+**Example:**
+
+Add a computed column that applies the model `mistral-latest-small` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+messages = [{'role': 'user', 'content': tbl.prompt}]
+tbl.add_computed_column(response=completions(messages, model='mistral-latest-small'))
+```
+
+
+---
+
+### `embeddings()` <sub>udf</sub>
+
+Embeddings API.
+
+
+Equivalent to the Mistral AI `embeddings` API endpoint. For additional details, see: [https://docs.mistral.ai/api/#tag/embeddings](https://docs.mistral.ai/api/#tag/embeddings)
+
+Request throttling: Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install mistralai`
+
+
+**Signature:**
+
+```python
+embeddings(
+    input: String,
+    model: String
+)-> Array[(None,), Float]
+```
+
+**Parameters:**
+
+- **`input`** (*String*): Text to embed.
+- **`model`** (*String*): ID of the model to use. (See overview here: [https://docs.mistral.ai/getting-started/models/](https://docs.mistral.ai/getting-started/models/))
+
+**Returns:**
+
+- *Array[(None,), Float]*: An array representing the application of the given embedding to `input`.
+
+
+
+---
+
+### `fim_completions()` <sub>udf</sub>
+
+Fill-in-the-middle Completion API.
+
+
+Equivalent to the Mistral AI `fim/completions` API endpoint. For additional details, see: [https://docs.mistral.ai/api/#tag/fim](https://docs.mistral.ai/api/#tag/fim)
+
+Request throttling: Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install mistralai`
+
+
+**Signature:**
+
+```python
+fim_completions(
+    prompt: String,
+    model: String,
+    model_kwargs: Optional[Json]
+)-> Json
+```
+
+**Parameters:**
+
+- **`prompt`** (*String*): The text/code to complete.
+- **`model`** (*String*): ID of the model to use. (See overview here: [https://docs.mistral.ai/getting-started/models/](https://docs.mistral.ai/getting-started/models/))
+- **`model_kwargs`** (*Optional[Json]*): Additional keyword args for the Mistral `fim/completions` API. For details on the available parameters, see: [https://docs.mistral.ai/api/#tag/fim](https://docs.mistral.ai/api/#tag/fim)
+
+**Returns:**
+
+- *Json*: A dictionary containing the response and other metadata.
+
+
+
+**Example:**
+
+Add a computed column that applies the model `codestral-latest` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+tbl.add_computed_column(response=completions(tbl.prompt, model='codestral-latest'))
+```
+
