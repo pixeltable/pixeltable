@@ -71,6 +71,7 @@ class Env:
     _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
     _db_url: Optional[str]
     _default_time_zone: Optional[ZoneInfo]
+    _verbosity: int
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
@@ -223,6 +224,10 @@ class Env:
         self._create_engine(time_zone_name=tz_name)
 
     @property
+    def verbosity(self) -> int:
+        return self._verbosity
+
+    @property
     def conn(self) -> Optional[sql.Connection]:
         assert self._current_conn is not None
         return self._current_conn
@@ -247,7 +252,7 @@ class Env:
         return self._db_server is not None
 
     @contextmanager
-    def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
+    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
         """
         Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
 
@@ -390,10 +395,12 @@ class Env:
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
-        # Set verbose level for user visible console messages
-        verbosity = map_level(config.get_int_value('verbosity'))
+        # Set verbosity level for user visible console messages
+        self._verbosity = config.get_int_value('verbosity')
+        if self._verbosity is None:
+            self._verbosity = 1
         stdout_handler = ConsoleOutputHandler(stream=stdout)
-        stdout_handler.setLevel(verbosity)
+        stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
         self._console_logger = ConsoleLogger(self._logger)
@@ -766,6 +773,10 @@ class Env:
             is_installed=is_installed,
             library_name=library_name or package_name,  # defaults to package_name unless specified otherwise
         )
+
+    def require_binary(self, binary_name: str) -> None:
+        if not shutil.which(binary_name):
+            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
     def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
         """

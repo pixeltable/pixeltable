@@ -182,6 +182,12 @@ KNOWN_CONFIG_OPTIONS = {
         'api_version': 'API version if using Azure OpenAI',
         'rate_limits': 'Per-model rate limits for OpenAI API requests',
     },
+    'openrouter': {
+        'api_key': 'OpenRouter API key',
+        'site_url': 'Optional URL for your application (for OpenRouter analytics)',
+        'app_name': 'Optional name for your application (for OpenRouter analytics)',
+        'rate_limit': 'Rate limit for OpenRouter API requests',
+    },
     'replicate': {'api_token': 'Replicate API token'},
     'together': {
         'api_key': 'Together API key',

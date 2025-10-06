@@ -1,5 +1,6 @@
 import datetime
 import glob
+import itertools
 import json
 import os
 import random
@@ -7,7 +8,7 @@ import shutil
 import subprocess
 import sysconfig
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 from unittest import TestCase
 from uuid import uuid4
 
@@ -276,6 +277,24 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     return tbl
 
 
+def inf_array_iterator(
+    shapes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]
+) -> Iterator[np.ndarray]:
+    """Generate random arrays of different sizes and dtypes."""
+    size_iter = itertools.cycle(shapes)
+    dtype_iter = itertools.cycle(dtypes)
+    rng = np.random.default_rng(0)
+    while True:
+        size = next(size_iter)
+        dtype = next(dtype_iter)
+        if dtype is np.bool_:
+            yield rng.integers(0, 2, size=size, dtype=bool)
+        elif np.issubdtype(dtype, np.integer):
+            yield rng.integers(0, 100, size=size, dtype=dtype)
+        else:
+            yield rng.random(size=size, dtype=dtype)  # type: ignore[arg-type]
+
+
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
@@ -367,6 +386,11 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
     return __IMAGE_FILES_WITH_BAD_IMAGE if include_bad_image else __IMAGE_FILES
 
 
+def inf_image_iterator(include_bad_image: bool = False) -> Iterator[PIL.Image.Image]:
+    for f in itertools.cycle(get_image_files(include_bad_image)):
+        yield PIL.Image.open(f)
+
+
 def __image_mode(path: str) -> str:
     image = PIL.Image.open(path)
     try:
@@ -447,13 +471,32 @@ def __equality_comparer(x: Any, y: Any) -> bool:
     return x == y
 
 
+def __json_comparer(x: Any, y: Any) -> bool:
+    if type(x) is not type(y):
+        return False
+    if isinstance(x, dict):
+        return set(x.keys()) == set(y.keys()) and all(__json_comparer(x[k], y[k]) for k in x)
+    if isinstance(x, list):
+        return len(x) == len(y) and all(__json_comparer(a, b) for a, b in zip(x, y))
+    if isinstance(x, float):
+        return __float_comparer(x, y)
+    if isinstance(x, np.ndarray):
+        return __array_comparer(x, y)
+    return x == y
+
+
 __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.FLOAT: __float_comparer,
     ts.ColumnType.Type.ARRAY: __array_comparer,
+    ts.ColumnType.Type.JSON: __json_comparer,
     ts.ColumnType.Type.VIDEO: __file_comparer,
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,
 }
+
+
+def assert_json_eq(x: Any, y: Any, context: str = '') -> None:
+    assert __json_comparer(x, y), f'{context}: {x} != {y}'
 
 
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
