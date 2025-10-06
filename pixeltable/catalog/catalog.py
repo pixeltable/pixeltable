@@ -1736,6 +1736,9 @@ class Catalog:
 
     @retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
+        return self._collect_tbl_history(tbl_id, n)
+
+    def _collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 

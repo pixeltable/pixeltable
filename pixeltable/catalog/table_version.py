@@ -409,7 +409,7 @@ class TableVersion:
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
         self._init_cols()
-        if self.is_replica or not self.is_snapshot:
+        if self._has_idxs():
             self._init_idxs()
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
@@ -417,6 +417,31 @@ class TableVersion:
         # created value_exprs after everything else has been initialized
         for col in self.cols_by_id.values():
             col.init_value_expr()
+
+    def _has_idxs(self) -> bool:
+        """
+        Determines if this TableVersion supports indices.
+
+        Ordinarily, snapshots do not have indices, since we cannot rely on the index information in the underlying
+        table(s) to align with the snapshot version. However, we *do* allow indices for replicas, provided that the
+        version of the replica is the most recent version available in the catalog.
+        """
+        # TODO: Ideally we wouldn't need the "provided that..." restriction, but resolving it will require some
+        #     rearchitecture of the way replica indices are stored.
+        # TODO: What if the user does a t.pull() and retrieves a more recent version than this one? Verify that this
+        #     correctly invalidates the indices in this TableVersion.
+        from pixeltable.catalog import Catalog
+
+        if not self.is_snapshot:
+            return True  # Non-snapshots always have indices
+        if not self.is_replica:
+            return False  # Non-replica snapshots never have indices
+
+        # Replicas can have indices if they're the most recent version available in the catalog.
+        head_version = Catalog.get()._collect_tbl_history(self.id, n=1)
+        assert len(head_version) == 1
+        assert self.version is not None  # Should always be true for replicas
+        return head_version[0].version_md.version == self.version
 
     def _init_cols(self) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
