@@ -9,7 +9,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_not_installed
+from ..utils import rerun, skip_test_if_not_installed, IN_CI
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -205,6 +205,7 @@ class TestHfDatasets:
         assert isinstance(img, PIL.Image.Image)
         assert img.size == (28, 28)
 
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_arrays(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
