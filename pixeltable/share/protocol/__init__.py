@@ -5,34 +5,30 @@ This module contains the core protocol structures for pixeltable table operation
 that can be shared between pixeltable core and cloud implementations.
 """
 
-from .common import PathUri, PathUriRequestModel, StorageDestination
-from .operation_types import CoreOperationType
-from .table import (
-    CloneSnapshotRequest,
-    CloneSnapshotResponse,
-    DeleteSnapshotRequest,
-    DeleteSnapshotResponse,
-    FinalizeSnapshotRequest,
-    FinalizeSnapshotResponse,
-    ListTableMetadataEntry,
-    PublishSnapshotRequest,
-    PublishSnapshotResponse,
-    TableMetadataEntry,
+from .common import PxtUri, RequestBaseModel, StorageDestination
+from .operation_types import ReplicaOperationType
+from .replica import (
+    DeleteRequest,
+    DeleteResponse,
+    FinalizeRequest,
+    FinalizeResponse,
+    PublishRequest,
+    PublishResponse,
+    ReplicateRequest,
+    ReplicateResponse,
 )
 
 __all__ = [
-    'CloneSnapshotRequest',
-    'CloneSnapshotResponse',
-    'CoreOperationType',
-    'DeleteSnapshotRequest',
-    'DeleteSnapshotResponse',
-    'FinalizeSnapshotRequest',
-    'FinalizeSnapshotResponse',
-    'ListTableMetadataEntry',
-    'PathUri',
-    'PathUriRequestModel',
-    'PublishSnapshotRequest',
-    'PublishSnapshotResponse',
+    'DeleteRequest',
+    'DeleteResponse',
+    'FinalizeRequest',
+    'FinalizeResponse',
+    'PublishRequest',
+    'PublishResponse',
+    'PxtUri',
+    'ReplicaOperationType',
+    'ReplicateRequest',
+    'ReplicateResponse',
+    'RequestBaseModel',
     'StorageDestination',
-    'TableMetadataEntry',
 ]
