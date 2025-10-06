@@ -109,3 +109,45 @@ def ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, durati
         ]
     )
     return cmd
+
+
+def ffmpeg_segment_cmd(
+    input_path: str, output_pattern: str, segment_duration: float, video_encoder: str | None = None
+) -> list[str]:
+    """
+    Build ffmpeg command for accurate segmentation using the segment muxer.
+
+    Args:
+        input_path: Path to input video file
+        output_pattern: Output filename pattern (e.g., 'output_%03d.mp4')
+        segment_duration: Duration of each segment in seconds
+        video_encoder: Video encoder to use (defaults to mpeg4 if None)
+
+    Returns:
+        List of command arguments for subprocess
+    """
+    # Use mpeg4 as default - it's widely available and works without external dependencies
+    # Unlike libx264 which requires external library
+    default_encoder = video_encoder or 'mpeg4'
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        input_path,
+        '-f',
+        'segment',  # Use segment muxer
+        '-segment_time',
+        str(segment_duration),  # Target segment duration
+        '-reset_timestamps',
+        '1',  # Reset timestamps for each segment
+        '-map',
+        '0',  # Copy all streams from input
+        '-c:v',
+        default_encoder,  # Re-encode video for accurate splits
+        '-c:a',
+        'aac',  # Re-encode audio
+        '-loglevel',
+        'error',  # Only show errors
+        output_pattern,
+    ]
+    return cmd
