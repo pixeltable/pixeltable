@@ -14,7 +14,7 @@ from uuid import UUID
 import more_itertools
 import numpy as np
 import PIL.Image
-import pgvector.sqlalchemy as sql_vector
+import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
@@ -127,7 +127,7 @@ class TablePackager:
         # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Parquet table on disk.
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
-        parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
+        parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='snappy')
         filter_tv = self.table._tbl_version_path.tbl_version.get()
         row_iter = tv.store_tbl.dump_rows(tv.version, filter_tv.store_tbl, filter_tv.version)
         for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, parquet_schema):
@@ -139,7 +139,7 @@ class TablePackager:
     @classmethod
     def __to_parquet_schema(cls, store_tbl: sql.Table) -> pa.Schema:
         entries = [(col_name, cls.__to_parquet_type(col.type)) for col_name, col in store_tbl.columns.items()]
-        return pa.schema(entries)  # type: ignore[arg-type]
+        return pa.schema(entries)
 
     @classmethod
     def __to_parquet_type(cls, col_type: sql.types.TypeEngine[Any]) -> pa.DataType:
@@ -152,7 +152,7 @@ class TablePackager:
         if isinstance(col_type, sql.Float):
             return pa.float32()
         if isinstance(col_type, sql.TIMESTAMP):
-            return pa.timestamp('us', tz=datetime.timezone.utc)
+            return pa.timestamp('us', tz='UTC')
         if isinstance(col_type, sql.Date):
             return pa.date32()
         if isinstance(col_type, sql.JSON):
