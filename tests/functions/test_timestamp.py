@@ -133,8 +133,6 @@ class TestTimestamp:
             print(f'Requesting client in time zone: {tz_str}')
             default_time_zone = None if tz_str is None else ZoneInfo(tz_str)
             Env.get().default_time_zone = default_time_zone
-            # Be sure we are testing with the timezone of the local DB client
-            default_time_zone = Env.get().default_time_zone
             print(f'  (effective default time zone is: {default_time_zone})')
 
             pxt.drop_table('test_tbl', force=True)
