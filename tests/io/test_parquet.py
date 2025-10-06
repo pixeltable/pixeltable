@@ -112,9 +112,10 @@ class TestParquet:
 
     def test_export_parquet_simple(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
+        from zoneinfo import ZoneInfo
+
         import pyarrow as pa
         from pyarrow import parquet
-        from zoneinfo import ZoneInfo
 
         t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp})
 

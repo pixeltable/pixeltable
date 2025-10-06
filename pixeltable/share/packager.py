@@ -13,8 +13,8 @@ from uuid import UUID
 
 import more_itertools
 import numpy as np
-import PIL.Image
 import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
+import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql

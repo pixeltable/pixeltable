@@ -11,11 +11,14 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrameResultSet
+from pixeltable.env import Env
+from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import TempStore
@@ -176,6 +179,7 @@ class TestPackager:
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
         result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
+        index_data: dict[str, list[tuple[Optional[np.ndarray], Optional[np.ndarray]]]]  # Raw embedding index data
 
     def __package_table(self, tbl: pxt.Table) -> BundleInfo:
         """
@@ -184,12 +188,45 @@ class TestPackager:
         schema = tbl._get_schema()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
+        index_data = self.__extract_index_data(tbl, 5000, len(result_set))
 
         # Package the snapshot into a tarball
         packager = TablePackager(tbl)
         bundle_path = packager.package()
 
-        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
+        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set, index_data)
+
+    def __extract_index_data(
+        self, tbl: pxt.Table, limit: int, expected_row_count: int
+    ) -> dict[str, list[tuple[Optional[np.ndarray], Optional[np.ndarray]]]]:
+        """
+        Extracts the data from all the indices on `tbl` and returns it as a dictionary mapping index names to lists
+        of numpy arrays.
+
+        TODO: There is an open action item to make it possible for the user to query index contents directly; if we
+            implement such a feature, we can remove this very manual logic
+        """
+        index_data: dict[str, list[np.ndarray]] = {}
+        tv = tbl._tbl_version_path.tbl_version.get()
+        with Env.get().begin_xact():
+            for idx_info in tv.idxs_by_name.values():
+                if isinstance(idx_info.idx, EmbeddingIndex):
+                    q = (
+                        sql.select(idx_info.val_col.sa_col, idx_info.undo_col.sa_col)
+                        .where(tv.store_tbl.v_min_col <= tv.version)
+                        .where(tv.store_tbl.v_max_col > tv.version)
+                        .order_by(tv.store_tbl.rowid_columns()[0])
+                        .limit(limit)
+                    )
+                    cursor = Env.get().conn.execute(q)
+                    results = [(val, undo) for val, undo in cursor.fetchall()]
+                    assert len(results) == expected_row_count
+                    if len(results) > 0:
+                        val, undo = results[0]
+                        assert val is None or isinstance(val, np.ndarray)
+                        assert undo is None or isinstance(undo, np.ndarray)
+                    index_data[idx_info.name] = results
+        return index_data
 
     def __restore_and_check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         """
@@ -199,12 +236,23 @@ class TestPackager:
         restorer.restore(bundle_info.bundle_path)
         self.__check_table(bundle_info, tbl_name)
 
-    def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
+    def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str, check_idxs: bool = True) -> None:
         t = pxt.get_table(tbl_name)
         assert bundle_info.schema == t._get_schema()
         assert bundle_info.depth == t._tbl_version_path.path_len()
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
+
+        if check_idxs:
+            reconstituted_index_data = self.__extract_index_data(t, 5000, len(reconstituted_data))
+            assert list(bundle_info.index_data.keys()) == list(reconstituted_index_data.keys())
+            for idx_name in bundle_info.index_data:
+                a = bundle_info.index_data[idx_name]
+                b = reconstituted_index_data[idx_name]
+                assert all(
+                    np.array_equal(a_val, b_val) and np.array_equal(a_undo, b_undo)
+                    for (a_val, a_undo), (b_val, b_undo) in zip(a, b, strict=True)
+                ), f'Index data mismatch for index {idx_name}'
 
     def __do_round_trip(self, tbl: pxt.Table) -> None:
         bundle = self.__package_table(tbl)
