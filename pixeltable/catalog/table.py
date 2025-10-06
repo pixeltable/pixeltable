@@ -770,6 +770,8 @@ class Table(SchemaObject):
                 )
                 if 'destination' in spec:
                     destination = ObjectOps.validate_destination(spec['destination'], name)
+                elif stored and col_type is not None and col_type.is_media_type():
+                    ObjectOps.validate_destination(None, name)
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -787,7 +789,7 @@ class Table(SchemaObject):
 
     @classmethod
     def validate_column_name(cls, name: str) -> None:
-        """Check that a name is usable as a pixeltalbe column name"""
+        """Check that a name is usable as a pixeltable column name"""
         if is_system_column_name(name) or is_python_keyword(name):
             raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(name):

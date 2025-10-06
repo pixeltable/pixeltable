@@ -317,7 +317,8 @@ class TestVideo:
 
         # requesting a time range past the end of the video returns None
         # TODO: This short test should occur after the inserts below, however,
-        # we are unable to filter on duration if media are stored in an object store. PXT-
+        # the .where() clause on duration is executed in python, at a point in the SQL plan tree
+        # before we have cached the media files necessary to compute the result.
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         result_df = t.where(duration != None).select(clip=t.video.clip(start_time=1000.0)).collect().to_pandas()

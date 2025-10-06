@@ -1265,7 +1265,7 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == 0, f'{cache_stats} tbl_id={tbl._id}'
         # add computed column to make sure that external files are cached locally during insert
-        # This computed column should not creeate a new image in case the default media destination
+        # This computed column should not create a new image in case the default media destination
         # is located in an object service. In this case the filecache stats will be different, as the
         # computed results will need to fetched from storage as well as the original images.
         tbl.add_computed_column(img_width=tbl.img.width, stored=True)

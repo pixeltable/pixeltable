@@ -822,10 +822,12 @@ class Env:
 
     @property
     def has_media_dir(self) -> bool:
+        self._global_media_destination._validate_media_destination()
         return self._global_media_destination._media_dir is not None
 
     @property
     def media_dir(self) -> Path:
+        self._global_media_destination._validate_media_destination()
         assert self._global_media_destination._media_dir is not None
         return self._global_media_destination._media_dir
 
@@ -1108,11 +1110,13 @@ class RuntimeCtx:
 
 
 class GlobalMediaDestination:
-    _object_source_str: Optional[str]
-    _object_soa: Optional[StorageObjectAddress]
-    _object_soa_validated: bool
-    _object_soa_lock: threading.Lock = threading.Lock()
-    _media_dir: Optional[Path]
+    """Manage state of the global media destination."""
+
+    _object_source_str: Optional[str]  # String description of the destination
+    _object_soa: Optional[StorageObjectAddress]  # Parsed storage object address
+    _object_soa_validated: bool  # True if the destination has been validated
+    _object_soa_lock: threading.Lock = threading.Lock()  # Used to ensure single-threaded validation
+    _media_dir: Optional[Path]  # Path to local media directory, if applicable
 
     def __init__(self) -> None:
         self._object_source_str = None
@@ -1122,49 +1126,38 @@ class GlobalMediaDestination:
         self._media_dir = None
 
     def set_up(self, media_destination: Optional[str]) -> None:
-        """Setup default location for media objects. Thread-safe.
-        If the destination is a local file system all setup is completed here, including
-        possibly creating the directory.
-        If the destination is remote (eg, s3://bucket), the setup is deferred until
-        the first time the object_soa property is accessed.
-        The configuration is done with a lock context because the first use may be from within multi-threaded code.
+        """Setup default location for media objects.
+        Validation is deferred until the first time the object_soa property is accessed.
+        """
+        assert self._object_soa is None
+        assert not self._object_soa_validated
+        if isinstance(media_destination, str):
+            self._object_source_str = media_destination
+        else:
+            media_destination = Config.get().home / 'media'
+            # This special case logic creates the home/media directory to match previous behavior.
+            if not media_destination.exists():
+                media_destination.mkdir()
+            self._object_source_str = str(media_destination)
+
+    def _validate_media_destination(self) -> None:
+        """Validate default location for media objects. Thread-safe.
+        Validation uses a lock context because the first use may be from within multi-threaded code.
         Results:
             self._object_source_str is set to the original string specified in config if any
             self._object_soa is always set
             self._media_dir is not None only if the destination is a local file system.
         """
-        assert self._object_soa is None
-        if isinstance(media_destination, str):
-            self._object_source_str = media_destination
-            soa = ObjectPath.parse_object_storage_addr(media_destination, False)
-            if soa.storage_target == StorageTarget.LOCAL_STORE:
-                rdest = ObjectOps.validate_destination(media_destination, None)
-                if rdest is not None:
-                    soa = ObjectPath.parse_object_storage_addr(rdest, False)
-                    assert soa.storage_target == StorageTarget.LOCAL_STORE
-                    self._media_dir = soa.to_path
-                    self._object_soa = soa
-                    self._object_soa_validated = True
-                    return
-            self._object_soa = soa
-        if self._object_soa is None:
-            self._media_dir = Config.get().home / 'media'
-            if not self._media_dir.exists():
-                self._media_dir.mkdir()
-            self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), may_contain_object_name=False)
-            self._object_soa_validated = True
-
-    def _validate_media_destination(self) -> None:
         if self._object_soa_validated:
             return
-
         assert self._object_source_str is not None
         rdest = ObjectOps.validate_destination(self._object_source_str, None)
         if rdest is not None:
             soa = ObjectPath.parse_object_storage_addr(rdest, False)
-            assert soa.storage_target != StorageTarget.LOCAL_STORE
             with self._object_soa_lock:
                 if self._object_soa_validated:
                     return
+                if soa.storage_target == StorageTarget.LOCAL_STORE:
+                    self._media_dir = soa.to_path
                 self._object_soa = soa
                 self._object_soa_validated = True
