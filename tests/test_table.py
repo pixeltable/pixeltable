@@ -26,7 +26,6 @@ from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.local_store import LocalStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -1553,6 +1552,9 @@ class TestTable:
     def test_insert_arrays(self, reset_db: None) -> None:
         """Test storing arrays of various sizes and dtypes."""
         # 5 columns: cycle through different shapes and sizes in each row
+        if not Env.get().has_media_dir:
+            pytest.skip('Media destination is not a local file system')
+
         t = pxt.create_table(
             'test', {'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array}
         )
@@ -1577,7 +1579,7 @@ class TestTable:
         )
         assert status.num_excs == 0
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        assert ObjectOps.count(None, tbl_id) > 0
 
         res = t.head(100)  # head(): return in insertion order
         assert all(np.array_equal(row['ar1'], rows[i]['ar1']) for i, row in enumerate(res))
@@ -1587,10 +1589,13 @@ class TestTable:
         assert all(np.array_equal(row['ar5'], rows[i]['ar5']) for i, row in enumerate(res))
 
         pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        assert ObjectOps.count(None, tbl_id) == 0
 
     def test_insert_inlined_objects(self, reset_db: None) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
+        if not Env.get().has_media_dir:
+            pytest.skip('Media destination is not a local file system')
+
         schema = {
             'array_list': pxt.Json,
             'array_dict': pxt.Json,
@@ -1628,7 +1633,7 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_excs == 0
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        assert ObjectOps.count(None, tbl_id) > 0
 
         res = t.head(10)  # head(): return in insertion order
         for i, row in enumerate(res):
@@ -1638,9 +1643,12 @@ class TestTable:
             assert_json_eq(row['img_dict'], {'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']})
 
         pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        assert ObjectOps.count(None, tbl_id) == 0
 
     def test_nonstandard_json_construction(self, reset_db: None) -> None:
+        if not Env.get().has_media_dir:
+            pytest.skip('Media destination is not a local file system')
+
         # test list/dict construction
         # use 5 arrays to ensure every row sees a different combination of shapes and dtypes
         schema = {
@@ -1693,7 +1701,7 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_excs == 0
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        assert ObjectOps.count(None, tbl_id) > 0
 
         # list construction
         res = t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id).collect()
@@ -1738,7 +1746,7 @@ class TestTable:
             assert_json_eq(row['img2'], row['d_img2'], context=f'row {i}')
 
         pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        assert ObjectOps.count(None, tbl_id) == 0
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -3056,6 +3064,9 @@ class TestTable:
             t.revert()
 
     def test_array_columns(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        if not Env.get().has_media_dir:
+            pytest.skip('Media destination is not a local file system')
+
         schema = {
             'fixed_shape': pxt.Array[(3, None, 5), pxt.Int],  # type: ignore[misc]
             'gen_shape': pxt.Array[pxt.Float],  # type: ignore[misc]

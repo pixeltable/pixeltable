@@ -10,6 +10,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
@@ -411,6 +412,9 @@ class TestIndex:
 
     def test_embedding_access(self, img_tbl: pxt.Table, e5_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers', 'sentence_transformers')
+        if not Env.get().has_media_dir:
+            pytest.skip('Media destination is not a local file system')
+
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing

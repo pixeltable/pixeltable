@@ -7,6 +7,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from pixeltable.env import Env
 
 from ..utils import rerun, skip_test_if_not_installed
 
@@ -21,6 +22,9 @@ if TYPE_CHECKING:
 class TestHfDatasets:
     def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
+        if not Env.get().has_media_dir:
+            pytest.skip('Media destination is not a local file system')
+
         import datasets
 
         test_cases = [
@@ -88,6 +92,9 @@ class TestHfDatasets:
 
     def test_insert_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
+        if not Env.get().has_media_dir:
+            pytest.skip('Media destination is not a local file system')
+
         import datasets
 
         test_cases = [
