@@ -1,0 +1,172 @@
+---
+title: "pixeltable.functions.gemini"
+sidebarTitle: "gemini"
+icon: "square-m"
+---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) that wrap various endpoints from the Google Gemini API. In order to use them, you must first `pip install google-genai` and configure your Gemini credentials, as described in the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/gemini.py#L0" target="_blank">View source on GitHub</a>
+
+## UDFs
+
+
+---
+
+### `generate_content()` <sub>udf</sub>
+
+Generate content from the specified model. For additional details, see:
+
+
+[https://ai.google.dev/gemini-api/docs/text-generation](https://ai.google.dev/gemini-api/docs/text-generation)
+
+Request throttling: Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install google-genai`
+
+
+**Signature:**
+
+```python
+generate_content(
+    contents: String,
+    model: String,
+    config: Optional[Json],
+    tools: Optional[Json]
+)-> Json
+```
+
+**Parameters:**
+
+- **`contents`** (*String*): The input content to generate from.
+- **`model`** (*String*): The name of the model to use.
+- **`config`** (*Optional[Json]*): Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateContentConfig`. For details on the parameters, see: [https://googleapis.github.io/python-genai/genai.html#module-genai.types](https://googleapis.github.io/python-genai/genai.html#module-genai.types)
+- **`tools`** (*Optional[Json]*): An optional list of Pixeltable tools to use. It is also possible to specify tools manually via the `config['tools']` parameter, but at most one of `config['tools']` or `tools` may be used.
+
+**Returns:**
+
+- *Json*: A dictionary containing the response and other metadata.
+
+
+
+**Example:**
+
+Add a computed column that applies the model `gemini-2.0-flash` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.0-flash'))
+```
+
+
+---
+
+### `generate_images()` <sub>udf</sub>
+
+Generates images based on a text description and configuration. For additional details, see:
+
+
+[https://ai.google.dev/gemini-api/docs/image-generation](https://ai.google.dev/gemini-api/docs/image-generation)
+
+Request throttling: Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install google-genai`
+
+
+**Signature:**
+
+```python
+generate_images(
+    prompt: String,
+    model: String,
+    config: Optional[Json]
+)-> Image
+```
+
+**Parameters:**
+
+- **`prompt`** (*String*): A text description of the images to generate.
+- **`model`** (*String*): The model to use.
+- **`config`** (*Optional[Json]*): Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateImagesConfig`. For details on the parameters, see: [https://googleapis.github.io/python-genai/genai.html#module-genai.types](https://googleapis.github.io/python-genai/genai.html#module-genai.types)
+
+**Returns:**
+
+- *Image*: The generated image.
+
+
+
+**Example:**
+
+Add a computed column that applies the model `imagen-3.0-generate-002` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-3.0-generate-002'))
+```
+
+
+---
+
+### `generate_videos()` <sub>udf</sub>
+
+Generates videos based on a text description and configuration. For additional details, see:
+
+
+[https://ai.google.dev/gemini-api/docs/video-generation](https://ai.google.dev/gemini-api/docs/video-generation)
+
+Request throttling: Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate limit is configured, uses a default of 600 RPM.
+
+**Requirements:**
+
+- `pip install google-genai`
+
+
+**Signature:**
+
+```python
+generate_videos(
+    prompt: Optional[String],
+    image: Optional[Image],
+    model: String,
+    config: Optional[Json]
+)-> Video
+```
+
+**Parameters:**
+
+- **`prompt`** (*Optional[String]*): A text description of the videos to generate.
+- **`image`** (*Optional[Image]*): An optional image to use as the first frame of the video. At least one of `prompt` or `image` must be provided. (It is ok to specify both.)
+- **`model`** (*String*): The model to use.
+- **`config`** (*Optional[Json]*): Configuration for generation, corresponding to keyword arguments of `genai.types.GenerateVideosConfig`. For details on the parameters, see: [https://googleapis.github.io/python-genai/genai.html#module-genai.types](https://googleapis.github.io/python-genai/genai.html#module-genai.types)
+
+**Returns:**
+
+- *Video*: The generated video.
+
+
+
+**Example:**
+
+Add a computed column that applies the model `veo-2.0-generate-001` to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+```python
+tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-2.0-generate-001'))
+```
+
+
+---
+
+### `invoke_tools()` <sub>udf</sub>
+
+Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
+
+
+**Signature:**
+
+```python
+invoke_tools(
+    tools: pixeltable.func.tools.Tools,
+    response: pixeltable.exprs.expr.Expr
+)-> pixeltable.exprs.inline_expr.InlineDict
+```
+
