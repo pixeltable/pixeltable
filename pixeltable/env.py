@@ -606,8 +606,6 @@ class Env:
             with engine.begin() as conn:
                 stmt = self._dbms.create_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
-                if self.is_using_cockroachdb:
-                    conn.execute(sql.text('ALTER ROLE ALL IN DATABASE mydb SET null_ordered_last = true;'))
         finally:
             engine.dispose()
 
