@@ -474,36 +474,46 @@ class TableVersion:
 
     def _init_idxs(self) -> None:
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}
+        has_idxs = self._has_idxs()
 
         for md in self.tbl_md.index_md.values():
-            if md.schema_version_add > self.schema_version or (
-                md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version
-            ):
-                # index not visible in this schema version
-                continue
-
-            # instantiate index object
+            # Instantiate index object. This needs to be done for all indices, even those that are not active in this
+            # TableVersion, so that we can make appropriate adjustments to the SA schema.
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index, cls_name)
             idx_col: Column
             if md.indexed_col_tbl_id == str(self.id):
                 # this is a reference to one of our columns: avoid TVP.get_column_by_id() here, because we're not fully
                 # initialized yet
-                idx_col = self.cols_by_id[md.indexed_col_id]
+                idx_col = next(col for col in self.cols if col.id == md.indexed_col_id)
             else:
                 assert self.path.base is not None
                 idx_col = self.path.base.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
-            val_col = self.cols_by_id[md.index_val_col_id]
+            # we need to do this for all indices, not just those that are active in this TableVersion, to ensure we get
+            # the correct SA schema in the StoreTable.
+            val_col = next(col for col in self.cols if col.id == md.index_val_col_id)
             val_col.sa_col_type = idx.index_sa_type()
-            val_col._stores_cellmd = False
-            undo_col = self.cols_by_id[md.index_val_undo_col_id]
+            undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
             undo_col.sa_col_type = idx.index_sa_type()
-            undo_col._stores_cellmd = False
+            if not isinstance(idx, index.EmbeddingIndex):
+                val_col._stores_cellmd = False
+                undo_col._stores_cellmd = False
 
-            if self._has_idxs():
+            # The index is active in this TableVersion provided that:
+            # (i) the TableVersion supports indices (either it's not a snapshot, or it's a replica at
+            #     the head version); and
+            # (ii) the index was created on or before the schema version of this TableVersion; and
+            # (iii) the index was not dropped on or before the schema version of this TableVersion.
+            if has_idxs and md.schema_version_add <= self.schema_version and (
+                md.schema_version_drop is None or md.schema_version_drop > self.schema_version
+            ):
+                # Since the index is present in this TableVersion, its associated columns must be as well. Sanity-check this.
+                assert md.indexed_col_id in self.cols_by_id
+                assert md.index_val_col_id in self.cols_by_id
+                assert md.index_val_undo_col_id in self.cols_by_id
                 idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
                 self.idxs_by_name[md.name] = idx_info
 

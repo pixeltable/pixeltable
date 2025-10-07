@@ -472,11 +472,13 @@ class Catalog:
             else:
                 msg = ''
             _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
+            # Suppress the underlying SQL exception unless DEBUG is enabled
+            raise_from = e if _logger.isEnabledFor(logging.DEBUG) else None
             raise excs.Error(
                 'That Pixeltable operation could not be completed because it conflicted with another '
                 'operation that was run on a different process.\n'
                 'Please re-run the operation.'
-            ) from None
+            ) from raise_from
 
     @property
     def in_write_xact(self) -> bool:

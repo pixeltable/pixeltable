@@ -199,8 +199,7 @@ class TableVersionPath:
         """Return the column for the given tbl/col id"""
         self.refresh_cached_md()
         if self.tbl_version.id == tbl_id:
-            assert col_id in self._cached_tbl_version.cols_by_id
-            return self._cached_tbl_version.cols_by_id[col_id]
+            return next(col for col in self._cached_tbl_version.cols if col.id == col_id)
         elif self.base is not None:
             return self.base.get_column_by_id(tbl_id, col_id)
         else:
