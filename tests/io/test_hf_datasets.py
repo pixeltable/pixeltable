@@ -3,12 +3,13 @@ import sysconfig
 from collections import namedtuple
 from typing import TYPE_CHECKING
 
+import numpy as np
 import PIL.Image
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_not_installed
+from ..utils import IN_CI, rerun, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -203,6 +204,23 @@ class TestHfDatasets:
         img = t.head(1)['image'][0]
         assert isinstance(img, PIL.Image.Image)
         assert img.size == (28, 28)
+
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_arrays(self, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset')
+        t = pxt.create_table('hfds', source=hf_dataset)
+        res = t.head(1)
+        row = res[0]
+        assert set(row.keys()) == {'audio', 'sentence'}
+        assert isinstance(row['audio'], dict)
+        assert set(row['audio'].keys()) == {'array', 'path', 'sampling_rate'}
+        assert isinstance(row['audio']['array'], np.ndarray)
+        assert isinstance(row['audio']['path'], str)
+        assert isinstance(row['audio']['sampling_rate'], int)
+        assert isinstance(row['sentence'], str)
 
     def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
