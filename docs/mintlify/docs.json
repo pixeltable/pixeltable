@@ -95,8 +95,102 @@
         ]
       },
       {
-        "tab": "API Reference",
-        "href": "https://pixeltable.github.io/pixeltable/"
+        "tab": "Pixeltable SDK",
+        "dropdowns": [
+          {
+            "dropdown": "latest",
+            "icon": "rocket",
+            "groups": [
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  {
+                    "group": "Core API",
+                    "pages": [
+                      "docs/sdk/latest/pixeltable",
+                      "docs/sdk/latest/table",
+                      "docs/sdk/latest/dataframe",
+                      "docs/sdk/latest/columnmetadata",
+                      "docs/sdk/latest/dircontents",
+                      "docs/sdk/latest/indexmetadata",
+                      "docs/sdk/latest/tablemetadata",
+                      "docs/sdk/latest/updatestatus",
+                      "docs/sdk/latest/versionmetadata"
+                    ]
+                  },
+                  {
+                    "group": "Built-in Functions and Operators",
+                    "pages": [
+                      "docs/sdk/latest/audio",
+                      "docs/sdk/latest/date",
+                      "docs/sdk/latest/image",
+                      "docs/sdk/latest/json",
+                      "docs/sdk/latest/math",
+                      "docs/sdk/latest/string",
+                      "docs/sdk/latest/timestamp",
+                      "docs/sdk/latest/video"
+                    ]
+                  },
+                  {
+                    "group": "AI Integrations",
+                    "pages": [
+                      "docs/sdk/latest/openai",
+                      "docs/sdk/latest/anthropic",
+                      "docs/sdk/latest/huggingface",
+                      "docs/sdk/latest/gemini",
+                      "docs/sdk/latest/bedrock",
+                      "docs/sdk/latest/groq",
+                      "docs/sdk/latest/replicate",
+                      "docs/sdk/latest/together",
+                      "docs/sdk/latest/fireworks",
+                      "docs/sdk/latest/mistralai",
+                      "docs/sdk/latest/deepseek",
+                      "docs/sdk/latest/ollama",
+                      "docs/sdk/latest/llama_cpp",
+                      "docs/sdk/latest/whisper",
+                      "docs/sdk/latest/vision",
+                      "docs/sdk/latest/yolox",
+                      "docs/sdk/latest/whisperx"
+                    ]
+                  },
+                  {
+                    "group": "Iterators",
+                    "pages": [
+                      "docs/sdk/latest/iterators",
+                      "docs/sdk/latest/audiosplitter",
+                      "docs/sdk/latest/componentiterator",
+                      "docs/sdk/latest/documentsplitter",
+                      "docs/sdk/latest/frameiterator",
+                      "docs/sdk/latest/stringsplitter",
+                      "docs/sdk/latest/tileiterator",
+                      "docs/sdk/latest/videosplitter"
+                    ]
+                  },
+                  {
+                    "group": "Import/Export",
+                    "pages": [
+                      "docs/sdk/latest/io"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "dropdown": "v0.4.9",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.9/index"
+            ]
+          },
+          {
+            "dropdown": "v0.4.8",
+            "icon": "tag",
+            "pages": [
+              "docs/sdk/v0.4.8/index"
+            ]
+          }
+        ]
       },
       {
         "tab": "Integrations",
