@@ -37,7 +37,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
-from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
     import spacy
@@ -59,8 +59,8 @@ class Env:
     __initializing: bool = False
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
-    _media_dir: Optional[Path]
-    _object_soa: Optional[StorageObjectAddress]
+    _global_media_destination: GlobalMediaDestination
+
     _file_cache_dir: Optional[Path]  # cached object files with external URL
     _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
     _log_dir: Optional[Path]  # log files
@@ -123,8 +123,8 @@ class Env:
     def __init__(self) -> None:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
-        self._media_dir = None  # computed media files
-        self._object_soa = None  # computed object files in StorageObjectAddress format
+        self._global_media_destination = GlobalMediaDestination()
+
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -364,15 +364,12 @@ class Env:
         config = Config.get()
 
         self._initialized = True
-        self._media_dir = Config.get().home / 'media'
+        self._global_media_destination.set_up(config.get_string_value('media_destination'))
         self._file_cache_dir = Config.get().home / 'file_cache'
         self._dataset_cache_dir = Config.get().home / 'dataset_cache'
         self._log_dir = Config.get().home / 'logs'
         self._tmp_dir = Config.get().home / 'tmp'
 
-        if not self._media_dir.exists():
-            self._media_dir.mkdir()
-        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), may_contain_object_name=False)
         if not self._file_cache_dir.exists():
             self._file_cache_dir.mkdir()
         if not self._dataset_cache_dir.exists():
@@ -835,15 +832,21 @@ class Env:
         return info
 
     @property
+    def has_media_dir(self) -> bool:
+        self._global_media_destination._validate_media_destination()
+        return self._global_media_destination._media_dir is not None
+
+    @property
     def media_dir(self) -> Path:
-        assert self._media_dir is not None
-        return self._media_dir
+        self._global_media_destination._validate_media_destination()
+        assert self._global_media_destination._media_dir is not None
+        return self._global_media_destination._media_dir
 
     @property
     def object_soa(self) -> StorageObjectAddress:
-        assert self._media_dir is not None
-        assert self._object_soa is not None
-        return self._object_soa
+        self._global_media_destination._validate_media_destination()
+        assert self._global_media_destination._object_soa is not None
+        return self._global_media_destination._object_soa
 
     @property
     def file_cache_dir(self) -> Path:
@@ -1115,3 +1118,57 @@ class RuntimeCtx:
     # Indicates a retry attempt following a rate limit error (error code: 429). Requires a 'rate-limits' resource pool.
     # If True, call RateLimitsInfo.record() with reset_exc=True.
     is_retry: bool = False
+
+
+class GlobalMediaDestination:
+    """Manage state of the global media destination."""
+
+    _object_source_str: Optional[str]  # String description of the destination
+    _object_soa: Optional[StorageObjectAddress]  # Parsed storage object address
+    _object_soa_validated: bool  # True if the destination has been validated
+    _object_soa_lock: threading.Lock = threading.Lock()  # Used to ensure single-threaded validation
+    _media_dir: Optional[Path]  # Path to local media directory, if applicable
+
+    def __init__(self) -> None:
+        self._object_source_str = None
+        self._object_soa = None
+        self._object_soa_validated = False
+        self._object_soa_lock = threading.Lock()
+        self._media_dir = None
+
+    def set_up(self, media_destination: Optional[str]) -> None:
+        """Setup default location for media objects.
+        Validation is deferred until the first time the object_soa property is accessed.
+        """
+        assert self._object_soa is None
+        assert not self._object_soa_validated
+        if isinstance(media_destination, str):
+            self._object_source_str = media_destination
+        else:
+            media_destination = Config.get().home / 'media'
+            # This special case logic creates the home/media directory to match previous behavior.
+            if not media_destination.exists():
+                media_destination.mkdir()
+            self._object_source_str = str(media_destination)
+
+    def _validate_media_destination(self) -> None:
+        """Validate default location for media objects. Thread-safe.
+        Validation uses a lock context because the first use may be from within multi-threaded code.
+        Results:
+            self._object_source_str is set to the original string specified in config if any
+            self._object_soa is always set
+            self._media_dir is not None only if the destination is a local file system.
+        """
+        if self._object_soa_validated:
+            return
+        assert self._object_source_str is not None
+        rdest = ObjectOps.validate_destination(self._object_source_str, None)
+        if rdest is not None:
+            soa = ObjectPath.parse_object_storage_addr(rdest, False)
+            with self._object_soa_lock:
+                if self._object_soa_validated:
+                    return
+                if soa.storage_target == StorageTarget.LOCAL_STORE:
+                    self._media_dir = soa.to_path
+                self._object_soa = soa
+                self._object_soa_validated = True
