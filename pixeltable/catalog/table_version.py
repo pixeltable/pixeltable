@@ -409,8 +409,8 @@ class TableVersion:
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
         self._init_cols()
-        if self._has_idxs():
-            self._init_idxs()
+        self._init_idxs()
+
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
 
@@ -473,8 +473,6 @@ class TableVersion:
             #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
-        import pixeltable.index as index_module
-
         self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}
 
         for md in self.tbl_md.index_md.values():
@@ -486,7 +484,7 @@ class TableVersion:
 
             # instantiate index object
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
-            cls = getattr(index_module, cls_name)
+            cls = getattr(index, cls_name)
             idx_col: Column
             if md.indexed_col_tbl_id == str(self.id):
                 # this is a reference to one of our columns: avoid TVP.get_column_by_id() here, because we're not fully
@@ -500,14 +498,14 @@ class TableVersion:
             # fix up the sa column type of the index value and undo columns
             val_col = self.cols_by_id[md.index_val_col_id]
             val_col.sa_col_type = idx.index_sa_type()
-            # TODO: _stores_cellmd = False is commented out for now, until we decide whether we want index columns to
-            #     have cellmd. (If yes, remove this. If no, fix the issue that causes them to be created anyway.)
-            # val_col._stores_cellmd = False
+            val_col._stores_cellmd = False
             undo_col = self.cols_by_id[md.index_val_undo_col_id]
             undo_col.sa_col_type = idx.index_sa_type()
-            # undo_col._stores_cellmd = False
-            idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
-            self.idxs_by_name[md.name] = idx_info
+            undo_col._stores_cellmd = False
+
+            if self._has_idxs():
+                idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
+                self.idxs_by_name[md.name] = idx_info
 
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they

@@ -632,21 +632,25 @@ class TableRestorer:
                     val_sql_clauses[undo_col_name] = sql.null()
                     undo_sql_clauses[undo_col_name] = coalesce
                     undo_sql_clauses[val_col_name] = sql.null()
-        q = (
-            store_sa_tbl.update()
-            .values(**val_sql_clauses)
-            .where(sql.and_(tv.store_tbl.v_min_col <= head_version, tv.store_tbl.v_max_col > head_version))
-        )
-        _logger.debug(q.compile())
-        _ = conn.execute(q)
-        q = (
-            store_sa_tbl.update()
-            .values(**undo_sql_clauses)
-            .where(sql.or_(tv.store_tbl.v_min_col > head_version, tv.store_tbl.v_max_col <= head_version))
-        )
-        _logger.debug(q.compile())
-        _ = conn.execute(q)
-        _logger.debug(f'Rectified index columns in {store_sa_tbl_name!r}.')
+
+        if len(val_sql_clauses) > 0:
+            q = (
+                store_sa_tbl.update()
+                .values(**val_sql_clauses)
+                .where(sql.and_(tv.store_tbl.v_min_col <= head_version, tv.store_tbl.v_max_col > head_version))
+            )
+            _logger.debug(q.compile())
+            _ = conn.execute(q)
+            q = (
+                store_sa_tbl.update()
+                .values(**undo_sql_clauses)
+                .where(sql.or_(tv.store_tbl.v_min_col > head_version, tv.store_tbl.v_max_col <= head_version))
+            )
+            _logger.debug(q.compile())
+            _ = conn.execute(q)
+            _logger.debug(f'Rectified index columns in {store_sa_tbl_name!r}.')
+        else:
+            _logger.debug(f'No index columns to rectify in {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
