@@ -495,7 +495,16 @@ class TableVersion:
             val_col.sa_col_type = idx.index_sa_type()
             undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
             undo_col.sa_col_type = idx.index_sa_type()
-            val_col._stores_cellmd = False
+            if not isinstance(idx, index.EmbeddingIndex):
+                # Historically, the intent has been not to store cellmd data, even for embedding indices. However,
+                # the cellmd columns get created anyway, even if stores_cellmd is set to `False` here, due to the
+                # timing of index column creation. In order to ensure that SA schemas align with what is actually in
+                # the physical tables, we keep this `True` for embedding indices.
+                # TODO: Decide whether index columns should store cellmd data.
+                #     - If not, set to `False`, fix the column creation timing issue, and add a migration script to
+                #       remedy existing cellmd columns.
+                #     - If so, remove this TODO.
+                val_col._stores_cellmd = False
             undo_col._stores_cellmd = False
 
             # The index is active in this TableVersion provided that:
