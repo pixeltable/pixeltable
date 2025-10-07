@@ -24,36 +24,37 @@ _logger = logging.getLogger('pixeltable')
 client_lock = threading.Lock()
 
 
-class R2ClientDict(NamedTuple):
-    """Container for actual R2 access objects (clients, resources)
-    Thread-safe, protected by the module lock 'client_lock'"""
+class S3CompatClientDict(NamedTuple):
+    """Container for S3-compatible storage access objects (R2, B2, etc.).
+    Thread-safe via the module-level 'client_lock'.
+    """
 
-    profile: Optional[str]  # profile used to find credentials
-    clients: dict[str, Any]  # Dictionary of URI to client object attached to the URI
+    profile: Optional[str]  # AWS-style profile used to locate credentials
+    clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
 
 
 @env.register_client('r2')
 def _() -> Any:
     profile_name = Config.get().get_string_value('r2_profile')
-    return R2ClientDict(profile=profile_name, clients={})
+    return S3CompatClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('r2_resource')
 def _() -> Any:
     profile_name = Config.get().get_string_value('r2_profile')
-    return R2ClientDict(profile=profile_name, clients={})
+    return S3CompatClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('b2')
 def _() -> Any:
     profile_name = Config.get().get_string_value('b2_profile')
-    return R2ClientDict(profile=profile_name, clients={})
+    return S3CompatClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('b2_resource')
 def _() -> Any:
     profile_name = Config.get().get_string_value('b2_profile')
-    return R2ClientDict(profile=profile_name, clients={})
+    return S3CompatClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('s3')
@@ -360,6 +361,7 @@ class S3Store(ObjectStoreBase):
             'read_timeout': 30,
             'retries': {'max_attempts': 3, 'mode': 'adaptive'},
             's3': {'addressing_style': 'path'},  # Use path-style addressing for S3-compatible services
+            'user_agent_extra': 'pixeltable',
         }
 
         session = cls.create_boto_session(profile_name)

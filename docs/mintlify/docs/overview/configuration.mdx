@@ -47,7 +47,7 @@ api_key = 'my-label-studio-api-key'
 | PIXELTABLE_VERBOSITY | [pixeltable]<br/>verbosity | (int) Verbosity for Pixeltable console logging (0: minimum, 1: normal, 2: maximum); default is 1 |
 | PIXELTABLE_R2_PROFILE | [pixeltable]<br/>r2_profile_name | (string) Name of AWS config profile to use when accessing Cloudflare R2 resources. If not specified, default AWS credentials will be used. |
 | PIXELTABLE_S3_PROFILE | [pixeltable]<br/>s3_profile_name | (string) Name of AWS config profile to use when accessing Amazon S3 resources. If not specified, default AWS credentials will be used. |
-| PIXELTABLE_B2_PROFILE | [pixeltable]<br/>b2_profile_name | (string) Name of AWS config profile to use when accessing Backblaze B2 resources. If not specified, default AWS credentials will be used. |
+| PIXELTABLE_B2_PROFILE | [pixeltable]<br/>b2_profile_name | (string) Name of an S3-compatible profile for accessing Backblaze B2. Defaults to the standard AWS credential chain if not set. |
 
 ## API Configuration
 
@@ -105,60 +105,6 @@ gemini-pro-vision = 300
 ```
 
 If no rate limit is configured, Pixeltable uses a default of 600 requests per minute.
-
-## Cloud Storage Configuration
-
-### Backblaze B2
-
-Pixeltable supports Backblaze B2 via its S3-compatible API. To use B2 as a storage destination:
-
-**1. Configure AWS credentials for B2:**
-
-Set environment variables or configure an AWS profile with your B2 credentials:
-
-```bash
-# Using environment variables (recommended for testing)
-export AWS_ACCESS_KEY_ID=<your-b2-key-id>
-export AWS_SECRET_ACCESS_KEY=<your-b2-application-key>
-export AWS_DEFAULT_REGION=us-west-004  # or your B2 region
-```
-
-Alternatively, create an AWS profile in `~/.aws/credentials`:
-
-```ini
-[b2]
-aws_access_key_id = <your-b2-key-id>
-aws_secret_access_key = <your-b2-application-key>
-region = us-west-004
-```
-
-Then set the profile in your config:
-
-```toml
-[pixeltable]
-b2_profile = "b2"
-```
-
-**2. Use B2 URLs in destination parameters:**
-
-```python
-import pixeltable as pxt
-
-# Use the B2 S3-compatible endpoint URL format
-b2_dest = 'https://s3.us-west-004.backblazeb2.com/my-bucket/prefix/'
-
-t = pxt.create_table('my_table', {'img': pxt.Image})
-t.add_computed_column(
-    img_rot=t.img.rotate(90),
-    destination=b2_dest
-)
-```
-
-**Notes:**
-- B2 endpoint format: `https://s3.<region>.backblazeb2.com/<bucket>/<optional-prefix>/`
-- Common B2 regions: `us-west-004`, `us-west-001`, `eu-central-003`
-- B2 uses the S3-compatible API, so all S3 operations are supported
-- Credentials can be obtained from your Backblaze B2 account under "App Keys"
 
 ## Configuration Best Practices
 

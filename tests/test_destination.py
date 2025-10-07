@@ -53,8 +53,7 @@ class TestDestination:
             r2_uri = f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
             return r2_uri, r2_uri
         elif dest_id == 'b2':
-            # Example B2 endpoint - will be skipped in CI if credentials not present
-            b2_uri = f'https://s3.us-west-004.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
+            b2_uri = f'https://s3.us-east-005.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
             return b2_uri, b2_uri
         elif dest_id == 'az':
             return None, None
@@ -144,7 +143,7 @@ class TestDestination:
             f'wasb://container@{a_name}.blob.core.windows.net',
             f'https://{a_name}.blob.core.windows.net/container',
             f'https://{a_name}.r2.cloudflarestorage.com/container',
-            'https://s3.us-west-004.backblazeb2.com/container',
+            'https://s3.us-east-005.backblazeb2.com/container',
             'https://raw.github.com',
             'file://dir1/dir2/dir3',
             'dir1/dir2/dir3',
@@ -166,7 +165,7 @@ class TestDestination:
         assert self.parse_object_addr(f'file://dir1/dir2/dir3/{o_name}', True)
         assert self.parse_object_addr(f'dir2/dir3/{o_name}', True)
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'az'])
+    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
     def test_dest_local_2(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two local destinations"""
         if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
@@ -223,7 +222,7 @@ class TestDestination:
         assert self.count(dest1_uri, save_id) == 0
         assert self.count(create_destination_by_number_uri, save_id) == 0
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'az'])
+    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
     def test_dest_local_two_copy(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
         if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
@@ -292,29 +291,31 @@ class TestDestination:
         c2_uri = self.get_valid_dest(n, self.USE_GS_DEST, lc_uri)
         c3_uri = self.get_valid_dest(n, self.USE_S3_DEST, lc_uri)
         c4_uri = self.get_valid_dest(n, self.USE_R2_DEST, lc_uri)
+        c5_uri = self.get_valid_dest(n, self.USE_B2_DEST, lc_uri)
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot_1=t.img.rotate(90), destination=lc_uri)
         t.add_computed_column(img_rot_2=t.img.rotate(180), destination=c2_uri)
         t.add_computed_column(img_rot_3=t.img.rotate(270), destination=c3_uri)
         t.add_computed_column(img_rot_4=t.img.rotate(360), destination=c4_uri)
+        t.add_computed_column(img_rot_5=t.img.rotate(450), destination=c5_uri)
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
 
         tbl_id = t._id
         assert t.count() == 2
         target_count: dict[str, int] = defaultdict(int)
-        print(f'Using destinations:\n  {lc_uri}\n  {c2_uri}\n  {c3_uri}\n  {c4_uri}')
+        print(f'Using destinations:\n  {lc_uri}\n  {c2_uri}\n  {c3_uri}\n  {c4_uri}\n  {c5_uri}')
         r_dest = t.select(
-            t.img.fileurl, t.img_rot_1.fileurl, t.img_rot_2.fileurl, t.img_rot_3.fileurl, t.img_rot_4.fileurl
+            t.img.fileurl, t.img_rot_1.fileurl, t.img_rot_2.fileurl, t.img_rot_3.fileurl, t.img_rot_4.fileurl, t.img_rot_5.fileurl
         ).collect()
         print(r_dest)
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
+        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
             print(f'Count for {t_uri}: {self.count(t_uri, tbl_id)}')
             target_count[t_uri] += 2
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
+        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
             assert self.count(t_uri, tbl_id) == target_count[t_uri], f'Count mismatch for {t_uri}'
 
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
+        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
             olist = ObjectOps.list_uris(t_uri, n_max=20)
             print('list of files in the destination')
             for item in olist:
@@ -322,7 +323,7 @@ class TestDestination:
             assert len(olist) >= 2
 
         pxt.drop_table(t)
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri]:
+        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
             assert self.count(t_uri, tbl_id) == 0
 
     def dest_public_read_only(self, src_base: str, src_obj: str) -> None:
