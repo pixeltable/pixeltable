@@ -1757,7 +1757,9 @@ class Catalog:
             .where(schema.TableVersion.tbl_id == tbl_id)
             .join(schema.TableSchemaVersion)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
-            .where(schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version)
+            .where(
+                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version
+            )
             .order_by(schema.TableVersion.version.desc())
         )
         if n is not None:

@@ -1,6 +1,5 @@
 import datetime
 import pathlib
-from typing import TYPE_CHECKING, Iterable
 
 import pandas as pd
 import pytest
@@ -9,9 +8,6 @@ import pixeltable as pxt
 from pixeltable.env import Env
 
 from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
-
-if TYPE_CHECKING:
-    import pyarrow as pa
 
 
 class TestParquet:

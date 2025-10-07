@@ -1,5 +1,4 @@
 import base64
-import datetime
 import io
 import json
 import logging
@@ -22,7 +21,6 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.env import Env
-from pixeltable.index import EmbeddingIndex
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
@@ -417,6 +415,8 @@ class TableRestorer:
         # 4. Copy the remaining rows from the temporary table into the existing table.
         # 5. Rectify any index columns.
 
+        # STEP 1: Import the parquet data into a temporary table.
+
         # Create a temporary table for the initial data load, containing columns for all columns present in the
         # parquet table. The parquet columns have identical names to those in the store table, so we can use the
         # store table schema to get their SQL types (which are not necessarily derivable from their Parquet types,
@@ -438,6 +438,8 @@ class TableRestorer:
             pydict = batch.to_pydict()
             rows = self.__from_pa_pydict(tv, pydict)
             conn.execute(sql.insert(temp_sa_tbl), rows)
+
+        # STEP 2: Rectify v_max values.
 
         # Each row version is identified uniquely by its pk, a tuple (row_id, pos_0, pos_1, ..., pos_k, v_min).
         # Conversely, v_max is not part of the primary key, but is simply a bookkeeping device.
@@ -547,6 +549,8 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Rectified {result.rowcount} row(s) in {store_sa_tbl_name!r}.')
 
+        # STEP 3: Delete any row instances from the temporary table that are already present in the existing table.
+
         # Now we need to update rows in the existing table that are also present in the temporary table. This is to
         # account for the scenario where the temporary table has columns that are not present in the existing table.
         # (We can't simply replace the rows with their versions in the temporary table, because the converse scenario
@@ -577,6 +581,8 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Deleted {result.rowcount} row(s) from {temp_sa_tbl_name!r}.')
 
+        # STEP 4: Copy the remaining rows from the temporary table into the existing table.
+
         # Now copy the remaining data (consisting entirely of new row instances) from the temporary table into
         # the actual table.
         q = store_sa_tbl.insert().from_select(
@@ -585,6 +591,8 @@ class TableRestorer:
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Inserted {result.rowcount} row(s) from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
+
+        # STEP 5: Rectify any index columns.
 
         # Finally, rectify any index columns in the table. This involves shuffling data between the index's val and
         # undo columns to ensure they appropriately reflect the most recent replicated version of the table.
@@ -600,40 +608,44 @@ class TableRestorer:
         # a previously replicated version of the table, but not in the one currently being imported.
         index_md = head_version_md.tbl_md.index_md
 
+        # Now update the table. We can do this for all indices together with just two SQL queries. For each index,
+        # at most one of the val or undo columns will be non-NULL in any given row.
+        # For rows where v_min <= head_version < v_max, we set, for all indices:
+        #   val_col = whichever of (val_col, undo_col) is non-NULL (or NULL if both are, e.g., for a dropped index)
+        #   undo_col = NULL
+        # For rows where head_version < v_min or v_max <= head_version, vice versa.
         val_sql_clauses: dict[str, sql.ColumnElement] = {}
         undo_sql_clauses: dict[str, sql.ColumnElement] = {}
-        v_min_col = tv.store_tbl.v_min_col
-        v_max_col = tv.store_tbl.v_max_col
         for index in index_md.values():
             if index.class_fqn.endswith('.EmbeddingIndex'):
                 val_col_name = f'col_{index.index_val_col_id}'
+                undo_col_name = f'col_{index.index_val_undo_col_id}'
                 # Check that the val column for the index is actually present in the store table. We need to do this
                 # to properly handle the case where the replica represents a table version that was *not* the most
                 # recent version at the time it was published. In that case, it is possible for tbl_md to contain
                 # metadata for indices not known to any version that has been replicated. (However, the converse
                 # *does* hold: all replicated indices must have metadata in tbl_md; and that's what's important.)
                 if val_col_name in store_sa_tbl.c:
-                    undo_col_name = f'col_{index.index_val_undo_col_id}'
-                    val_col = store_sa_tbl.c[val_col_name]
-                    undo_col = store_sa_tbl.c[undo_col_name]
-                    val_sql_clauses[val_col.name] = sql.case((val_col == None, undo_col), else_=val_col)
-                    val_sql_clauses[undo_col.name] = sql.null()
-                    undo_sql_clauses[undo_col.name] = sql.case((val_col == None, undo_col), else_=val_col)
-                    undo_sql_clauses[val_col.name] = sql.null()
+                    assert undo_col_name in store_sa_tbl.c
+                    coalesce = sql.func.coalesce(store_sa_tbl.c[val_col_name], store_sa_tbl.c[undo_col_name])
+                    val_sql_clauses[val_col_name] = coalesce
+                    val_sql_clauses[undo_col_name] = sql.null()
+                    undo_sql_clauses[undo_col_name] = coalesce
+                    undo_sql_clauses[val_col_name] = sql.null()
         q = (
             store_sa_tbl.update()
             .values(**val_sql_clauses)
-            .where(sql.and_(v_min_col <= head_version, v_max_col > head_version))
+            .where(sql.and_(tv.store_tbl.v_min_col <= head_version, tv.store_tbl.v_max_col > head_version))
         )
         _logger.debug(q.compile())
-        result = conn.execute(q)
+        _ = conn.execute(q)
         q = (
             store_sa_tbl.update()
             .values(**undo_sql_clauses)
-            .where(sql.or_(v_min_col > head_version, v_max_col <= head_version))
+            .where(sql.or_(tv.store_tbl.v_min_col > head_version, tv.store_tbl.v_max_col <= head_version))
         )
         _logger.debug(q.compile())
-        result = conn.execute(q)
+        _ = conn.execute(q)
         _logger.debug(f'Rectified index columns in {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
