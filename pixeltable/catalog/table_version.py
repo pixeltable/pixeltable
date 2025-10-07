@@ -500,6 +500,8 @@ class TableVersion:
             # fix up the sa column type of the index value and undo columns
             val_col = self.cols_by_id[md.index_val_col_id]
             val_col.sa_col_type = idx.index_sa_type()
+            # TODO: _stores_cellmd = False is commented out for now, until we decide whether we want index columns to
+            #     have cellmd. (If yes, remove this. If no, fix the issue that causes them to be created anyway.)
             # val_col._stores_cellmd = False
             undo_col = self.cols_by_id[md.index_val_undo_col_id]
             undo_col.sa_col_type = idx.index_sa_type()

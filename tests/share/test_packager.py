@@ -16,6 +16,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
+from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
@@ -179,7 +180,6 @@ class TestPackager:
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
         result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
-        index_data: dict[str, list[tuple[Optional[np.ndarray], Optional[np.ndarray]]]]  # Raw embedding index data
 
     def __package_table(self, tbl: pxt.Table) -> BundleInfo:
         """
@@ -188,47 +188,14 @@ class TestPackager:
         schema = tbl._get_schema()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
-        index_data = self.__extract_index_data(tbl, 5000, len(result_set))
 
         # Package the snapshot into a tarball
         packager = TablePackager(tbl)
         bundle_path = packager.package()
 
-        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set, index_data)
+        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
 
-    def __extract_index_data(
-        self, tbl: pxt.Table, limit: int, expected_row_count: int
-    ) -> dict[str, list[tuple[Optional[np.ndarray], Optional[np.ndarray]]]]:
-        """
-        Extracts the data from all the indices on `tbl` and returns it as a dictionary mapping index names to lists
-        of numpy arrays.
-
-        TODO: There is an open action item to make it possible for the user to query index contents directly; if we
-            implement such a feature, we can remove this very manual logic
-        """
-        index_data: dict[str, list[np.ndarray]] = {}
-        tv = tbl._tbl_version_path.tbl_version.get()
-        with Env.get().begin_xact():
-            for idx_info in tv.idxs_by_name.values():
-                if isinstance(idx_info.idx, EmbeddingIndex):
-                    q = (
-                        sql.select(idx_info.val_col.sa_col, idx_info.undo_col.sa_col)
-                        .where(tv.store_tbl.v_min_col <= tv.version)
-                        .where(tv.store_tbl.v_max_col > tv.version)
-                        .order_by(tv.store_tbl.rowid_columns()[0])
-                        .limit(limit)
-                    )
-                    cursor = Env.get().conn.execute(q)
-                    results = [(val, undo) for val, undo in cursor.fetchall()]
-                    assert len(results) == expected_row_count
-                    if len(results) > 0:
-                        val, undo = results[0]
-                        assert val is None or isinstance(val, np.ndarray)
-                        assert undo is None or isinstance(undo, np.ndarray)
-                    index_data[idx_info.name] = results
-        return index_data
-
-    def __restore_and_check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
+    def __restore_and_check_table(self, bundle_info: BundleInfo, tbl_name: str) -> None:
         """
         Restores the table that was packaged in `bundle_info` and validates its contents against the tracked data.
         """
@@ -236,29 +203,52 @@ class TestPackager:
         restorer.restore(bundle_info.bundle_path)
         self.__check_table(bundle_info, tbl_name)
 
-    def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str, check_idxs: bool = True) -> None:
+    def __check_table(self, bundle_info: BundleInfo, tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
         assert bundle_info.schema == t._get_schema()
         assert bundle_info.depth == t._tbl_version_path.path_len()
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
 
-        if check_idxs:
-            reconstituted_index_data = self.__extract_index_data(t, 5000, len(reconstituted_data))
-            assert list(bundle_info.index_data.keys()) == list(reconstituted_index_data.keys())
-            for idx_name in bundle_info.index_data:
-                a = bundle_info.index_data[idx_name]
-                b = reconstituted_index_data[idx_name]
-                assert all(
-                    np.array_equal(a_val, b_val) and np.array_equal(a_undo, b_undo)
-                    for (a_val, a_undo), (b_val, b_undo) in zip(a, b, strict=True)
-                ), f'Index data mismatch for index {idx_name}'
-
     def __do_round_trip(self, tbl: pxt.Table) -> None:
         bundle = self.__package_table(tbl)
         clean_db()
         reload_catalog()
         self.__restore_and_check_table(bundle, 'new_replica')
+
+    def __validate_index_data(self, tbl: pxt.Table, expected_vals: int | None = None, expected_undos: int | None = None) -> None:
+        """
+        Sanity checks that the val and undo columns are properly configured in the given Table's indices.
+        It is important to do this check at a lower level, because improperly categorized val/undo columns may have
+        performance implications that are not user visible.
+        """
+        tv = tbl._tbl_version_path.tbl_version.get()
+        with Env.get().begin_xact():
+            head_version = Catalog.get()._collect_tbl_history(tbl._id, n=1)[0].version_md.version
+            for idx_info in tv.idxs_by_name.values():
+                if isinstance(idx_info.idx, EmbeddingIndex):
+                    q = (
+                        sql.select(tv.store_tbl.v_min_col, tv.store_tbl.v_max_col, idx_info.val_col.sa_col, idx_info.undo_col.sa_col)
+                        .order_by(*tv.store_tbl._pk_cols)
+                    )
+                    for result in Env.get().conn.execute(q).fetchall():
+                        v_min, v_max, val, undo = result
+                        val_count = 0
+                        undo_count = 0
+                        if v_min <= head_version and v_max > head_version:
+                            assert val is not None
+                            assert isinstance(val, np.ndarray)
+                            assert undo is None
+                            val_count += 1
+                        else:
+                            assert val is None
+                            assert undo is not None
+                            assert isinstance(undo, np.ndarray)
+                            undo_count += 1
+                    if expected_vals is not None:
+                        assert val_count == expected_vals
+                    if expected_undos is not None:
+                        assert undo_count == expected_undos
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / restore() round trip for a single snapshot"""
@@ -712,3 +702,35 @@ class TestPackager:
         clean_db()
         reload_catalog()
         self.__restore_and_check_table(bundle, 'replica')
+
+    def test_multi_version_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
+        images = get_image_files()
+        t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
+        t.add_embedding_index('image', embedding=clip_embed)
+        bundle1 = self.__package_table(t)
+        sim_1 = t.image.similarity(images[25])
+        sim_results_1 = t.select(t.id, sim_1).order_by(sim_1, asc=False).limit(5).collect()
+
+        t.delete(t.id < 5)
+        t.insert({'id': i, 'image': image} for i, image in enumerate(images[10:20], start=10))
+        bundle2 = self.__package_table(t)
+        sim_2 = t.image.similarity(images[25])
+        sim_results_2 = t.select(t.id, sim_2).order_by(sim_2, asc=False).limit(5).collect()
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica')
+        t = pxt.get_table('replica')
+        sim_1_replica = t.image.similarity(images[25])
+        sim_results_1_replica = t.select(t.id, sim_1_replica).order_by(sim_1_replica, asc=False).limit(5).collect()
+        assert_resultset_eq(sim_results_1, sim_results_1_replica)
+
+        self.__restore_and_check_table(bundle2, 'replica')
+        t = pxt.get_table('replica')
+        sim_2_replica = t.image.similarity(images[25])
+        sim_results_2_replica = t.select(t.id, sim_2_replica).order_by(sim_2_replica, asc=False).limit(5).collect()
+        assert_resultset_eq(sim_results_2, sim_results_2_replica)
+
+        self.__validate_index_data(t, 15, 5)
