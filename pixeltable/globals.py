@@ -407,6 +407,15 @@ def publish(
     Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be published to at most one
     URI per Pixeltable cloud database.
 
+    .. note::
+        **API Key Required**: This function requires a Pixeltable API key to authenticate with Pixeltable cloud.
+        Set your API key using one of these methods:
+        
+        * Environment variable: ``PIXELTABLE_API_KEY``
+        * Config file: Add ``api_key = 'your-key'`` to the ``[pixeltable]`` section in ``~/.pixeltable/config.toml``
+        
+        Without a valid API key, this function will fail when attempting to publish to the cloud.
+
     Args:
         source: Path or table handle of the local table to be published.
         destination_uri: Remote URI where the replica will be published, such as `'pxt://org_name/my_dir/my_table'`.
