@@ -201,6 +201,9 @@ class TableVersion:
         else:
             return f'{self.name}:{self.effective_version}'
 
+    def __repr__(self) -> str:
+        return f'TableVersion(id={self.id!r}, version={self.version}, name={self.name!r})'
+
     @property
     def handle(self) -> 'TableVersionHandle':
         from .table_version_handle import TableVersionHandle
@@ -481,14 +484,8 @@ class TableVersion:
             # TableVersion, so that we can make appropriate adjustments to the SA schema.
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index, cls_name)
-            idx_col: Column
-            if md.indexed_col_tbl_id == str(self.id):
-                # this is a reference to one of our columns: avoid TVP.get_column_by_id() here, because we're not fully
-                # initialized yet
-                idx_col = next(col for col in self.cols if col.id == md.indexed_col_id)
-            else:
-                assert self.path.base is not None
-                idx_col = self.path.base.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            idx_col = self._lookup_column(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            assert idx_col is not None
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
@@ -498,9 +495,8 @@ class TableVersion:
             val_col.sa_col_type = idx.index_sa_type()
             undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
             undo_col.sa_col_type = idx.index_sa_type()
-            if not isinstance(idx, index.EmbeddingIndex):
-                val_col._stores_cellmd = False
-                undo_col._stores_cellmd = False
+            val_col._stores_cellmd = False
+            undo_col._stores_cellmd = False
 
             # The index is active in this TableVersion provided that:
             # (i) the TableVersion supports indices (either it's not a snapshot, or it's a replica at
@@ -516,6 +512,20 @@ class TableVersion:
                 assert md.index_val_undo_col_id in self.cols_by_id
                 idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
                 self.idxs_by_name[md.name] = idx_info
+
+    def _lookup_column(self, tbl_id: UUID, col_id: int) -> Column | None:
+        """
+        Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
+        to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
+
+        This will search through *all* known columns, including columns that are not visible in this TableVersion.
+        """
+        if tbl_id == self.id:
+            return next(col for col in self.cols if col.id == col_id)
+        elif self.base is not None:
+            return self.base.get()._lookup_column(tbl_id, col_id)
+        else:
+            return None
 
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
