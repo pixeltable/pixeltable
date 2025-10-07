@@ -459,15 +459,6 @@ class TestPackager:
             if n >= 5:
                 t.drop_column(f'new_col_{n - 5}')
             snap = pxt.create_snapshot(f'snap_{n}', t)
-            tv = snap._tbl_version_path.tbl_version.get()
-            for _, idx_info in tv.tbl_md.index_md.items():
-                print(idx_info)
-            with Catalog.get().begin_xact(for_write=False):
-                stmt = (
-                    sql.select(tv.store_tbl.sa_tbl)
-                )
-                conn = Env.get().conn
-                _ = conn.execute(stmt)
             bundles.append(self.__package_table(snap))
 
         clean_db()

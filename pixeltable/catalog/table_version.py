@@ -512,14 +512,19 @@ class TableVersion:
             #     the head version); and
             # (ii) the index was created on or before the schema version of this TableVersion; and
             # (iii) the index was not dropped on or before the schema version of this TableVersion.
-            if has_idxs and md.schema_version_add <= self.schema_version and (
-                md.schema_version_drop is None or md.schema_version_drop > self.schema_version
+            if (
+                has_idxs
+                and md.schema_version_add <= self.schema_version
+                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
             ):
-                # Since the index is present in this TableVersion, its associated columns must be as well. Sanity-check this.
+                # Since the index is present in this TableVersion, its associated columns must be as well.
+                # Sanity-check this.
                 assert md.indexed_col_id in self.cols_by_id
                 assert md.index_val_col_id in self.cols_by_id
                 assert md.index_val_undo_col_id in self.cols_by_id
-                idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
+                idx_info = self.IndexInfo(
+                    id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col
+                )
                 self.idxs_by_name[md.name] = idx_info
 
     def _lookup_column(self, tbl_id: UUID, col_id: int) -> Column | None:
