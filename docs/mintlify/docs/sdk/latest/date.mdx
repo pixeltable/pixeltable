@@ -1,0 +1,234 @@
+---
+title: "pixeltable.functions.date"
+sidebarTitle: "date"
+icon: "square-m"
+---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `DateType`.
+
+Usage example:
+
+``` python
+import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.date_col.year, t.date_col.weekday()).collect()
+```
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/date.py#L0" target="_blank">View source on GitHub</a>
+
+## UDFs
+
+
+---
+
+### `add_days()` <sub>udf</sub>
+
+Add `n` days to the date.
+
+
+Equivalent to [`date + timedelta(days=n)`](https://docs.python.org/3/library/datetime.html#datetime.timedelta).
+
+
+**Signature:**
+
+```python
+add_days(
+    self: Date,
+    n: Int
+)-> Date
+```
+
+
+---
+
+### `day()` <sub>udf</sub>
+
+Between 1 and the number of days in the given month of the given year.
+
+
+Equivalent to [`date.day`](https://docs.python.org/3/library/datetime.html#datetime.date.day).
+
+
+**Signature:**
+
+```python
+day(self: Date)-> Int
+```
+
+
+---
+
+### `isocalendar()` <sub>udf</sub>
+
+Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
+
+
+Equivalent to [`date.isocalendar()`](https://docs.python.org/3/library/datetime.html#datetime.date.isocalendar).
+
+
+**Signature:**
+
+```python
+isocalendar(self: Date)-> Json
+```
+
+
+---
+
+### `isoformat()` <sub>udf</sub>
+
+Return a string representing the date and time in ISO 8601 format.
+
+
+Equivalent to [`date.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.date.isoformat).
+
+
+**Signature:**
+
+```python
+isoformat(
+    self: Date,
+    sep: String,
+    timespec: String
+)-> String
+```
+
+**Parameters:**
+
+- **`sep`** (*String*): Separator between date and time.
+- **`timespec`** (*String*): The number of additional terms in the output. See the [`date.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.date.isoformat) documentation for more details.
+
+
+---
+
+### `isoweekday()` <sub>udf</sub>
+
+Return the day of the week as an integer, where Monday is 1 and Sunday is 7.
+
+
+Equivalent to [`date.isoweekday()`](https://docs.python.org/3/library/datetime.html#datetime.date.isoweekday).
+
+
+**Signature:**
+
+```python
+isoweekday(self: Date)-> Int
+```
+
+
+---
+
+### `make_date()` <sub>udf</sub>
+
+Create a date.
+
+
+Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#datetime.date).
+
+
+**Signature:**
+
+```python
+make_date(
+    year: Int,
+    month: Int,
+    day: Int
+)-> Date
+```
+
+
+---
+
+### `month()` <sub>udf</sub>
+
+Between 1 and 12 inclusive.
+
+
+Equivalent to [`date.month`](https://docs.python.org/3/library/datetime.html#datetime.date.month).
+
+
+**Signature:**
+
+```python
+month(self: Date)-> Int
+```
+
+
+---
+
+### `strftime()` <sub>udf</sub>
+
+Return a string representing the date and time, controlled by an explicit format string.
+
+
+Equivalent to [`date.strftime()`](https://docs.python.org/3/library/datetime.html#datetime.date.strftime).
+
+
+**Signature:**
+
+```python
+strftime(
+    self: Date,
+    format: String
+)-> String
+```
+
+**Parameters:**
+
+- **`format`** (*String*): The format string to control the output. For a complete list of formatting directives, see [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+
+
+---
+
+### `toordinal()` <sub>udf</sub>
+
+Return the proleptic Gregorian ordinal of the date, where January 1 of year 1 has ordinal 1.
+
+
+Equivalent to [`date.toordinal()`](https://docs.python.org/3/library/datetime.html#datetime.date.toordinal).
+
+
+**Signature:**
+
+```python
+toordinal(self: Date)-> Int
+```
+
+
+---
+
+### `weekday()` <sub>udf</sub>
+
+Between 0 (Monday) and 6 (Sunday) inclusive.
+
+
+Equivalent to [`date.weekday()`](https://docs.python.org/3/library/datetime.html#datetime.date.weekday).
+
+
+**Signature:**
+
+```python
+weekday(self: Date)-> Int
+```
+
+
+---
+
+### `year()` <sub>udf</sub>
+
+Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
+
+
+[`MAXYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MAXYEAR) inclusive.
+
+Equivalent to [`date.year`](https://docs.python.org/3/library/datetime.html#datetime.date.year).
+
+
+**Signature:**
+
+```python
+year(self: Date)-> Int
+```
+
