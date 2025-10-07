@@ -9,7 +9,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_not_installed, IN_CI
+from ..utils import IN_CI, rerun, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
