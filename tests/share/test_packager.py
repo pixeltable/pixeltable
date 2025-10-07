@@ -216,7 +216,9 @@ class TestPackager:
         reload_catalog()
         self.__restore_and_check_table(bundle, 'new_replica')
 
-    def __validate_index_data(self, tbl: pxt.Table, expected_vals: int | None = None, expected_undos: int | None = None) -> None:
+    def __validate_index_data(
+        self, tbl: pxt.Table, expected_vals: int | None = None, expected_undos: int | None = None
+    ) -> None:
         """
         Sanity checks that the val and undo columns are properly configured in the given Table's indices.
         It is important to do this check at a lower level, because improperly categorized val/undo columns may have
@@ -227,23 +229,25 @@ class TestPackager:
             head_version = Catalog.get()._collect_tbl_history(tbl._id, n=1)[0].version_md.version
             for idx_info in tv.idxs_by_name.values():
                 if isinstance(idx_info.idx, EmbeddingIndex):
-                    q = (
-                        sql.select(tv.store_tbl.v_min_col, tv.store_tbl.v_max_col, idx_info.val_col.sa_col, idx_info.undo_col.sa_col)
-                        .order_by(*tv.store_tbl._pk_cols)
-                    )
+                    q = sql.select(
+                        tv.store_tbl.v_min_col,
+                        tv.store_tbl.v_max_col,
+                        idx_info.val_col.sa_col,
+                        idx_info.undo_col.sa_col,
+                    ).order_by(*tv.store_tbl._pk_cols)
+                    val_count = 0
+                    undo_count = 0
                     for result in Env.get().conn.execute(q).fetchall():
                         v_min, v_max, val, undo = result
-                        val_count = 0
-                        undo_count = 0
                         if v_min <= head_version and v_max > head_version:
-                            assert val is not None
-                            assert isinstance(val, np.ndarray)
+                            assert val is None or isinstance(val, np.ndarray)
                             assert undo is None
-                            val_count += 1
                         else:
                             assert val is None
-                            assert undo is not None
-                            assert isinstance(undo, np.ndarray)
+                            assert undo is None or isinstance(undo, np.ndarray)
+                        if val is not None:
+                            val_count += 1
+                        if undo is not None:
                             undo_count += 1
                     if expected_vals is not None:
                         assert val_count == expected_vals

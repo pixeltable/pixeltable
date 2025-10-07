@@ -1751,14 +1751,13 @@ class Catalog:
             Each row contains a TableVersion and a TableSchemaVersion object.
         """
         q = (
-            sql.select(schema.TableVersion, schema.TableSchemaVersion)
-            .select_from(schema.TableVersion)
-            .join(
-                schema.TableSchemaVersion,
-                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
-            )
+            sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
+            .where(schema.Table.id == tbl_id)
+            .join(schema.TableVersion)
             .where(schema.TableVersion.tbl_id == tbl_id)
+            .join(schema.TableSchemaVersion)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+            .where(schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version)
             .order_by(schema.TableVersion.version.desc())
         )
         if n is not None:
@@ -1766,7 +1765,7 @@ class Catalog:
         src_rows = Env.get().session.execute(q).fetchall()
         return [
             schema.FullTableMd(
-                None,
+                schema.md_from_dict(schema.TableMd, row.Table.md),
                 schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
                 schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
             )

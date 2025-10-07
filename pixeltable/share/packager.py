@@ -22,6 +22,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.env import Env
+from pixeltable.index import EmbeddingIndex
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
@@ -414,6 +415,7 @@ class TableRestorer:
         # 2. "rectify" the v_max values in both the temporary table and the existing table (more on this below);
         # 3. Delete any row instances from the temporary table that are already present in the existing table;
         # 4. Copy the remaining rows from the temporary table into the existing table.
+        # 5. Rectify any index columns.
 
         # Create a temporary table for the initial data load, containing columns for all columns present in the
         # parquet table. The parquet columns have identical names to those in the store table, so we can use the
@@ -575,7 +577,7 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Deleted {result.rowcount} row(s) from {temp_sa_tbl_name!r}.')
 
-        # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
+        # Now copy the remaining data (consisting entirely of new row instances) from the temporary table into
         # the actual table.
         q = store_sa_tbl.insert().from_select(
             [store_sa_tbl.c[col_name] for col_name in temp_cols], sql.select(*temp_cols.values())
@@ -583,6 +585,56 @@ class TableRestorer:
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Inserted {result.rowcount} row(s) from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
+
+        # Finally, rectify any index columns in the table. This involves shuffling data between the index's val and
+        # undo columns to ensure they appropriately reflect the most recent replicated version of the table.
+
+        # Get the most recent replicated version of the table. This might be the version we're currently importing,
+        # but it might be a different version of the table that was previously imported.
+        head_version_md = catalog.Catalog.get()._collect_tbl_history(tv.id, n=1)[0]
+        head_version = head_version_md.version_md.version
+        _logger.debug(f'Head version for index rectification is {head_version}.')
+
+        # Get the index info from the table metadata. Here we use the tbl_md that we just collected from the DB.
+        # This is to ensure we pick up ALL indices, including dropped indices and indices that are present in
+        # a previously replicated version of the table, but not in the one currently being imported.
+        index_md = head_version_md.tbl_md.index_md
+
+        val_sql_clauses: dict[str, sql.ColumnElement] = {}
+        undo_sql_clauses: dict[str, sql.ColumnElement] = {}
+        v_min_col = tv.store_tbl.v_min_col
+        v_max_col = tv.store_tbl.v_max_col
+        for index in index_md.values():
+            if index.class_fqn.endswith('.EmbeddingIndex'):
+                val_col_name = f'col_{index.index_val_col_id}'
+                # Check that the val column for the index is actually present in the store table. We need to do this
+                # to properly handle the case where the replica represents a table version that was *not* the most
+                # recent version at the time it was published. In that case, it is possible for tbl_md to contain
+                # metadata for indices not known to any version that has been replicated. (However, the converse
+                # *does* hold: all replicated indices must have metadata in tbl_md; and that's what's important.)
+                if val_col_name in store_sa_tbl.c:
+                    undo_col_name = f'col_{index.index_val_undo_col_id}'
+                    val_col = store_sa_tbl.c[val_col_name]
+                    undo_col = store_sa_tbl.c[undo_col_name]
+                    val_sql_clauses[val_col.name] = sql.case((val_col == None, undo_col), else_=val_col)
+                    val_sql_clauses[undo_col.name] = sql.null()
+                    undo_sql_clauses[undo_col.name] = sql.case((val_col == None, undo_col), else_=val_col)
+                    undo_sql_clauses[val_col.name] = sql.null()
+        q = (
+            store_sa_tbl.update()
+            .values(**val_sql_clauses)
+            .where(sql.and_(v_min_col <= head_version, v_max_col > head_version))
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        q = (
+            store_sa_tbl.update()
+            .values(**undo_sql_clauses)
+            .where(sql.or_(v_min_col > head_version, v_max_col <= head_version))
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Rectified index columns in {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
