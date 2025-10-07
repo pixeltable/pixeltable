@@ -577,8 +577,7 @@ class Env:
             self._logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
             if self.is_using_cockroachdb:
-                # This should have been set when the database was created,
-                # but if the db predates the fix or we are running as root, set it now
+                # This could be set when the database is created, but we set it now
                 conn.execute(sql.text('SET null_ordered_last = true;'))
                 null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
                 assert isinstance(null_ordered_last, str)
