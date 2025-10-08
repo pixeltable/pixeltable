@@ -176,8 +176,9 @@ jobs:
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
           ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-          pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb || true
-          pytest -v -m '' --nbmake --nbmake-timeout=1800 --lf --lfnf=none || true  # retry failed tests once
+          set +e
+          pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb
+          pytest -v -m '' --nbmake --nbmake-timeout=1800 --lf --lfnf=none  # retry failed tests once
           if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
             exit 1
           fi
