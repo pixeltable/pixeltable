@@ -306,7 +306,12 @@ class TestDestination:
         target_count: dict[str, int] = defaultdict(int)
         print(f'Using destinations:\n  {lc_uri}\n  {c2_uri}\n  {c3_uri}\n  {c4_uri}\n  {c5_uri}')
         r_dest = t.select(
-            t.img.fileurl, t.img_rot_1.fileurl, t.img_rot_2.fileurl, t.img_rot_3.fileurl, t.img_rot_4.fileurl, t.img_rot_5.fileurl
+            t.img.fileurl,
+            t.img_rot_1.fileurl,
+            t.img_rot_2.fileurl,
+            t.img_rot_3.fileurl,
+            t.img_rot_4.fileurl,
+            t.img_rot_5.fileurl,
         ).collect()
         print(r_dest)
         for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
