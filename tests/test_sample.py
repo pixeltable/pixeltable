@@ -258,6 +258,8 @@ class TestSample:
 
         t = test_tbl
         df = t.sample(n=20)
+        _ = df.collect()
+        df = t.sample(n=20)
         self.check_create_insert(t, df, 20)
         print(df.collect())
 

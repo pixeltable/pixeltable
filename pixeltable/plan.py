@@ -3,9 +3,10 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Optional, Sequence
+from typing import Any, Iterable, Literal, Optional, Sequence, cast
 from uuid import UUID
 
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -385,7 +386,7 @@ class Planner:
             TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_row_id
         )
 
-        plan = cls._insert_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
+        plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
@@ -393,6 +394,8 @@ class Planner:
             plan = exec.ExprEvalNode(
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
+        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+            plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(
             exec.ExecContext(
@@ -403,7 +406,7 @@ class Planner:
                 ignore_errors=ignore_errors,
             )
         )
-        plan = cls._insert_save_node(tbl.id, row_builder.stored_media_cols, input_node=plan)
+        plan = cls._add_save_node(plan)
 
         return plan
 
@@ -422,10 +425,17 @@ class Planner:
         plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
 
         # Modify the plan RowBuilder to register the output columns
+        needs_cell_materialization = False
         for col_name, expr in zip(df.schema.keys(), df._select_list_exprs):
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
+            needs_cell_materialization = (
+                needs_cell_materialization or col.col_type.is_json_type() or col.col_type.is_array_type()
+            )
+
+        if needs_cell_materialization:
+            plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(
             exec.ExecContext(
@@ -446,12 +456,14 @@ class Planner:
         cascade: bool,
     ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
         """Creates a plan to materialize updated rows.
+
         The plan:
         - retrieves rows that are visible at the current version of the table
         - materializes all stored columns and the update targets
         - if cascade is True, recomputes all computed columns that transitively depend on the updated columns
           and copies the values of all other stored columns
         - if cascade is False, copies all columns that aren't update targets from the original rows
+
         Returns:
             - root node of the plan
             - list of qualified column names that are getting updated
@@ -477,14 +489,16 @@ class Planner:
 
         cls.__check_valid_columns(tbl.tbl_version.get(), recomputed_cols, 'updated in')
 
+        # our query plan
+        # - evaluates the update targets and recomputed columns
+        # - copies all other stored columns
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl.id == tbl.tbl_version.id}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
             if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
         ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
-        select_list.extend(update_targets.values())
+        select_list: list[exprs.Expr] = list(update_targets.values())
 
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
@@ -495,14 +509,22 @@ class Planner:
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
-        plan = cls.create_query_plan(FromClause(tbls=[tbl]), select_list, where_clause=where_clause, ignore_errors=True)
-        all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
+        plan = cls.create_query_plan(
+            FromClause(tbls=[tbl]),
+            select_list=select_list,
+            columns=copied_cols,
+            where_clause=where_clause,
+            ignore_errors=True,
+        )
+        evaluated_cols = updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
-        for i, col in enumerate(all_base_cols):
+        plan.row_builder.add_table_columns(copied_cols)
+        for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         plan.ctx.num_computed_exprs = len(recomputed_exprs)
 
-        plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+        plan = cls._add_cell_materialization_node(plan)
+        plan = cls._add_save_node(plan)
 
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
@@ -526,6 +548,79 @@ class Planner:
                 )
 
     @classmethod
+    def _cell_md_col_refs(cls, expr_list: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
+        """Return list of ColumnRefs that need their cellmd values for reconstruction"""
+        json_col_refs = list(
+            exprs.Expr.list_subexprs(
+                expr_list,
+                expr_class=exprs.ColumnRef,
+                filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_json_type(),
+                traverse_matches=False,
+            )
+        )
+
+        def needs_reconstruction(e: exprs.Expr) -> bool:
+            assert isinstance(e, exprs.ColumnRef)
+            # Vector-typed array columns are used for vector indexes, and are stored in the db
+            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+
+        array_col_refs = list(
+            exprs.Expr.list_subexprs(
+                expr_list, expr_class=exprs.ColumnRef, filter=needs_reconstruction, traverse_matches=False
+            )
+        )
+
+        return json_col_refs + array_col_refs
+
+    @classmethod
+    def _add_cell_materialization_node(cls, input: exec.ExecNode) -> exec.ExecNode:
+        # we need a CellMaterializationNode if any of the evaluated output columns are json or array-typed
+        has_target_cols = any(
+            col.col_type.is_json_type() or col.col_type.is_array_type()
+            for col, slot_idx in input.row_builder.table_columns.items()
+            if slot_idx is not None
+        )
+        if has_target_cols:
+            return exec.CellMaterializationNode(input)
+        else:
+            return input
+
+    @classmethod
+    def _add_cell_reconstruction_node(cls, expr_list: list[exprs.Expr], input: exec.ExecNode) -> exec.ExecNode:
+        """
+        Add a CellReconstructionNode, if required by any of the exprs in expr_list.
+
+        Cell reconstruction is required for
+        1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
+           or as part of a ColumnPropertyRef
+        2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
+        """
+
+        def json_filter(e: exprs.Expr) -> bool:
+            if isinstance(e, exprs.JsonPath):
+                return not e.is_relative_path() and isinstance(e.anchor, exprs.ColumnRef)
+            if isinstance(e, exprs.ColumnPropertyRef):
+                return e.col_ref.col.col_type.is_json_type()
+            return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()
+
+        def array_filter(e: exprs.Expr) -> bool:
+            if isinstance(e, exprs.ColumnPropertyRef):
+                return e.col_ref.col.col_type.is_array_type()
+            if not isinstance(e, exprs.ColumnRef):
+                return False
+            # Vector-typed array columns are used for vector indexes, and are stored in the db
+            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+
+        json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
+        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
+        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
+        if len(json_refs) > 0 or len(array_refs) > 0:
+            return exec.CellReconstructionNode(json_refs, array_refs, input.row_builder, input=input)
+        else:
+            return input
+
+    @classmethod
     def create_batch_update_plan(
         cls,
         tbl: catalog.TableVersionPath,
@@ -543,8 +638,8 @@ class Planner:
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         target = tbl.tbl_version.get()  # the one we need to update
-        sa_key_cols: list[sql.Column] = []
-        key_vals: list[tuple] = []
+        sa_key_cols: list[sql.Column]
+        key_vals: list[tuple]
         if len(rowids) > 0:
             sa_key_cols = target.store_tbl.rowid_columns()
             key_vals = rowids
@@ -567,8 +662,7 @@ class Planner:
             for col in target.cols_by_id.values()
             if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
         ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
-        select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols]
 
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
@@ -586,23 +680,37 @@ class Planner:
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs, target)
         analyzer.finalize(row_builder)
-        sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, sql_exprs, sa_key_cols, key_vals)
+
+        cell_md_col_refs = cls._cell_md_col_refs(sql_exprs)
+        sql_lookup_node = exec.SqlLookupNode(
+            tbl,
+            row_builder,
+            sql_exprs,
+            columns=copied_cols,
+            sa_key_cols=sa_key_cols,
+            key_vals=key_vals,
+            cell_md_col_refs=cell_md_col_refs,
+        )
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
         plan: exec.ExecNode = row_update_node
         if not cls._is_contained_in(analyzer.select_list, sql_exprs):
             # we need an ExprEvalNode to evaluate the remaining output exprs
             plan = exec.ExprEvalNode(row_builder, analyzer.select_list, sql_exprs, input=plan)
+
         # update row builder with column information
-        all_base_cols = copied_cols + list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
+        evaluated_cols = list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
-        for i, col in enumerate(all_base_cols):
+        plan.row_builder.add_table_columns(copied_cols)
+        for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         ctx = exec.ExecContext(row_builder, num_computed_exprs=len(recomputed_exprs))
-        # we're returning everything to the user, so we might as well do it in a single batch
+        # TODO: correct batch size?
         ctx.batch_size = 0
         plan.set_ctx(ctx)
-        plan = cls._insert_save_node(tbl.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+
+        plan = cls._add_cell_materialization_node(plan)
+        plan = cls._add_save_node(plan)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return (
             plan,
@@ -653,10 +761,11 @@ class Planner:
             exact_version_only=view.get_bases(),
         )
         plan.ctx.num_computed_exprs = len(recomputed_exprs)
-        for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
+        materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
+        for i, col in enumerate(materialized_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
-        plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+        plan = cls._add_cell_materialization_node(plan)
+        plan = cls._add_save_node(plan)
 
         return plan
 
@@ -726,7 +835,9 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
-        plan = cls._insert_save_node(view.tbl_version.id, plan.row_builder.stored_media_cols, input_node=plan)
+        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+            plan = exec.CellMaterializationNode(plan)
+        plan = cls._add_save_node(plan)
 
         return plan, len(row_builder.default_eval_ctx.target_exprs)
 
@@ -773,15 +884,13 @@ class Planner:
         return combined_ordering
 
     @classmethod
-    def _insert_save_node(
-        cls, tbl_id: UUID, stored_media_cols: list[exprs.ColumnSlotIdx], input_node: exec.ExecNode
-    ) -> exec.ExecNode:
-        """Return an ObjectStoreSaveNode if stored media columns are present, otherwise return input"""
-        if len(stored_media_cols) == 0:
+    def _add_save_node(cls, input_node: exec.ExecNode) -> exec.ExecNode:
+        """Add an ObjectStoreSaveNode, if needed."""
+        media_col_info = input_node.row_builder.media_output_col_info
+        if len(media_col_info) == 0:
             return input_node
-        save_node = exec.ObjectStoreSaveNode(tbl_id, stored_media_cols, input_node)
-        save_node.set_ctx(input_node.ctx)
-        return save_node
+        else:
+            return exec.ObjectStoreSaveNode(media_col_info, input_node)
 
     @classmethod
     def _is_contained_in(cls, l1: Iterable[exprs.Expr], l2: Iterable[exprs.Expr]) -> bool:
@@ -789,10 +898,10 @@ class Planner:
         return {e.id for e in l1} <= {e.id for e in l2}
 
     @classmethod
-    def _insert_prefetch_node(
+    def _add_prefetch_node(
         cls, tbl_id: UUID, expressions: Iterable[exprs.Expr], input_node: exec.ExecNode
     ) -> exec.ExecNode:
-        """Return a node to prefetch data if needed, otherwise return input"""
+        """Add a CachePrefetch node, if needed."""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
         # aren't explicitly captured as dependencies
@@ -808,21 +917,30 @@ class Planner:
     def create_query_plan(
         cls,
         from_clause: FromClause,
-        select_list: Optional[list[exprs.Expr]] = None,
-        where_clause: Optional[exprs.Expr] = None,
-        group_by_clause: Optional[list[exprs.Expr]] = None,
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
-        limit: Optional[exprs.Expr] = None,
-        sample_clause: Optional[SampleClause] = None,
+        select_list: list[exprs.Expr] | None = None,
+        columns: list[catalog.Column] | None = None,
+        where_clause: exprs.Expr | None = None,
+        group_by_clause: list[exprs.Expr] | None = None,
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
+        limit: exprs.Expr | None = None,
+        sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
+        exact_version_only: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
-        """Return plan for executing a query.
+        """
+        Return plan for executing a query.
+
+        The plan:
+        - materializes the values of select_list exprs into their respective slots
+        - materializes cell values of 'columns' (and their cellmd, if applicable) into DataRow.cell_vals/cell_md
+
         Updates 'select_list' in place to make it executable.
         TODO: make exact_version_only a flag and use the versions from tbl
         """
         if select_list is None:
             select_list = []
+        if columns is None:
+            columns = []
         if order_by_clause is None:
             order_by_clause = []
         if exact_version_only is None:
@@ -850,6 +968,7 @@ class Planner:
             row_builder=row_builder,
             analyzer=analyzer,
             eval_ctx=eval_ctx,
+            columns=columns,
             limit=limit,
             with_pk=True,
             exact_version_only=exact_version_only,
@@ -865,9 +984,10 @@ class Planner:
         row_builder: exprs.RowBuilder,
         analyzer: Analyzer,
         eval_ctx: exprs.RowBuilder.EvalCtx,
+        columns: list[catalog.Column] | None = None,
         limit: Optional[exprs.Expr] = None,
         with_pk: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
+        exact_version_only: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -877,6 +997,8 @@ class Planner:
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
         TODO: make exact_version_only a flag and use the versions from tbl
         """
+        if columns is None:
+            columns = []
         if exact_version_only is None:
             exact_version_only = []
         sql_elements = analyzer.sql_elements
@@ -934,8 +1056,15 @@ class Planner:
                     traverse_matches=False,
                 )
             )
+
             plan = exec.SqlScanNode(
-                tbl, row_builder, select_list=tbl_scan_exprs, set_pk=with_pk, exact_version_only=exact_version_only
+                tbl,
+                row_builder,
+                select_list=tbl_scan_exprs,
+                columns=[c for c in columns if c.tbl.id == tbl.tbl_id],
+                set_pk=with_pk,
+                cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
+                exact_version_only=exact_version_only,
             )
             tbl_scan_plans.append(plan)
 
@@ -966,7 +1095,8 @@ class Planner:
                 stratify_exprs=analyzer.stratify_exprs,
             )
 
-        plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
+        plan = cls._add_prefetch_node(tbl.tbl_version.id, row_builder.unique_exprs, plan)
+        plan = cls._add_cell_reconstruction_node(analyzer.all_exprs, plan)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
@@ -1010,7 +1140,7 @@ class Planner:
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
-                plan = cls._insert_save_node(tbl.tbl_version.id, row_builder.stored_media_cols, input_node=plan)
+                plan = cls._add_save_node(plan)
         else:
             if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
@@ -1062,7 +1192,6 @@ class Planner:
         plan.ctx.ignore_errors = True
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
-
-        plan = cls._insert_save_node(tbl.tbl_version.id, row_builder.stored_media_cols, input_node=plan)
+        plan = cls._add_save_node(plan)
 
         return plan

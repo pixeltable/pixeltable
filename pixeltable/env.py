@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
+import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
@@ -71,6 +72,7 @@ class Env:
     _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
     _db_url: Optional[str]
     _default_time_zone: Optional[ZoneInfo]
+    _verbosity: int
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
@@ -218,9 +220,17 @@ class Env:
         """
         This is not a publicly visible setter; it is only for testing purposes.
         """
-        tz_name = None if tz is None else tz.key
+        if tz is None:
+            tz_name = self._get_tz_name()
+        else:
+            assert isinstance(tz, ZoneInfo)
+            tz_name = tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
+
+    @property
+    def verbosity(self) -> int:
+        return self._verbosity
 
     @property
     def conn(self) -> Optional[sql.Connection]:
@@ -238,6 +248,11 @@ class Env:
         return self._dbms
 
     @property
+    def is_using_cockroachdb(self) -> bool:
+        assert self._dbms is not None
+        return isinstance(self._dbms, CockroachDbms)
+
+    @property
     def in_xact(self) -> bool:
         return self._current_conn is not None
 
@@ -247,7 +262,7 @@ class Env:
         return self._db_server is not None
 
     @contextmanager
-    def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
+    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
         """
         Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
 
@@ -350,6 +365,26 @@ class Env:
     def console_logger(self) -> ConsoleLogger:
         return self._console_logger
 
+    def _get_tz_name(self) -> str:
+        """Get the time zone name from the configuration, or the system local time zone if not specified.
+
+        Returns:
+            str: The time zone name.
+        """
+        tz_name = Config.get().get_string_value('time_zone')
+        if tz_name is not None:
+            # Validate tzname
+            if not isinstance(tz_name, str):
+                self._logger.error('Invalid time zone specified in configuration.')
+            else:
+                try:
+                    _ = ZoneInfo(tz_name)
+                except ZoneInfoNotFoundError:
+                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+        else:
+            tz_name = tzlocal.get_localzone_name()
+        return tz_name
+
     def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
@@ -393,10 +428,12 @@ class Env:
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
-        # Set verbose level for user visible console messages
-        verbosity = map_level(config.get_int_value('verbosity'))
+        # Set verbosity level for user visible console messages
+        self._verbosity = config.get_int_value('verbosity')
+        if self._verbosity is None:
+            self._verbosity = 1
         stdout_handler = ConsoleOutputHandler(stream=stdout)
-        stdout_handler.setLevel(verbosity)
+        stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
         self._console_logger = ConsoleLogger(self._logger)
@@ -430,6 +467,7 @@ class Env:
         http_logger.propagate = False
 
         self.clear_tmp_dir()
+        tz_name = self._get_tz_name()
 
         # configure pixeltable database
         self._init_db(config)
@@ -439,22 +477,10 @@ class Env:
                 'Reinitializing pixeltable database is not supported when running in non-local environment'
             )
 
-        tz_name = config.get_string_value('time_zone')
-        if tz_name is not None:
-            # Validate tzname
-            if not isinstance(tz_name, str):
-                self._logger.error('Invalid time zone specified in configuration.')
-            else:
-                try:
-                    _ = ZoneInfo(tz_name)
-                except ZoneInfoNotFoundError:
-                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
-
         if reinit_db and self._store_db_exists():
             self._drop_store_db()
 
         create_db = not self._store_db_exists()
-
         if create_db:
             self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
@@ -534,13 +560,16 @@ class Env:
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
-    def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
-        connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
+    def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
+        connect_args = {'options': f'-c timezone={time_zone_name}'}
+        self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
         self._sa_engine = sql.create_engine(
             self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        self._logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
+        self._logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()

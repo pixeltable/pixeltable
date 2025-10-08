@@ -1,0 +1,93 @@
+---
+title: "pixeltable.iterators.VideoSplitter"
+sidebarTitle: "VideoSplitter"
+icon: "square-c"
+---
+
+Iterator over segments of a video file, which is split into fixed-size segments of length `segment_duration` seconds.
+
+Args: segment_duration: Video segment duration in seconds overlap: Overlap between consecutive segments in seconds. min_segment_duration: Drop the last segment if it is smaller than min_segment_duration
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/video.py#L234" target="_blank">View source on GitHub</a>
+
+## Methods
+
+
+---
+
+### `close()`
+
+Close the iterator and release all resources
+
+
+**Signature:**
+
+```python
+close()-> None
+```
+
+
+---
+
+### `create()`
+
+**Signature:**
+
+```python
+create(**kwargs: Any)-> tuple[type[ComponentIterator], dict[str, Any]]
+```
+
+
+---
+
+### `input_schema()`
+
+Provide the Pixeltable types of the init() parameters
+
+
+The keys need to match the names of the init() parameters. This is equivalent to the parameters_types parameter of the @function decorator.
+
+
+**Signature:**
+
+```python
+input_schema()-> dict[str, pixeltable.type_system.ColumnType]
+```
+
+
+---
+
+### `output_schema()`
+
+Specify the dictionary returned by next() and a list of unstored column names
+
+
+**Signature:**
+
+```python
+output_schema(
+    *args: Any,
+    **kwargs: Any
+)-> tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]
+```
+
+**Returns:**
+
+- *tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]*: a dictionary which is turned into a list of columns in the output table a list of unstored column names
+
+
+
+---
+
+### `set_pos()`
+
+Set the iterator position to pos
+
+
+**Signature:**
+
+```python
+set_pos(pos: int)-> None
+```
+

@@ -69,6 +69,7 @@ dependencies = [
     "pydantic>=2.7.4",
     "pyarrow>=13.0.0",
     "pixeltable-pgserver==0.3.1",
+    "tzlocal>=5.0",
 ]
 
 [project.urls]
@@ -130,7 +131,7 @@ dev = [
     "torchvision>=0.22,<0.23",
     "openai>=1.86.0",
     "anthropic>=0.53.0",
-    "together>=1.5.11",
+    "together>=1.5.26",
     "fireworks-ai>=0.17.6",
     "mistralai>=1.8.2",
     "replicate>=1.0.7,<2",
