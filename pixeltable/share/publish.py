@@ -68,7 +68,22 @@ def push_replica(
     # TODO: Use Pydantic for validation
     finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=_api_headers())
     if finalize_response.status_code != 200:
-        raise excs.Error(f'Error finalizing snapshot: {finalize_response.text}')
+        # Check if this is a "table already replicated" error and provide actionable guidance
+        error_text = finalize_response.text
+        if 'already been replicated as' in error_text:
+            # Extract the existing table name from the error message
+            # Format: "That table has already been replicated as 'table_name'."
+            import re
+            match = re.search(r"already been replicated as ['\"]([^'\"]+)['\"]", error_text)
+            if match:
+                existing_table = match.group(1)
+                raise excs.Error(
+                    f"Cannot publish to '{dest_tbl_uri}': A local replica '{existing_table}' already exists.\n\n"
+                    f"💡 To resolve this:\n"
+                    f"    pxt.drop_table('{existing_table}')\n"
+                    f"    pxt.publish('{src_tbl._path()}', '{dest_tbl_uri}')"
+                )
+        raise excs.Error(f'Error finalizing snapshot: {error_text}')
     finalize_response_json = finalize_response.json()
     if not isinstance(finalize_response_json, dict) or 'confirmed_table_uri' not in finalize_response_json:
         raise excs.Error(f'Error finalizing snapshot: unexpected response from server.\n{finalize_response_json}')
