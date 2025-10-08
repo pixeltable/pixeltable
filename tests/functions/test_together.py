@@ -14,15 +14,11 @@ class TestTogether:
         from pixeltable.functions.together import completions
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(
-            output=completions(
-                prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', model_kwargs={'stop': ['\n']}
-            )
-        )
+        t.add_computed_column(output=completions(prompt=t.input, model='Qwen/QwQ-32B', model_kwargs={'stop': ['\n']}))
         t.add_computed_column(
             output_2=completions(
                 prompt=t.input,
-                model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+                model='Qwen/QwQ-32B',
                 model_kwargs={
                     'max_tokens': 300,
                     'stop': ['\n'],
