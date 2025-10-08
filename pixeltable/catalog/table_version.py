@@ -1325,6 +1325,23 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
 
     @property
+    def cloud_uri(self) -> Optional[str]:
+        return self._tbl_md.additional_md.get('cloud_uri')
+
+    def update_cloud_uri(self, cloud_uri: Optional[str]) -> None:
+        from .catalog import Catalog
+
+        if self._tbl_md.additional_md.get('cloud_uri') == cloud_uri:
+            return  # Nothing to do
+
+        if cloud_uri is None:
+            del self._tbl_md.additional_md['cloud_uri']  # must be present due to preceding check
+        else:
+            self._tbl_md.additional_md['cloud_uri'] = cloud_uri
+
+        self._write_md(new_version=False, new_schema_version=False)
+
+    @property
     def tbl_md(self) -> schema.TableMd:
         return self._tbl_md
 

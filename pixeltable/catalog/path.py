@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from pixeltable import exceptions as excs
 
@@ -10,14 +10,9 @@ from .globals import is_valid_identifier
 _logger = logging.getLogger('pixeltable')
 
 
-class Path:
+class Path(NamedTuple):
     components: list[str]
-    version: Optional[int]
-
-    def __init__(self, components: list[str], version: Optional[int] = None) -> None:
-        assert len(components) > 0
-        self.components = components
-        self.version = version
+    version: Optional[int] = None
 
     @classmethod
     def parse(

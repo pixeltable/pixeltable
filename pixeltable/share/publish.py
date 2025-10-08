@@ -12,6 +12,7 @@ from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
@@ -75,6 +76,10 @@ def push_replica(
 
     confirmed_tbl_uri = finalize_response_json['confirmed_table_uri']
     Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
+
+    with Catalog.get().begin_xact(tbl_id=src_tbl._tbl_version_path.tbl_id, for_write=True):
+        src_tbl._tbl_version_path.tbl_version.get().update_cloud_uri(confirmed_tbl_uri)
+
     return confirmed_tbl_uri
 
 
@@ -125,6 +130,8 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
+    # Add the source table URI to the additional metadata so that the restored table has a reference to its origin
+    primary_tbl_additional_md['cloud_uri'] = src_tbl_uri
     restorer = TableRestorer(dest_path, response_json)
     tbl = restorer.restore(bundle_path)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
