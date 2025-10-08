@@ -32,6 +32,7 @@ from ..utils import (
     get_image_files,
     get_video_files,
     reload_catalog,
+    skip_test_if_not_installed,
 )
 
 
@@ -698,6 +699,8 @@ class TestPackager:
                 self.__check_table(bundles[j], f'replica_{j}')
 
     def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('transformers')  # needed for CLIP
+
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
         t.insert({'image': image} for image in images)
@@ -709,6 +712,8 @@ class TestPackager:
         self.__restore_and_check_table(bundle, 'replica')
 
     def test_multi_version_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('transformers')  # needed for CLIP
+
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
