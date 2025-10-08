@@ -4566,6 +4566,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "toml" },
     { name = "tqdm" },
+    { name = "tzlocal" },
 ]
 
 [package.dev-dependencies]
@@ -4674,6 +4675,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.2" },
     { name = "toml", specifier = ">=0.10" },
     { name = "tqdm", specifier = ">=4.64" },
+    { name = "tzlocal", specifier = ">=5.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4722,7 +4724,7 @@ dev = [
     { name = "tabulate", specifier = ">=0.9" },
     { name = "tiktoken", specifier = ">=0.9" },
     { name = "timm", specifier = ">=1.0.11,<2" },
-    { name = "together", specifier = ">=1.5.11" },
+    { name = "together", specifier = ">=1.5.26" },
     { name = "torch", specifier = "~=2.7" },
     { name = "torchaudio", specifier = "~=2.7" },
     { name = "torchvision", specifier = ">=0.22,<0.23" },
@@ -7543,7 +7545,7 @@ wheels = [
 
 [[package]]
 name = "together"
-version = "1.5.16"
+version = "1.5.26"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -7559,9 +7561,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/37/57990b307de33804a72018ea56c0adaa98d07531ee8cab846aef9fc83949/together-1.5.16.tar.gz", hash = "sha256:23888c87fe1f389a7b7b0ebe2d67c83ead00ee84fc9df08bfc09711977723f14", size = 67050, upload-time = "2025-06-17T08:04:27.958Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/96/77d36c1aad4ca22623a097e22cb03b05a05637878334fe558e70af96af3d/together-1.5.26.tar.gz", hash = "sha256:1f23591aa5297480949028472fa4cbca9e8042cc9a706e004da06f00e9512f54", size = 79427, upload-time = "2025-09-23T07:35:15.975Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/90/c05d41efe54aa71fbe2a148364b4e22a8f15ff75f371079ea295ee2276a8/together-1.5.16-py3-none-any.whl", hash = "sha256:4b5c292127b92c6b7a05de3774b3aba8cd65533ad4316b1adef2bac70adb196a", size = 91187, upload-time = "2025-06-17T08:04:24.75Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/cf/3915e34873c410bdf383074019315bb02341472ff691a74c69243159d2ba/together-1.5.26-py3-none-any.whl", hash = "sha256:e28d2607732e24178f727e13866773fc52447efaea9ba82700839db5476f43b7", size = 107519, upload-time = "2025-09-23T07:35:14.694Z" },
 ]
 
 [[package]]

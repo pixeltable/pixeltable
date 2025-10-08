@@ -1,0 +1,526 @@
+---
+title: "pixeltable.DataFrame"
+sidebarTitle: "DataFrame"
+icon: "square-c"
+---
+
+Represents a query for retrieving and transforming data from Pixeltable tables.
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/dataframe.py#L188" target="_blank">View source on GitHub</a>
+
+## Methods
+
+
+---
+
+### `collect()`
+
+**Signature:**
+
+```python
+collect()-> DataFrameResultSet
+```
+
+
+---
+
+### `distinct()`
+
+Remove duplicate rows from this DataFrame.
+
+
+Note that grouping will be applied to the rows based on the select clause of this Dataframe. In the absence of a select clause, by default, all columns are selected in the grouping.
+
+
+**Signature:**
+
+```python
+distinct()-> DataFrame
+```
+
+
+**Example:**
+
+Select unique addresses from table `addresses`.
+```python
+results = addresses.distinct()
+```
+Select unique cities in table `addresses`
+```python
+results = addresses.city.distinct()
+```
+Select unique locations (street, city) in the state of `CA`
+```python
+results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
+```
+
+---
+
+### `group_by()`
+
+Add a group-by clause to this DataFrame.
+
+
+Variants:
+
+- group_by(`base table`): group a component view by their respective base table rows
+- group_by(`expr`, ...): group by the given expressions
+
+Note, that grouping will be applied to the rows and take effect when used with an aggregation function like sum(), count() etc.
+
+
+**Signature:**
+
+```python
+group_by(*grouping_items: Any)-> DataFrame
+```
+
+**Parameters:**
+
+- **`grouping_items`** (*Any*): expressions to group by
+
+
+**Returns:**
+
+- *DataFrame*: A new DataFrame with the specified group-by clause.
+
+
+
+**Example:**
+
+Given the DataFrame book from a table t with all its columns and rows:
+```python
+book = t.select()
+```
+Group the above DataFrame book by the 'genre' column (referenced in table t):
+```python
+df = book.group_by(t.genre)
+```
+Use the above DataFrame df grouped by genre to count the number of
+books for each 'genre':
+```python
+df = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+```
+Use the above DataFrame df grouped by genre to the total price of
+books for each 'genre':
+```python
+df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
+```
+
+---
+
+### `head()`
+
+Return the first n rows of the DataFrame, in insertion order of the underlying Table.
+
+
+head() is not supported for joins.
+
+
+**Signature:**
+
+```python
+head(n: int = 10)-> DataFrameResultSet
+```
+
+**Parameters:**
+
+- **`n`** (*int*) = `10`: Number of rows to select. Default is 10.
+
+
+**Returns:**
+
+- *DataFrameResultSet*: A DataFrameResultSet with the first n rows of the DataFrame.
+
+
+
+---
+
+### `join()`
+
+Join this DataFrame with a table.
+
+
+**Signature:**
+
+```python
+join(
+    other: catalog.Table,
+    on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
+    how: plan.JoinType.LiteralType = 'inner'
+)-> DataFrame
+```
+
+**Parameters:**
+
+- **`other`** (*catalog.Table*): the table to join with
+
+- **`on`** (*exprs.Expr | Sequence[exprs.ColumnRef] | None*): the join condition, which can be either a) references to one or more columns or b) a boolean expression.
+
+- column references: implies an equality predicate that matches columns in both this DataFrame and `other` by name.
+
+  - column in `other`: A column with that same name must be present in this DataFrame, and **it must be unique** (otherwise the join is ambiguous).
+  - column in this DataFrame: A column with that same name must be present in `other`.
+
+- boolean expression: The expressions must be valid in the context of the joined tables.
+
+- **`how`** (*plan.JoinType.LiteralType*) = `inner`: the type of join to perform.
+
+- `'inner'`: only keep rows that have a match in both
+- `'left'`: keep all rows from this DataFrame and only matching rows from the other table
+- `'right'`: keep all rows from the other table and only matching rows from this DataFrame
+- `'full_outer'`: keep all rows from both this DataFrame and the other table
+- `'cross'`: Cartesian product; no `on` condition allowed
+
+
+**Returns:**
+
+- *DataFrame*: A new DataFrame.
+
+
+
+**Example:**
+
+Perform an inner join between t1 and t2 on the column id:
+```python
+join1 = t1.join(t2, on=t2.id)
+```
+Perform a left outer join of join1 with t3, also on id (note that we can't specify `on=t3.id` here,
+because that would be ambiguous, since both t1 and t2 have a column named id):
+```python
+join2 = join1.join(t3, on=t2.id, how='left')
+```
+Do the same, but now with an explicit join predicate:
+```python
+join2 = join1.join(t3, on=t2.id == t3.id, how='left')
+```
+Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
+key columns d1 and d2 in t):
+```python
+df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
+```
+
+---
+
+### `limit()`
+
+Limit the number of rows in the DataFrame.
+
+
+**Signature:**
+
+```python
+limit(n: int)-> DataFrame
+```
+
+**Parameters:**
+
+- **`n`** (*int*): Number of rows to select.
+
+
+**Returns:**
+
+- *DataFrame*: A new DataFrame with the specified limited rows.
+
+
+
+---
+
+### `order_by()`
+
+Add an order-by clause to this DataFrame.
+
+
+**Signature:**
+
+```python
+order_by(
+    *expr_list: exprs.Expr,
+    asc: bool = True
+)-> DataFrame
+```
+
+**Parameters:**
+
+- **`expr_list`** (*exprs.Expr*): expressions to order by
+
+- **`asc`** (*bool*) = `True`: whether to order in ascending order (True) or descending order (False). Default is True.
+
+
+**Returns:**
+
+- *DataFrame*: A new DataFrame with the specified order-by clause.
+
+
+
+**Example:**
+
+Given the DataFrame book from a table t with all its columns and rows:
+```python
+book = t.select()
+```
+Order the above DataFrame book by two columns (price, pages) in descending order:
+```python
+df = book.order_by(t.price, t.pages, asc=False)
+```
+Order the above DataFrame book by price in descending order, but order the pages
+in ascending order:
+```python
+df = book.order_by(t.price, asc=False).order_by(t.pages)
+```
+
+---
+
+### `sample()`
+
+Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.
+
+
+The size of the sample can be specified in three ways:
+
+- `n`: the total number of rows to produce as a sample
+- `n_per_stratum`: the number of rows to produce per stratum as a sample
+- `fraction`: the fraction of available rows to produce as a sample
+
+The sample can be stratified by one or more columns, which means that the sample will be selected from each stratum separately.
+
+The data is shuffled before creating the sample.
+
+
+**Signature:**
+
+```python
+sample(
+    n: Optional[int] = None,
+    n_per_stratum: Optional[int] = None,
+    fraction: Optional[float] = None,
+    seed: Optional[int] = None,
+    stratify_by: Any = None
+)-> DataFrame
+```
+
+**Parameters:**
+
+- **`n`** (*Optional[int]*): Total number of rows to produce as a sample.
+
+- **`n_per_stratum`** (*Optional[int]*): Number of rows to produce per stratum as a sample. This parameter is only valid if `stratify_by` is specified. Only one of `n` or `n_per_stratum` can be specified.
+
+- **`fraction`** (*Optional[float]*): Fraction of available rows to produce as a sample. This parameter is not usable with `n` or `n_per_stratum`. The fraction must be between 0.0 and 1.0.
+
+- **`seed`** (*Optional[int]*): Random seed for reproducible shuffling
+
+- **`stratify_by`** (*Any*): If specified, the sample will be stratified by these values.
+
+
+**Returns:**
+
+- *DataFrame*: A new DataFrame which specifies the sampled rows
+
+
+
+**Example:**
+
+Given the Table `person` containing the field 'age', we can create samples of the table in various ways:
+Sample 100 rows from the above Table:
+```python
+df = person.sample(n=100)
+```
+Sample 10% of the rows from the above Table:
+```python
+df = person.sample(fraction=0.1)
+```
+Sample 10% of the rows from the above Table, stratified by the column 'age':
+```python
+df = person.sample(fraction=0.1, stratify_by=t.age)
+```
+Equal allocation sampling: Sample 2 rows from each age present in the above Table:
+```python
+df = person.sample(n_per_stratum=2, stratify_by=t.age)
+```
+Sampling is compatible with the where clause, so we can also sample from a filtered DataFrame:
+```python
+df = person.where(t.age > 30).sample(n=100)
+```
+
+---
+
+### `select()`
+
+Select columns or expressions from the DataFrame.
+
+
+**Signature:**
+
+```python
+select(
+    *items: Any,
+    **named_items: Any
+)-> DataFrame
+```
+
+**Parameters:**
+
+- **`items`** (*Any*): expressions to be selected
+
+- **`named_items`** (*Any*): named expressions to be selected
+
+
+**Returns:**
+
+- *DataFrame*: A new DataFrame with the specified select list.
+
+
+
+**Example:**
+
+Given the DataFrame person from a table t with all its columns and rows:
+```python
+person = t.select()
+```
+Select the columns 'name' and 'age' (referenced in table t) from the DataFrame person:
+```python
+df = person.select(t.name, t.age)
+```
+Select the columns 'name' (referenced in table t) from the DataFrame person,
+and a named column 'is_adult' from the expression `age >= 18` where 'age' is
+another column in table t:
+```python
+df = person.select(t.name, is_adult=(t.age >= 18))
+```
+
+---
+
+### `show()`
+
+**Signature:**
+
+```python
+show(n: int = 20)-> DataFrameResultSet
+```
+
+
+---
+
+### `tail()`
+
+Return the last n rows of the DataFrame, in insertion order of the underlying Table.
+
+
+tail() is not supported for joins.
+
+
+**Signature:**
+
+```python
+tail(n: int = 10)-> DataFrameResultSet
+```
+
+**Parameters:**
+
+- **`n`** (*int*) = `10`: Number of rows to select. Default is 10.
+
+
+**Returns:**
+
+- *DataFrameResultSet*: A DataFrameResultSet with the last n rows of the DataFrame.
+
+
+
+---
+
+### `to_coco_dataset()`
+
+Convert the dataframe to a COCO dataset.
+
+
+This dataframe must return a single json-typed output column in the following format: \{ 'image': PIL.Image.Image, 'annotations': \[ \{ 'bbox': \[x: int, y: int, w: int, h: int\], 'category': str \| int, \}, ... \], \}
+
+
+**Signature:**
+
+```python
+to_coco_dataset()-> Path
+```
+
+**Returns:**
+
+- *Path*: Path to the COCO dataset file.
+
+
+
+---
+
+### `to_pytorch_dataset()`
+
+Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
+
+
+with torch.utils.data.DataLoader.
+
+This method requires pyarrow \>= 13, torch and torchvision to work.
+
+This method serializes data so it can be read from disk efficiently and repeatedly without re-executing the query. This data is cached to disk for future re-use.
+
+
+**Signature:**
+
+```python
+to_pytorch_dataset(image_format: str = 'pt')-> torch.utils.data.IterableDataset
+```
+
+**Parameters:**
+
+- **`image_format`** (*str*) = `pt`: format of the images. Can be 'pt' (pytorch tensor) or 'np' (numpy array). 'np' means image columns return as an RGB uint8 array of shape HxWxC. 'pt' means image columns return as a CxHxW tensor with values in \[0,1\] and type torch.float32. (the format output by torchvision.transforms.ToTensor())
+
+
+**Returns:**
+
+- *'torch.utils.data.IterableDataset'*: A pytorch IterableDataset: Columns become fields of the dataset, where rows are returned as a dictionary compatible with torch.utils.data.DataLoader default collation.
+
+
+
+---
+
+### `where()`
+
+Filter rows based on a predicate.
+
+
+**Signature:**
+
+```python
+where(pred: exprs.Expr)-> DataFrame
+```
+
+**Parameters:**
+
+- **`pred`** (*exprs.Expr*): the predicate to filter rows
+
+
+**Returns:**
+
+- *DataFrame*: A new DataFrame with the specified predicates replacing the where-clause.
+
+
+
+**Example:**
+
+Given the DataFrame person from a table t with all its columns and rows:
+```python
+person = t.select()
+```
+Filter the above DataFrame person to only include rows where the column 'age'
+(referenced in table t) is greater than 30:
+```python
+df = person.where(t.age > 30)
+```
+## Attributes
+
+### `schema` <sub>property</sub>
+
+Column names and types in this DataFrame.
+
+
+**Type:** property (read-only)
+
