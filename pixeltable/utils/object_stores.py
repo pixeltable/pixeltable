@@ -232,11 +232,11 @@ class ObjectPath:
             else:
                 storage_target = StorageTarget.HTTP_STORE
             if storage_target in (
-                    StorageTarget.S3_STORE,
-                    StorageTarget.AZURE_STORE,
-                    StorageTarget.R2_STORE,
-                    StorageTarget.B2_STORE,
-                ):
+                StorageTarget.S3_STORE,
+                StorageTarget.AZURE_STORE,
+                StorageTarget.R2_STORE,
+                StorageTarget.B2_STORE,
+            ):
                 account_name = parsed.netloc.split('.', 1)[0]
                 account_extension = parsed.netloc.split('.', 1)[1]
                 path_parts = key.lstrip('/').split('/', 1)
