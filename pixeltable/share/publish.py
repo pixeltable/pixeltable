@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -68,12 +69,20 @@ def push_replica(
     # TODO: Use Pydantic for validation
     finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=_api_headers())
     if finalize_response.status_code != 200:
+        # TODO: This error handling is fragile and should be replaced with structured error responses.
+        # The server should return JSON with error codes and structured data, e.g.:
+        # {
+        #     "error_code": "TABLE_ALREADY_REPLICATED",
+        #     "existing_table_name": "db.table",
+        #     "message": "..."
+        # }
+        # Then we can check error_json.get('error_code') instead of parsing text with regex.
+        
         # Check if this is a "table already replicated" error and provide actionable guidance
         error_text = finalize_response.text
         if 'already been replicated as' in error_text:
             # Extract the existing table name from the error message
             # Format: "That table has already been replicated as 'table_name'."
-            import re
             match = re.search(r"already been replicated as ['\"]([^'\"]+)['\"]", error_text)
             if match:
                 existing_table = match.group(1)
