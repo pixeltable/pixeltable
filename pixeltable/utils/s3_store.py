@@ -361,7 +361,7 @@ class S3Store(ObjectStoreBase):
             'read_timeout': 30,
             'retries': {'max_attempts': 3, 'mode': 'adaptive'},
             's3': {'addressing_style': 'path'},  # Use path-style addressing for S3-compatible services
-            'user_agent_extra': 'pixeltable', # Marks requests as coming from Pixeltable for tracking and debugging
+            'user_agent_extra': 'pixeltable',  # Marks requests as coming from Pixeltable for tracking and debugging
         }
 
         session = cls.create_boto_session(profile_name)
