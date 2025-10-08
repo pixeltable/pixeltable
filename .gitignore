@@ -15,23 +15,3 @@ target
 tests/target
 .DS_Store
 **/.DS_Store
-
-# Virtual environments
-venv/
-env/
-ENV/
-
-# Python
-*.pyc
-*.pyo
-*.egg-info/
-.pytest_cache/
-.tox/
-
-# Compiled files
-*.so
-*.dylib
-
-# Build artifacts
-build/
-*.egg
