@@ -1178,6 +1178,7 @@ class GlobalMediaDestination:
 
                 self._default_media_dir_is_local = soa.storage_target == StorageTarget.LOCAL_STORE
                 if self._default_media_dir_is_local:
+                    # If the default media dir is local, then use it as the "media_dir"
                     self._media_dir = soa.to_path
                 else:
                     # Create the local media directory so it can be used for JsonType and ArrayType fields
@@ -1189,3 +1190,5 @@ class GlobalMediaDestination:
 
                 self._object_soa = soa
                 self._object_soa_validated = True
+                _logger.info(f'Default media destination is {self._object_soa}')
+                _logger.info(f'Local destinations is {self._media_dir}')

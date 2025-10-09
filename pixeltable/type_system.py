@@ -533,11 +533,6 @@ class ColumnType:
         # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
-    def is_object_type(self) -> bool:
-        # types that refer to complex objects which may be stored in object stores
-        # JSON, Array, Image, Video, Audio, Document
-        return self.is_json_type() or self.is_array_type() or self.is_media_type()
-
     @classmethod
     @abc.abstractmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:

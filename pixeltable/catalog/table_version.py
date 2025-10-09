@@ -20,6 +20,7 @@ from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import LocalStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from ..func.globals import resolve_symbol
@@ -372,9 +373,11 @@ class TableVersion:
     def delete_media(self, tbl_version: Optional[int] = None) -> None:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
-        destinations = {col.destination for col in self.cols if col.is_stored and col.col_type.is_object_type()}
+        destinations = {col.destination for col in self.cols if col.is_stored and col.col_type.is_media_type()}
         for dest in destinations:
             ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
+        # Always clear the local store, which may have JsonType or ArrayType data for this tbl_version
+        LocalStore(Env.get().media_dir).delete(self.id, tbl_version=tbl_version)
 
     def drop(self) -> None:
         # if self.is_view and self.is_mutable:
