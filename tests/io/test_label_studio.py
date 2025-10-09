@@ -33,7 +33,7 @@ _logger = logging.getLogger('pixeltable')
 def skip_ls_test_on_conditions() -> None:
     """Skip a label_studio test if prerequisites not present"""
     skip_test_if_not_installed('label_studio_sdk')
-    if not Env.get().has_media_dir:
+    if not Env.get().default_media_dir_is_local:
         pytest.skip('Media destination is not a local file system')
 
 

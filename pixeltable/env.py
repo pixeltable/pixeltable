@@ -832,9 +832,10 @@ class Env:
         return info
 
     @property
-    def has_media_dir(self) -> bool:
+    def default_media_dir_is_local(self) -> bool:
         self._global_media_destination._validate_media_destination()
-        return self._global_media_destination._media_dir is not None
+        assert self._global_media_destination._default_media_dir_is_local is not None
+        return self._global_media_destination._default_media_dir_is_local
 
     @property
     def media_dir(self) -> Path:
@@ -1128,6 +1129,8 @@ class GlobalMediaDestination:
     _object_soa_validated: bool  # True if the destination has been validated
     _object_soa_lock: threading.Lock = threading.Lock()  # Used to ensure single-threaded validation
     _media_dir: Optional[Path]  # Path to local media directory, if applicable
+    _default_media_dir_is_local: Optional[bool]
+    _local_dest: Optional[Path]
 
     def __init__(self) -> None:
         self._object_source_str = None
@@ -1135,6 +1138,8 @@ class GlobalMediaDestination:
         self._object_soa_validated = False
         self._object_soa_lock = threading.Lock()
         self._media_dir = None
+        self._default_media_dir_is_local = None
+        self._local_dest = None
 
     def set_up(self, media_destination: Optional[str]) -> None:
         """Setup default location for media objects.
@@ -1142,14 +1147,15 @@ class GlobalMediaDestination:
         """
         assert self._object_soa is None
         assert not self._object_soa_validated
+
         if isinstance(media_destination, str):
             self._object_source_str = media_destination
         else:
-            media_destination = Config.get().home / 'media'
-            # This special case logic creates the home/media directory to match previous behavior.
-            if not media_destination.exists():
-                media_destination.mkdir()
-            self._object_source_str = str(media_destination)
+            # Create the local destination and use it as the default media destination
+            self._local_dest = Config.get().home / 'media'
+            if not self._local_dest.exists():
+                self._local_dest.mkdir()
+            self._object_source_str = str(self._local_dest)
 
     def _validate_media_destination(self) -> None:
         """Validate default location for media objects. Thread-safe.
@@ -1158,6 +1164,7 @@ class GlobalMediaDestination:
             self._object_source_str is set to the original string specified in config if any
             self._object_soa is always set
             self._media_dir is not None only if the destination is a local file system.
+            self._default_media_dir_is_local is True if the destination is a local file system.
         """
         if self._object_soa_validated:
             return
@@ -1168,7 +1175,17 @@ class GlobalMediaDestination:
             with self._object_soa_lock:
                 if self._object_soa_validated:
                     return
-                if soa.storage_target == StorageTarget.LOCAL_STORE:
+
+                self._default_media_dir_is_local = soa.storage_target == StorageTarget.LOCAL_STORE
+                if self._default_media_dir_is_local:
                     self._media_dir = soa.to_path
+                else:
+                    # Create the local media directory so it can be used for JsonType and ArrayType fields
+                    assert self._local_dest is None
+                    self._local_dest = Config.get().home / 'media'
+                    if not self._local_dest.exists():
+                        self._local_dest.mkdir()
+                    self._media_dir = self._local_dest
+
                 self._object_soa = soa
                 self._object_soa_validated = True
