@@ -175,8 +175,8 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-          set +e
+          ./scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
+          set +e  # don't exit immediately on error, so that we can retry
           pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb
           pytest -v -m '' --nbmake --nbmake-timeout=1800 --lf --lfnf=none  # retry failed tests once
           if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
