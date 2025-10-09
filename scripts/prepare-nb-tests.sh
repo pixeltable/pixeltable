@@ -24,6 +24,8 @@ if [[ $DO_PIP_INSTALL == false ]]; then
     echo "Skipping pip install commands in notebooks."
 fi
 
+mkdir -p "$TARGET_DIR"
+
 # Copy notebooks to target directory
 echo
 echo "Copying notebooks to test folder ..."
