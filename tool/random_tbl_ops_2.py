@@ -58,7 +58,8 @@ class RandomTblOps:
         ('add_computed_column', 5, False),
         ('drop_column', 3, False),
         ('create_view', 5, False),
-        ('drop_view', 3, False),
+        ('rename_view', 5, False),
+        ('drop_view', 1, False),
         ('drop_table', 0.25, False),
     )
 
@@ -179,6 +180,19 @@ class RandomTblOps:
         yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
         # TODO: Change 'ignore' to 'replace-force' after fixing PXT-774
         pxt.create_view(vname, t.where(t.c0 % p == 0), if_exists='ignore')
+        yield 'Success.'
+
+    def rename_view(self) -> Iterator[str]:
+        t = self.get_random_tbl(allow_base_tbl=False)  # Must be a view
+        if t is None:
+            yield 'No views to rename.'
+            return
+        n = int(random.uniform(0, 100))
+        if f'view_{n}' == t._name:
+            n = (n + 1) % 100  # Ensure new name is different
+        new_name = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
+        yield f'Rename view {self.tbl_descr(t)} to {new_name!r}: '
+        pxt.move(t._name, new_name, if_exists='ignore')
         yield 'Success.'
 
     def drop_view(self) -> Iterator[str]:

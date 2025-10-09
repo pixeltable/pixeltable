@@ -790,17 +790,17 @@ class Catalog:
         return result
 
     @retry_loop(for_write=True)
-    def move(self, path: Path, new_path: Path) -> None:
-        self._move(path, new_path)
+    def move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
+        self._move(path, new_path, if_exists, if_not_exists)
 
-    def _move(self, path: Path, new_path: Path) -> None:
+    def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
         _, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
             drop_dir_path=path.parent,
             drop_name=path.name,
-            raise_if_exists=True,
-            raise_if_not_exists=True,
+            raise_if_exists=(if_exists == 'abort'),
+            raise_if_not_exists=(if_not_exists == 'abort'),
         )
         src_obj._move(new_path.name, dest_dir._id)
 
