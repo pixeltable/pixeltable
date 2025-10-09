@@ -84,6 +84,8 @@ endif
 	@python -m pip install -q uv==0.8.2
 	@echo 'Installing ffmpeg ...'
 	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+	@echo 'Installing quarto ...'
+	@conda install -q -y -c conda-forge quarto
 	@$(TOUCH) .make-install/uv
 
 .make-install/deps: pyproject.toml uv.lock
@@ -94,6 +96,8 @@ endif
 .make-install/others:
 	@echo 'Installing Jupyter kernel ...'
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
+	@echo 'Installing pixeltable-doctools ...'
+	@python -m pip install -q git+https://github.com/pixeltable/pixeltable-doctools.git
 	@$(TOUCH) .make-install/others
 
 .PHONY: install
@@ -170,6 +174,20 @@ release: install
 release-docs: install
 	@mkdocs gh-deploy
 
+.PHONY: docs-local
+docs-local: install
+	@echo 'Building documentation for local preview...'
+	@conda run -n pxt deploy-docs-local --target=local
+	@echo ''
+	@echo 'Documentation built successfully!'
+	@echo 'To preview, run: cd $(CURDIR)/docs/target && npx mintlify dev'
+
+.PHONY: docs-stage
+docs-stage: install
+	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=v0.4.17" && exit 1)
+	@echo 'Building and deploying documentation for $(VERSION) to staging...'
+	@conda run -n pxt deploy-docs-stage --version=$(VERSION)
+
 .PHONY: clean
 clean:
 	@$(RM) *.mp4 docs/source/tutorials/*.mp4 || true
@@ -177,3 +195,4 @@ clean:
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
 	@$(RMDIR) tests/target || true
+	@$(RMDIR) docs/target || true
