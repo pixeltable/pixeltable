@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -57,3 +58,46 @@ class TestPublish:
             pxt.publish('tbl', 'not-a-uri')
         with pytest.raises(pxt.Error, match=r"`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"):
             pxt.replicate('not-a-uri', 'replica')
+
+    @patch('pixeltable.share.publish.requests.post')
+    def test_table_already_replicated_error_message(self, mock_post: MagicMock, reset_db: None) -> None:
+        """Test that the 'table already replicated' error provides actionable guidance."""
+        # Create a table to publish
+        tbl = pxt.create_table('test_tbl', {'col': pxt.Int})
+        tbl.insert([{'col': 1}])
+        snap = pxt.create_snapshot('test_snap', tbl)
+
+        # Mock the initial publish request to succeed
+        mock_initial_response = MagicMock()
+        mock_initial_response.status_code = 200
+        mock_initial_response.json.return_value = {
+            'upload_id': 'test-upload-id',
+            'destination_uri': 'https://example.com/bundle.tar.gz'
+        }
+
+        # Mock the finalize request to return "already replicated" error
+        mock_finalize_response = MagicMock()
+        mock_finalize_response.status_code = 400
+        mock_finalize_response.text = "That table has already been replicated as 'existing_db.existing_table'."
+
+        # Configure mock to return different responses for different calls
+        mock_post.side_effect = [mock_initial_response, mock_finalize_response]
+
+        # Mock the upload function to do nothing
+        with patch('pixeltable.share.publish._upload_to_presigned_url'):
+            # Verify the error message contains all expected elements
+            with pytest.raises(pxt.Error) as exc_info:
+                pxt.publish(snap, 'pxt://test-org/test-table')
+
+            error_message = str(exc_info.value)
+            # Verify the error message contains:
+            # 1. The destination URI
+            assert 'pxt://test-org/test-table' in error_message
+            # 2. The existing table name (extracted via regex)
+            assert 'existing_db.existing_table' in error_message
+            # 3. Actionable guidance with drop_table command
+            assert 'pxt.drop_table' in error_message
+            # 4. Actionable guidance with publish command
+            assert 'pxt.publish' in error_message
+            # 5. The helpful emoji indicator
+            assert '💡' in error_message
