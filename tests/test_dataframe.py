@@ -12,7 +12,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.env import Env
 from pixeltable.iterators import FrameIterator
 
 from .utils import (
@@ -134,9 +133,6 @@ class TestDataFrame:
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
     def test_join(self, reset_db: None) -> None:
-        if not Env.get().has_media_dir:
-            pytest.skip('Media destination is not a local file system')
-
         num_rows = 1000
         t1, t2, t3 = self.create_join_tbls(num_rows)
         # inner join
@@ -197,9 +193,6 @@ class TestDataFrame:
         # TODO: verify result
 
     def test_join_errors(self, reset_db: None) -> None:
-        if not Env.get().has_media_dir:
-            pytest.skip('Media destination is not a local file system')
-
         t1, t2, t3 = self.create_join_tbls(1000)
 
         with pytest.raises(pxt.Error) as exc_info:
