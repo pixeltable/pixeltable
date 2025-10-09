@@ -192,7 +192,7 @@ class RandomTblOps:
             n = (n + 1) % 100  # Ensure new name is different
         new_name = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         yield f'Rename view {self.tbl_descr(t)} to {new_name!r}: '
-        pxt.move(t._name, new_name, if_exists='ignore')
+        pxt.move(t._name, new_name, if_exists='ignore', if_not_exists='ignore')
         yield 'Success.'
 
     def drop_view(self) -> Iterator[str]:

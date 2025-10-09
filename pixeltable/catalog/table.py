@@ -77,6 +77,14 @@ class Table(SchemaObject):
         self._tbl_version = None
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        old_name = self._name
+        old_dir_id = self._dir_id
+
+        cat = catalog.Catalog.get()
+        @cat.register_undo_action
+        def _() -> None:
+            super()._move(old_name, old_dir_id)
+
         super()._move(new_name, new_dir_id)
         conn = env.Env.get().conn
         stmt = sql.text(

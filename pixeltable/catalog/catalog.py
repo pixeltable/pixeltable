@@ -794,14 +794,17 @@ class Catalog:
         self._move(path, new_path, if_exists, if_not_exists)
 
     def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
-        _, dest_dir, src_obj = self._prepare_dir_op(
+        dest_obj, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
             drop_dir_path=path.parent,
             drop_name=path.name,
-            raise_if_exists=(if_exists == 'abort'),
-            raise_if_not_exists=(if_not_exists == 'abort'),
+            raise_if_exists=(if_exists == IfExistsParam.ERROR),
+            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
         )
+        if src_obj is None or dest_obj is not None:
+            # one if `if_exists` or `if_not_exists` is 'ignore', and the corresponding condition was met
+            return
         src_obj._move(new_path.name, dest_dir._id)
 
     def _prepare_dir_op(
@@ -813,7 +816,7 @@ class Catalog:
         drop_expected: Optional[type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
-    ) -> tuple[Optional[SchemaObject], Optional[SchemaObject], Optional[SchemaObject]]:
+    ) -> tuple[Optional[SchemaObject], Optional[Dir], Optional[SchemaObject]]:
         """
         Validates paths and acquires locks needed for a directory operation, ie, add/drop/rename (add + drop) of a
         directory entry.
@@ -900,9 +903,10 @@ class Catalog:
             schema.Table.md['name'].astext == name,
             schema.Table.md['user'].astext == user,
         )
-        tbl_id = conn.execute(q).scalar_one_or_none()
-        if tbl_id is not None:
-            return self.get_table_by_id(tbl_id, version)
+        tbl_id = conn.execute(q).scalars().all()
+        assert len(tbl_id) <= 1, name
+        if len(tbl_id) == 1:
+            return self.get_table_by_id(tbl_id[0], version)
 
         return None
 
@@ -1152,7 +1156,7 @@ class Catalog:
             existing_path = Path.parse(existing._path(), allow_system_path=True)
             if existing_path != path:
                 assert existing_path.is_system_path
-                self._move(existing_path, path)
+                self._move(existing_path, path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
 
     def __ensure_system_dir_exists(self) -> Dir:
         system_path = Path.parse('_system', allow_system_path=True)

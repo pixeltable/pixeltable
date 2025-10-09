@@ -525,8 +525,7 @@ def move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'e
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
-    cat = Catalog.get()
-    cat.move(path_obj, new_path_obj, if_exists_, if_not_exists_)
+    Catalog.get().move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
 def drop_table(
