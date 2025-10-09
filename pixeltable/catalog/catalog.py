@@ -802,10 +802,13 @@ class Catalog:
             raise_if_exists=(if_exists == IfExistsParam.ERROR),
             raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
         )
-        if src_obj is None or dest_obj is not None:
-            # one if `if_exists` or `if_not_exists` is 'ignore', and the corresponding condition was met
-            return
-        src_obj._move(new_path.name, dest_dir._id)
+        assert dest_obj is None or if_exists == IfExistsParam.IGNORE
+        assert src_obj is not None or if_not_exists == IfNotExistsParam.IGNORE
+        if dest_obj is None and src_obj is not None:
+            # If dest_obj is not None, it means `if_exists='ignore'` and the destination already exists.
+            # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
+            # If dest_obj is None and src_obj is not None, then we can proceed with the move.
+            src_obj._move(new_path.name, dest_dir._id)
 
     def _prepare_dir_op(
         self,
