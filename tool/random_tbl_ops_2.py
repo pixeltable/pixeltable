@@ -197,6 +197,7 @@ class RandomTblOps:
         try:
             pxt.move(t._name, new_name)
         except pxt.Error as e:
+            # Catch all pxt.Errors here, not just concurrency errors (because we don't have if_exists/if_not_exists yet)
             yield f'pxt.Error: {e}'
             return
         yield 'Success.'

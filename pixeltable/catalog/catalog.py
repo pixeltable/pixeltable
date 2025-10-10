@@ -433,7 +433,7 @@ class Catalog:
 
         The function should not raise exceptions; if it does, they are logged and ignored.
         """
-        assert Env.get().in_xact
+        assert self.in_write_xact
         self._undo_actions.append(func)
         return func
 
@@ -790,25 +790,19 @@ class Catalog:
         return result
 
     @retry_loop(for_write=True)
-    def move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
-        self._move(path, new_path, if_exists, if_not_exists)
+    def move(self, path: Path, new_path: Path) -> None:
+        self._move(path, new_path)
 
-    def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
-        dest_obj, dest_dir, src_obj = self._prepare_dir_op(
+    def _move(self, path: Path, new_path: Path) -> None:
+        _, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
             drop_dir_path=path.parent,
             drop_name=path.name,
-            raise_if_exists=(if_exists == IfExistsParam.ERROR),
-            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
+            raise_if_exists=True,
+            raise_if_not_exists=True,
         )
-        assert dest_obj is None or if_exists == IfExistsParam.IGNORE
-        assert src_obj is not None or if_not_exists == IfNotExistsParam.IGNORE
-        if dest_obj is None and src_obj is not None:
-            # If dest_obj is not None, it means `if_exists='ignore'` and the destination already exists.
-            # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
-            # If dest_obj is None and src_obj is not None, then we can proceed with the move.
-            src_obj._move(new_path.name, dest_dir._id)
+        src_obj._move(new_path.name, dest_dir._id)
 
     def _prepare_dir_op(
         self,
@@ -819,7 +813,7 @@ class Catalog:
         drop_expected: Optional[type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
-    ) -> tuple[Optional[SchemaObject], Optional[Dir], Optional[SchemaObject]]:
+    ) -> tuple[Optional[SchemaObject], Optional[SchemaObject], Optional[SchemaObject]]:
         """
         Validates paths and acquires locks needed for a directory operation, ie, add/drop/rename (add + drop) of a
         directory entry.
@@ -906,10 +900,9 @@ class Catalog:
             schema.Table.md['name'].astext == name,
             schema.Table.md['user'].astext == user,
         )
-        tbl_id = conn.execute(q).scalars().all()
-        assert len(tbl_id) <= 1, name
-        if len(tbl_id) == 1:
-            return self.get_table_by_id(tbl_id[0], version)
+        tbl_id = conn.execute(q).scalar_one_or_none()
+        if tbl_id is not None:
+            return self.get_table_by_id(tbl_id, version)
 
         return None
 
@@ -1089,7 +1082,7 @@ class Catalog:
         The metadata should be presented in standard "ancestor order", with the table being replicated at
         list position 0 and the (root) base table at list position -1.
         """
-        assert Env.get().in_xact
+        assert self.in_write_xact
 
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
@@ -1159,7 +1152,7 @@ class Catalog:
             existing_path = Path.parse(existing._path(), allow_system_path=True)
             if existing_path != path:
                 assert existing_path.is_system_path
-                self._move(existing_path, path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
+                self._move(existing_path, path)
 
     def __ensure_system_dir_exists(self) -> Dir:
         system_path = Path.parse('_system', allow_system_path=True)

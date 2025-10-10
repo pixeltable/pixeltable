@@ -487,22 +487,12 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     return tbl
 
 
-def move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'error', if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+def move(path: str, new_path: str) -> None:
     """Move a schema object to a new directory and/or rename a schema object.
 
     Args:
         path: absolute path to the existing schema object.
         new_path: absolute new path for the schema object.
-        if_exists: Directive regarding how to handle if a schema object already exists at the new path.
-            Must be one of the following:
-
-            - `'error'`: raise an error
-            - `'ignore'`: do nothing and return
-        if_not_exists: Directive regarding how to handle if the source path does not exist.
-            Must be one of the following:
-
-            - `'error'`: raise an error
-            - `'ignore'`: do nothing and return
 
     Raises:
         Error: If path does not exist or new_path already exists.
@@ -516,16 +506,13 @@ def move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'e
 
         >>>> pxt.move('dir1.my_table', 'dir1.new_name')
     """
-    if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
-        raise excs.Error("`if_exists` must be one of 'error' or 'ignore'")
-    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     if path == new_path:
         raise excs.Error('move(): source and destination cannot be identical')
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
-    Catalog.get().move(path_obj, new_path_obj, if_exists_, if_not_exists_)
+    cat = Catalog.get()
+    cat.move(path_obj, new_path_obj)
 
 
 def drop_table(
@@ -673,7 +660,7 @@ def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths:
 
 
 def create_dir(
-    path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
+    path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> Optional[catalog.Dir]:
     """Create a directory.
 
