@@ -11,6 +11,7 @@ from pixeltable.type_system import ColumnType, DocumentType, IntType, JsonType, 
 from pixeltable.utils.documents import get_document_handle
 
 from .base import ComponentIterator
+import PIL.Image.Image
 
 _logger = logging.getLogger('pixeltable')
 
@@ -54,7 +55,7 @@ class DocumentSection:
 
     text: Optional[str]
     metadata: Optional[DocumentSectionMetadata]
-    image: 'Optional[PIL.Image.Image]' = None   # optionally holds the page as image
+    image: Optional[PIL.Image.Image] = None    
 
 def _parse_separators(separators: str) -> list[Separator]:
     ret = []
@@ -377,50 +378,6 @@ class DocumentSplitter(ComponentIterator):
         for el in self._doc_handle.md_ast:
             yield from process_element(el)
         yield from emit()
-
-    ''' 
-    def _pdf_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections reflecting the pdf-specific separators"""
-        import fitz  # type: ignore[import-untyped]
-
-        doc: fitz.Document = self._doc_handle.pdf_doc
-        assert doc is not None
-
-        emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
-        emit_on_page = Separator.PAGE in self._separators or emit_on_paragraph
-
-        accumulated_text = []  # invariant: all elements are ftfy clean and non-empty
-
-        def _add_cleaned_text(raw_text: str) -> None:
-            fixed = ftfy.fix_text(raw_text)
-            if fixed:
-                accumulated_text.append(fixed)
-
-        def _emit_text() -> str:
-            full_text = ''.join(accumulated_text)
-            accumulated_text.clear()
-            return full_text
-
-        for page_number, page in enumerate(doc.pages()):
-            for block in page.get_text('blocks'):
-                # there is no concept of paragraph in pdf, block is the closest thing
-                # we can get (eg a paragraph in text may cut across pages)
-                # see pymupdf docs https://pymupdf.readthedocs.io/en/latest/app1.html
-                # other libraries like pdfminer also lack an explicit paragraph concept
-                x1, y1, x2, y2, text, _, _ = block
-                _add_cleaned_text(text)
-                if accumulated_text and emit_on_paragraph:
-                    bbox = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
-                    metadata = DocumentSectionMetadata(page=page_number, bounding_box=bbox)
-                    yield DocumentSection(text=_emit_text(), metadata=metadata)
-
-            if accumulated_text and emit_on_page and not emit_on_paragraph:
-                yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata(page=page_number))
-                accumulated_text = []
-
-        if accumulated_text and not emit_on_page:
-            yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata())
-    ''' 
    
     def _pdf_sections(self) -> Iterator[DocumentSection]:
         import ftfy
