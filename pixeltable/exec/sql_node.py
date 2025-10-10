@@ -1,3 +1,4 @@
+import datetime
 import logging
 import warnings
 from decimal import Decimal
@@ -348,6 +349,8 @@ class SqlNode(ExecNode):
         output_batch = DataRowBatch(self.row_builder)
         output_row: Optional[exprs.DataRow] = None
         num_rows_returned = 0
+        is_using_cockroachdb = Env.get().is_using_cockroachdb
+        tzinfo = Env.get().default_time_zone
 
         for sql_row in result_cursor:
             output_row = output_batch.add_row(output_row)
@@ -374,14 +377,25 @@ class SqlNode(ExecNode):
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.select_list):
                 slot_idx = e.slot_idx
-                # certain numerical operations can produce Decimals (eg, SUM(<int column>)); we need to convert them
                 if isinstance(sql_row[i], Decimal):
+                    # certain numerical operations can produce Decimals (eg, SUM(<int column>)); we need to convert them
                     if e.col_type.is_int_type():
                         output_row[slot_idx] = int(sql_row[i])
                     elif e.col_type.is_float_type():
                         output_row[slot_idx] = float(sql_row[i])
                     else:
                         raise RuntimeError(f'Unexpected Decimal value for {e}')
+                elif is_using_cockroachdb and isinstance(sql_row[i], datetime.datetime):
+                    # Ensure that the datetime is timezone-aware and in the session time zone
+                    # cockroachDB returns timestamps in the session time zone, with numeric offset,
+                    # convert to the session time zone with the requested tzinfo for DST handling
+                    if e.col_type.is_timestamp_type():
+                        if isinstance(sql_row[i].tzinfo, datetime.timezone):
+                            output_row[slot_idx] = sql_row[i].astimezone(tz=tzinfo)
+                        else:
+                            output_row[slot_idx] = sql_row[i]
+                    else:
+                        raise RuntimeError(f'Unexpected datetime value for {e}')
                 else:
                     output_row[slot_idx] = sql_row[i]
 

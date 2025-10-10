@@ -124,7 +124,7 @@ fullpytest: install
 .PHONY: nbtest
 nbtest: install
 	@echo 'Running `pytest` on notebooks ...'
-	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
+	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
 	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) tests/target/nb-tests/*.ipynb
 
 .PHONY: stresstest
