@@ -45,7 +45,7 @@ class AggregationNode(ExecNode):
         # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
         self.agg_fn_calls = [cast(exprs.FunctionCall, e) for e in self.agg_fn_eval_ctx.target_exprs]
         # create output_batch here, rather than in __iter__(), so we don't need to remember tbl and row_builder
-        self.output_batch = DataRowBatch(tbl, row_builder, 0)
+        self.output_batch = DataRowBatch(row_builder)
         self.limit = None
 
     def set_limit(self, limit: int) -> None:
@@ -103,6 +103,5 @@ class AggregationNode(ExecNode):
             self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
             self.output_batch.add_row(prev_row)
 
-        self.output_batch.flush_imgs(None, self.stored_img_cols, self.flushed_img_slots)
         _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(self.output_batch.rows)} rows')
         yield self.output_batch

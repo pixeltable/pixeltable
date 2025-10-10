@@ -24,7 +24,7 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
     if dataclasses.is_dataclass(data_class_type):
         fieldtypes = get_type_hints(data_class_type)
-        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})  # type: ignore[return-value]
+        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
 
     origin = typing.get_origin(data_class_type)
     if origin is not None:
@@ -115,6 +115,9 @@ class ColumnMd:
     # if True, the column is present in the stored table
     stored: Optional[bool]
 
+    # If present, the URI for the destination for column values
+    destination: Optional[str] = None
+
 
 @dataclasses.dataclass
 class IndexMd:
@@ -182,6 +185,7 @@ class TableMd:
     # sequence number to track changes in the set of mutable views of this table (ie, this table = the view base)
     # - incremented for each add/drop of a mutable view
     # - only maintained for mutable tables
+    # TODO: replace with mutable_views: list[UUID] to help with debugging
     view_sn: int
 
     # Metadata format for external stores:
@@ -193,11 +197,22 @@ class TableMd:
     view_md: Optional[ViewMd]
     additional_md: dict[str, Any]
 
+    has_pending_ops: bool = False
+
+    @property
+    def is_snapshot(self) -> bool:
+        return self.view_md is not None and self.view_md.is_snapshot
+
+    @property
+    def is_mutable(self) -> bool:
+        return not self.is_snapshot and not self.is_replica
+
     @property
     def is_pure_snapshot(self) -> bool:
         return (
             self.view_md is not None
             and self.view_md.is_snapshot
+            and self.view_md.sample_clause is None
             and self.view_md.predicate is None
             and len(self.column_md) == 0
         )
@@ -224,7 +239,7 @@ class Table(Base):
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class TableVersionMd:
     tbl_id: str  # uuid.UUID
     created_at: float  # time.time()
@@ -232,6 +247,9 @@ class TableVersionMd:
     schema_version: int
     user: Optional[str] = None  # User that created this version
     update_status: Optional[UpdateStatus] = None  # UpdateStatus of the change that created this version
+    # A version fragment cannot be queried or instantiated via get_table(). A fragment represents a version of a
+    # replica table that has incomplete data, and exists only to provide base table support for a dependent view.
+    is_fragment: bool = False
     additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
@@ -288,6 +306,22 @@ class TableSchemaVersion(Base):
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
 
 
+class PendingTableOp(Base):
+    """
+    Table operation that needs to be completed before the table can be used.
+
+    Operations need to be completed in order of increasing seq_num.
+    """
+
+    __tablename__ = 'pendingtableops'
+
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
+        UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
+    )
+    op_sn: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)  # catalog.TableOp.op_sn
+    op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
+
+
 @dataclasses.dataclass
 class FunctionMd:
     name: str
@@ -325,6 +359,7 @@ class FullTableMd(NamedTuple):
     def is_pure_snapshot(self) -> bool:
         return (
             self.tbl_md.view_md is not None
+            and self.tbl_md.view_md.is_snapshot
             and self.tbl_md.view_md.predicate is None
             and len(self.schema_version_md.columns) == 0
         )

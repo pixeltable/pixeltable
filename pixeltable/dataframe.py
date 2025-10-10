@@ -8,10 +8,22 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Optional, Sequence, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Callable,
+    Hashable,
+    Iterator,
+    NoReturn,
+    Optional,
+    Sequence,
+    TypeVar,
+)
 
 import pandas as pd
-import sqlalchemy as sql
+import pydantic
+import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import Catalog, is_valid_identifier
@@ -32,6 +44,11 @@ _logger = logging.getLogger('pixeltable')
 
 
 class DataFrameResultSet:
+    _rows: list[list[Any]]
+    _col_names: list[str]
+    __schema: dict[str, ColumnType]
+    __formatter: Formatter
+
     def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
         self._rows = rows
         self._col_names = list(schema.keys())
@@ -65,6 +82,44 @@ class DataFrameResultSet:
 
     def to_pandas(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
+
+    BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
+
+    def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]:
+        """
+        Convert the DataFrameResultSet to a list of Pydantic model instances.
+
+        Args:
+            model: A Pydantic model class.
+
+        Returns:
+            An iterator over Pydantic model instances, one for each row in the result set.
+
+        Raises:
+            Error: If the row data doesn't match the model schema.
+        """
+        model_fields = model.model_fields
+        model_config = getattr(model, 'model_config', {})
+        forbid_extra_fields = model_config.get('extra') == 'forbid'
+
+        # schema validation
+        required_fields = {name for name, field in model_fields.items() if field.is_required()}
+        col_names = set(self._col_names)
+        missing_fields = required_fields - col_names
+        if len(missing_fields) > 0:
+            raise excs.Error(
+                f'Required model fields {missing_fields} are missing from result set columns {self._col_names}'
+            )
+        if forbid_extra_fields:
+            extra_fields = col_names - set(model_fields.keys())
+            if len(extra_fields) > 0:
+                raise excs.Error(f"Extra fields {extra_fields} are not allowed in model with extra='forbid'")
+
+        for row in self:
+            try:
+                yield model(**row)
+            except pydantic.ValidationError as e:
+                raise excs.Error(str(e)) from e
 
     def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
@@ -131,6 +186,8 @@ class DataFrameResultSet:
 
 
 class DataFrame:
+    """Represents a query for retrieving and transforming data from Pixeltable tables."""
+
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
@@ -401,6 +458,7 @@ class DataFrame:
 
     @property
     def schema(self) -> dict[str, ColumnType]:
+        """Column names and types in this DataFrame."""
         return self._schema
 
     def bind(self, args: dict[str, Any]) -> DataFrame:
@@ -483,20 +541,23 @@ class DataFrame:
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
-            except sql.exc.DBAPIError as e:
-                raise excs.Error(f'Error during SQL execution:\n{e}') from e
+            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+                Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+                raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> DataFrameResultSet:
         return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
 
     async def _acollect(self) -> DataFrameResultSet:
+        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         try:
             result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
             return DataFrameResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
-        except sql.exc.DBAPIError as e:
-            raise excs.Error(f'Error during SQL execution:\n{e}') from e
+        except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+            Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+            raise  # just re-raise if not converted to a Pixeltable error
 
     def count(self) -> int:
         """Return the number of rows in the DataFrame.
@@ -710,7 +771,7 @@ class DataFrame:
         )
 
     def _create_join_predicate(
-        self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
+        self, other: catalog.TableVersionPath, on: exprs.Expr | Sequence[exprs.ColumnRef]
     ) -> exprs.Expr:
         """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
@@ -740,19 +801,19 @@ class DataFrame:
         assert len(col_refs) > 0 and len(joined_tbls) >= 2
         for col_ref in col_refs:
             # identify the referenced column by name in 'other'
-            rhs_col = other.get_column(col_ref.col.name, include_bases=True)
+            rhs_col = other.get_column(col_ref.col.name)
             if rhs_col is None:
                 raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
             rhs_col_ref = exprs.ColumnRef(rhs_col)
 
             lhs_col_ref: Optional[exprs.ColumnRef] = None
-            if any(tbl.has_column(col_ref.col, include_bases=True) for tbl in self._from_clause.tbls):
+            if any(tbl.has_column(col_ref.col) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
             else:
                 # col_ref comes from other, we need to look for a match in the existing from_clause by name
                 for tbl in self._from_clause.tbls:
-                    col = tbl.get_column(col_ref.col.name, include_bases=True)
+                    col = tbl.get_column(col_ref.col.name)
                     if col is None:
                         continue
                     if lhs_col_ref is not None:
@@ -773,7 +834,7 @@ class DataFrame:
     def join(
         self,
         other: catalog.Table,
-        on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
+        on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: plan.JoinType.LiteralType = 'inner',
     ) -> DataFrame:
         """
@@ -1155,16 +1216,41 @@ class DataFrame:
             Via the above DataFrame person, update the column 'city' to 'Oakland'
             and 'state' to 'CA' in the table t:
 
-            >>> df = person.update({'city': 'Oakland', 'state': 'CA'})
+            >>> person.update({'city': 'Oakland', 'state': 'CA'})
 
             Via the above DataFrame person, update the column 'age' to 30 for any
             rows where 'year' is 2014 in the table t:
 
-            >>> df = person.where(t.year == 2014).update({'age': 30})
+            >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
+
+    def recompute_columns(
+        self, *columns: str | exprs.ColumnRef, errors_only: bool = False, cascade: bool = True
+    ) -> UpdateStatus:
+        """Recompute one or more computed columns of the underlying table of the DataFrame.
+
+        Args:
+            columns: The names or references of the computed columns to recompute.
+            errors_only: If True, only run the recomputation for rows that have errors in the column (ie, the column's
+                `errortype` property indicates that an error occurred). Only allowed for recomputing a single column.
+            cascade: if True, also update all computed columns that transitively depend on the recomputed columns.
+
+        Returns:
+            UpdateStatus: the status of the operation.
+
+        Example:
+            For table `person` with column `age` and computed column `height`, recompute the value of `height` for all
+            rows where `age` is less than 18:
+
+            >>> df = person.where(t.age < 18).recompute_columns(person.height)
+        """
+        self._validate_mutable('recompute_columns', False)
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+            tbl = Catalog.get().get_table_by_id(self._first_tbl.tbl_id)
+            return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the DataFrame.
@@ -1175,13 +1261,9 @@ class DataFrame:
             UpdateStatus: the status of the delete operation.
 
         Example:
-            Given the DataFrame person from a table t with all its columns and rows:
+            For a table `person` with column `age`, delete all rows where 'age' is less than 18:
 
-            >>> person = t.select()
-
-            Via the above DataFrame person, delete all rows from the table t where the column 'age' is less than 18:
-
-            >>> df = person.where(t.age < 18).delete()
+            >>> person.where(t.age < 18).delete()
         """
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
@@ -1200,10 +1282,11 @@ class DataFrame:
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
-        if self._first_tbl.is_snapshot():
-            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
+        # First check if it's a replica, since every replica handle is also a snapshot
         if self._first_tbl.is_replica():
             raise excs.Error(f'Cannot use `{op_name}` on a replica.')
+        if self._first_tbl.is_snapshot():
+            raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
         """Tests whether the sequence of operations on this DataFrame is valid for a mutation operation."""

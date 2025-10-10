@@ -5,10 +5,14 @@ import datetime
 import enum
 import io
 import json
+import types
 import typing
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Optional, Sequence, Union
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import av
 import jsonschema
@@ -21,9 +25,8 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
+from pixeltable.env import Env
 from pixeltable.utils import parse_local_file_path
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnType:
@@ -291,7 +294,11 @@ class ColumnType:
 
     @classmethod
     def from_python_type(
-        cls, t: Union[type, _GenericAlias], nullable_default: bool = False, allow_builtin_types: bool = True
+        cls,
+        t: type | _GenericAlias,
+        nullable_default: bool = False,
+        allow_builtin_types: bool = True,
+        infer_pydantic_json: bool = False,
     ) -> Optional[ColumnType]:
         """
         Convert a Python type into a Pixeltable `ColumnType` instance.
@@ -304,16 +311,20 @@ class ColumnType:
                 allowed (as in UDF definitions). If False, then only Pixeltable types such as `pxt.String`,
                 `pxt.Int`, etc., will be allowed (as in schema definitions). `Optional` and `Required`
                 designations will be allowed regardless.
+            infer_pydantic_json: If True, accepts an extended set of built-ins (eg, Enum, Path) and returns the type to
+                which pydantic.BaseModel.model_dump(mode='json') serializes it.
         """
         origin = typing.get_origin(t)
         type_args = typing.get_args(t)
-        if origin is typing.Union:
+        if origin in (typing.Union, types.UnionType):
             # Check if `t` has the form Optional[T].
             if len(type_args) == 2 and type(None) in type_args:
-                # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
+                # `t` is a type of the form Optional[T] (equivalently, T | None or None | T).
                 # We treat it as the underlying type but with nullable=True.
                 underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
-                underlying = cls.from_python_type(underlying_py_type, allow_builtin_types=allow_builtin_types)
+                underlying = cls.from_python_type(
+                    underlying_py_type, allow_builtin_types=allow_builtin_types, infer_pydantic_json=infer_pydantic_json
+                )
                 if underlying is not None:
                     return underlying.copy(nullable=True)
         elif origin is Required:
@@ -340,6 +351,13 @@ class ColumnType:
                     if literal_type is None:
                         return None
                     return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
+                if infer_pydantic_json and isinstance(t, type) and issubclass(t, enum.Enum):
+                    literal_type = cls.infer_common_literal_type(member.value for member in t)
+                    if literal_type is None:
+                        return None
+                    return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
+                if infer_pydantic_json and t is Path:
+                    return StringType(nullable=nullable_default)
                 if t is str:
                     return StringType(nullable=nullable_default)
                 if t is int:
@@ -360,10 +378,7 @@ class ColumnType:
 
     @classmethod
     def normalize_type(
-        cls,
-        t: Union[ColumnType, type, _AnnotatedAlias],
-        nullable_default: bool = False,
-        allow_builtin_types: bool = True,
+        cls, t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True
     ) -> ColumnType:
         """
         Convert any type recognizable by Pixeltable to its corresponding ColumnType.
@@ -388,7 +403,7 @@ class ColumnType:
     ]
 
     @classmethod
-    def __raise_exc_for_invalid_type(cls, t: Union[type, _AnnotatedAlias]) -> None:
+    def __raise_exc_for_invalid_type(cls, t: type | _AnnotatedAlias) -> None:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
             if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
@@ -404,7 +419,7 @@ class ColumnType:
         return cls.from_python_type(py_type) if py_type is not None else None
 
     @classmethod
-    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> Union[type, _GenericAlias, None]:
+    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> type | _GenericAlias | None:
         if 'type' in schema:
             if schema['type'] == 'null':
                 return type(None)
@@ -659,8 +674,9 @@ class TimestampType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
-        if isinstance(val, datetime.datetime):
-            return val
+        # Place naive timestamps in the default time zone
+        if isinstance(val, datetime.datetime) and val.tzinfo is None:
+            return val.replace(tzinfo=Env.get().default_time_zone)
         return val
 
 
@@ -746,7 +762,7 @@ class JsonType(ColumnType):
 
     @classmethod
     def __is_valid_json(cls, val: Any) -> bool:
-        if val is None or isinstance(val, (str, int, float, bool)):
+        if val is None or isinstance(val, (str, int, float, bool, np.ndarray, PIL.Image.Image)):
             return True
         if isinstance(val, (list, tuple)):
             return all(cls.__is_valid_json(v) for v in val)
@@ -1067,9 +1083,7 @@ class ImageType(ColumnType):
         mode: Optional[str] = None,
         nullable: bool = False,
     ):
-        """
-        TODO: does it make sense to specify only width or height?
-        """
+        # TODO: does it make sense to specify only width or height?
         super().__init__(self.Type.IMAGE, nullable=nullable)
         assert not (width is not None and size is not None)
         assert not (height is not None and size is not None)

@@ -98,13 +98,7 @@ class InlineList(Expr):
     def __init__(self, elements: Iterable):
         exprs = [Expr.from_object(el) for el in elements]
 
-        json_schema = {
-            'type': 'array',
-            'prefixItems': [expr.col_type.to_json_schema() for expr in exprs],
-            'items': False,  # No additional items (fixed length)
-        }
-
-        super().__init__(ts.JsonType(json_schema))
+        super().__init__(ts.JsonType())
         self.components.extend(exprs)
         self.id = self._create_id()
 
@@ -150,18 +144,7 @@ class InlineDict(Expr):
             self.keys.append(key)
             exprs.append(Expr.from_object(val))
 
-        json_schema: Optional[dict[str, Any]]
-        try:
-            json_schema = {
-                'type': 'object',
-                'properties': {key: expr.col_type.to_json_schema() for key, expr in zip(self.keys, exprs)},
-            }
-        except excs.Error:
-            # InlineDicts are used to store iterator arguments, which are not required to be valid JSON types,
-            # so we can't always construct a valid schema.
-            json_schema = None
-
-        super().__init__(ts.JsonType(json_schema))
+        super().__init__(ts.JsonType())
         self.components.extend(exprs)
         self.id = self._create_id()
 

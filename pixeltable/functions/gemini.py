@@ -14,6 +14,8 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs
+from pixeltable.utils.code import local_public_names
+from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
     from google import genai
@@ -39,7 +41,7 @@ async def generate_content(
     <https://ai.google.dev/gemini-api/docs/text-generation>
 
     Request throttling:
-    Applies the rate limit set in the config (section `gemini`, key `rate_limit`). If no rate
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
     limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
@@ -126,6 +128,10 @@ async def generate_images(prompt: str, *, model: str, config: Optional[dict] = N
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
 
+    Request throttling:
+    Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install google-genai`
@@ -166,6 +172,10 @@ async def generate_videos(
     """
     Generates videos based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video-generation>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -215,7 +225,7 @@ async def generate_videos(
     assert video_bytes is not None
 
     # Create a temporary file to store the video bytes
-    output_path = env.Env.get().create_tmp_path('.mp4')
+    output_path = TempStore.create_path(extension='.mp4')
     Path(output_path).write_bytes(video_bytes)
     return str(output_path)
 
@@ -223,3 +233,10 @@ async def generate_videos(
 @generate_videos.resource_pool
 def _(model: str) -> str:
     return f'request-rate:veo:{model}'
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__() -> list[str]:
+    return __all__

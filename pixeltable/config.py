@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Optional, TypeVar
 
 import toml
 
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -82,7 +82,11 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any]) -> None:
+    def init(cls, config_overrides: dict[str, Any], reinit: bool = False) -> None:
+        if reinit:
+            cls.__instance = None
+            for cl in env._registered_clients.values():
+                cl.client_obj = None
         if cls.__instance is None:
             cls.__instance = cls(config_overrides)
         elif len(config_overrides) > 0:
@@ -102,15 +106,24 @@ class Config:
         env_var = f'{section.upper()}_{key.upper()}'
         if override_var in self.__config_overrides:
             return self.__config_overrides[override_var]
-        if env_var in os.environ:
+        if env_var in os.environ and len(os.environ[env_var]) > 0:
             return os.environ[env_var]
         return default
 
     def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
-        value = self.lookup_env(section, key)  # Try to get from environment first
+        value: Any = self.lookup_env(section, key)  # Try to get from environment first
         # Next try the config file
-        if value is None and section in self.__config_dict and key in self.__config_dict[section]:
-            value = self.__config_dict[section][key]
+        if value is None:
+            # Resolve nested section dicts
+            lookup_elems = [*section.split('.'), key]
+            value = self.__config_dict
+            for el in lookup_elems:
+                if isinstance(value, dict):
+                    if el not in value:
+                        return None
+                    value = value[el]
+                else:
+                    return None
 
         if value is None:
             return None  # Not specified
@@ -148,18 +161,38 @@ KNOWN_CONFIG_OPTIONS = {
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',
         'api_key': 'API key for Pixeltable cloud',
+        'r2_profile': 'AWS config profile name used to access R2 storage',
+        's3_profile': 'AWS config profile name used to access S3 storage',
+        'b2_profile': 'S3-compatible profile name used to access Backblaze B2 storage',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'bedrock': {'api_key': 'AWS Bedrock API key'},
-    'deepseek': {'api_key': 'Deepseek API key'},
-    'fireworks': {'api_key': 'Fireworks API key'},
-    'gemini': {'api_key': 'Gemini API key'},
-    'groq': {'api_key': 'Groq API key'},
+    'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
+    'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
+    'gemini': {'api_key': 'Gemini API key', 'rate_limits': 'Per-model rate limits for Gemini API requests'},
+    'hf': {'auth_token': 'Hugging Face access token'},
+    'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
+    'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
+    'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
-    'mistral': {'api_key': 'Mistral API key'},
-    'openai': {'api_key': 'OpenAI API key'},
+    'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
+    'openai': {
+        'api_key': 'OpenAI API key',
+        'base_url': 'OpenAI API base URL',
+        'api_version': 'API version if using Azure OpenAI',
+        'rate_limits': 'Per-model rate limits for OpenAI API requests',
+    },
+    'openrouter': {
+        'api_key': 'OpenRouter API key',
+        'site_url': 'Optional URL for your application (for OpenRouter analytics)',
+        'app_name': 'Optional name for your application (for OpenRouter analytics)',
+        'rate_limit': 'Rate limit for OpenRouter API requests',
+    },
     'replicate': {'api_token': 'Replicate API token'},
-    'together': {'api_key': 'Together API key'},
+    'together': {
+        'api_key': 'Together API key',
+        'rate_limits': 'Per-model category rate limits for Together API requests',
+    },
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
 

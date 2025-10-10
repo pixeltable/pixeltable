@@ -1,3 +1,10 @@
+"""
+Pixeltable UDFs for Deepseek AI models.
+
+Provides integration with Deepseek's language models for chat completions
+and other AI capabilities.
+"""
+
 import json
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -26,7 +33,7 @@ def _deepseek_client() -> 'openai.AsyncOpenAI':
     return env.Env.get().get_client('deepseek')
 
 
-@pxt.udf
+@pxt.udf(resource_pool='request-rate:deepseek')
 async def chat_completions(
     messages: list,
     *,
@@ -42,6 +49,10 @@ async def chat_completions(
     For additional details, see: <https://api-docs.deepseek.com/api/create-chat-completion>
 
     Deepseek uses the OpenAI SDK, so you will need to install the `openai` package to use this UDF.
+
+    Request throttling:
+    Applies the rate limit set in the config (section `deepseek`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -63,10 +74,10 @@ async def chat_completions(
         of the table `tbl`:
 
         >>> messages = [
-                {'role': 'system', 'content': 'You are a helpful assistant.'},
-                {'role': 'user', 'content': tbl.prompt}
-            ]
-            tbl.add_computed_column(response=chat_completions(messages, model='deepseek-chat'))
+        ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
+        ...     {'role': 'user', 'content': tbl.prompt}
+        ... ]
+        >>> tbl.add_computed_column(response=chat_completions(messages, model='deepseek-chat'))
     """
     if model_kwargs is None:
         model_kwargs = {}

@@ -123,8 +123,8 @@ class ColumnRef(Expr):
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
             or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
         ):
-            property_is_present = self.col.stores_cellmd
-            if not property_is_present:
+            is_valid = (self.col.is_computed or self.col.col_type.is_media_type()) and self.col.is_stored
+            if not is_valid:
                 raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
         if (
@@ -325,7 +325,8 @@ class ColumnRef(Expr):
     @classmethod
     def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
-        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version)
+        # validate_initialized=False: this gets called as part of TableVersion.init()
+        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version, validate_initialized=False)
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
         col = next(col for col in tbl_version.cols if col.id == col_id)
         return col

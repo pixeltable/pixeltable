@@ -25,10 +25,15 @@ else
 endif
 
 # Common test parameters
-PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
+PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
+	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
 
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
 NB_CELL_TIMEOUT := 3600
+TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
+
+# Needed for LLaMA build to work correctly on some Linux systems
+CMAKE_ARGS := -DLLAVA_BUILD=OFF
 
 .DEFAULT_GOAL := help
 
@@ -73,29 +78,26 @@ else
 	$(error Pixeltable must be installed from a conda environment)
 endif
 
-.make-install/poetry:
-	@echo 'Installing poetry ...'
+.make-install/uv:
+	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
-	@python -m pip install -q poetry==2.1.1
-	@poetry self add 'poetry-dynamic-versioning[plugin]==1.7.1'
-	@$(TOUCH) .make-install/poetry
+	@python -m pip install -q uv==0.8.2
+	@echo 'Installing ffmpeg ...'
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1'
+	@$(TOUCH) .make-install/uv
 
-.make-install/deps: poetry.lock
-	@echo 'Installing dependencies from poetry ...'
-	@$(SET_ENV) CMAKE_ARGS='-DLLAVA_BUILD=OFF'
-	@poetry install --with dev
+.make-install/deps: pyproject.toml uv.lock
+	@echo 'Installing dependencies from uv ...'
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
-	@echo 'Installing voxel51 ...'
-	@python -m pip install fiftyone==1.5.2
-	@python -m pip install sse-starlette==2.3.6
 	@echo 'Installing Jupyter kernel ...'
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@$(TOUCH) .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/poetry .make-install/deps .make-install/others
+install: setup-install .make-install/uv .make-install/deps .make-install/others
 
 .PHONY: test
 test: pytest check
@@ -112,19 +114,18 @@ check: typecheck docscheck lint formatcheck
 .PHONY: pytest
 pytest: install
 	@echo 'Running `pytest` ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS)
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests
 
 .PHONY: fullpytest
 fullpytest: install
 	@echo 'Running `pytest`, including expensive tests ...'
-	@$(ULIMIT_CMD) pytest -m '' $(PYTEST_COMMON_ARGS)
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m '' tests
 
 .PHONY: nbtest
 nbtest: install
-	@$(SET_ENV) TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo 'Running `pytest` on notebooks ...'
-	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
+	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
+	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) tests/target/nb-tests/*.ipynb
 
 .PHONY: stresstest
 stresstest: install
@@ -138,7 +139,9 @@ typecheck: install
 .PHONY: docscheck
 docscheck: install
 	@echo 'Running `mkdocs build --strict` ...'
-	@mkdocs build --strict
+	@python -W ignore::DeprecationWarning -m mkdocs build --strict
+	@echo 'Running `pydoclint` ...'
+	@pydoclint -q pixeltable tests tool
 
 .PHONY: lint
 lint: install
@@ -173,3 +176,4 @@ clean:
 	@$(RMDIR) .make-install || true
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
+	@$(RMDIR) tests/target || true

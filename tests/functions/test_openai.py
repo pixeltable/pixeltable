@@ -1,17 +1,18 @@
+import os
+
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable.config import Config
 
-from ..conftest import DO_RERUN
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db: None) -> None:
@@ -102,7 +103,7 @@ class TestOpenai:
         # contain the string "json", it refuses the request.
         # TODO This should probably not be throwing an exception, but rather logging the error in
         # `t.chat_output_4.errormsg` etc.
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pytest.raises(pxt.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
         assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
@@ -152,13 +153,13 @@ class TestOpenai:
         # adding a second column re-uses the existing client, with an existing connection pool
         t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
 
-    @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
+    @rerun(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
@@ -221,7 +222,7 @@ class TestOpenai:
             [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
         )
 
-        tools: pxt.func.Tools
+        tools: pxt.Tools
         if as_retrieval_udf:
             tools = pxt.tools(pxt.retrieval_udf(t, name='get_customer_info', parameters=['customer_id']))
         else:
@@ -350,22 +351,6 @@ class TestOpenai:
         assert t.collect()['img'][0].size == (1024, 1024)
         assert t.collect()['img_2'][0].size == (512, 512)
 
-    @pytest.mark.skip('Test is expensive and slow')
-    def test_image_generations_dall_e_3(self, reset_db: None) -> None:
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('openai')
-        from pixeltable.functions.openai import image_generations
-
-        # Test dall-e-3 options
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(
-            img_3=image_generations(
-                t.input, model='dall-e-3', quality='hd', size='1792x1024', style='natural', user='pixeltable'
-            )
-        )
-        validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-        assert t.collect()['img_3'][0].size == (1792, 1024)
-
     @pytest.mark.expensive
     def test_table_udf_tools(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -488,3 +473,24 @@ class TestOpenai:
         r2 = manager.select(manager.answer).collect()
         assert len(r2) == 2
         assert any('Apple' in answer for answer in r2['answer'])
+
+    def test_azure_openai(self, reset_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        if not os.environ.get('AZURE_OPENAI_API_KEY'):
+            pytest.skip('`AZURE_OPENAI_API_KEY` is not set.')
+        Config.init(
+            {
+                'openai.api_key': os.environ['AZURE_OPENAI_API_KEY'],
+                'openai.base_url': 'https://pixeltable1.openai.azure.com/openai/v1/',
+                'openai.api_version': 'preview',
+            },
+            reinit=True,
+        )
+        from pixeltable.functions.openai import chat_completions
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
+        t.add_computed_column(chat_output=chat_completions(model='gpt-4.1-nano-pxt', messages=msgs))
+        validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
+        result = t.collect()
+        assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']

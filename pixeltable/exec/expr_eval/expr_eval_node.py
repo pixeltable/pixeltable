@@ -4,7 +4,7 @@ import asyncio
 import logging
 import traceback
 from types import TracebackType
-from typing import AsyncIterator, Iterable, Optional, Union
+from typing import AsyncIterator, Iterable, Optional
 
 import numpy as np
 
@@ -49,7 +49,7 @@ class ExprEvalNode(ExecNode):
     # execution state
     tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
     exc_event: asyncio.Event  # set if an exception needs to be propagated
-    error: Optional[Union[Exception]]  # exception that needs to be propagated
+    error: Optional[Exception]  # exception that needs to be propagated
     completed_rows: asyncio.Queue[exprs.DataRow]  # rows that have completed evaluation
     completed_event: asyncio.Event  # set when completed_rows is non-empty
     input_iter: AsyncIterator[DataRowBatch]
@@ -240,7 +240,7 @@ class ExprEvalNode(ExecNode):
                         # make sure we top up our in-flight rows before yielding
                         self._dispatch_input_rows()
                         self._log_state(f'yielding {len(batch_rows)} rows')
-                        yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
+                        yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
                         # at this point, we may have more completed rows
 
                 assert self.completed_rows.empty()  # all completed rows should be sitting in output_buffer
@@ -254,7 +254,7 @@ class ExprEvalNode(ExecNode):
                         batch_rows = self.output_buffer.get_rows(self.output_buffer.num_ready)
                         self.num_output_rows += len(batch_rows)
                         self._log_state(f'yielding {len(batch_rows)} rows')
-                        yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
+                        yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
 
                     assert self.output_buffer.num_rows == 0
                     return
@@ -305,6 +305,9 @@ class ExprEvalNode(ExecNode):
                 if not task.done():
                     task.cancel()
             _ = await asyncio.gather(*active_tasks, return_exceptions=True)
+
+            # expr cleanup
+            exprs.Expr.release_list(self.exec_ctx.all_exprs)
 
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExecCtx
@@ -390,6 +393,17 @@ class ExprEvalNode(ExecNode):
         # end the main loop if we had an unhandled exception
         try:
             t.result()
+        except KeyboardInterrupt:
+            # ExprEvalNode instances are long-running and reused across multiple operations.
+            # When a user interrupts an operation (Ctrl+C), the main evaluation loop properly
+            # handles the KeyboardInterrupt and terminates the current operation. However,
+            # background tasks spawned by evaluators may complete asynchronously after the
+            # operation has ended, and their done callbacks will fire during subsequent
+            # operations. These "phantom" KeyboardInterrupt exceptions from previous
+            # operations' background tasks should not interfere with new operations, so we
+            # absorb them here rather than propagating them via self.error/self.exc_event.
+            _logger.debug('Task completed with KeyboardInterrupt (user cancellation)')
+            pass
         except asyncio.CancelledError:
             pass
         except Exception as exc:

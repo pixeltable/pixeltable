@@ -1,3 +1,4 @@
+import datetime
 import logging
 import warnings
 from decimal import Decimal
@@ -65,22 +66,37 @@ def print_order_by_clause(clause: OrderByClause) -> str:
 
 class SqlNode(ExecNode):
     """
-    Materializes data from the store via an SQL statement.
+    Materializes data from the store via a SQL statement.
     This only provides the select list. The subclasses are responsible for the From clause and any additional clauses.
     The pk columns are not included in the select list.
     If set_pk is True, they are added to the end of the result set when creating the SQL statement
     so they can always be referenced as cols[-num_pk_cols:] in the result set.
     The pk_columns consist of the rowid columns of the target table followed by the version number.
+
+    If row_builder contains references to unstored iter columns, expands the select list to include their
+    SQL-materializable subexpressions.
+
+    Args:
+        select_list: output of the query
+        set_pk: if True, sets the primary for each DataRow
     """
 
     tbl: Optional[catalog.TableVersionPath]
     select_list: exprs.ExprSet
+    columns: list[catalog.Column]  # for which columns to populate DataRow.cell_vals/cell_md
+    cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
     num_pk_cols: int
     py_filter: Optional[exprs.Expr]  # a predicate that can only be run in Python
     py_filter_eval_ctx: Optional[exprs.RowBuilder.EvalCtx]
     cte: Optional[sql.CTE]
     sql_elements: exprs.SqlElementCache
+
+    # execution state
+    cellmd_item_idxs: exprs.ExprDict[int]  # cellmd expr -> idx in sql select list
+    column_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
+    column_cellmd_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
+    result_cursor: sql.engine.CursorResult | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
     where_clause: Optional[exprs.Expr]
@@ -94,20 +110,22 @@ class SqlNode(ExecNode):
         tbl: Optional[catalog.TableVersionPath],
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
+        columns: list[catalog.Column],
         sql_elements: exprs.SqlElementCache,
+        cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
     ):
-        """
-        If row_builder contains references to unstored iter columns, expands the select list to include their
-        SQL-materializable subexpressions.
-
-        Args:
-            select_list: output of the query
-            set_pk: if True, sets the primary for each DataRow
-        """
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
+        self.columns = columns
+        if cell_md_col_refs is not None:
+            assert all(ref.col.stores_cellmd for ref in cell_md_col_refs)
+            self.cell_md_refs = [
+                exprs.ColumnPropertyRef(ref, exprs.ColumnPropertyRef.Property.CELLMD) for ref in cell_md_col_refs
+            ]
+        else:
+            self.cell_md_refs = []
         self.select_list = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
@@ -130,6 +148,9 @@ class SqlNode(ExecNode):
             assert self.num_pk_cols > 1
 
         # additional state
+        self.cellmd_item_idxs = exprs.ExprDict()
+        self.column_item_idxs = {}
+        self.column_cellmd_item_idxs = {}
         self.result_cursor = None
         # the filter is provided by the subclass
         self.py_filter = None
@@ -145,10 +166,9 @@ class SqlNode(ExecNode):
             if tv is not None:
                 assert tv.is_validated
 
-    def _create_pk_cols(self) -> list[sql.Column]:
-        """Create a list of pk columns"""
-        # we need to retrieve the pk columns
+    def _pk_col_items(self) -> list[sql.Column]:
         if self.set_pk:
+            # we need to retrieve the pk columns
             assert self.tbl is not None
             assert self.tbl.tbl_version.get().is_validated
             return self.tbl.tbl_version.get().store_tbl.pk_columns()
@@ -158,7 +178,19 @@ class SqlNode(ExecNode):
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
-        sql_select_list = [self.sql_elements.get(e) for e in self.select_list] + self._create_pk_cols()
+        sql_select_list_exprs = exprs.ExprSet(self.select_list)
+        self.cellmd_item_idxs = exprs.ExprDict((ref, sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
+        column_refs = [exprs.ColumnRef(col) for col in self.columns]
+        self.column_item_idxs = {col_ref.col: sql_select_list_exprs.add(col_ref) for col_ref in column_refs}
+        column_cellmd_refs = [
+            exprs.ColumnPropertyRef(col_ref, exprs.ColumnPropertyRef.Property.CELLMD)
+            for col_ref in column_refs
+            if col_ref.col.stores_cellmd
+        ]
+        self.column_cellmd_item_idxs = {
+            cellmd_ref.col_ref.col: sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs
+        }
+        sql_select_list = [self.sql_elements.get(e) for e in sql_select_list_exprs] + self._pk_col_items()
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
@@ -199,9 +231,7 @@ class SqlNode(ExecNode):
             if not keep_pk:
                 self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
             self.cte = self._create_stmt().cte()
-        pk_count = self.num_pk_cols if self.set_pk else 0
-        assert len(self.select_list) + pk_count == len(self.cte.c)
-        return self.cte, exprs.ExprDict(zip(self.select_list, self.cte.c))  # skip pk cols
+        return self.cte, exprs.ExprDict(zip(list(self.select_list) + self.cell_md_refs, self.cte.c))  # skip pk cols
 
     @classmethod
     def retarget_rowid_refs(cls, target: catalog.TableVersionPath, expr_seq: Iterable[exprs.Expr]) -> None:
@@ -316,28 +346,56 @@ class SqlNode(ExecNode):
             for _ in w:
                 pass
 
-        tbl_version = self.tbl.tbl_version if self.tbl is not None else None
-        output_batch = DataRowBatch(tbl_version, self.row_builder)
+        output_batch = DataRowBatch(self.row_builder)
         output_row: Optional[exprs.DataRow] = None
         num_rows_returned = 0
+        is_using_cockroachdb = Env.get().is_using_cockroachdb
+        tzinfo = Env.get().default_time_zone
 
         for sql_row in result_cursor:
             output_row = output_batch.add_row(output_row)
 
             # populate output_row
+
             if self.num_pk_cols > 0:
                 output_row.set_pk(tuple(sql_row[-self.num_pk_cols :]))
+
+            # column copies
+            for col, item_idx in self.column_item_idxs.items():
+                output_row.cell_vals[col.id] = sql_row[item_idx]
+            for col, item_idx in self.column_cellmd_item_idxs.items():
+                cell_md_dict = sql_row[item_idx]
+                output_row.cell_md[col.id] = exprs.CellMd(**cell_md_dict) if cell_md_dict is not None else None
+
+            # populate DataRow.slot_cellmd, where requested
+            for cellmd_ref, item_idx in self.cellmd_item_idxs.items():
+                cell_md_dict = sql_row[item_idx]
+                output_row.slot_md[cellmd_ref.col_ref.slot_idx] = (
+                    exprs.CellMd.from_dict(cell_md_dict) if cell_md_dict is not None else None
+                )
+
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.select_list):
                 slot_idx = e.slot_idx
-                # certain numerical operations can produce Decimals (eg, SUM(<int column>)); we need to convert them
                 if isinstance(sql_row[i], Decimal):
+                    # certain numerical operations can produce Decimals (eg, SUM(<int column>)); we need to convert them
                     if e.col_type.is_int_type():
                         output_row[slot_idx] = int(sql_row[i])
                     elif e.col_type.is_float_type():
                         output_row[slot_idx] = float(sql_row[i])
                     else:
                         raise RuntimeError(f'Unexpected Decimal value for {e}')
+                elif is_using_cockroachdb and isinstance(sql_row[i], datetime.datetime):
+                    # Ensure that the datetime is timezone-aware and in the session time zone
+                    # cockroachDB returns timestamps in the session time zone, with numeric offset,
+                    # convert to the session time zone with the requested tzinfo for DST handling
+                    if e.col_type.is_timestamp_type():
+                        if isinstance(sql_row[i].tzinfo, datetime.timezone):
+                            output_row[slot_idx] = sql_row[i].astimezone(tz=tzinfo)
+                        else:
+                            output_row[slot_idx] = sql_row[i]
+                    else:
+                        raise RuntimeError(f'Unexpected datetime value for {e}')
                 else:
                     output_row[slot_idx] = sql_row[i]
 
@@ -359,7 +417,7 @@ class SqlNode(ExecNode):
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
                 yield output_batch
-                output_batch = DataRowBatch(tbl_version, self.row_builder)
+                output_batch = DataRowBatch(self.row_builder)
 
         if len(output_batch) > 0:
             _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
@@ -375,6 +433,11 @@ class SqlScanNode(SqlNode):
     Materializes data from the store via a Select stmt.
 
     Supports filtering and ordering.
+
+    Args:
+        select_list: output of the query
+        set_pk: if True, sets the primary for each DataRow
+        exact_version_only: tables for which we only want to see rows created at the current version
     """
 
     exact_version_only: list[catalog.TableVersionHandle]
@@ -384,17 +447,21 @@ class SqlScanNode(SqlNode):
         tbl: catalog.TableVersionPath,
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
+        columns: list[catalog.Column],
+        cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ):
-        """
-        Args:
-            select_list: output of the query
-            set_pk: if True, sets the primary for each DataRow
-            exact_version_only: tables for which we only want to see rows created at the current version
-        """
         sql_elements = exprs.SqlElementCache()
-        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=set_pk)
+        super().__init__(
+            tbl,
+            row_builder,
+            select_list,
+            columns=columns,
+            sql_elements=sql_elements,
+            set_pk=set_pk,
+            cell_md_col_refs=cell_md_col_refs,
+        )
         # create Select stmt
         if exact_version_only is None:
             exact_version_only = []
@@ -414,6 +481,11 @@ class SqlScanNode(SqlNode):
 class SqlLookupNode(SqlNode):
     """
     Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key values
+
+    Args:
+        select_list: output of the query
+        sa_key_cols: list of key columns in the store table
+        key_vals: list of key values to look up
     """
 
     def __init__(
@@ -421,17 +493,21 @@ class SqlLookupNode(SqlNode):
         tbl: catalog.TableVersionPath,
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
+        columns: list[catalog.Column],
         sa_key_cols: list[sql.Column],
         key_vals: list[tuple],
+        cell_md_col_refs: list[exprs.ColumnRef] | None = None,
     ):
-        """
-        Args:
-            select_list: output of the query
-            sa_key_cols: list of key columns in the store table
-            key_vals: list of key values to look up
-        """
         sql_elements = exprs.SqlElementCache()
-        super().__init__(tbl, row_builder, select_list, sql_elements, set_pk=True)
+        super().__init__(
+            tbl,
+            row_builder,
+            select_list,
+            columns=columns,
+            sql_elements=sql_elements,
+            set_pk=True,
+            cell_md_col_refs=cell_md_col_refs,
+        )
         # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
         self.where_clause_element = sql.tuple_(*sa_key_cols).in_(key_vals)
 
@@ -445,6 +521,11 @@ class SqlLookupNode(SqlNode):
 class SqlAggregationNode(SqlNode):
     """
     Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key values
+
+    Args:
+        select_list: can contain calls to AggregateFunctions
+        group_by_items: list of expressions to group by
+        limit: max number of rows to return: None = no limit
     """
 
     group_by_items: Optional[list[exprs.Expr]]
@@ -459,15 +540,10 @@ class SqlAggregationNode(SqlNode):
         limit: Optional[int] = None,
         exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ):
-        """
-        Args:
-            select_list: can contain calls to AggregateFunctions
-            group_by_items: list of expressions to group by
-            limit: max number of rows to return: None = no limit
-        """
+        assert len(input.cell_md_refs) == 0  # there's no aggregation over json or arrays in SQL
         self.input_cte, input_col_map = input.to_cte()
         sql_elements = exprs.SqlElementCache(input_col_map)
-        super().__init__(None, row_builder, select_list, sql_elements)
+        super().__init__(None, row_builder, select_list, columns=[], sql_elements=sql_elements)
         self.group_by_items = group_by_items
 
     def _create_stmt(self) -> sql.Select:
@@ -503,7 +579,10 @@ class SqlJoinNode(SqlNode):
             input_cte, input_col_map = input_node.to_cte()
             self.input_ctes.append(input_cte)
             sql_elements.extend(input_col_map)
-        super().__init__(None, row_builder, select_list, sql_elements)
+        cell_md_col_refs = [cell_md_ref.col_ref for input in inputs for cell_md_ref in input.cell_md_refs]
+        super().__init__(
+            None, row_builder, select_list, columns=[], sql_elements=sql_elements, cell_md_col_refs=cell_md_col_refs
+        )
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable import plan
@@ -530,6 +609,12 @@ class SqlJoinNode(SqlNode):
 class SqlSampleNode(SqlNode):
     """
     Returns rows sampled from the input node.
+
+    Args:
+        input: SqlNode to sample from
+        select_list: can contain calls to AggregateFunctions
+        sample_clause: specifies the sampling method
+        stratify_exprs: Analyzer processed list of expressions to stratify by.
     """
 
     input_cte: Optional[sql.CTE]
@@ -545,20 +630,22 @@ class SqlSampleNode(SqlNode):
         sample_clause: 'SampleClause',
         stratify_exprs: list[exprs.Expr],
     ):
-        """
-        Args:
-            input: SqlNode to sample from
-            select_list: can contain calls to AggregateFunctions
-            sample_clause: specifies the sampling method
-            stratify_exprs: Analyzer processed list of expressions to stratify by.
-        """
         assert isinstance(input, SqlNode)
         self.input_cte, input_col_map = input.to_cte(keep_pk=True)
         self.pk_count = input.num_pk_cols
         assert self.pk_count > 1
         sql_elements = exprs.SqlElementCache(input_col_map)
         assert sql_elements.contains_all(stratify_exprs)
-        super().__init__(input.tbl, row_builder, select_list, sql_elements, set_pk=True)
+        cell_md_col_refs = [cell_md_ref.col_ref for cell_md_ref in input.cell_md_refs]
+        super().__init__(
+            input.tbl,
+            row_builder,
+            select_list,
+            columns=[],
+            sql_elements=sql_elements,
+            cell_md_col_refs=cell_md_col_refs,
+            set_pk=True,
+        )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause
         assert isinstance(self.sample_clause.seed, int)
@@ -569,10 +656,10 @@ class SqlSampleNode(SqlNode):
         General SQL form is:
         - MD5(<seed::text> [ + '___' + <rowid_col_val>::text]+
         """
-        sql_expr: sql.ColumnElement = sql.cast(seed, sql.Text)
+        sql_expr: sql.ColumnElement = seed.cast(sql.String)
         for e in sql_cols:
             # Quotes are required below to guarantee that the string is properly presented in SQL
-            sql_expr = sql_expr + sql.literal_column("'___'", sql.Text) + sql.cast(e, sql.Text)
+            sql_expr = sql_expr + sql.literal_column("'___'", sql.Text) + e.cast(sql.String)
         sql_expr = sql.func.md5(sql_expr)
         return sql_expr
 
@@ -591,9 +678,9 @@ class SqlSampleNode(SqlNode):
                 s_key = self._create_key_sql(self.input_cte)
 
                 # Construct a suitable where clause
-                fraction_sql = sql.cast(SampleClause.fraction_to_md5_hex(float(self.sample_clause.fraction)), sql.Text)
+                fraction_md5 = SampleClause.fraction_to_md5_hex(self.sample_clause.fraction)
                 order_by = self._create_key_sql(self.input_cte)
-                return sql.select(*self.input_cte.c).where(s_key < fraction_sql).order_by(order_by)
+                return sql.select(*self.input_cte.c).where(s_key < fraction_md5).order_by(order_by)
 
             return self._create_stmt_stratified_fraction(self.sample_clause.fraction)
         else:

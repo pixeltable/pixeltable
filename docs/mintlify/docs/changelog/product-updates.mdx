@@ -4,6 +4,120 @@ description: 'Keep track of changes'
 icon: 'newspaper'
 ---
 
+<Update label="2025-07-24" description="v0.4.6">
+### Enhancements
+* Improved dependency management and installation reliability (poetry -> uv)
+</Update>
+
+<Update label="2025-07-24" description="v0.4.5">
+### Highlights
+* **Time travel functionality** for accessing historical table versions
+  ```python
+  # Get a handle to a specific version of a table
+  t = pxt.get_table('my_table:722')
+  ```
+* **Enhanced DataFrame export** with Pydantic model conversion
+  ```python
+  # Convert query results to Pydantic models
+  results = t.select(t.col1, t.col2).collect()
+  models = list(results.to_pydantic(MyModel))
+  ```
+* Python 3.13 compatibility support
+* **Expanded Azure OpenAI integration** with additional configuration options
+  ```bash
+  # Configure via environment variables
+  OPENAI_API_KEY=my-api-key
+  OPENAI_BASE_URL="https://my-azure-resource.openai.azure.com/"
+  OPENAI_API_VERSION=preview
+  ```
+  ```toml
+  # Or configure in ~/.pixeltable/config.toml
+  [openai]
+  api_key = '...'
+  base_url = 'https://my-azure-resource.openai.azure.com/'
+  api_version = 'preview'
+  ```
+
+### Enhancements
+* Improved media file storage and versioning
+* Enhanced table.history() reporting for views
+* Better error handling and rate limiting for Azure OpenAI
+* Performance optimizations for media operations
+</Update>
+
+<Update label="2025-07-24" description="v0.4.4">
+### Highlights
+* Multi-phase transactions for improved data consistency and reliability
+* Enhanced replica management with view-based loading
+
+### Enhancements
+* Streamlined media file operations and temporary file handling
+* Updated Google Generative AI integration
+* Schema override improvements and bug fixes
+</Update>
+
+<Update label="2025-07-24" description="v0.4.3">
+### Highlights
+* **Configuration parameters** can now be specified directly in pxt.init()
+  ```python
+  # Initialize with custom configuration
+  pxt.init({
+      'pixeltable.home': '/custom/path',
+      'openai.api_key': 'your-api-key'
+  })
+  ```
+* **New pxt.ls() command** for exploring Pixeltable directory contents
+  ```python
+  # List contents of a Pixeltable directory
+  df = pxt.ls('my_directory')
+  print(df)  # Shows tables, views, snapshots with metadata
+  ```
+* Enhanced HuggingFace dataset support for dictionaries and sequences
+* Table packaging now supports non-snapshot tables
+
+### Enhancements
+* Improved table.history() status reporting
+* Better rate limiting with 429 error handling
+* Enhanced media operations consolidation
+* Documentation improvements for audio and video functions
+</Update>
+
+<Update label="2025-07-24" description="v0.4.2">
+### Highlights
+* **New Table.recompute_columns() method** for selective column recomputation
+  ```python
+  # Recompute specific computed columns
+  tbl.recompute_columns('c1', 'c2')
+  
+  # Recompute only rows with errors
+  tbl.recompute_columns('c1', errors_only=True)
+  
+  # Recompute without cascading to dependent columns
+  tbl.recompute_columns(tbl.c1, cascade=False)
+  ```
+* Significant performance improvement: **~40% faster data insertion**
+* **New table.history() method** to track table changes over time
+  ```python
+  # View complete table history
+  history = tbl.history()
+  
+  # View last 5 changes only
+  recent_history = tbl.history(n=5)
+  ```
+
+### Enhancements
+* Enhanced external store integration with column handles
+* Improved status reporting for data operations
+* Better notebook and IPython shell display formatting
+* Performance optimizations for computed column operations
+</Update>
+
+<Update label="2025-07-24" description="v0.4.1">
+### Enhancements
+* Improved documentation for model parameter configuration
+* Enhanced development environment stability
+</Update>
+
 <Update label="2025-06-16" description="v0.4.0">
 ### Highlights
 * Added support for concurrent insert/query and table/view operations

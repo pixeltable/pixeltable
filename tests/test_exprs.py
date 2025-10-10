@@ -15,7 +15,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import catalog, exceptions as excs, exprs, functions as pxtf
+from pixeltable import exprs, functions as pxtf
 from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
@@ -103,7 +103,7 @@ class TestExprs:
     def is_int(cls, object: Any) -> bool:
         return isinstance(object, int) or (isinstance(object, Expr) and object.col_type.is_int_type())
 
-    def test_basic(self, test_tbl: catalog.Table) -> None:
+    def test_basic(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         assert t['c1'].equals(t.c1)
         assert t['c7']['*'].f5.equals(t.c7['*'].f5)
@@ -122,7 +122,7 @@ class TestExprs:
             _ = t.does_not_exist
         assert 'unknown' in str(excinfo.value).lower()
 
-    def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
+    def test_compound_predicates(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # compound predicates that can be fully evaluated in SQL
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
@@ -181,7 +181,7 @@ class TestExprs:
         # assert sql_pred is None
         # assert isinstance(other_pred, CompoundPredicate)
 
-    def test_filters(self, test_tbl: catalog.Table) -> None:
+    def test_filters(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         _ = t.where(t.c1 == 'test string').show()
         print(_)
@@ -192,7 +192,7 @@ class TestExprs:
         _ = t.where(t.c1n != None).collect()
         print(_)
 
-    def test_exception_handling(self, test_tbl: catalog.Table) -> None:
+    def test_exception_handling(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         # TODO(aaron-siegel): I had to comment this out. We can't let division by zero errors
@@ -200,31 +200,31 @@ class TestExprs:
         #     UDF that excludes the rows triggering the error. We'll need to substitute a different
         #     example, or perhaps ensure we avoid SQL errors in the first place.
         # error in expr that's handled in SQL
-        # with pytest.raises(excs.Error):
+        # with pytest.raises(pxt.Error):
         #     _ = t[(t.c2 + 1) / t.c2].show()
 
         # error in expr that's handled in Python
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.select((t.c6.f2 + 1) / (t.c2 - 10)).show()
 
         # the same, but with an inline function
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.select(self.div_0_error(t.c2 + 1, t.c2)).show()
 
         # error in agg.init()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(self.init_exc(t.c2)).show()
         assert 'division by zero' in str(exc_info.value)
 
         # error in agg.update()
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.select(self.update_exc(t.c2 - 10)).show()
 
         # error in agg.value()
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
-    def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
+    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table) -> None:
         t = test_tbl
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
@@ -255,30 +255,30 @@ class TestExprs:
 
         for c in [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]:
             # errortype/errormsg only applies to stored computed and media columns
-            with pytest.raises(excs.Error) as excinfo:
+            with pytest.raises(pxt.Error) as excinfo:
                 _ = t.select(c.errortype).show()
-            assert 'only valid for' in str(excinfo.value)
-            with pytest.raises(excs.Error) as excinfo:
+            assert 'only valid for' in str(excinfo.value), c.name
+            with pytest.raises(pxt.Error) as excinfo:
                 _ = t.select(c.errormsg).show()
             assert 'only valid for' in str(excinfo.value)
 
             # fileurl/localpath only applies to media columns
-            with pytest.raises(excs.Error) as excinfo:
+            with pytest.raises(pxt.Error) as excinfo:
                 _ = t.select(t.c1.fileurl).show()
             assert 'only valid for' in str(excinfo.value)
-            with pytest.raises(excs.Error) as excinfo:
+            with pytest.raises(pxt.Error) as excinfo:
                 _ = t.select(t.c1.localpath).show()
             assert 'only valid for' in str(excinfo.value)
 
         # fileurl/localpath doesn't apply to unstored computed img columns
         img_t.add_computed_column(c9=img_t.img.rotate(30), stored=False)
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = img_t.select(img_t.c9.errormsg).show()
         assert 'only valid for' in str(excinfo.value)
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = img_t.select(img_t.c9.errortype).show()
         assert 'only valid for' in str(excinfo.value)
 
@@ -304,7 +304,7 @@ class TestExprs:
         assert result['c4'] == [2.0, 1.0, None, None]
         assert result['c5'] == [2.0, 1.0, 1.0, None]
 
-    def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
+    def test_arithmetic_exprs(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         # Add nullable int and float columns
@@ -333,20 +333,20 @@ class TestExprs:
             (t.c3, t.c1),  # float, string
             (t.c3, 'a'),  # float, string
         ]:
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 + op2).collect()
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 - op2).collect()
             if self.is_str(op1) and self.is_int(op2):
                 _ = t.select(op1 * op2).collect()
             else:
-                with pytest.raises(excs.Error):
+                with pytest.raises(pxt.Error):
                     _ = t.select(op1 * op2).collect()
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 / op2).collect()
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 % op2).collect()
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 // op2).collect()
 
         # TODO: test division; requires predicate
@@ -354,7 +354,7 @@ class TestExprs:
             _ = t.select(op1 + op2).collect()
             _ = t.select(op1 - op2).collect()
             _ = t.select(op1 * op2).collect()
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 / op2).collect()
 
         for op1, op2 in [
@@ -367,11 +367,11 @@ class TestExprs:
             (t.c6.f2, 'a'),
             (t.c6.f3, 'a'),
         ]:
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 + op2).collect()
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 - op2).collect()
-            with pytest.raises(excs.Error):
+            with pytest.raises(pxt.Error):
                 _ = t.select(op1 * op2).collect()
 
         # Test literal exprs
@@ -453,11 +453,11 @@ class TestExprs:
                 None,
             ], f'Failed with operands: {int_operand}, {float_operand}'
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but c6 has type dict' in str(exc_info.value)
 
-    def test_comparison(self, test_tbl: catalog.Table) -> None:
+    def test_comparison(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # Test that comparison operations give the right answers. As with arithmetic operations, we do this two ways:
         # (i) with primitive operators only, to ensure that the comparison operations are done in SQL when possible;
@@ -492,13 +492,13 @@ class TestExprs:
                 assert results['gt'] == [a > b for a, b in zip(a_results, b_results)], f'{a_expr} > {b_expr}'
                 assert results['ge'] == [a >= b for a, b in zip(a_results, b_results)], f'{a_expr} >= {b_expr}'
 
-    def test_inline_dict(self, test_tbl: catalog.Table) -> None:
+    def test_inline_dict(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         df = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
         result = df.show()
         print(result)
 
-    def test_constant_literals(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         t.add_computed_column(cc0=datetime.now())  # timestamp
         t.add_computed_column(cc1=100)  # integer
@@ -528,7 +528,7 @@ class TestExprs:
         print(results.schema)
         reload_tester.run_reload_test()
 
-    def test_inline_constants(self, test_tbl: catalog.Table) -> None:
+    def test_inline_constants(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         result = t.select([1, 2, 3])
         print(result.show(5))
@@ -608,7 +608,7 @@ class TestExprs:
         assert col_type.is_array_type()
         assert isinstance(col_type, ts.ArrayType)
 
-    def test_inline_array(self, test_tbl: catalog.Table) -> None:
+    def test_inline_array(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()
         col_type = next(iter(result.schema.values()))
@@ -617,13 +617,13 @@ class TestExprs:
         assert col_type.shape == (2, 2)
         assert col_type.dtype == ts.ColumnType.Type.INT
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
         assert 'element of type `Int` at index 1 is not compatible with type `String` of preceding elements' in str(
             excinfo.value
         )
 
-    def test_json_path(self, test_tbl: catalog.Table) -> None:
+    def test_json_path(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         t.add_computed_column(attr=t.c6.f5)
         t.add_computed_column(item=t['c6']['f5'])
@@ -645,7 +645,7 @@ class TestExprs:
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
 
-    def test_json_mapper(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
 
         # top-level is dict
@@ -691,7 +691,7 @@ class TestExprs:
             assert row3['output'] == row_col['out3']
             assert row4['output'] == row_col['out4']
 
-        with pytest.raises(excs.Error, match=r'Failed to evaluate map function.'):
+        with pytest.raises(pxt.Error, match=r'Failed to evaluate map function.'):
             pxtf.map(t.c6.f5['*'], lambda x: x and False)
 
         reload_tester.run_reload_test()
@@ -720,7 +720,7 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_dicts(self, test_tbl: catalog.Table) -> None:
+    def test_dicts(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # top-level is dict
         _ = t.select(t.c6.f1)
@@ -744,7 +744,7 @@ class TestExprs:
         _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()  # type: ignore[misc]
         print(_)
 
-    def test_arrays(self, test_tbl: catalog.Table) -> None:
+    def test_arrays(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         t.add_computed_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
 
@@ -759,7 +759,7 @@ class TestExprs:
             t.array_col[1, 'string']
         assert 'Invalid array indices' in str(excinfo.value)
 
-    def test_in(self, test_tbl: catalog.Table) -> None:
+    def test_in(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
         # list of literals
@@ -782,22 +782,22 @@ class TestExprs:
         rows = list(t.where(t.c2.isin(t.c6.f5)).select(*user_cols).collect())
         assert len(rows) == 5
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             # not a scalar
             _ = t.where(t.c6.isin([{'a': 1}, {'b': 2}])).collect()
         assert 'only supported for scalar types' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             # bad json path returns None
             _ = t.where(t.c2.isin(t.c7.badpath)).collect()
         assert 'must be an Iterable' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             # json path returns scalar
             _ = t.where(t.c2.isin(t.c6.f2)).collect()
         assert ', not 0' in str(excinfo.value)
 
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             # not a scalar
             _ = t.where(t.c2.isin(t.c1)).collect()
         assert 'c1 has type String' in str(excinfo.value)
@@ -818,7 +818,7 @@ class TestExprs:
         inc_pk(rows, 1000)
         validate_update_status(t.insert(rows), len(rows))
 
-    def test_astype(self, test_tbl: catalog.Table) -> None:
+    def test_astype(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         # Convert int to float
@@ -907,7 +907,7 @@ class TestExprs:
             assert orig_img.size == retrieved_img.size
 
         # Try inserting a non-image
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pytest.raises(pxt.ExprEvalError) as exc_info:
             t.insert(url='data:text/plain,Hello there.')
         assert (
             str(exc_info.value.__cause__)
@@ -915,14 +915,14 @@ class TestExprs:
         )
 
         # Try inserting a bad image
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pytest.raises(pxt.ExprEvalError) as exc_info:
             t.insert(url=url_encoded_images[0])
         assert (
             str(exc_info.value.__cause__) == 'data URL could not be decoded into a valid image: '
             'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
         )
 
-    def test_apply(self, test_tbl: catalog.Table) -> None:
+    def test_apply(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
@@ -962,7 +962,7 @@ class TestExprs:
             return str(x)
 
         # Now test that a function without a return type throws an exception ...
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.c2.apply(f1)
         assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
@@ -982,21 +982,21 @@ class TestExprs:
         def f3(x, y) -> str:  # type: ignore[no-untyped-def]
             return f'{x}{y}'
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.c2.apply(f3)  # Too many required parameters
         assert str(exc_info.value) == 'Function `f3` has multiple required parameters.'
 
         def f4() -> str:
             return 'pixeltable'
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.c2.apply(f4)  # No positional parameters
         assert str(exc_info.value) == 'Function `f4` has no positional parameters.'
 
         def f5(**kwargs: Any) -> str:
             return ''
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             t.c2.apply(f5)  # No positional parameters
         assert str(exc_info.value) == 'Function `f5` has no positional parameters.'
 
@@ -1024,7 +1024,7 @@ class TestExprs:
         df = t.select(t.img, t.img.rotate(60))
         _ = df.show(n=100)._repr_html_()
 
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.select(t.img.rotate)
 
     def test_img_members(self, img_tbl: pxt.Table) -> None:
@@ -1042,16 +1042,16 @@ class TestExprs:
     def test_ext_imgs(self, reset_db: None) -> None:
         t = pxt.create_table('img_test', {'img': ts.ImageType()})
         img_urls = [
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000042.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000049.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000057.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000061.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000063.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000064.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000069.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000071.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000042.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000049.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000057.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000061.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000063.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000064.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000069.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000071.jpg',
         ]
         t.insert({'img': url} for url in img_urls)
         # this fails with an assertion
@@ -1077,39 +1077,7 @@ class TestExprs:
         )
         print(result)
 
-    @pytest.mark.skip(reason='temporarily disabled')
-    def test_similarity(self, small_img_tbl: pxt.Table) -> None:
-        t = small_img_tbl
-        _ = t.show(30)
-        probe = t.select(t.img, t.category).show(1)
-        img = probe[0, 0]
-        result = t.where(t.img.nearest(img)).show(10)
-        assert len(result) == 10
-        # nearest() with one SQL predicate and one Python predicate
-        result = t.select(t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)).show(10)
-        # TODO: figure out how to verify results
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.img.nearest(img)).order_by(t.category).show()
-        assert 'cannot be used in conjunction with' in str(exc_info.value)
-
-        result = t.select(t.img.nearest('musical instrument')).show(10)
-        assert len(result) == 10
-        # matches() with one SQL predicate and one Python predicate
-        french_horn_category = 'n03394916'
-        result = t[t.img.nearest('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)].show(
-            10
-        )
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.img.nearest(5)).show()
-        assert 'requires' in str(exc_info.value)
-
-    # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
-    # doesn't get created; why?
-    def test_similarity2(
-        self, img_tbl: catalog.Table, indexed_img_tbl: catalog.Table, multi_idx_img_tbl: catalog.Table
-    ) -> None:
+    def test_similarity(self, img_tbl: pxt.Table, indexed_img_tbl: pxt.Table, multi_idx_img_tbl: pxt.Table) -> None:
         t = img_tbl
         probe = t.select(t.img).show(1)
         img = probe[0, 0]
@@ -1167,7 +1135,7 @@ class TestExprs:
             _ = str(e)
             print(_)
 
-    def test_subexprs(self, img_tbl: catalog.Table) -> None:
+    def test_subexprs(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         e = t.img
         subexprs = list(e.subexprs())
@@ -1179,16 +1147,16 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, reset_db: None, test_tbl: catalog.Table) -> None:
+    def test_window_fns(self, reset_db: None, test_tbl: pxt.Table) -> None:
         t = test_tbl
         _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
         # conflicting ordering requirements
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.select(
                 pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)
             ).show(100)
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             _ = t.select(
                 pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)
             ).show(100)
@@ -1202,7 +1170,7 @@ class TestExprs:
         v = pxt.create_view('frame_view', base_t, iterator=FrameIterator.create(video=base_t.video, fps=0))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # incompatible ordering
             _ = v.select(v.frame, pxtf.sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
@@ -1213,7 +1181,7 @@ class TestExprs:
         new_t.insert(rows)
         _ = new_t.collect()
 
-    def test_make_list(self, test_tbl: catalog.Table) -> None:
+    def test_make_list(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
         # create a json column with an InlineDict; the type will have a type spec
@@ -1312,32 +1280,32 @@ class TestExprs:
         pd_result = df.groupby('c_int', dropna=True).agg(out=('c_int', 'sum')).reset_index().sort_values('c_int')
         assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
 
-    def test_agg_errors(self, test_tbl: catalog.Table) -> None:
+    def test_agg_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         from pixeltable.functions import count, sum
 
         # check that aggregates don't show up in the wrong places
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # aggregate in where clause
             _ = t.group_by(t.c2 % 2).where(sum(t.c2) > 0).select(sum(t.c2)).collect()
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # aggregate in group_by clause
             _ = t.group_by(sum(t.c2)).select(sum(t.c2)).collect()
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # mixing aggregates and non-aggregates
             _ = t.group_by(t.c2 % 2).select(sum(t.c2) + t.c2).collect()
-        with pytest.raises(excs.Error):
+        with pytest.raises(pxt.Error):
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         with pytest.raises(
-            excs.Error, match=r"Argument 2 in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+            pxt.Error, match=r"Argument 2 in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
         ):
             udf1(t.c2, bool)
         with pytest.raises(
-            excs.Error, match=r"Argument 'eggs' in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+            pxt.Error, match=r"Argument 'eggs' in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
         ):
             udf1(eggs=bool)
 
@@ -1374,47 +1342,47 @@ class TestExprs:
         def value(self) -> int:
             return self.val
 
-    def test_udas(self, test_tbl: catalog.Table) -> None:
+    def test_udas(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # init arg is passed along
         assert t.select(out=self.window_agg(t.c2, order_by=t.c2)).collect()[0]['out'] == 0
         assert t.select(out=self.window_agg(t.c2, val=1, order_by=t.c2)).collect()[0]['out'] == 1
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(self.window_agg(t.c2, val=t.c2, order_by=t.c2)).collect()
         assert 'must be a constant value' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # ordering expression not a pixeltable expr
             _ = t.select(self.ordered_agg(1, t.c2)).collect()
         assert 'but instead is a' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # explicit order_by
             _ = t.select(self.ordered_agg(t.c2, order_by=t.c2)).collect()
         assert 'order_by invalid' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # order_by for non-window function
             _ = t.select(self.std_agg(t.c2, order_by=t.c2)).collect()
         assert 'does not allow windows' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # group_by for non-window function
             _ = t.select(self.std_agg(t.c2, group_by=t.c4)).collect()
         assert 'group_by invalid' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # group_by with non-ancestor table
             _ = t.select(t.c2).group_by(t)
         assert 'group_by(): test_tbl is not a base table of test_tbl' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # group_by with non-singleton table
             _ = t.select(t.c2).group_by(t, t.c2)
         assert 'group_by(): only one table can be specified' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # missing update parameter
             @pxt.uda
             class WindowAgg1(pxt.Aggregator):
@@ -1429,7 +1397,7 @@ class TestExprs:
 
         assert 'must have at least one parameter' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # duplicate parameter names
             @pxt.uda
             class WindowAgg2(pxt.Aggregator):
@@ -1444,7 +1412,7 @@ class TestExprs:
 
         assert 'cannot have parameters with the same name: val' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # reserved parameter name
             @pxt.uda
             class WindowAgg3(pxt.Aggregator):
@@ -1459,7 +1427,7 @@ class TestExprs:
 
         assert "'order_by' is a reserved parameter name" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             # reserved parameter name
             @pxt.uda
             class WindowAgg4(pxt.Aggregator):
@@ -1526,7 +1494,7 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_operations(self, test_tbl: catalog.Table, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, test_tbl: pxt.Table, reset_db: None, reload_tester: ReloadTester) -> None:
         # create table with two columns
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
         t = pxt.create_table('test_str_concat', schema)
@@ -1545,15 +1513,15 @@ class TestExprs:
         assert result['s7'] == ['aa', 'aaa']
         assert result['s8'] == ['rightright', 'BBB']
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 * 's1')
         assert '* on strings requires int type,' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 + 3)
         assert '+ on strings requires string type,' in str(exc_info.value)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
         assert 'requires numeric types, but s1 has type Optional[String]' in str(exc_info.value)
 

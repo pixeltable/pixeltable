@@ -2,13 +2,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_aws_credentials, skip_test_if_not_installed
+from ..utils import rerun, skip_test_if_no_aws_credentials, skip_test_if_not_installed
 from .tool_utils import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
+@rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
     def test_converse(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -47,7 +46,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions import bedrock
 
-        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+        def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String})
             messages = [{'role': 'user', 'content': [{'text': t.prompt}]}]
             t.add_computed_column(

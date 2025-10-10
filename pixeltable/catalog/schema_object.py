@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -18,6 +18,7 @@ class SchemaObject:
 
     def __init__(self, obj_id: UUID, name: str, dir_id: Optional[UUID]):
         # make these private so they don't collide with column names (id and name are fairly common)
+        assert dir_id is None or isinstance(dir_id, UUID), type(dir_id)
         self._id = obj_id
         self._name = name
         self._dir_id = dir_id
@@ -39,16 +40,6 @@ class SchemaObject:
         with Catalog.get().begin_xact(for_write=False):
             path = Catalog.get().get_dir_path(self._dir_id)
             return str(path.append(self._name))
-
-    def get_metadata(self) -> dict[str, Any]:
-        """Returns metadata associated with this schema object."""
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(for_write=False):
-            return self._get_metadata()
-
-    def _get_metadata(self) -> dict[str, Any]:
-        return {'name': self._name, 'path': self._path()}
 
     @abstractmethod
     def _display_name(self) -> str:

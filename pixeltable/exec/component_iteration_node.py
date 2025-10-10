@@ -40,7 +40,7 @@ class ComponentIterationNode(ExecNode):
         }
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        output_batch = DataRowBatch(self.view, self.row_builder)
+        output_batch = DataRowBatch(self.row_builder)
         async for input_batch in self.input:
             for input_row in input_batch:
                 self.row_builder.eval(input_row, self.iterator_args_ctx)
@@ -52,13 +52,14 @@ class ComponentIterationNode(ExecNode):
                 if self.__non_nullable_args_specified(iterator_args):
                     iterator = self.view.get().iterator_cls(**iterator_args)
                     for pos, component_dict in enumerate(iterator):
-                        output_row = output_batch.add_row()
+                        output_row = self.row_builder.make_row()
                         input_row.copy(output_row)
                         # we're expanding the input and need to add the iterator position to the pk
                         self.__populate_output_row(output_row, pos, component_dict)
+                        output_batch.add_row(output_row)
                         if len(output_batch) == self.__OUTPUT_BATCH_SIZE:
                             yield output_batch
-                            output_batch = DataRowBatch(self.view, self.row_builder)
+                            output_batch = DataRowBatch(self.row_builder)
 
         if len(output_batch) > 0:
             yield output_batch

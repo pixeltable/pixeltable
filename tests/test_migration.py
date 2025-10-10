@@ -25,12 +25,13 @@ from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
 from .conftest import clean_db
-from .utils import reload_catalog, skip_test_if_not_installed, validate_update_status
+from .utils import reload_catalog, rerun, skip_test_if_not_installed, validate_update_status
 
 _logger = logging.getLogger('pixeltable')
 
 
 class TestMigration:
+    @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
     def test_db_migration(self, init_env: None) -> None:
@@ -79,7 +80,9 @@ class TestMigration:
             with orm.Session(env.engine) as session:
                 convert_table_md(env.engine, substitution_fn=self.__substitute_md)
 
-            env._upgrade_metadata()
+            # make sure we run the env db setup
+            Env._init_env()
+            env = Env.get()
 
             with orm.Session(env.engine) as session:
                 md = session.query(SystemInfo).one().md

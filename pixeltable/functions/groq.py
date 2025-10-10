@@ -62,11 +62,11 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `llama3-8b-8192`
+        Add a computed column that applies the model `llama-3.1-8b-instant`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=chat_completions(messages, model='llama3-8b-8192'))
+        ... tbl.add_computed_column(response=chat_completions(messages, model='llama-3.1-8b-instant'))
     """
     if model_kwargs is None:
         model_kwargs = {}

@@ -4,9 +4,10 @@ import abc
 import logging
 import sys
 import warnings
-from typing import Any, Iterable, Iterator, Optional, Union
+from typing import Any, Iterable, Iterator, Optional
 
 import more_itertools
+import psycopg
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
@@ -16,7 +17,6 @@ from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup
-from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.sql import log_explain, log_stmt
 
 _logger = logging.getLogger('pixeltable')
@@ -122,16 +122,6 @@ class StoreBase:
     def _storage_name(self) -> str:
         """Return the name of the data store table"""
 
-    def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
-        return MediaStore.move_tmp_media_file(file_url, self.tbl_version.id, col.id, v_min)
-
-    def _move_tmp_media_files(
-        self, table_row: list[Any], media_cols_by_sql_idx: dict[int, catalog.Column], v_min: int
-    ) -> None:
-        """Move tmp media files that we generated to a permanent location"""
-        for n, col in media_cols_by_sql_idx.items():
-            table_row[n] = self._move_tmp_media_file(table_row[n], col, v_min)
-
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = (
@@ -146,8 +136,28 @@ class StoreBase:
         return result
 
     def create(self) -> None:
+        """Create If Not Exists for this table"""
         conn = Env.get().conn
-        self.sa_md.create_all(bind=conn)
+        stmt = sql.schema.CreateTable(self.sa_tbl).compile(conn)
+        create_stmt = str(stmt)
+        if_not_exists_stmt = create_stmt.replace('CREATE TABLE', 'CREATE TABLE IF NOT EXISTS')
+
+        # Postgres seems not to handle concurrent Create Table If Not Exists correctly, we need to ignore the various
+        # errors that can occur when two connections run the same Create Table statement.
+        try:
+            conn.execute(sql.text(if_not_exists_stmt))
+        except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
+            Env.get().console_logger.info(f'StoreBase.create() failed with: {e}')
+            if (
+                isinstance(e.orig, psycopg.errors.UniqueViolation)
+                and 'duplicate key value violates unique constraint "pg_type_typname_nsp_index"' in str(e.orig)
+            ) or (
+                isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
+                and 'already exists' in str(e.orig)
+            ):
+                pass
+            else:
+                raise
 
     def drop(self) -> None:
         """Drop store table"""
@@ -209,7 +219,6 @@ class StoreBase:
         # create temp table to store output of exec_plan, with the same primary key as the store table
         tmp_name = f'temp_{self._storage_name()}'
         tmp_pk_cols = tuple(sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns())
-        tmp_val_col_sql_idx = len(tmp_pk_cols)
         tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
         tmp_cols = [*tmp_pk_cols, tmp_val_col]
         # add error columns if the store column records errors
@@ -236,11 +245,7 @@ class StoreBase:
                     if abort_on_exc and row.has_exc():
                         exc = row.get_first_exc()
                         raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}') from exc
-                    table_row, num_row_exc = row_builder.create_table_row(row, None, row.pk)
-                    if col.col_type.is_media_type():
-                        table_row[tmp_val_col_sql_idx] = self._move_tmp_media_file(
-                            table_row[tmp_val_col_sql_idx], col, row.pk[-1]
-                        )
+                    table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
                     num_excs += num_row_exc
                     batch_table_rows.append(tuple(table_row))
 
@@ -269,7 +274,7 @@ class StoreBase:
                 self.sa_md.remove(tmp_tbl)
                 tmp_tbl.drop(bind=conn)
 
-            run_cleanup(remove_tmp_tbl, raise_error=True)
+            run_cleanup(remove_tmp_tbl, raise_error=False)
 
         return num_excs
 
@@ -293,7 +298,7 @@ class StoreBase:
         progress_bar: Optional[tqdm] = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
 
-        store_col_names, media_cols_by_idx = row_builder.store_column_names()
+        store_col_names = row_builder.store_column_names()
 
         try:
             table_rows: list[tuple[Any]] = []
@@ -313,10 +318,10 @@ class StoreBase:
                     rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                     pk = (*rowid, v_min)
                     assert len(pk) == len(self._pk_cols)
-                    table_row, num_row_exc = row_builder.create_table_row(row, cols_with_excs, pk)
+                    table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    if show_progress:
+                    if show_progress and Env.get().verbosity >= 1:
                         if progress_bar is None:
                             warnings.simplefilter('ignore', category=TqdmWarning)
                             progress_bar = tqdm(
@@ -327,7 +332,6 @@ class StoreBase:
                             )
                         progress_bar.update(1)
 
-                    self._move_tmp_media_files(table_row, media_cols_by_idx, v_min)
                     batch_table_rows.append(tuple(table_row))
 
                 table_rows.extend(batch_table_rows)
@@ -403,7 +407,7 @@ class StoreBase:
         base_versions_clause = (
             sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
         )
-        set_clause: dict[sql.Column, Union[int, sql.Column]] = {self.v_max_col: current_version}
+        set_clause: dict[sql.Column, int | sql.Column] = {self.v_max_col: current_version}
         for index_info in self.tbl_version.get().idxs_by_name.values():
             # copy value column to undo column
             set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col

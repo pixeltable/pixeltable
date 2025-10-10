@@ -85,13 +85,16 @@ class ExprTemplateFunction(Function):
         conditional_return_type).
         """
         assert not self.is_polymorphic
-        template = self.template
         with_defaults = bound_args.copy()
         with_defaults.update(
-            {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args}
+            {
+                param_name: default
+                for param_name, default in self.template.defaults.items()
+                if param_name not in bound_args
+            }
         )
         substituted_expr = self.template.expr.copy().substitute(
-            {template.param_exprs[name]: expr for name, expr in with_defaults.items()}
+            {self.template.param_exprs[name]: expr for name, expr in with_defaults.items()}
         )
         return substituted_expr.col_type
 
@@ -101,13 +104,10 @@ class ExprTemplateFunction(Function):
         return None
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        from pixeltable import exec
-
         assert not self.is_polymorphic
         expr = self.instantiate(args, kwargs)
         row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
-        row_batch = exec.DataRowBatch(tbl=None, row_builder=row_builder, num_rows=1)
-        row = row_batch[0]
+        row = row_builder.make_row()
         row_builder.eval(row, ctx=row_builder.default_eval_ctx)
         return row[row_builder.get_output_exprs()[0].slot_idx]
 

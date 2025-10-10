@@ -1,19 +1,25 @@
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, func
 
-from .utils import ReloadTester, assert_resultset_eq, create_img_tbl, create_test_tbl, reload_catalog
+from .utils import (
+    ReloadTester,
+    assert_resultset_eq,
+    create_img_tbl,
+    create_test_tbl,
+    reload_catalog,
+    validate_update_status,
+)
 
 
 class TestSnapshot:
     def run_basic_test(
         self,
         tbl: pxt.Table,
-        orig_query: Union[pxt.Table, pxt.DataFrame],
+        orig_query: pxt.Table | pxt.DataFrame,
         snap: pxt.Table,
         extra_items: dict[str, Any],
         reload_md: bool,
@@ -58,12 +64,12 @@ class TestSnapshot:
         tbl.revert()  # undo update()
         tbl.revert()  # undo insert()
         # can't revert a version referenced by a snapshot
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(pxt.Error) as excinfo:
             tbl.revert()
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pytest.raises(excs.Error, match='has dependents'):
+        with pytest.raises(pxt.Error, match='has dependents'):
             pxt.drop_table(tbl_path)
 
         pxt.drop_table(snap_path)
@@ -90,7 +96,7 @@ class TestSnapshot:
                         else {}
                     )
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
-                    query: Union[pxt.Table, pxt.DataFrame] = tbl.where(tbl.c2 < 10) if has_filter else tbl
+                    query: pxt.Table | pxt.DataFrame = tbl.where(tbl.c2 < 10) if has_filter else tbl
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
                     self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 
@@ -111,7 +117,7 @@ class TestSnapshot:
         """
         id_before = s._id
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_snapshot(sname, t, if_exists='invalid')  # type: ignore[arg-type]
         assert (
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
@@ -144,7 +150,7 @@ class TestSnapshot:
         assert 'test_view_on_snapshot1' in pxt.list_tables()
         # if_exists='replace' cannot drop a snapshot with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(pxt.Error) as exc_info:
             pxt.create_snapshot(sname, t, if_exists='replace')
         err_msg = str(exc_info.value).lower()
         assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
@@ -161,7 +167,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot('not_snapshot', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(pxt.Error) as exc_info:
                 pxt.create_snapshot('not_snapshot', t, if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
@@ -192,7 +198,7 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, reset_db: None, clip_embed: func.Function) -> None:
+    def test_errors(self, reset_db: None, clip_embed: pxt.Function) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_snapshot('snap', tbl)
         display_str = "snapshot 'snap'"
@@ -224,15 +230,15 @@ class TestSnapshot:
             snap = pxt.create_snapshot('img_snap', img_tbl)
             snap.add_embedding_index('img', image_embed=clip_embed)
 
-    def test_views_of_snapshots(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('anonymous', [True, False])
+    def test_views_of_snapshots(self, anonymous: bool, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
-        s1 = pxt.create_snapshot('s1', t)
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        assert t._get_version() == 1
+        s1 = pxt.get_table('tbl:1') if anonymous else pxt.create_snapshot('s1', t)
         v1 = pxt.create_view('v1', s1)
-        s2 = pxt.create_snapshot('s2', v1)
+        s2 = pxt.get_table('v1:0') if anonymous else pxt.create_snapshot('s2', v1)
         v2 = pxt.create_view('v2', s2)
 
         def verify(s1: pxt.Table, s2: pxt.Table, v1: pxt.Table, v2: pxt.Table) -> None:
@@ -243,14 +249,12 @@ class TestSnapshot:
 
         verify(s1, s2, v1, v2)
 
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
         verify(s1, s2, v1, v2)
 
         reload_catalog()
-        s1 = pxt.get_table('s1')
-        s2 = pxt.get_table('s2')
+        s1 = pxt.get_table('tbl:1') if anonymous else pxt.get_table('s1')
+        s2 = pxt.get_table('v1:0') if anonymous else pxt.get_table('s2')
         v1 = pxt.get_table('v1')
         v2 = pxt.get_table('v2')
         verify(s1, s2, v1, v2)
@@ -258,9 +262,7 @@ class TestSnapshot:
     def test_snapshot_of_view_chain(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
         v1 = pxt.create_view('v1', t)
         v2 = pxt.create_view('v2', v1)
         s = pxt.create_snapshot('s', v2)
@@ -272,9 +274,7 @@ class TestSnapshot:
 
         verify(v1, v2, s)
 
-        status = t.insert(rows)
-        assert status.num_rows == len(rows) * 3  # we also updated 2 views
-        assert status.num_excs == 0
+        validate_update_status(t.insert(rows), expected_rows=(len(rows) * 3))  # we also updated 2 views
         verify(v1, v2, s)
 
         reload_catalog()
@@ -341,3 +341,63 @@ class TestSnapshot:
         t, v = pxt.get_table('test_tbl'), pxt.get_table('v')
         s1, s2, s3, s4 = pxt.get_table('s1'), pxt.get_table('s2'), pxt.get_table('s3'), pxt.get_table('s4')
         validate(t, v, s1, s2, s3, s4)
+
+    def test_drop_column_in_view_predicate(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+        _ = pxt.create_snapshot('base_snap', t, additional_columns={'s1': pxt.Int})
+        v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})  # uses c1
+        v1s = pxt.create_snapshot('v1_snap', v1, additional_columns={'v1s1': v1.c2 + v1.vc1})  # snapshot uses c2
+        v2 = pxt.create_view(
+            'view2', v1.where((v1.c2 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int}
+        )  # uses c2
+        v2s = pxt.create_snapshot('v2_snap', v2, additional_columns={'v2s1': v2.c1 + v2.vc2})  # snapshot uses c1
+
+        # Create view on snapshot
+        _ = pxt.create_view('view_snap1', v1s.where(v1s.c1 % 4 == 0))
+        _ = pxt.create_view('view_snap2', v2s.where(v2s.c2 % 4 == 0))
+
+        # Delete first column, only mutable tables will show up in error
+        with pytest.raises(pxt.Error, match='Cannot drop column `c1` because the following views depend on it') as e:
+            t.drop_column('c1')
+        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
+        assert 'v2_snap' not in str(e.value).lower()  # v2_snap uses c1
+        assert 'view_snap1' not in str(e.value).lower()
+
+        # Delete 2nd column
+        with pytest.raises(pxt.Error, match='Cannot drop column `c2` because the following views depend on it') as e:
+            t.drop_column('c2')
+        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'v1_snap' not in str(e.value).lower()  # v1_snap uses c2
+        assert 'view_snap2' not in str(e.value).lower()
+
+        # Delete view's column
+        with pytest.raises(pxt.Error, match='Cannot drop column `vc1` because the following views depend on it') as e:
+            v1.drop_column('vc1')
+        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'v2_snap' not in str(e.value).lower()
+        assert 'view_snap1' not in str(e.value).lower()
+        assert 'view_snap2' not in str(e.value).lower()
+
+    def test_rename_column(self, reset_db: None) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
+
+        s1 = pxt.create_snapshot('base_snap', t, additional_columns={'s1': pxt.Int})
+        v1 = pxt.create_view('view_snap', s1, additional_columns={'v1': pxt.Int})
+
+        v2 = pxt.create_view('view', t, additional_columns={'v2': pxt.Int})
+        s2 = pxt.create_snapshot('snap_view', v2, additional_columns={'s2': pxt.Int})
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'base_snap'"):
+            s1.rename_column('s1', 'new_s1')
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename column for immutable table 'snap_view'"):
+            s2.rename_column('v2', 'new_v2')
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 'c1'"):
+            v1.rename_column('c1', 'new_c1')
+
+        with pytest.raises(pxt.Error, match=r"Cannot rename base table column 's1'"):
+            v1.rename_column('s1', 'new_s1')
+
+        # should work
+        v1.rename_column('v1', 'new_v1')

@@ -21,7 +21,8 @@ def local_public_names(mod_name: str, exclude: Optional[list[str]] = None) -> li
     for obj in mod.__dict__.values():
         if isinstance(obj, Function):
             # Pixeltable function
-            names.append(obj.name)
+            if not obj.name.startswith('_'):
+                names.append(obj.name)
         elif isinstance(obj, types.FunctionType):
             # Python function
             if obj.__module__ == mod.__name__ and not obj.__name__.startswith('_'):

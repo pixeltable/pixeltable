@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, ClassVar, Iterable, Iterator, Optional, Union
+from typing import Any, ClassVar, Iterable, Iterator, Optional
 
 import ftfy
 
@@ -95,6 +95,16 @@ class DocumentSplitter(ComponentIterator):
     include additional metadata fields if specified in the `metadata` parameter, as explained below.
 
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
+
+    Args:
+        separators: separators to use to chunk the document. Options are:
+             `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
+             This may be a comma-separated string, e.g., `'heading,token_limit'`.
+        limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
+             or `'char_limit'` is specified.
+        metadata: additional metadata fields to include in the output. Options are:
+             `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
+             (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
     """
 
     METADATA_COLUMN_TYPES: ClassVar[dict[ChunkMetadata, ColumnType]] = {
@@ -121,18 +131,6 @@ class DocumentSplitter(ComponentIterator):
         page_image_dpi: int = 300,
         page_image_format: str = 'png',
     ):
-        """Init method for `DocumentSplitter` class.
-
-        Args:
-            separators: separators to use to chunk the document. Options are:
-                 `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
-                 This may be a comma-separated string, e.g., `'heading,token_limit'`.
-            limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
-                 or `'char_limit'` is specified.
-            metadata: additional metadata fields to include in the output. Options are:
-                 `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
-                 (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
-        """
         if html_skip_tags is None:
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
@@ -292,7 +290,7 @@ class DocumentSplitter(ComponentIterator):
                 yield DocumentSection(text=full_text, metadata=md)
                 accumulated_text = []
 
-        def process_element(el: Union[bs4.element.Tag, bs4.NavigableString]) -> Iterator[DocumentSection]:
+        def process_element(el: bs4.element.Tag | bs4.NavigableString) -> Iterator[DocumentSection]:
             # process the element and emit sections as necessary
             nonlocal accumulated_text, headings, sourceline, emit_on_heading, emit_on_paragraph
 

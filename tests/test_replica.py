@@ -27,8 +27,8 @@ class TestReplica:
         reload_catalog()
 
         with cat.begin_xact(for_write=True):
-            cat.create_replica(Path('replica_1'), md1)
-            cat.create_replica(Path('replica_2'), md2)
+            cat.create_replica(Path.parse('replica_1'), md1)
+            cat.create_replica(Path.parse('replica_2'), md2)
         reload_catalog()
 
         t1 = pxt.get_table('replica_1')
@@ -97,19 +97,19 @@ class TestReplica:
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')
         with cat.begin_xact(for_write=True):
-            cat.create_replica(Path('replica_s11'), s11_md)
-            cat.create_replica(Path('replica_s12'), s12_md)
-            cat.create_replica(Path('replica_s31'), s31_md)
+            cat.create_replica(Path.parse('replica_s11'), s11_md)
+            cat.create_replica(Path.parse('replica_s12'), s12_md)
+            cat.create_replica(Path.parse('replica_s31'), s31_md)
 
         # Intentionally create r61 first, before r51; this way we address both cases for snapshot-over-snapshot:
         # Base snapshot inserted first (r61 after r31); base snapshot inserted last (r51 after r61).
         with cat.begin_xact(for_write=True):
-            cat.create_replica(Path('replica_s61'), s61_md)
+            cat.create_replica(Path.parse('replica_s61'), s61_md)
         r61 = pxt.get_table('replica_s61')
         with cat.begin_xact(for_write=True):
-            cat.create_replica(Path('replica_s51'), s51_md)
+            cat.create_replica(Path.parse('replica_s51'), s51_md)
         r51 = pxt.get_table('replica_s51')
 
         with cat.begin_xact(for_write=False):
-            assert len(r51._get_base_tables()) == 4
-            assert len(r61._get_base_tables()) == 6
+            assert r51._tbl_version_path.path_len() == 5
+            assert r61._tbl_version_path.path_len() == 6

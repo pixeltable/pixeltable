@@ -20,7 +20,6 @@ class ExecNode(abc.ABC):
     row_builder: exprs.RowBuilder
     input: Optional[ExecNode]
     flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
-    stored_img_cols: list[exprs.ColumnSlotIdx]
     ctx: Optional[ExecContext]
 
     def __init__(
@@ -40,19 +39,12 @@ class ExecNode(abc.ABC):
         self.flushed_img_slots = [
             e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
-        self.stored_img_cols = []
-        self.ctx = None  # all nodes of a tree share the same context
+        self.ctx = input.ctx if input is not None else None
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
         if self.input is not None:
             self.input.set_ctx(ctx)
-
-    def set_stored_img_cols(self, stored_img_cols: list[exprs.ColumnSlotIdx]) -> None:
-        self.stored_img_cols = stored_img_cols
-        # propagate batch size to the source
-        if self.input is not None:
-            self.input.set_stored_img_cols(stored_img_cols)
 
     @abc.abstractmethod
     def __aiter__(self) -> AsyncIterator[DataRowBatch]:

@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Optional, Union
 
 import pandas as pd
+import pydantic
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share, type_system as ts
@@ -23,12 +24,12 @@ if TYPE_CHECKING:
         str,
         os.PathLike,
         Path,  # OS paths, filenames, URLs
-        Iterator[dict[str, Any]],  # iterator producing dictionaries of values
-        RowData,  # list of dictionaries
+        Iterable[dict[str, Any]],  # dictionaries of values
+        Iterable[pydantic.BaseModel],  # Pydantic model instances
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
-        'datasets.Dataset',
-        'datasets.DatasetDict',  # Huggingface datasets
+        datasets.Dataset,
+        datasets.DatasetDict,  # Huggingface datasets
     ]
 
 
@@ -51,7 +52,7 @@ def create_table(
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     on_error: Literal['abort', 'ignore'] = 'abort',
-    primary_key: Optional[Union[str, list[str]]] = None,
+    primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -146,7 +147,7 @@ def create_table(
     if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
         raise excs.Error('`schema` must be a non-empty dictionary')
 
-    path_obj = catalog.Path(path)
+    path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: Optional[list[str]] = normalize_primary_key_parameter(primary_key)
@@ -178,7 +179,7 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    table = Catalog.get().create_table(
+    table, was_created = Catalog.get().create_table(
         path_obj,
         schema,
         data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
@@ -188,7 +189,7 @@ def create_table(
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
     )
-    if data_source is not None and not is_direct_df:
+    if was_created and data_source is not None and not is_direct_df:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         table.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
@@ -197,7 +198,7 @@ def create_table(
 
 def create_view(
     path: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     is_snapshot: bool = False,
@@ -284,7 +285,7 @@ def create_view(
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, (catalog.Table, DataFrame))
 
-    path_obj = catalog.Path(path)
+    path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 
@@ -317,7 +318,7 @@ def create_view(
 
 def create_snapshot(
     path_str: str,
-    base: Union[catalog.Table, DataFrame],
+    base: catalog.Table | DataFrame,
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
@@ -396,36 +397,66 @@ def create_snapshot(
     )
 
 
-def create_replica(destination: str, source: Union[str, catalog.Table]) -> Optional[catalog.Table]:
+def publish(
+    source: str | catalog.Table,
+    destination_uri: str,
+    bucket_name: str | None = None,
+    access: Literal['public', 'private'] = 'private',
+) -> None:
     """
-    Create a replica of a table. Can be used either to create a remote replica of a local table, or to create a local
-    replica of a remote table. A given table can have at most one replica per Pixeltable instance.
+    Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be published to at most one
+    URI per Pixeltable cloud database.
 
     Args:
-        destination: Path where the replica will be created. Can be either a local path such as `'my_dir.my_table'`, or
-            a remote URI such as `'pxt://username/mydir.my_table'`.
-        source: Path to the source table, or (if the source table is a local table) a handle to the source table.
+        source: Path or table handle of the local table to be published.
+        destination_uri: Remote URI where the replica will be published, such as `'pxt://org_name/my_dir/my_table'`.
+        bucket_name: The name of the bucket to use to store replica's data. The bucket must be registered with
+            Pixeltable cloud. If no `bucket_name` is provided, the default storage bucket for the destination
+            database will be used.
+        access: Access control for the replica.
+
+            - `'public'`: Anyone can access this replica.
+            - `'private'`: Only the host organization can access.
     """
-    remote_dest = destination.startswith('pxt://')
-    remote_source = isinstance(source, str) and source.startswith('pxt://')
-    if remote_dest == remote_source:
-        raise excs.Error('Exactly one of `destination` or `source` must be a remote URI.')
+    if not destination_uri.startswith('pxt://'):
+        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
 
-    if remote_dest:
-        if isinstance(source, str):
-            source = get_table(source)
-        share.push_replica(destination, source)
-        return None
-    else:
-        assert isinstance(source, str)
-        return share.pull_replica(destination, source)
+    if isinstance(source, str):
+        source = get_table(source)
+
+    share.push_replica(destination_uri, source, bucket_name, access)
 
 
-def get_table(path: str) -> catalog.Table:
+def replicate(remote_uri: str, local_path: str) -> catalog.Table:
+    """
+    Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of the replica in a
+    way that preserves the table structure of the original source data. Once replicated, the local table can be
+    queried offline just as any other Pixeltable table.
+
+    Args:
+        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
+        local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
+            the same or different from the cloud table name.
+
+    Returns:
+        A handle to the newly created local replica table.
+    """
+    if not remote_uri.startswith('pxt://'):
+        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+
+    return share.pull_replica(local_path, remote_uri)
+
+
+def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
     """Get a handle to an existing table, view, or snapshot.
 
     Args:
         path: Path to the table.
+        if_not_exists: Directive regarding how to handle if the path does not exist.
+            Must be one of the following:
+
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return `None`
 
     Returns:
         A handle to the [`Table`][pixeltable.Table].
@@ -445,9 +476,14 @@ def get_table(path: str) -> catalog.Table:
         Handles to views and snapshots are retrieved in the same way:
 
         >>> tbl = pxt.get_table('my_snapshot')
+
+        Get a handle to a specific version of a table:
+
+        >>> tbl = pxt.get_table('my_table:722')
     """
-    path_obj = catalog.Path(path)
-    tbl = Catalog.get().get_table(path_obj)
+    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    path_obj = catalog.Path.parse(path, allow_versioned_path=True)
+    tbl = Catalog.get().get_table(path_obj, if_not_exists_)
     return tbl
 
 
@@ -472,7 +508,7 @@ def move(path: str, new_path: str) -> None:
     """
     if path == new_path:
         raise excs.Error('move(): source and destination cannot be identical')
-    path_obj, new_path_obj = catalog.Path(path), catalog.Path(new_path)
+    path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
     cat = Catalog.get()
@@ -480,12 +516,13 @@ def move(path: str, new_path: str) -> None:
 
 
 def drop_table(
-    table: Union[str, catalog.Table], force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
+    table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
-    """Drop a table, view, or snapshot.
+    """Drop a table, view, snapshot, or replica.
 
     Args:
-        table: Fully qualified name, or handle, of the table to be dropped.
+        table: Fully qualified name or table handle of the table to be dropped; or a remote URI of a cloud replica to
+            be deleted.
         force: If `True`, will also drop all views and sub-views of this table.
         if_not_exists: Directive regarding how to handle if the path does not exist.
             Must be one of the following:
@@ -525,9 +562,69 @@ def drop_table(
         assert isinstance(table, str)
         tbl_path = table
 
-    path_obj = catalog.Path(tbl_path)
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+
+    if tbl_path.startswith('pxt://'):
+        # Remote table
+        if force:
+            raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
+        # TODO: Handle if_not_exists properly
+        share.delete_replica(tbl_path)
+    else:
+        # Local table
+        path_obj = catalog.Path.parse(tbl_path)
+        Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+
+
+def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
+    """Get the contents of a Pixeltable directory.
+
+    Args:
+        dir_path: Path to the directory. Defaults to the root directory.
+        recursive: If `False`, returns only those tables and directories that are directly contained in specified
+            directory; if `True`, returns all tables and directories that are descendants of the specified directory,
+            recursively.
+
+    Returns:
+        A [`DirContents`][pixeltable.DirContents] object representing the contents of the specified directory.
+
+    Raises:
+        Error: If the path does not exist or does not designate a directory.
+
+    Examples:
+        Get contents of top-level directory:
+
+        >>> pxt.get_dir_contents()
+
+        Get contents of 'dir1':
+
+        >>> pxt.get_dir_contents('dir1')
+    """
+    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
+    catalog_entries = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    dirs: list[str] = []
+    tables: list[str] = []
+    _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
+    dirs.sort()
+    tables.sort()
+    return DirContents(dirs, tables)
+
+
+def _assemble_dir_contents(
+    dir_path: str, catalog_entries: dict[str, Catalog.DirEntry], dirs: list[str], tables: list[str]
+) -> None:
+    for name, entry in catalog_entries.items():
+        if name.startswith('_'):
+            continue  # Skip system paths
+        path = f'{dir_path}.{name}' if len(dir_path) > 0 else name
+        if entry.dir is not None:
+            dirs.append(path)
+            if entry.dir_entries is not None:
+                _assemble_dir_contents(path, entry.dir_entries, dirs, tables)
+        else:
+            assert entry.table is not None
+            assert not entry.dir_entries
+            tables.append(path)
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
@@ -557,7 +654,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 
 def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
-    path_obj = catalog.Path(dir_path, empty_is_valid=True, allow_system_paths=allow_system_paths)
+    path_obj = catalog.Path.parse(dir_path, allow_empty_path=True, allow_system_path=allow_system_paths)
     contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
@@ -609,7 +706,7 @@ def create_dir(
 
         >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
     """
-    path_obj = catalog.Path(path)
+    path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
@@ -651,7 +748,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
 
         >>> pxt.drop_dir('my_dir', force=True)
     """
-    path_obj = catalog.Path(path)  # validate format
+    path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
@@ -663,16 +760,19 @@ def ls(path: str = '') -> pd.DataFrame:
     This function returns a Pandas DataFrame representing a human-readable listing of the specified directory,
     including various attributes such as version and base table, as appropriate.
 
-    To get a programmatic list of tables and/or directories, use [list_tables()][pixeltable.list_tables] and/or
-    [list_dirs()][pixeltable.list_dirs] instead.
+    To get a programmatic list of the directory's contents, use [get_dir_contents()][pixeltable.get_dir_contents]
+    instead.
     """
+    from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
 
     cat = Catalog.get()
-    path_obj = catalog.Path(path, empty_is_valid=True)
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)
     dir_entries = cat.get_dir_contents(path_obj)
-    rows: list[list[str]] = []
-    with Catalog.get().begin_xact():
+
+    @retry_loop(for_write=False)
+    def op() -> list[list[str]]:
+        rows: list[list[str]] = []
         for name, entry in dir_entries.items():
             if name.startswith('_'):
                 continue
@@ -688,16 +788,19 @@ def ls(path: str = '') -> pd.DataFrame:
                 base = md['base'] or ''
                 if base.startswith('_'):
                     base = '<anonymous base table>'
-                if md['is_snapshot']:
+                if md['is_replica']:
+                    kind = 'replica'
+                elif md['is_snapshot']:
                     kind = 'snapshot'
                 elif md['is_view']:
                     kind = 'view'
                 else:
                     kind = 'table'
-                version = '' if kind == 'snapshot' else md['version']
-                if md['is_replica']:
-                    kind = f'{kind}-replica'
+                version = '' if kind == 'snapshot' else str(md['version'])
             rows.append([name, kind, version, base])
+        return rows
+
+    rows = op()
 
     rows = sorted(rows, key=lambda x: x[0])
     df = pd.DataFrame(
@@ -753,7 +856,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         >>> cl.list_dirs('my_dir', recursive=True)
         ['my_dir', 'my_dir.sub_dir1']
     """
-    path_obj = catalog.Path(path, empty_is_valid=True)  # validate format
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
     cat = Catalog.get()
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
@@ -788,7 +891,7 @@ def list_functions() -> Styler:
     return pd_df.hide(axis='index')
 
 
-def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
+def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     """
     Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as an input into an
     LLM tool-calling API. To use one or more UDFs as tools, wrap them in a `pxt.tools` call and pass the return value
@@ -865,3 +968,14 @@ def configure_logging(
 
 def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
+
+
+class DirContents(NamedTuple):
+    """
+    Represents the contents of a Pixeltable directory.
+    """
+
+    dirs: list[str]
+    """List of directory paths contained in this directory."""
+    tables: list[str]
+    """List of table paths contained in this directory."""

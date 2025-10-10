@@ -1,9 +1,8 @@
 from textwrap import dedent
 
-import pytest
-
 import pixeltable as pxt
 from pixeltable.catalog import Path, is_valid_identifier, is_valid_path
+from pixeltable.catalog.path import ROOT_PATH
 from pixeltable.share.packager import TablePackager, TableRestorer
 from tests.conftest import clean_db
 from tests.utils import reload_catalog
@@ -38,26 +37,16 @@ class TestCatalog:
 
     def test_path_ancestors(self) -> None:
         # multiple ancestors in path
-        path = Path('a.b.c')
-        ancestors = path.ancestors()
-        assert str(next(ancestors)) == ''
-        assert str(next(ancestors)) == 'a'
-        assert str(next(ancestors)) == 'a.b'
-        with pytest.raises(StopIteration):
-            next(ancestors)
+        path = Path.parse('a.b.c')
+        assert path.ancestors() == [ROOT_PATH, Path(['a']), Path(['a', 'b'])]
 
         # single element in path
-        path = Path('a')
-        ancestors = path.ancestors()
-        assert str(next(ancestors)) == ''
-        with pytest.raises(StopIteration):
-            next(ancestors)
+        path = Path.parse('a')
+        assert path.ancestors() == [ROOT_PATH]
 
         # root
-        path = Path('', empty_is_valid=True)
-        ancestors = path.ancestors()
-        with pytest.raises(StopIteration):
-            next(ancestors)
+        path = Path.parse('', allow_empty_path=True)
+        assert path.ancestors() == []
 
     def test_ls(self, reset_db: None) -> None:
         t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
@@ -87,12 +76,12 @@ class TestCatalog:
         print(repr(df))
         assert dedent(repr(df)) == dedent(
             '''
-                 Name              Kind Version                    Base
-             replica1  snapshot-replica          <anonymous base table>
-            snapshot1          snapshot                         view1:2
-            snapshot2          snapshot                test_dir.view2:0
-               subdir               dir                                |
-                  tbl             table       4                        |
-                view2              view       1            test_dir.tbl
+                 Name      Kind Version                      Base
+             replica1   replica       0  <anonymous base table>:0
+            snapshot1  snapshot                           view1:2
+            snapshot2  snapshot                  test_dir.view2:0
+               subdir       dir                                  |
+                  tbl     table       4                          |
+                view2      view       1              test_dir.tbl
             '''
         ).strip('\n').replace('|', '')  # fmt: skip

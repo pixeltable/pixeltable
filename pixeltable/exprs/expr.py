@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
@@ -368,6 +368,15 @@ class Expr(abc.ABC):
         for e in expr_list:
             yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
 
+    @classmethod
+    def list_contains(
+        cls,
+        expr_list: Iterable[Expr],
+        expr_class: type[Expr] | None = None,
+        filter: Callable[[Expr], bool] | None = None,
+    ) -> bool:
+        return any(e._contains(expr_class, filter) for e in expr_list)
+
     def _contains(self, cls: Optional[type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.
@@ -550,7 +559,7 @@ class Expr(abc.ABC):
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'exprs.TypeCast':
+    def astype(self, new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast':
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
@@ -562,7 +571,7 @@ class Expr(abc.ABC):
         return TypeCast(self, col_type)
 
     def apply(
-        self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None
+        self, fn: Callable, *, col_type: ts.ColumnType | type | _AnnotatedAlias | None = None
     ) -> 'exprs.FunctionCall':
         if col_type is not None:
             col_type = ts.ColumnType.normalize_type(col_type)
@@ -646,7 +655,7 @@ class Expr(abc.ABC):
 
     def _make_comparison(self, op: ComparisonOperator, other: object) -> 'exprs.Comparison':
         """
-        other: Union[Expr, LiteralPythonTypes]
+        other: Expr | LiteralPythonTypes
         """
         # TODO: check for compatibility
         from .comparison import Comparison
@@ -661,7 +670,7 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringOp]:
+    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
         if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
@@ -669,7 +678,7 @@ class Expr(abc.ABC):
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
         if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
             return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
@@ -683,7 +692,7 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
         if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
@@ -691,7 +700,7 @@ class Expr(abc.ABC):
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
         if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
             return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
@@ -733,7 +742,7 @@ class Expr(abc.ABC):
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
-        other: Union[Expr, LiteralPythonTypes]
+        other: Expr | LiteralPythonTypes
         """
         # TODO: check for compatibility
         from .arithmetic_expr import ArithmeticExpr

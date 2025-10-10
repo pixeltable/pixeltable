@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exprs
 from pixeltable.env import Env
 from pixeltable.functions.date import (
     day,
@@ -40,6 +40,7 @@ class TestDate:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
+        assert default_tz == Env.get().default_time_zone
 
         test_dts, t = self.make_test_table()
 
@@ -107,7 +108,7 @@ class TestDate:
     def test_date_arith(self, reset_db: None) -> None:
         _, t = self.make_test_table()
 
-        with pytest.raises(excs.Error, match='requires numeric types'):
+        with pytest.raises(pxt.Error, match='requires numeric types'):
             _ = t.select(t.dt, outp=t.dt + 1)
-        with pytest.raises(excs.Error, match='requires numeric types'):
+        with pytest.raises(pxt.Error, match='requires numeric types'):
             _ = t.select(t.dt, outm=t.dt - 1)

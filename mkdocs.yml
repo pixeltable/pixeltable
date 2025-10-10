@@ -29,9 +29,15 @@ nav:
       - DocumentSplitter: pixeltable/iterators/document-splitter.md
       - FrameIterator: pixeltable/iterators/frame-iterator.md
       - TileIterator: pixeltable/iterators/tile-iterator.md
+      - VideoSplitter: pixeltable/iterators/video-splitter.md
+    - ColumnMetadata: pixeltable/column-metadata.md
     - DataFrame: pixeltable/data-frame.md
+    - DirContents: pixeltable/dir-contents.md
+    - IndexMetadata: pixeltable/index-metadata.md
     - Table: pixeltable/table.md
+    - TableMetadata: pixeltable/table-metadata.md
     - UpdateStatus: pixeltable/update-status.md
+    - VersionMetadata: pixeltable/version-metadata.md
   - Built-in Functions and Operators:
     - audio: pixeltable/functions/audio.md
     - date: pixeltable/functions/date.md
@@ -55,12 +61,12 @@ nav:
     - mistralai: pixeltable/functions/mistralai.md
     - ollama: pixeltable/functions/ollama.md
     - openai: pixeltable/functions/openai.md
+    - openrouter: pixeltable/functions/openrouter.md
     - replicate: pixeltable/functions/replicate.md
     - together: pixeltable/functions/together.md
     - whisper: pixeltable/functions/whisper.md
-  - Extended Model and Inference Functions:
-    - whisperx: pixeltable/ext/functions/whisperx.md
-    - yolox: pixeltable/ext/functions/yolox.md
+    - whisperx: pixeltable/functions/whisperx.md
+    - yolox: pixeltable/functions/yolox.md
 
 validation:
   omitted_files: warn

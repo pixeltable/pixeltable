@@ -1,0 +1,352 @@
+---
+title: "pixeltable.functions.timestamp"
+sidebarTitle: "timestamp"
+icon: "square-m"
+---
+
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `TimestampType`.
+
+Usage example:
+
+``` python
+import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
+```
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/functions/timestamp.py#L0" target="_blank">View source on GitHub</a>
+
+## UDFs
+
+
+---
+
+### `astimezone()` <sub>udf</sub>
+
+Convert the datetime to the given time zone.
+
+
+**Signature:**
+
+```python
+astimezone(
+    self: Timestamp,
+    tz: String
+)-> Timestamp
+```
+
+**Parameters:**
+
+- **`tz`** (*String*): The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.
+
+
+---
+
+### `day()` <sub>udf</sub>
+
+Between 1 and the number of days in the given month of the given year.
+
+
+Equivalent to [`datetime.day`](https://docs.python.org/3/library/datetime.html#datetime.datetime.day).
+
+
+**Signature:**
+
+```python
+day(self: Timestamp)-> Int
+```
+
+
+---
+
+### `hour()` <sub>udf</sub>
+
+Between 0 and 23 inclusive.
+
+
+Equivalent to [`datetime.hour`](https://docs.python.org/3/library/datetime.html#datetime.datetime.hour).
+
+
+**Signature:**
+
+```python
+hour(self: Timestamp)-> Int
+```
+
+
+---
+
+### `isocalendar()` <sub>udf</sub>
+
+Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
+
+
+Equivalent to [`datetime.isocalendar()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isocalendar).
+
+
+**Signature:**
+
+```python
+isocalendar(self: Timestamp)-> Json
+```
+
+
+---
+
+### `isoformat()` <sub>udf</sub>
+
+Return a string representing the date and time in ISO 8601 format.
+
+
+Equivalent to [`datetime.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoformat).
+
+
+**Signature:**
+
+```python
+isoformat(
+    self: Timestamp,
+    sep: String,
+    timespec: String
+)-> String
+```
+
+**Parameters:**
+
+- **`sep`** (*String*): Separator between date and time.
+- **`timespec`** (*String*): The number of additional terms in the output. See the [`datetime.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoformat) documentation for more details.
+
+
+---
+
+### `isoweekday()` <sub>udf</sub>
+
+Return the day of the week as an integer, where Monday is 1 and Sunday is 7.
+
+
+Equivalent to [`datetime.isoweekday()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoweekday).
+
+
+**Signature:**
+
+```python
+isoweekday(self: Timestamp)-> Int
+```
+
+
+---
+
+### `make_timestamp()` <sub>udf</sub>
+
+Create a timestamp.
+
+
+Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime).
+
+
+**Signature:**
+
+```python
+make_timestamp(
+    year: Int,
+    month: Int,
+    day: Int,
+    hour: Int,
+    minute: Int,
+    second: Int,
+    microsecond: Int
+)-> Timestamp
+```
+
+
+---
+
+### `microsecond()` <sub>udf</sub>
+
+Between 0 and 999999 inclusive.
+
+
+Equivalent to [`datetime.microsecond`](https://docs.python.org/3/library/datetime.html#datetime.datetime.microsecond).
+
+
+**Signature:**
+
+```python
+microsecond(self: Timestamp)-> Int
+```
+
+
+---
+
+### `minute()` <sub>udf</sub>
+
+Between 0 and 59 inclusive.
+
+
+Equivalent to [`datetime.minute`](https://docs.python.org/3/library/datetime.html#datetime.datetime.minute).
+
+
+**Signature:**
+
+```python
+minute(self: Timestamp)-> Int
+```
+
+
+---
+
+### `month()` <sub>udf</sub>
+
+Between 1 and 12 inclusive.
+
+
+Equivalent to [`datetime.month`](https://docs.python.org/3/library/datetime.html#datetime.datetime.month).
+
+
+**Signature:**
+
+```python
+month(self: Timestamp)-> Int
+```
+
+
+---
+
+### `posix_timestamp()` <sub>udf</sub>
+
+Return POSIX timestamp corresponding to the datetime instance.
+
+
+Equivalent to [`datetime.timestamp()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.timestamp).
+
+
+**Signature:**
+
+```python
+posix_timestamp(self: Timestamp)-> Float
+```
+
+
+---
+
+### `replace()` <sub>udf</sub>
+
+Return a datetime with the same attributes, except for those attributes given new values by whichever keyword
+
+
+arguments are specified.
+
+Equivalent to [`datetime.replace()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.replace).
+
+
+**Signature:**
+
+```python
+replace(
+    self: Timestamp,
+    year: Optional[Int],
+    month: Optional[Int],
+    day: Optional[Int],
+    hour: Optional[Int],
+    minute: Optional[Int],
+    second: Optional[Int],
+    microsecond: Optional[Int]
+)-> Timestamp
+```
+
+
+---
+
+### `second()` <sub>udf</sub>
+
+Between 0 and 59 inclusive.
+
+
+Equivalent to [`datetime.second`](https://docs.python.org/3/library/datetime.html#datetime.datetime.second).
+
+
+**Signature:**
+
+```python
+second(self: Timestamp)-> Int
+```
+
+
+---
+
+### `strftime()` <sub>udf</sub>
+
+Return a string representing the date and time, controlled by an explicit format string.
+
+
+Equivalent to [`datetime.strftime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.strftime).
+
+
+**Signature:**
+
+```python
+strftime(
+    self: Timestamp,
+    format: String
+)-> String
+```
+
+**Parameters:**
+
+- **`format`** (*String*): The format string to control the output. For a complete list of formatting directives, see [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+
+
+---
+
+### `toordinal()` <sub>udf</sub>
+
+Return the proleptic Gregorian ordinal of the date, where January 1 of year 1 has ordinal 1.
+
+
+Equivalent to [`datetime.toordinal()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.toordinal).
+
+
+**Signature:**
+
+```python
+toordinal(self: Timestamp)-> Int
+```
+
+
+---
+
+### `weekday()` <sub>udf</sub>
+
+Between 0 (Monday) and 6 (Sunday) inclusive.
+
+
+Equivalent to [`datetime.weekday()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.weekday).
+
+
+**Signature:**
+
+```python
+weekday(self: Timestamp)-> Int
+```
+
+
+---
+
+### `year()` <sub>udf</sub>
+
+Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
+
+
+[`MAXYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MAXYEAR) inclusive.
+
+Equivalent to [`datetime.year`](https://docs.python.org/3/library/datetime.html#datetime.datetime.year).
+
+
+**Signature:**
+
+```python
+year(self: Timestamp)-> Int
+```
+

@@ -8,9 +8,11 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, cast
 
+import numpy as np
 import pandas as pd
+import PIL
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
@@ -325,7 +327,11 @@ class JsonTableDataConduit(TableDataConduit):
 
 
 class HFTableDataConduit(TableDataConduit):
-    hf_ds: Optional[Union[datasets.Dataset, datasets.DatasetDict]] = None
+    """
+    TODO:
+    - use set_format('arrow') and convert ChunkedArrays to PIL.Image.Image instead of going through numpy, which is slow
+    """
+
     column_name_for_split: Optional[str] = None
     categorical_features: dict[str, dict[int, str]]
     dataset_dict: dict[str, datasets.Dataset] = None
@@ -339,9 +345,19 @@ class HFTableDataConduit(TableDataConduit):
         import datasets
 
         assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
-        t.hf_ds = tds.source
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
+
+        # make sure we get numpy arrays for arrays, not Python lists
+        source = tds.source.with_format(type='numpy')
+        if isinstance(source, datasets.Dataset):
+            # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
+            raw_name = source.split._name
+            split_name = raw_name.split('[')[0] if raw_name is not None else None
+            t.dataset_dict = {split_name: source}
+        else:
+            assert isinstance(source, datasets.DatasetDict)
+            t.dataset_dict = source
         return t
 
     @classmethod
@@ -361,7 +377,7 @@ class HFTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
-            self.hf_schema_source = _get_hf_schema(self.hf_ds)
+            self.hf_schema_source = _get_hf_schema(self.source)
             self.src_schema = huggingface_schema_to_pxt_schema(
                 self.hf_schema_source, self.src_schema_overrides, self.src_pk
             )
@@ -396,15 +412,6 @@ class HFTableDataConduit(TableDataConduit):
     def prepare_insert(self) -> None:
         import datasets
 
-        if isinstance(self.source, datasets.Dataset):
-            # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
-            raw_name = self.source.split._name
-            split_name = raw_name.split('[')[0] if raw_name is not None else None
-            self.dataset_dict = {split_name: self.source}
-        else:
-            assert isinstance(self.source, datasets.DatasetDict)
-            self.dataset_dict = self.source
-
         # extract all class labels from the dataset to translate category ints to strings
         self.categorical_features = {
             feature_name: feature_type.names
@@ -415,25 +422,43 @@ class HFTableDataConduit(TableDataConduit):
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.hf_schema_source.keys())
 
-    def _translate_row(self, row: dict[str, Any], split_name: str) -> dict[str, Any]:
+    def _translate_row(self, row: dict[str, Any], split_name: str, features: datasets.Features) -> dict[str, Any]:
         output_row: dict[str, Any] = {}
         for col_name, val in row.items():
             # translate category ints to strings
             new_val = self.categorical_features[col_name][val] if col_name in self.categorical_features else val
             mapped_col_name = self.source_column_map.get(col_name, col_name)
 
-            # Convert values to the appropriate type if needed
-            try:
-                checked_val = self.pxt_schema[mapped_col_name].create_literal(new_val)
-            except TypeError as e:
-                msg = str(e)
-                raise excs.Error(f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
-            output_row[mapped_col_name] = checked_val
+            new_val = self._translate_val(new_val, features[col_name])
+            output_row[mapped_col_name] = new_val
 
         # add split name to output row
         if self.column_name_for_split is not None:
             output_row[self.column_name_for_split] = split_name
         return output_row
+
+    def _translate_val(self, val: Any, feature: datasets.Feature) -> Any:
+        """Convert numpy scalars to Python types and images to PIL.Image.Image"""
+        import datasets
+
+        if isinstance(feature, datasets.Value):
+            if isinstance(val, (np.generic, np.ndarray)):
+                # a scalar, which we want as a standard Python type
+                assert np.ndim(val) == 0
+                return val.item()
+            else:
+                # a standard Python object
+                return val
+        elif isinstance(feature, datasets.Sequence):
+            assert np.ndim(val) > 0
+            return val
+        elif isinstance(feature, datasets.Image):
+            return PIL.Image.fromarray(val)
+        elif isinstance(feature, dict):
+            assert isinstance(val, dict)
+            return {k: self._translate_val(v, feature[k]) for k, v in val.items()}
+        else:
+            return val
 
     def valid_row_batch(self) -> Iterator[RowData]:
         for split_name, split_dataset in self.dataset_dict.items():
@@ -443,7 +468,7 @@ class HFTableDataConduit(TableDataConduit):
 
             batch = []
             for row in split_dataset:
-                batch.append(self._translate_row(row, split_name))
+                batch.append(self._translate_row(row, split_name, split_dataset.features))
                 if len(batch) >= tuples_per_batch:
                     yield batch
                     batch = []
@@ -469,12 +494,12 @@ class ParquetTableDataConduit(TableDataConduit):
         return t
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        from pixeltable.utils.arrow import ar_infer_schema
+        from pixeltable.utils.arrow import to_pxt_schema
 
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
-            self.src_schema = ar_infer_schema(self.pq_ds.schema, self.src_schema_overrides, self.src_pk)
+            self.src_schema = to_pxt_schema(self.pq_ds.schema, self.src_schema_overrides, self.src_pk)
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
                 self.src_schema, self.src_pk, self.src_schema_overrides
             )

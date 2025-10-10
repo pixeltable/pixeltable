@@ -1,11 +1,16 @@
 import datetime
 import glob
+import itertools
 import json
 import os
 import random
-import urllib.parse
+import shutil
+import subprocess
+import sysconfig
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
+from unittest import TestCase
+from uuid import uuid4
 
 import more_itertools
 import numpy as np
@@ -15,14 +20,22 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-import pixeltable.utils.s3 as s3_util
-from pixeltable import catalog, exceptions as excs
-from pixeltable.catalog.update_status import UpdateStatus
+from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.object_stores import ObjectOps
 
 TESTS_DIR = Path(os.path.dirname(__file__))
+
+
+def runs_linux_with_gpu() -> bool:
+    try:
+        import torch
+
+        return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
+    except ImportError:
+        return False
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -50,9 +63,7 @@ def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.T
     return pxt.create_table(name, schema)
 
 
-def create_table_data(
-    t: catalog.Table, col_names: Optional[list[str]] = None, num_rows: int = 10
-) -> list[dict[str, Any]]:
+def create_table_data(t: pxt.Table, col_names: Optional[list[str]] = None, num_rows: int = 10) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: dict[str, Any] = {}
@@ -125,7 +136,7 @@ def create_table_data(
     return rows
 
 
-def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
+def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
     schema = {
         'c1': pxt.Required[pxt.String],
         'c1n': pxt.String,
@@ -186,7 +197,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     return t
 
 
-def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
+def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     schema = {'img': pxt.Required[pxt.Image], 'category': pxt.Required[pxt.String], 'split': pxt.Required[pxt.String]}
     tbl = pxt.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -199,7 +210,7 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Tab
     return tbl
 
 
-def create_all_datatypes_tbl() -> catalog.Table:
+def create_all_datatypes_tbl() -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -225,7 +236,7 @@ def create_all_datatypes_tbl() -> catalog.Table:
     return tbl
 
 
-def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> catalog.Table:
+def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> pxt.Table:
     """
     Creates a table with scalar columns, each of which contains randomly generated data.
     """
@@ -266,6 +277,24 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     return tbl
 
 
+def inf_array_iterator(
+    shapes: list[tuple[int, ...]], dtypes: list[type[np.integer | np.floating | np.bool_]]
+) -> Iterator[np.ndarray]:
+    """Generate random arrays of different sizes and dtypes."""
+    size_iter = itertools.cycle(shapes)
+    dtype_iter = itertools.cycle(dtypes)
+    rng = np.random.default_rng(0)
+    while True:
+        size = next(size_iter)
+        dtype = next(dtype_iter)
+        if dtype is np.bool_:
+            yield rng.integers(0, 2, size=size, dtype=bool)
+        elif np.issubdtype(dtype, np.integer):
+            yield rng.integers(0, 100, size=size, dtype=dtype)
+        else:
+            yield rng.random(size=size, dtype=dtype)  # type: ignore[arg-type]
+
+
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
@@ -303,6 +332,29 @@ def get_test_video_files() -> list[str]:
     return glob_result
 
 
+def generate_test_video(
+    tmp_path: Path,
+    duration: float = 1.0,
+    size: str = '640x360',
+    fps: int = 25,
+    has_audio: bool = True,
+    pix_fmt: str = 'yuv420p',
+) -> str:
+    """Create test video with specific properties using ffmpeg and return its path"""
+    cmd = ['ffmpeg', '-f', 'lavfi', '-i', f'testsrc=duration={duration}:size={size}:rate={fps}']
+    if has_audio:
+        cmd.extend(['-f', 'lavfi', '-i', f'sine=frequency=440:duration={duration}'])
+    if Env.get().default_video_encoder is not None:
+        cmd.extend(['-c:v', Env.get().default_video_encoder])
+    cmd.extend(['-pix_fmt', pix_fmt])
+    if has_audio:
+        cmd.extend(['-c:a', 'aac'])
+    output_path = tmp_path / f'{uuid4()}.mp4'
+    cmd.extend(['-y', str(output_path)])
+    subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
+
+
 __IMAGE_FILES: list[str] = []
 __IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
 
@@ -334,6 +386,11 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
     return __IMAGE_FILES_WITH_BAD_IMAGE if include_bad_image else __IMAGE_FILES
 
 
+def inf_image_iterator(include_bad_image: bool = False) -> Iterator[PIL.Image.Image]:
+    for f in itertools.cycle(get_image_files(include_bad_image)):
+        yield PIL.Image.open(f)
+
+
 def __image_mode(path: str) -> str:
     image = PIL.Image.open(path)
     try:
@@ -344,23 +401,7 @@ def __image_mode(path: str) -> str:
 
 def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     uri = 's3://multimedia-commons/data/videos/mp4/'
-    parsed = urllib.parse.urlparse(uri)
-    bucket_name = parsed.netloc
-    prefix = parsed.path.lstrip('/')
-    s3_client = s3_util.get_client()
-    uris: list[str] = []
-    # Use paginator to handle more than 1000 objects
-    paginator = s3_client.get_paginator('list_objects_v2')
-
-    for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
-        if 'Contents' not in page:
-            continue
-        for obj in page['Contents']:
-            if len(uris) >= n:
-                return uris
-            uri = f's3://{bucket_name}/{obj["Key"]}'
-            uris.append(uri)
-    return uris
+    return ObjectOps.list_uris(uri, n_max=n)
 
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
@@ -430,13 +471,32 @@ def __equality_comparer(x: Any, y: Any) -> bool:
     return x == y
 
 
+def __json_comparer(x: Any, y: Any) -> bool:
+    if type(x) is not type(y):
+        return False
+    if isinstance(x, dict):
+        return set(x.keys()) == set(y.keys()) and all(__json_comparer(x[k], y[k]) for k in x)
+    if isinstance(x, list):
+        return len(x) == len(y) and all(__json_comparer(a, b) for a, b in zip(x, y))
+    if isinstance(x, float):
+        return __float_comparer(x, y)
+    if isinstance(x, np.ndarray):
+        return __array_comparer(x, y)
+    return x == y
+
+
 __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.FLOAT: __float_comparer,
     ts.ColumnType.Type.ARRAY: __array_comparer,
+    ts.ColumnType.Type.JSON: __json_comparer,
     ts.ColumnType.Type.VIDEO: __file_comparer,
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,
 }
+
+
+def assert_json_eq(x: Any, y: Any, context: str = '') -> None:
+    assert __json_comparer(x, y), f'{context}: {x} != {y}'
 
 
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
@@ -446,6 +506,38 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
     if len(mismatches) > 5:
         lines.append(f'(... {len(mismatches) - 5} more mismatches)')
     return '\n'.join(lines)
+
+
+def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata) -> None:
+    """
+    Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
+    `version_created` will be checked to be less than 1 minute ago; the other fields will be checked for exact
+    equality.
+    """
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    actual_created_at: datetime.datetime = actual['version_created']
+    assert (now - actual_created_at).total_seconds() <= 60
+
+    trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
+
+
+def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMetadata) -> None:
+    """
+    Assert that version metadata (user-facing metadata as returned by `tbl.get_versions()`) matches the expected dict.
+    `created_at` will be checked to be less than 1 minute ago; the other fields will be checked for exact
+    equality.
+    """
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    actual_created_at: datetime.datetime = actual['created_at']
+    assert (now - actual_created_at).total_seconds() <= 60
+
+    trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
+    tc = TestCase()
+    tc.maxDiff = 10_000
+    tc.assertDictEqual(expected, trimmed_actual)
 
 
 def strip_lines(s: str) -> str:
@@ -459,11 +551,22 @@ def skip_test_if_not_installed(*packages: str) -> None:
             pytest.skip(f'Package `{package}` is not installed.')
 
 
+def skip_test_if_not_in_path(*binaries: str) -> None:
+    for binary in binaries:
+        if shutil.which(binary) is None:
+            pytest.skip(f'Binary `{binary}` is not in PATH.')
+
+
 def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
-    except excs.Error as exc:
+    except pxt.Error as exc:
         pytest.skip(str(exc))
+
+
+def skip_test_if_no_pxt_credentials() -> None:
+    if not Env.get().pxt_api_key:
+        pytest.skip('No Pixeltable API key is configured.')
 
 
 def skip_test_if_no_aws_credentials() -> None:
@@ -477,14 +580,14 @@ def skip_test_if_no_aws_credentials() -> None:
         pytest.skip(str(exc))
 
 
-def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
+def validate_update_status(status: pxt.UpdateStatus, expected_rows: Optional[int] = None) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
 
 
 def validate_sync_status(
-    status: UpdateStatus,
+    status: pxt.UpdateStatus,
     expected_external_rows_created: Optional[int] = None,
     expected_external_rows_updated: Optional[int] = None,
     expected_external_rows_deleted: Optional[int] = None,
@@ -561,7 +664,7 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) ->
 
 
 def reload_catalog() -> None:
-    catalog.Catalog.clear()
+    Catalog.clear()
     pxt.init()
 
 
@@ -617,6 +720,19 @@ class ReloadTester:
                 raise RuntimeError(s) from e
         if clear:
             self.clear()
+
+
+def rerun(**kwargs: Any) -> Callable:
+    from .conftest import DO_RERUN
+
+    if 'condition' in kwargs:
+        kwargs['condition'] = DO_RERUN and kwargs['condition']
+    else:
+        kwargs['condition'] = DO_RERUN
+    if 'only_rerun' not in kwargs:
+        # Set this to an explicit empty list to override the global default in cases where the @rerun decorator is used
+        kwargs['only_rerun'] = []
+    return pytest.mark.flaky(**kwargs)
 
 
 # This will be set to True if the tests are running in a CI environment.
