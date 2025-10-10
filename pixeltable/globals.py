@@ -661,7 +661,7 @@ def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths:
 
 def create_dir(
     path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
-) -> Optional[catalog.Dir]:
+) -> None:
     """Create a directory.
 
     Args:
@@ -708,7 +708,7 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:

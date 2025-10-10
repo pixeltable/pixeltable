@@ -169,8 +169,11 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
+    from transformers.utils import logging
+    logging.set_verbosity_error()
+
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
-    processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
+    processor = _lookup_processor(model_id, lambda x: CLIPProcessor.from_pretrained)
 
     with torch.no_grad():
         inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
