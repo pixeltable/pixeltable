@@ -37,7 +37,7 @@ from .view import View
 if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
-    from .. import DataFrame, exprs
+    from .. import exprs
 
 
 _logger = logging.getLogger('pixeltable')
@@ -958,12 +958,10 @@ class Catalog:
                 return self._load_tbl_at_version(tbl_id, version)
         return self._tbls.get((tbl_id, version))
 
-    @retry_loop(for_write=True)
     def create_table(
         self,
         path: Path,
         schema: dict[str, Any],
-        df: 'DataFrame',
         if_exists: IfExistsParam,
         primary_key: Optional[list[str]],
         num_retained_versions: int,
@@ -977,26 +975,36 @@ class Catalog:
 
         Otherwise, creates a new table `t` and returns `t, True` (or raises an exception if the operation fails).
         """
-        existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-        if existing is not None:
-            assert isinstance(existing, Table)
-            return existing, False
 
-        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-        assert dir is not None
+        @retry_loop(for_write=True)
+        def create_fn() -> tuple[UUID, bool]:
+            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
+            if existing is not None:
+                assert isinstance(existing, Table)
+                return existing._id, False
 
-        tbl = InsertableTable._create(
-            dir._id,
-            path.name,
-            schema,
-            df,
-            primary_key=primary_key,
-            num_retained_versions=num_retained_versions,
-            comment=comment,
-            media_validation=media_validation,
-        )
-        self._tbls[tbl._id, None] = tbl
-        return tbl, True
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+
+            md, ops = InsertableTable._create(
+                path.name,
+                schema,
+                primary_key=primary_key,
+                num_retained_versions=num_retained_versions,
+                comment=comment,
+                media_validation=media_validation,
+            )
+            tbl_id = UUID(md.tbl_md.tbl_id)
+            self.store_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            return tbl_id, True
+
+        tbl_id, is_created = create_fn()
+        # finalize pending ops
+        with self.begin_xact(tbl_id=tbl_id, for_write=True, finalize_pending_ops=True):
+            tbl = self.get_table_by_id(tbl_id)
+            _logger.info(f'Created table {tbl._name!r}, id={tbl._id}')
+            Env.get().console_logger.info(f'Created table {tbl._name!r}.')
+            return tbl, is_created
 
     def create_view(
         self,

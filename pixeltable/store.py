@@ -111,6 +111,11 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
+        for index_md in [md for md in tbl_version.tbl_md.index_md.values() if md.schema_version_drop is None]:
+            val_col = tbl_version.cols_by_id[index_md.index_val_col_id]
+            idx = sql.Index(index_md.name, val_col.sa_col, postgresql_using='btree')
+            idxs.append(idx)
+
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 

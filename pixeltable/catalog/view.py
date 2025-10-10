@@ -160,11 +160,11 @@ class View(Table):
             # a component view exposes the pos column of its rowid;
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
-            iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), stored=False)]
+            iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
             output_dict, unstored_cols = iterator_cls.output_schema(**literal_args)
             iterator_cols.extend(
                 [
-                    Column(col_name, col_type, stored=col_name not in unstored_cols)
+                    Column(col_name, col_type, is_iterator_col=True, stored=col_name not in unstored_cols)
                     for col_name, col_type in output_dict.items()
                 ]
             )

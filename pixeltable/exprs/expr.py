@@ -495,6 +495,16 @@ class Expr(abc.ABC):
         """
         pass
 
+    def prepare(self) -> None:
+        """Create execution state"""
+        for c in self.components:
+            c.prepare()
+
+    @classmethod
+    def prepare_list(cls, expr_list: list[Expr]) -> None:
+        for e in expr_list:
+            e.prepare()
+
     def release(self) -> None:
         """
         Allow Expr class to tear down execution state. This is called after the last eval() call.
