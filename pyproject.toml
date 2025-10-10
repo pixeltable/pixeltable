@@ -156,7 +156,6 @@ llama-cpp-python = { version = ">=0.3.9", platform = "!=win32" }  # Windows buil
 mcp = ">=1.9.4"
 pixeltable-yolox = "==0.4.2"
 
-
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 

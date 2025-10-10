@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from pixeltable.iterators.document import DocumentSplitter
+from pixeltable.utils import documents, utils
 
 try:
     from IPython.display import display
@@ -17,29 +18,11 @@ except ImportError:
 # pytest -v tests/test_pdf_page_images.py
 #
 
-def find_pdfs(path: str, limit: int = 50, recursive: bool = True) -> List[str]:
-    """Find PDF files in a directory up to a certain limit."""
-    pdf_paths = []
-    if recursive:
-        for root, _, files in os.walk(path):
-            for file in files:
-                if file.lower().endswith('.pdf'):
-                    pdf_paths.append(os.path.join(root, file))
-                    if len(pdf_paths) >= limit:
-                        return pdf_paths
-    else:
-        for file in os.listdir(path):
-            if file.lower().endswith('.pdf'):
-                pdf_paths.append(os.path.join(path, file))
-                if len(pdf_paths) >= limit:
-                    break
-    return pdf_paths
-
-
 class TestPdfPageImages:
     @pytest.mark.parametrize("limit", [2])  # keep runtime low
     def test_pdf_page_images(self, limit: int) -> None:
-        pdfs = find_pdfs("tests/data/documents", limit=limit)
+
+        pdfs = [path for path in utils.get_documents() if path.endswith('.pdf')]
         assert pdfs, "No PDF files found for testing."
 
         for doc_path in pdfs:
