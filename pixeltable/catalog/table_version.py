@@ -201,6 +201,9 @@ class TableVersion:
         else:
             return f'{self.name}:{self.effective_version}'
 
+    def __repr__(self) -> str:
+        return f'TableVersion(id={self.id!r}, version={self.version}, name={self.name!r})'
+
     @property
     def handle(self) -> 'TableVersionHandle':
         from .table_version_handle import TableVersionHandle
@@ -409,14 +412,39 @@ class TableVersion:
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
         self._init_cols()
-        if not self.is_snapshot:
-            self._init_idxs()
+        self._init_idxs()
+
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
 
         # created value_exprs after everything else has been initialized
         for col in self.cols_by_id.values():
             col.init_value_expr()
+
+    def _has_idxs(self) -> bool:
+        """
+        Determines if this TableVersion supports indices.
+
+        Ordinarily, snapshots do not have indices, since we cannot rely on the index information in the underlying
+        table(s) to align with the snapshot version. However, we *do* allow indices for replicas, provided that the
+        version of the replica is the most recent version available in the catalog.
+        """
+        # TODO: Ideally we wouldn't need the "provided that..." restriction, but resolving it will require some
+        #     rearchitecture of the way replica indices are stored.
+        # TODO: What if the user does a t.pull() and retrieves a more recent version than this one? Verify that this
+        #     correctly invalidates the indices in this TableVersion.
+        from pixeltable.catalog import Catalog
+
+        if not self.is_snapshot:
+            return True  # Non-snapshots always have indices
+        if not self.is_replica:
+            return False  # Non-replica snapshots never have indices
+
+        # Replicas can have indices if they're the most recent version available in the catalog.
+        head_version = Catalog.get()._collect_tbl_history(self.id, n=1)
+        assert len(head_version) == 1
+        assert self.version is not None  # Should always be true for replicas
+        return head_version[0].version_md.version == self.version
 
     def _init_cols(self) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
@@ -448,39 +476,70 @@ class TableVersion:
             #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
-        # self.idx_md = tbl_md.index_md
-        self.idxs_by_name = {}
-        import pixeltable.index as index_module
+        self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}
+        has_idxs = self._has_idxs()
 
         for md in self.tbl_md.index_md.values():
-            if md.schema_version_add > self.schema_version or (
-                md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version
-            ):
-                # index not visible in this schema version
-                continue
-
-            # instantiate index object
+            # Instantiate index object. This needs to be done for all indices, even those that are not active in this
+            # TableVersion, so that we can make appropriate adjustments to the SA schema.
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
-            cls = getattr(index_module, cls_name)
-            idx_col: Column
-            if md.indexed_col_tbl_id == str(self.id):
-                # this is a reference to one of our columns: avoid TVP.get_column_by_id() here, because we're not fully
-                # initialized yet
-                idx_col = self.cols_by_id[md.indexed_col_id]
-            else:
-                assert self.path.base is not None
-                idx_col = self.path.base.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            cls = getattr(index, cls_name)
+            idx_col = self._lookup_column(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            assert idx_col is not None
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
-            val_col = self.cols_by_id[md.index_val_col_id]
+            # we need to do this for all indices, not just those that are active in this TableVersion, to ensure we get
+            # the correct SA schema in the StoreTable.
+            val_col = next(col for col in self.cols if col.id == md.index_val_col_id)
             val_col.sa_col_type = idx.index_sa_type()
-            val_col._stores_cellmd = False
-            undo_col = self.cols_by_id[md.index_val_undo_col_id]
+            undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
             undo_col.sa_col_type = idx.index_sa_type()
+            if not isinstance(idx, index.EmbeddingIndex):
+                # Historically, the intent has been not to store cellmd data, even for embedding indices. However,
+                # the cellmd columns get created anyway, even if stores_cellmd is set to `False` here, due to the
+                # timing of index column creation. In order to ensure that SA schemas align with what is actually in
+                # the physical tables, we keep this `True` for embedding indices.
+                # TODO: Decide whether index columns should store cellmd data.
+                #     - If not, set to `False`, fix the column creation timing issue, and add a migration script to
+                #       remedy existing cellmd columns.
+                #     - If so, remove this TODO.
+                val_col._stores_cellmd = False
             undo_col._stores_cellmd = False
-            idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
-            self.idxs_by_name[md.name] = idx_info
+
+            # The index is active in this TableVersion provided that:
+            # (i) the TableVersion supports indices (either it's not a snapshot, or it's a replica at
+            #     the head version); and
+            # (ii) the index was created on or before the schema version of this TableVersion; and
+            # (iii) the index was not dropped on or before the schema version of this TableVersion.
+            if (
+                has_idxs
+                and md.schema_version_add <= self.schema_version
+                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
+            ):
+                # Since the index is present in this TableVersion, its associated columns must be as well.
+                # Sanity-check this.
+                assert md.indexed_col_id in self.cols_by_id
+                assert md.index_val_col_id in self.cols_by_id
+                assert md.index_val_undo_col_id in self.cols_by_id
+                idx_info = self.IndexInfo(
+                    id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col
+                )
+                self.idxs_by_name[md.name] = idx_info
+
+    def _lookup_column(self, tbl_id: UUID, col_id: int) -> Column | None:
+        """
+        Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
+        to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
+
+        This will search through *all* known columns, including columns that are not visible in this TableVersion.
+        """
+        if tbl_id == self.id:
+            return next(col for col in self.cols if col.id == col_id)
+        elif self.base is not None:
+            return self.base.get()._lookup_column(tbl_id, col_id)
+        else:
+            return None
 
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
