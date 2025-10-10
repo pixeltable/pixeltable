@@ -1,5 +1,6 @@
 import io
 import itertools
+import logging
 import os
 
 #
@@ -12,18 +13,19 @@ from PIL import Image
 
 from pixeltable.iterators.document import DocumentSplitter
 from tests import utils
-import logging
 
 log = logging.getLogger(__name__)
+
 
 def show(chunk: Any, doc_path: Any) -> None:
     try:
         from IPython.display import display as _display
+
         _display(f'PDF: {os.path.basename(doc_path)}, page {chunk["page"]}')
         _display(chunk['image'])
 
     except Exception:
-        log.info("PDF: %s", chunk["page"])
+        log.info('PDF: %s', chunk['page'])
 
 
 class TestPdfPageImages:
@@ -58,6 +60,6 @@ class TestPdfPageImages:
                     reopened = Image.open(io.BytesIO(img_io.getvalue()))
                     assert reopened.size == chunk['image'].size
 
-                    log.info("PDF: %s", doc_path)
+                    log.info('PDF: %s', doc_path)
 
                     show(chunk, doc_path)
