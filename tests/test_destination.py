@@ -55,8 +55,13 @@ class TestDestination:
         elif dest_id == 'b2':
             b2_uri = f'https://s3.us-east-005.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
             return b2_uri, b2_uri
+        elif dest_id == 'azurite':
+            # Connect to the pxt-test container on a local Azurite server
+            az_uri = f'http://{ObjectPath.AZURITE_SERVER_STRING}/devstoreaccount1/pxt-test/ci_test/img_rot{n}'
+            return az_uri, az_uri
         elif dest_id == 'az':
-            return None, None
+            az_uri = f'https://pixeltable.blob.core.windows.net/pxt-test/ci_test/img_rot{n}'
+            return az_uri, az_uri
         raise AssertionError(f'Invalid dest_id: {dest_id}')
 
     @classmethod
@@ -165,7 +170,7 @@ class TestDestination:
         assert self.parse_object_addr(f'file://dir1/dir2/dir3/{o_name}', True)
         assert self.parse_object_addr(f'dir2/dir3/{o_name}', True)
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
+    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az', 'azurite'])
     def test_dest_local_2(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two local destinations"""
         if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
@@ -222,7 +227,7 @@ class TestDestination:
         assert self.count(dest1_uri, save_id) == 0
         assert self.count(create_destination_by_number_uri, save_id) == 0
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
+    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az', 'azurite'])
     def test_dest_local_two_copy(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
         if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
