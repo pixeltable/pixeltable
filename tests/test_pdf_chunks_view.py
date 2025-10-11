@@ -8,23 +8,8 @@ from pixeltable.catalog import Catalog
 from pixeltable.iterators.pdf_page_extractor import PdfPageExtractor  # adjust path as needed
 from tests import utils
 
+
 class TestPdfExtraction:
-    def find_pdfs(self, path: str, limit: int = 50, recursive: bool = True) -> List[str]:
-        pdf_paths = []
-        if recursive:
-            for root, _, files in os.walk(path):
-                for file in files:
-                    if file.lower().endswith('.pdf'):
-                        pdf_paths.append(os.path.join(root, file))
-                        if len(pdf_paths) >= limit:
-                            return pdf_paths
-        else:
-            for file in os.listdir(path):
-                if file.lower().endswith('.pdf'):
-                    pdf_paths.append(os.path.join(path, file))
-                    if len(pdf_paths) >= limit:
-                        break
-        return pdf_paths
 
     @pytest.mark.usefixtures('reset_db')  # ensures DB is reset between test runs
     def test_pdf_page_chunking(self):
