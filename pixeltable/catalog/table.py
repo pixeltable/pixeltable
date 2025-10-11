@@ -462,7 +462,7 @@ class Table(SchemaObject):
         for new_col_name in new_col_names:
             if new_col_name in existing_col_names:
                 if if_exists == IfExistsParam.ERROR:
-                    raise excs.Error(f'Duplicate column name: {new_col_name!r}')
+                    raise excs.Error(f'Duplicate column name: {new_col_name}')
                 elif if_exists == IfExistsParam.IGNORE:
                     cols_to_ignore.append(new_col_name)
                 elif if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE):
@@ -591,8 +591,8 @@ class Table(SchemaObject):
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
             raise excs.Error(
-                f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
-                f'got {len(kwargs)} instead ({", ".join(kwargs.keys())})'
+                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
+                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
         col_type = next(iter(kwargs.values()))
         if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
@@ -657,12 +657,12 @@ class Table(SchemaObject):
             if len(kwargs) != 1:
                 raise excs.Error(
                     f'add_computed_column() requires exactly one keyword argument of the form '
-                    '"column-name=type|value-expression"; '
-                    f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
+                    '`col_name=col_type` or `col_name=expression`; '
+                    f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
                 )
             col_name, spec = next(iter(kwargs.items()))
             if not is_valid_identifier(col_name):
-                raise excs.Error(f'Invalid column name: {col_name!r}')
+                raise excs.Error(f'Invalid column name: {col_name}')
 
             col_schema: dict[str, Any] = {'value': spec}
             if stored is not None:
@@ -709,30 +709,30 @@ class Table(SchemaObject):
         valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
         for k in spec:
             if k not in valid_keys:
-                raise excs.Error(f'Column {name}: invalid key {k!r}')
+                raise excs.Error(f'Column {name!r}: invalid key {k!r}')
 
         if 'type' not in spec and 'value' not in spec:
-            raise excs.Error(f"Column {name}: 'type' or 'value' must be specified")
+            raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
 
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
+            raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
 
         if 'value' in spec:
             value_expr = exprs.Expr.from_object(spec['value'])
             if value_expr is None:
-                raise excs.Error(f'Column {name}: value must be a Pixeltable expression.')
+                raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
             if 'type' in spec:
-                raise excs.Error(f"Column {name}: 'type' is redundant if 'value' is specified")
+                raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
 
         if 'media_validation' in spec:
-            _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name}: media_validation')
+            _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
-            raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
+            raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
 
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
-            raise excs.Error(f'Column {name}: `destination` must be a string or path, got {d}')
+            raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
 
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
@@ -788,11 +788,11 @@ class Table(SchemaObject):
 
     @classmethod
     def validate_column_name(cls, name: str) -> None:
-        """Check that a name is usable as a pixeltalbe column name"""
+        """Check that a name is usable as a pixeltable column name"""
         if is_system_column_name(name) or is_python_keyword(name):
             raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(name):
-            raise excs.Error(f'Invalid column name: {name!r}')
+            raise excs.Error(f'Invalid column name: {name}')
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -809,7 +809,7 @@ class Table(SchemaObject):
             )
         if col.destination is not None and not (col.stored and col.is_computed):
             raise excs.Error(
-                f'Column {col.name!r}: destination={col.destination} only applies to stored computed columns'
+                f'Column {col.name!r}: destination={col.destination!r} only applies to stored computed columns'
             )
 
     @classmethod
@@ -862,7 +862,7 @@ class Table(SchemaObject):
                 col = self._tbl_version_path.get_column(column)
                 if col is None:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
-                        raise excs.Error(f'Column {column!r} unknown')
+                        raise excs.Error(f'Unknown column: {column}')
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 if col.tbl.id != self._tbl_version_path.tbl_id:
@@ -889,7 +889,7 @@ class Table(SchemaObject):
             views = self._get_views(recursive=True, mutable_only=True)
 
             # See if any view predicates depend on this column
-            dependent_views = []
+            dependent_views: list[tuple[Table, exprs.Expr]] = []
             for view in views:
                 if view._tbl_version is not None:
                     predicate = view._tbl_version.get().predicate
@@ -900,10 +900,10 @@ class Table(SchemaObject):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    f'view: {view._path()}, predicate: {predicate!s}' for view, predicate in dependent_views
+                    f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views
                 )
                 raise excs.Error(
-                    f'Cannot drop column `{col.name}` because the following views depend on it:\n{dependent_views_str}'
+                    f'Cannot drop column {col.name!r} because the following views depend on it:\n{dependent_views_str}'
                 )
 
             # See if this column has a dependent store. We need to look through all stores in all
@@ -917,17 +917,17 @@ class Table(SchemaObject):
             ]
             if len(dependent_stores) > 0:
                 dependent_store_names = [
-                    store.name if view._id == self._id else f'{store.name} (in view `{view._name}`)'
+                    store.name if view._id == self._id else f'{store.name} (in view {view._name!r})'
                     for view, store in dependent_stores
                 ]
                 raise excs.Error(
-                    f'Cannot drop column `{col.name}` because the following external stores depend on it:\n'
+                    f'Cannot drop column {col.name!r} because the following external stores depend on it:\n'
                     f'{", ".join(dependent_store_names)}'
                 )
             all_columns = self.columns()
             if len(all_columns) == 1 and col.name == all_columns[0]:
                 raise excs.Error(
-                    f'Cannot drop column `{col.name}` because it is the last remaining column in this table.'
+                    f'Cannot drop column {col.name!r} because it is the last remaining column in this table.'
                     f' Tables must have at least one column.'
                 )
 
@@ -975,7 +975,7 @@ class Table(SchemaObject):
         embedding: Optional[pxt.Function] = None,
         string_embed: Optional[pxt.Function] = None,
         image_embed: Optional[pxt.Function] = None,
-        metric: str = 'cosine',
+        metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         """
@@ -1072,7 +1072,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Duplicate index name: {idx_name}')
                 if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
                     raise excs.Error(
-                        f'Index `{idx_name}` is not an embedding index. Cannot {if_exists_.name.lower()} it.'
+                        f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.'
                     )
                 if if_exists_ == IfExistsParam.IGNORE:
                     return
@@ -1259,7 +1259,7 @@ class Table(SchemaObject):
         else:
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name!r})'
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base table {col.tbl.name!r}'
                 )
             idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
@@ -1271,7 +1271,7 @@ class Table(SchemaObject):
                 assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
             if len(idx_info_list) > 1:
-                raise excs.Error(f"Column {col.name!r} has multiple indices; specify 'idx_name' instead")
+                raise excs.Error(f"Column {col.name!r} has multiple indices; specify `idx_name` explicitly to drop one")
             idx_info = idx_info_list[0]
 
         # Find out if anything depends on this index
@@ -1281,7 +1281,7 @@ class Table(SchemaObject):
         ]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
-                f'Cannot drop index because the following columns depend on it:\n'
+                f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
                 f'{", ".join(c.name for c in dependent_user_cols)}'
             )
         self._tbl_version.get().drop_index(idx_info.id)
@@ -1489,7 +1489,7 @@ class Table(SchemaObject):
                     col_names = {col.name for col in col_vals}
                     if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
                         missing_cols = pk_col_names - {col.name for col in col_vals}
-                        raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
+                        raise excs.Error(f'Primary key column(s) {", ".join(repr(c) for c in missing_cols)} missing in {row_spec}')
                 row_updates.append(col_vals)
 
             result = self._tbl_version.get().batch_update(
@@ -1555,22 +1555,22 @@ class Table(SchemaObject):
                 if isinstance(column, str):
                     col = self._tbl_version_path.get_column(column)
                     if col is None:
-                        raise excs.Error(f'Unknown column: {column!r}')
+                        raise excs.Error(f'Unknown column: {column}')
                     col_name = column
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col
                     if not self._tbl_version_path.has_column(col):
-                        raise excs.Error(f'Unknown column: {col.name!r}')
+                        raise excs.Error(f'Unknown column: {col.name}')
                     col_name = col.name
                 if not col.is_computed:
                     raise excs.Error(f'Column {col_name!r} is not a computed column')
                 if col.tbl.id != self._tbl_version_path.tbl_id:
-                    raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
+                    raise excs.Error(f'Cannot recompute column of a base: {col_name}')
                 col_names.append(col_name)
 
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
-                raise excs.Error(f"'where' ({where}) not bound by {self._display_str()}")
+                raise excs.Error(f"`where` predicate ({where}) is not bound by {self._display_str()}")
 
             result = self._tbl_version.get().recompute_columns(
                 col_names, where=where, errors_only=errors_only, cascade=cascade
@@ -1621,12 +1621,12 @@ class Table(SchemaObject):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             self.__check_mutable('link an external store to')
             if store.name in self.external_stores():
-                raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
-            _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
+                raise excs.Error(f'Table {self._name!r} already has an external store with that name: {store.name}')
+            _logger.info(f'Linking external store {store.name!r} to table {self._name!r}.')
 
             store.link(self._tbl_version.get())  # might call tbl_version.add_columns()
             self._tbl_version.get().link_external_store(store)
-            env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
+            env.Env.get().console_logger.info(f'Linked external store {store.name!r} to table {self._name!r}.')
 
     def unlink_external_stores(
         self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
@@ -1658,7 +1658,7 @@ class Table(SchemaObject):
             if not ignore_errors:
                 for store_name in stores:
                     if store_name not in all_stores:
-                        raise excs.Error(f'Table `{self._name}` has no external store with that name: {store_name}')
+                        raise excs.Error(f'Table {self._name!r} has no external store with that name: {store_name}')
 
             for store_name in stores:
                 store = self._tbl_version.get().external_stores[store_name]
@@ -1668,7 +1668,7 @@ class Table(SchemaObject):
                 self._tbl_version.get().unlink_external_store(store)
                 if delete_external_data and isinstance(store, pxt.io.external_store.Project):
                     store.delete()
-                env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store_str}')
+                env.Env.get().console_logger.info(f'Unlinked external store from table {self._name!r}: {store_str}')
 
     def sync(
         self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
@@ -1699,7 +1699,7 @@ class Table(SchemaObject):
 
             for store in stores:
                 if store not in all_stores:
-                    raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
+                    raise excs.Error(f'Table {self._name!r} has no external store with that name: {store}')
 
             sync_status = UpdateStatus()
             for store in stores:
