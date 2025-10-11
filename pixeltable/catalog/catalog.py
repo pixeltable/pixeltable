@@ -451,7 +451,7 @@ class Catalog:
         if isinstance(e.orig, psycopg.errors.UndefinedTable) and tbl is not None:
             # the table got dropped in the middle of the operation
             tbl_name = tbl.get().name
-            _logger.debug(f'Exception: undefined table ({tbl_name}): Caught {type(e.orig)}: {e!r}')
+            _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
             raise excs.Error(f'Table was dropped: {tbl_name}') from None
         elif (
             isinstance(
@@ -1343,11 +1343,11 @@ class Catalog:
                 msg: str
                 if is_replace:
                     msg = (
-                        f'{tbl._display_name()} {tbl._path()!r} already exists and has dependents. '
+                        f'{tbl._display_str()} already exists and has dependents. '
                         "Use `if_exists='replace_force'` to replace it."
                     )
                 else:
-                    msg = f'{tbl._display_name()} {tbl._path()!r} has dependents.'
+                    msg = f'{tbl._display_str()} has dependents.'
                 raise excs.Error(msg)
 
         # if this is a mutable view of a mutable base, advance the base's view_sn
