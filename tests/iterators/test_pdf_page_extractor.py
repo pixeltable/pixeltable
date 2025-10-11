@@ -3,9 +3,6 @@ import itertools
 import logging
 import os
 
-#
-# pytest -v tests/test_pdf_page_images.py
-#
 from typing import Any
 
 import pytest
