@@ -1,18 +1,17 @@
 import dataclasses
 import enum
-import logging
 import io
+import logging
+from typing import Any, ClassVar, Iterable, Iterator, Optional
+
 import fitz  # pymupdf
 import ftfy
 import PIL.Image
-
-from bs4.element import Tag, NavigableString
-
-from typing import Any, ClassVar, Iterable, Iterator, Optional, Union
+from bs4.element import NavigableString, Tag
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
-from pixeltable.type_system import ColumnType, DocumentType, IntType, JsonType, StringType, ImageType
+from pixeltable.type_system import ColumnType, DocumentType, ImageType, IntType, JsonType, StringType, BoolType
 from pixeltable.utils.documents import get_document_handle
 
 from .base import ComponentIterator
@@ -138,7 +137,6 @@ class DocumentSplitter(ComponentIterator):
         page_image_dpi: int = 300,
         page_image_format: str = 'png',
     ):
-
         if html_skip_tags is None:
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
@@ -205,6 +203,10 @@ class DocumentSplitter(ComponentIterator):
             'skip_tags': StringType(nullable=True),
             'tiktoken_encoding': StringType(nullable=True),
             'tiktoken_target_model': StringType(nullable=True),
+            # PDF options must be declared so validation accepts them:
+            'include_page_image': BoolType(nullable=True),
+            'page_image_dpi': IntType(nullable=True),
+            'page_image_format': StringType(nullable=True)
         }
 
     @classmethod
@@ -388,7 +390,6 @@ class DocumentSplitter(ComponentIterator):
         yield from emit()
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
-
         doc: fitz.Document = self._doc_handle.pdf_doc
         assert doc is not None
 

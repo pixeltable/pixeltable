@@ -2,7 +2,6 @@ import io
 import itertools
 import logging
 import os
-
 from typing import Any
 
 import pytest
