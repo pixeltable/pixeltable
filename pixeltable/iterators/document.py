@@ -11,7 +11,7 @@ from bs4.element import NavigableString, Tag
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
-from pixeltable.type_system import ColumnType, DocumentType, ImageType, IntType, JsonType, StringType, BoolType
+from pixeltable.type_system import BoolType, ColumnType, DocumentType, ImageType, IntType, JsonType, StringType
 from pixeltable.utils.documents import get_document_handle
 
 from .base import ComponentIterator
@@ -206,7 +206,7 @@ class DocumentSplitter(ComponentIterator):
             # PDF options must be declared so validation accepts them:
             'include_page_image': BoolType(nullable=True),
             'page_image_dpi': IntType(nullable=True),
-            'page_image_format': StringType(nullable=True)
+            'page_image_format': StringType(nullable=True),
         }
 
     @classmethod

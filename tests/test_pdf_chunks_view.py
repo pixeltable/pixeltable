@@ -1,8 +1,9 @@
 import pytest
 
 import pixeltable as pxt
-from tests import utils
 from pixeltable.iterators.document import DocumentSplitter
+from tests import utils
+
 
 class TestPdfExtraction:
     @pytest.mark.usefixtures('reset_db')  # ensures DB is reset between test runs
@@ -19,7 +20,7 @@ class TestPdfExtraction:
         assert insert_result.num_rows == len(pdf_paths)
         assert insert_result.num_excs == 0
 
-        pdf_page_iterator=DocumentSplitter.create(
+        pdf_page_iterator = DocumentSplitter.create(
             document=docs.document,
             separators='page',
             metadata='page',
@@ -30,7 +31,6 @@ class TestPdfExtraction:
 
         # Create view
         chunks_view = pxt.create_view('pdf_page_chunks', docs, iterator=pdf_page_iterator)
-
 
         # Run query
         results_set = chunks_view.select(chunks_view.page, chunks_view.image, chunks_view.text).collect()
@@ -49,4 +49,3 @@ class TestPdfExtraction:
         # Describe (optional, for manual inspection)
         docs.describe()
         chunks_view.describe()
-    
