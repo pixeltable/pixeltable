@@ -45,6 +45,8 @@ class RandomTblOps:
         {'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(50)
     ]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
+    NUM_COLUMN_NAMES = 100  # c0 ... c{n-1}
+    NUM_VIEW_NAMES = 10  # view_0 ... view_{n-1}
 
     # (operation_name, relative_prob, is_read_op)
     # The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
@@ -58,7 +60,8 @@ class RandomTblOps:
         ('add_computed_column', 5, False),
         ('drop_column', 3, False),
         ('create_view', 5, False),
-        ('drop_view', 3, False),
+        ('rename_view', 5, False),
+        ('drop_view', 1, False),
         ('drop_table', 0.25, False),
     )
 
@@ -141,7 +144,7 @@ class RandomTblOps:
 
     def add_data_column(self) -> Iterator[str]:
         t = self.get_random_tbl()
-        n = int(random.uniform(0, 100))
+        n = int(random.uniform(0, self.NUM_COLUMN_NAMES))
         cname = f'c{n}'
         yield f'Add data column {cname!r} to {self.tbl_descr(t)}: '
         t.add_column(**{cname: pxt.String}, if_exists='ignore')
@@ -149,7 +152,7 @@ class RandomTblOps:
 
     def add_computed_column(self) -> Iterator[str]:
         t = self.get_random_tbl()
-        n = int(random.uniform(0, 100))
+        n = int(random.uniform(0, self.NUM_COLUMN_NAMES))
         cname = f'c{n}'
         yield f'Add computed column {cname!r} to {self.tbl_descr(t)}: '
         t.add_computed_column(**{cname: t.c0 * random.uniform(1.0, 5.0)}, if_exists='ignore')
@@ -173,12 +176,30 @@ class RandomTblOps:
 
     def create_view(self) -> Iterator[str]:
         t = self.get_random_tbl()  # Allows views on views
-        n = int(random.uniform(0, 100))
+        n = int(random.uniform(0, self.NUM_VIEW_NAMES))
         vname = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         p = random.choice(self.PRIMES)
         yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
         # TODO: Change 'ignore' to 'replace-force' after fixing PXT-774
         pxt.create_view(vname, t.where(t.c0 % p == 0), if_exists='ignore')
+        yield 'Success.'
+
+    def rename_view(self) -> Iterator[str]:
+        t = self.get_random_tbl(allow_base_tbl=False)  # Must be a view
+        if t is None:
+            yield 'No views to rename.'
+            return
+        n = int(random.uniform(0, self.NUM_VIEW_NAMES))
+        if f'view_{n}' == t._name:
+            n = (n + 1) % self.NUM_VIEW_NAMES  # Ensure new name is different
+        new_name = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
+        yield f'Rename view {self.tbl_descr(t)} to {new_name!r}: '
+        try:
+            pxt.move(t._name, new_name)
+        except pxt.Error as e:
+            # Catch all pxt.Errors here, not just concurrency errors (because we don't have if_exists/if_not_exists yet)
+            yield f'pxt.Error: {e}'
+            return
         yield 'Success.'
 
     def drop_view(self) -> Iterator[str]:

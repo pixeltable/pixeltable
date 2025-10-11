@@ -25,6 +25,7 @@ class TestReplica:
 
         pxt.drop_table(test_tbl, force=True)
         reload_catalog()
+        cat = Catalog.get()
 
         with cat.begin_xact(for_write=True):
             cat.create_replica(Path.parse('replica_1'), md1)
@@ -93,6 +94,7 @@ class TestReplica:
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()
+        cat = Catalog.get()
 
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')
