@@ -61,7 +61,7 @@ help:
 	@echo '  typecheck     Run `mypy`'
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
-	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)
+	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 
 .PHONY: setup-install
 setup-install:
