@@ -799,17 +799,17 @@ class Table(SchemaObject):
         """Check integrity of user-supplied Column and supply defaults"""
         cls.validate_column_name(col.name)
         if col.stored is False and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed columns')
+            raise excs.Error(f'Column {col.name!r}: `stored={col.stored}` only applies to computed columns')
         if col.stored is False and col.has_window_fn_call():
             raise excs.Error(
                 (
-                    f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a '
+                    f'Column {col.name!r}: `stored={col.stored}` is not valid for image columns computed with a '
                     f'streaming function'
                 )
             )
         if col.destination is not None and not (col.stored and col.is_computed):
             raise excs.Error(
-                f'Column {col.name!r}: destination={col.destination!r} only applies to stored computed columns'
+                f'Column {col.name!r}: `destination={col.destination!r}` only applies to stored computed columns'
             )
 
     @classmethod
