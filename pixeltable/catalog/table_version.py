@@ -1286,8 +1286,6 @@ class TableVersion:
         self._write_md(new_version=False, new_schema_version=False)
 
         # propagate to views
-        views_str = ', '.join([str(v.id) for v in self.mutable_views])
-        print(f'revert(): mutable_views={views_str}')
         for view in self.mutable_views:
             view.get()._revert()
 
