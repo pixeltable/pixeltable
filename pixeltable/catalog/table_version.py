@@ -202,7 +202,10 @@ class TableVersion:
             return f'{self.name}:{self.effective_version}'
 
     def __repr__(self) -> str:
-        return f'TableVersion(id={self.id!r}, version={self.version}, name={self.name!r})'
+        return (
+            f'TableVersion(id={self.id!r}, name={self.name!r}, '
+            f'version={self.version}, effective_version={self.effective_version})'
+        )
 
     @property
     def handle(self) -> 'TableVersionHandle':
@@ -476,7 +479,6 @@ class TableVersion:
             #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
-        self.idxs_by_name: dict[str, TableVersion.IndexInfo] = {}
         has_idxs = self._has_idxs()
 
         for md in self.tbl_md.index_md.values():
