@@ -112,7 +112,7 @@ class StoreBase:
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         for index_md in [md for md in tbl_version.tbl_md.index_md.values() if md.schema_version_drop is None]:
-            val_col = tbl_version.cols_by_id[index_md.index_val_col_id]
+            val_col = next(c for c in tbl_version.cols if c.id == index_md.index_val_col_id)
             idx = sql.Index(index_md.name, val_col.sa_col, postgresql_using='btree')
             idxs.append(idx)
 

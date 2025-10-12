@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -46,13 +46,14 @@ class ColumnRef(Expr):
     col_handle: catalog.ColumnHandle
     reference_tbl: catalog.TableVersionPath | None
     is_unstored_iter_col: bool
-    iter_arg_ctx: RowBuilder.EvalCtx | None
-    base_rowid_len: int | None
-    base_rowid: Sequence[Any | None] | None
-    iterator: iters.ComponentIterator | None
-    pos_idx: int | None
-    id: int
     perform_validation: bool  # if True, performs media validation
+    iter_arg_ctx: RowBuilder.EvalCtx | None
+    base_rowid_len: int  # number of rowid columns in the base table
+
+    # execution state
+    base_rowid: Sequence[Any | None]
+    iterator: iters.ComponentIterator | None
+    pos_idx: int
 
     def __init__(
         self,
@@ -68,6 +69,10 @@ class ColumnRef(Expr):
 
         self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored
         self.iter_arg_ctx = None
+        self.base_rowid_len = 0
+        self.base_rowid = []
+        self.iterator = None
+        self.pos_idx = 0
 
         self.perform_validation = False
         if col.col_type.is_media_type():
@@ -248,13 +253,15 @@ class ColumnRef(Expr):
         return helper
 
     def prepare(self) -> None:
-        # number of rowid columns in the base table
+        from pixeltable import store
+
+        if not self.is_unstored_iter_col:
+            return
         col = self.col_handle.get()
-        self.base_rowid_len = col.tbl().base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl().base.get().num_rowid_columns()
         self.base_rowid = [None] * self.base_rowid_len
-        self.iterator = None
-        # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx = col.tbl().num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        assert isinstance(col.tbl().store_tbl, store.StoreComponentView)
+        self.pos_idx = cast(store.StoreComponentView, col.tbl().store_tbl).pos_col_idx
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if self.perform_validation:

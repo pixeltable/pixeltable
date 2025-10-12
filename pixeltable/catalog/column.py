@@ -64,9 +64,7 @@ class Column:
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     value_expr_dict: dict[str, Any] | None
-    # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
-    # (re-resolving it later to a different instance doesn't make sense)
-    # tbl: TableVersion | None
+    # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
     tbl_handle: 'TableVersionHandle' | None
 
     def __init__(
@@ -84,14 +82,12 @@ class Column:
         sa_col_type: sql.sqltypes.TypeEngine | None = None,
         stores_cellmd: bool | None = None,
         value_expr_dict: dict[str, Any] | None = None,
-        # tbl: Optional[TableVersion] = None,
         tbl_handle: 'TableVersionHandle' | None = None,
         destination: str | None = None,
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f"Invalid column name: '{name}'")
         self.name = name
-        # self.tbl = tbl
         self.tbl_handle = tbl_handle
         if col_type is None and computed_with is None:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
@@ -160,7 +156,10 @@ class Column:
 
     @classmethod
     def from_md(cls, col_md: schema.ColumnMd, tbl: TableVersion, schema_col_md: schema.SchemaColumn | None) -> Column:
-        """Create a Column from a ColumnMd."""
+        """
+        Create a Column from ColumnMd/SchemaColumn. Anything that cannot be derived from the metadata needs to be set
+        by the caller.
+        """
         assert col_md.id is not None
         col_name = schema_col_md.name if schema_col_md is not None else None
         media_val = (
@@ -178,7 +177,6 @@ class Column:
             schema_version_add=col_md.schema_version_add,
             schema_version_drop=col_md.schema_version_drop,
             value_expr_dict=col_md.value_expr,
-            # tbl=tbl,
             tbl_handle=tbl.handle,
             destination=col_md.destination,
         )
@@ -207,10 +205,6 @@ class Column:
 
     def tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
-        # make sure that we are part of that TableVersion
-        if not any(self is c for c in tv.cols):
-            pass
-        #assert any(self is c for c in tv.cols)
         return tv
 
     @property
@@ -250,8 +244,7 @@ class Column:
         )
         return len(window_fn_calls) > 0
 
-    # TODO: This should be moved out of `Column` (its presence in `Column` doesn't anticipate indices being defined on
-    #     multiple dependents)
+    # TODO: This does not belong here.
     def get_idx_info(self, reference_tbl: 'TableVersionPath' | None = None) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl() is not None
         tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl()

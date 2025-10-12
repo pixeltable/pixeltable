@@ -2655,12 +2655,6 @@ class TestTable:
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 
-    def test_x(self, test_tbl: pxt.Table) -> None:
-        t = test_tbl
-        dummy_t = pxt.create_table('dummy', {'dummy_col': pxt.Int})
-        v = pxt.create_view('v', base=t, additional_columns={'v1': t.c3 + 1})
-        self.__test_drop_column_if_not_exists(v, dummy_t.dummy_col)
-
     def test_drop_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         dummy_t = pxt.create_table('dummy', {'dummy_col': pxt.Int})

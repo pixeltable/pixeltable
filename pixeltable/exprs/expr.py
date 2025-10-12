@@ -496,7 +496,9 @@ class Expr(abc.ABC):
         pass
 
     def prepare(self) -> None:
-        """Create execution state"""
+        """
+        Create execution state. This is called before the first eval() call.
+        """
         for c in self.components:
             c.prepare()
 
