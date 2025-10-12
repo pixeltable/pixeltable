@@ -96,6 +96,8 @@ class TableVersion:
     cols_by_name: dict[str, Column]
     # contains only columns visible in this version, both system and user
     cols_by_id: dict[int, Column]
+    # True if this TableVersion can have indices
+    supports_idxs: bool
     # contains only actively maintained indices
     idxs_by_name: dict[str, TableVersion.IndexInfo]
 
@@ -126,6 +128,7 @@ class TableVersion:
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
+        supports_idxs: bool,
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
         base: Optional[TableVersionHandle] = None,
     ):
@@ -136,6 +139,7 @@ class TableVersion:
         self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
         self.effective_version = effective_version
+        self.supports_idxs = supports_idxs
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
@@ -191,7 +195,7 @@ class TableVersion:
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
         return TableVersion(
-            self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, mutable_views=[], base=base
+            self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, [], supports_idxs=False, base=base
         )
 
     @property
@@ -293,12 +297,12 @@ class TableVersion:
         comment: str,
         media_validation: MediaValidation,
     ) -> tuple[UUID, Optional[TableVersion]]:
-        inital_md = cls.create_initial_md(name, cols, num_retained_versions, comment, media_validation, view_md=None)
+        initial_md = cls.create_initial_md(name, cols, num_retained_versions, comment, media_validation, view_md=None)
         cat = pxt.catalog.Catalog.get()
 
-        tbl_id = UUID(hex=inital_md.tbl_md.tbl_id)
+        tbl_id = UUID(hex=initial_md.tbl_md.tbl_id)
         assert (tbl_id, None) not in cat._tbl_versions
-        tbl_version = cls(tbl_id, inital_md.tbl_md, inital_md.version_md, None, inital_md.schema_version_md, [])
+        tbl_version = cls(tbl_id, initial_md.tbl_md, initial_md.version_md, None, initial_md.schema_version_md, [], supports_idxs=True)
 
         @cat.register_undo_action
         def _() -> None:
@@ -318,8 +322,8 @@ class TableVersion:
             tbl_id=tbl_id,
             dir_id=dir_id,
             tbl_md=tbl_version.tbl_md,
-            version_md=inital_md.version_md,
-            schema_version_md=inital_md.schema_version_md,
+            version_md=initial_md.version_md,
+            schema_version_md=initial_md.schema_version_md,
         )
         return tbl_id, tbl_version
 
@@ -346,11 +350,14 @@ class TableVersion:
 
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
+        from .catalog import Catalog, TableVersionPath
+
         assert Env.get().in_xact
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
-        base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
+        supports_idxs = Catalog.get().tv_supports_idxs(md.tbl_md, md.version_md.version)
+        base_path = TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
             tbl_id,
@@ -359,6 +366,7 @@ class TableVersion:
             md.version_md.version,
             md.schema_version_md,
             [],
+            supports_idxs,
             base_path=base_path,
             base=base,
         )
@@ -424,31 +432,6 @@ class TableVersion:
         for col in self.cols_by_id.values():
             col.init_value_expr()
 
-    def _has_idxs(self) -> bool:
-        """
-        Determines if this TableVersion supports indices.
-
-        Ordinarily, snapshots do not have indices, since we cannot rely on the index information in the underlying
-        table(s) to align with the snapshot version. However, we *do* allow indices for replicas, provided that the
-        version of the replica is the most recent version available in the catalog.
-        """
-        # TODO: Ideally we wouldn't need the "provided that..." restriction, but resolving it will require some
-        #     rearchitecture of the way replica indices are stored.
-        # TODO: What if the user does a t.pull() and retrieves a more recent version than this one? Verify that this
-        #     correctly invalidates the indices in this TableVersion.
-        from pixeltable.catalog import Catalog
-
-        if not self.is_snapshot:
-            return True  # Non-snapshots always have indices
-        if not self.is_replica:
-            return False  # Non-replica snapshots never have indices
-
-        # Replicas can have indices if they're the most recent version available in the catalog.
-        head_version = Catalog.get()._collect_tbl_history(self.id, n=1)
-        assert len(head_version) == 1
-        assert self.version is not None  # Should always be true for replicas
-        return head_version[0].version_md.version == self.version
-
     def _init_cols(self) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
         self.cols = []
@@ -479,8 +462,6 @@ class TableVersion:
             #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
-        has_idxs = self._has_idxs()
-
         for md in self.tbl_md.index_md.values():
             # Instantiate index object. This needs to be done for all indices, even those that are not active in this
             # TableVersion, so that we can make appropriate adjustments to the SA schema.
@@ -515,7 +496,7 @@ class TableVersion:
             # (ii) the index was created on or before the schema version of this TableVersion; and
             # (iii) the index was not dropped on or before the schema version of this TableVersion.
             if (
-                has_idxs
+                self.supports_idxs
                 and md.schema_version_add <= self.schema_version
                 and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
             ):
