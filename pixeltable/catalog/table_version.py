@@ -195,7 +195,14 @@ class TableVersion:
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
         return TableVersion(
-            self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, [], supports_idxs=False, base=base
+            self.id,
+            self.tbl_md,
+            self.version_md,
+            self.version,
+            self.schema_version_md,
+            [],
+            supports_idxs=False,
+            base=base,
         )
 
     @property
@@ -302,7 +309,9 @@ class TableVersion:
 
         tbl_id = UUID(hex=initial_md.tbl_md.tbl_id)
         assert (tbl_id, None) not in cat._tbl_versions
-        tbl_version = cls(tbl_id, initial_md.tbl_md, initial_md.version_md, None, initial_md.schema_version_md, [], supports_idxs=True)
+        tbl_version = cls(
+            tbl_id, initial_md.tbl_md, initial_md.version_md, None, initial_md.schema_version_md, [], supports_idxs=True
+        )
 
         @cat.register_undo_action
         def _() -> None:
