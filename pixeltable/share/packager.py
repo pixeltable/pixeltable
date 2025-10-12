@@ -588,8 +588,8 @@ class TableRestorer:
         media_cols: dict[str, catalog.Column] = {}
         for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
-                assert tv.id == col.tbl.id
-                assert tv.version == col.tbl.version
+                assert tv.id == col.tbl().id
+                assert tv.version == col.tbl().version
                 media_cols[col.store_name()] = col
 
         row_count = len(next(iter(pydict.values())))

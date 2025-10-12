@@ -149,6 +149,8 @@ class TableVersion:
         else:
             self_handle = TableVersionHandle(id, self.effective_version)
             if self.is_view:
+                if base_path is None:
+                    pass
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
 
@@ -684,7 +686,7 @@ class TableVersion:
             id=idx_id,
             name=idx_name,
             indexed_col_id=col.id,
-            indexed_col_tbl_id=str(col.tbl.id),
+            indexed_col_tbl_id=str(col.tbl().id),
             index_val_col_id=val_col.id,
             index_val_undo_col_id=undo_col.id,
             schema_version_add=self.schema_version,
@@ -844,7 +846,7 @@ class TableVersion:
             upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
         )  # add_columns
         return UpdateStatus(
-            cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
+            cols_with_excs=[f'{col.tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
 
@@ -906,7 +908,7 @@ class TableVersion:
         col = self.path.get_column(old_name)
         if col is None:
             raise excs.Error(f'Unknown column: {old_name}')
-        if col.tbl.id != self.id:
+        if col.tbl().id != self.id:
             raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
             raise excs.Error(f"Invalid column name: '{new_name}'")
@@ -1099,7 +1101,7 @@ class TableVersion:
             col = self.path.get_column(col_name)
             if col is None:
                 raise excs.Error(f'Column {col_name} unknown')
-            if col.tbl.id != self.id:
+            if col.tbl().id != self.id:
                 raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
@@ -1205,7 +1207,7 @@ class TableVersion:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
-                recomputed_cols = [col for col in recomputed_view_cols if col.tbl.id == view.id]
+                recomputed_cols = [col for col in recomputed_view_cols if col.tbl().id == view.id]
                 plan = None
                 if len(recomputed_cols) > 0:
                     plan = Planner.create_view_update_plan(view.get().path, recompute_targets=recomputed_cols)
@@ -1618,7 +1620,7 @@ class TableVersion:
         Return the set of columns that transitively depend on any of the given ones.
         """
         cat = pxt.catalog.Catalog.get()
-        result = set().union(*[cat.get_column_dependents(col.tbl.id, col.id) for col in cols])
+        result = set().union(*[cat.get_column_dependents(col.tbl().id, col.id) for col in cols])
         if len(result) > 0:
             result.update(self.get_dependent_columns(result))
         return result

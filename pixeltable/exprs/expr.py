@@ -396,7 +396,7 @@ class Expr(abc.ABC):
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
+        return {ref.col.tbl().id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
 
     @classmethod
     def all_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:

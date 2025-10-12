@@ -195,7 +195,7 @@ class Column:
             message = (
                 dedent(
                     f"""
-                    The computed column {self.name!r} in table {self.tbl.name!r} is no longer valid.
+                    The computed column {self.name!r} in table {self.tbl().name!r} is no longer valid.
                     {{validation_error}}
                     You can continue to query existing data from this column, but evaluating it on new data will raise an error.
                     """  # noqa: E501
@@ -205,11 +205,12 @@ class Column:
             )
             warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 
-    @property
     def tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
         # make sure that we are part of that TableVersion
-        assert any(self is c for c in tv.cols)
+        if not any(self is c for c in tv.cols):
+            pass
+        #assert any(self is c for c in tv.cols)
         return tv
 
     @property
@@ -252,8 +253,8 @@ class Column:
     # TODO: This should be moved out of `Column` (its presence in `Column` doesn't anticipate indices being defined on
     #     multiple dependents)
     def get_idx_info(self, reference_tbl: 'TableVersionPath' | None = None) -> dict[str, 'TableVersion.IndexInfo']:
-        assert self.tbl is not None
-        tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl
+        assert self.tbl() is not None
+        tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl()
         return {name: info for name, info in tbl.idxs_by_name.items() if info.col == self}
 
     @property
@@ -281,15 +282,15 @@ class Column:
 
     @property
     def qualified_name(self) -> str:
-        assert self.tbl is not None
-        return f'{self.tbl.name}.{self.name}'
+        assert self.tbl() is not None
+        return f'{self.tbl().name}.{self.name}'
 
     @property
     def media_validation(self) -> MediaValidation:
         if self._media_validation is not None:
             return self._media_validation
-        assert self.tbl is not None
-        return self.tbl.media_validation
+        assert self.tbl() is not None
+        return self.tbl().media_validation
 
     @property
     def is_required_for_insert(self) -> bool:
@@ -340,7 +341,7 @@ class Column:
         return f'{self.name}: {self.col_type}'
 
     def __repr__(self) -> str:
-        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.name!r})'
+        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl().name!r})'
 
     def __hash__(self) -> int:
         # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column

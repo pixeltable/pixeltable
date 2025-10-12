@@ -250,11 +250,11 @@ class ColumnRef(Expr):
     def prepare(self) -> None:
         # number of rowid columns in the base table
         col = self.col_handle.get()
-        self.base_rowid_len = col.tbl.base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl().base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
         self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        self.pos_idx = col.tbl().num_rowid_columns() - 1 if self.is_unstored_iter_col else None
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if self.perform_validation:
@@ -301,7 +301,7 @@ class ColumnRef(Expr):
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.tbl.iterator_cls(**iterator_args)
+            self.iterator = self.col.tbl().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)

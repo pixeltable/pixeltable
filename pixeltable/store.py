@@ -218,7 +218,7 @@ class StoreBase:
             sql.exc.DBAPIError if there was a SQL error during execution
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
-        assert col.tbl.id == self.tbl_version.id
+        assert col.tbl().id == self.tbl_version.id
         num_excs = 0
         num_rows = 0
         # create temp table to store output of exec_plan, with the same primary key as the store table
