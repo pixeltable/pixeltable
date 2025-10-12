@@ -2658,7 +2658,6 @@ class TestTable:
     def test_drop_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         dummy_t = pxt.create_table('dummy', {'dummy_col': pxt.Int})
-        _ = dummy_t.dummy_col.col.tbl
         num_orig_cols = len(t.columns())
         t.drop_column('c1')
         assert len(t.columns()) == num_orig_cols - 1
@@ -2684,7 +2683,6 @@ class TestTable:
         reload_catalog()
         t = pxt.get_table(t._name)
         assert len(t.columns()) == num_orig_cols - 1
-        _ = dummy_t.dummy_col.col.tbl
 
         # revert() works
         t.revert()

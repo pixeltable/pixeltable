@@ -72,6 +72,7 @@ class InsertableTable(Table):
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
+        create_default_idxs: bool,
     ) -> tuple[TableVersionMd, list[TableOp]]:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
@@ -84,7 +85,15 @@ class InsertableTable(Table):
                 raise excs.Error(f'Primary key column {pk_col!r} cannot be nullable.')
             col.is_pk = True
 
-        md = TableVersion.create_initial_md(name, columns, num_retained_versions, comment, media_validation)
+        md = TableVersion.create_initial_md(
+            name,
+            columns,
+            num_retained_versions,
+            comment,
+            media_validation,
+            create_default_idxs=create_default_idxs,
+            view_md=None,
+        )
         op = TableOp(
             tbl_id=md.tbl_md.tbl_id, op_sn=0, num_ops=1, needs_xact=False, create_store_table_op=CreateStoreTableOp()
         )

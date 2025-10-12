@@ -967,6 +967,7 @@ class Catalog:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
+        create_default_idxs: bool,
     ) -> tuple[Table, bool]:
         """
         Creates a new InsertableTable at the given path.
@@ -993,6 +994,7 @@ class Catalog:
                 num_retained_versions=num_retained_versions,
                 comment=comment,
                 media_validation=media_validation,
+                create_default_idxs=create_default_idxs,
             )
             tbl_id = UUID(md.tbl_md.tbl_id)
             self.store_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
@@ -1015,6 +1017,7 @@ class Catalog:
         sample_clause: Optional['SampleClause'],
         additional_columns: Optional[dict[str, Any]],
         is_snapshot: bool,
+        create_default_idxs: bool,
         iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]],
         num_retained_versions: int,
         comment: str,
@@ -1056,6 +1059,7 @@ class Catalog:
                 predicate=where,
                 sample_clause=sample_clause,
                 is_snapshot=is_snapshot,
+                create_default_idxs=create_default_idxs,
                 iterator_cls=iterator_class,
                 iterator_args=iterator_args,
                 num_retained_versions=num_retained_versions,

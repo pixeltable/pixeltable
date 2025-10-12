@@ -189,6 +189,7 @@ def create_table(
         comment=comment,
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
+        create_default_idxs=create_default_idxs,
     )
 
     if was_created:
@@ -209,6 +210,7 @@ def create_view(
     *,
     additional_columns: Optional[dict[str, Any]] = None,
     is_snapshot: bool = False,
+    create_default_idxs: bool = False,
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -227,6 +229,8 @@ def create_view(
             [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
+        create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
+            Cannot be `True` for snapshots.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
@@ -274,6 +278,8 @@ def create_view(
         >>> tbl = pxt.get_table('my_table')
         ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
     """
+    if is_snapshot and create_default_idxs is True:
+        raise excs.Error('Cannot create default indexes on a snapshot')
     tbl_version_path: TableVersionPath
     select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None
     where: Optional[exprs.Expr] = None
@@ -315,6 +321,7 @@ def create_view(
         sample_clause=sample_clause,
         additional_columns=additional_columns,
         is_snapshot=is_snapshot,
+        create_default_idxs=create_default_idxs,
         iterator=iterator,
         num_retained_versions=num_retained_versions,
         comment=comment,

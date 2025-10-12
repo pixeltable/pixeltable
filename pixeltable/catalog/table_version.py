@@ -149,8 +149,6 @@ class TableVersion:
         else:
             self_handle = TableVersionHandle(id, self.effective_version)
             if self.is_view:
-                if base_path is None:
-                    pass
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
 
@@ -217,6 +215,7 @@ class TableVersion:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
+        create_default_idxs: bool,
         view_md: Optional[schema.ViewMd] = None,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
@@ -252,18 +251,13 @@ class TableVersion:
             schema_col_md[col.id] = sch_md
 
         index_md: dict[int, schema.IndexMd] = {}
-        if view_md is None or not view_md.is_snapshot:
-            # add default indices
+        if create_default_idxs and (view_md is None or not view_md.is_snapshot):
             index_cols: list[Column] = []
-            for col in cols:
-                if not cls._is_btree_indexable(col):
-                    continue
-
+            for col in (c for c in cols if cls._is_btree_indexable(c)):
                 idx = index.BtreeIndex(col)
                 val_col, undo_col = cls._create_index_columns(idx, 0, tbl_handle, id_cb=lambda: next(column_ids))
                 index_cols.extend([val_col, undo_col])
 
-                # create index metadata
                 idx_id = next(index_ids)
                 idx_cls = type(idx)
                 md = schema.IndexMd(
