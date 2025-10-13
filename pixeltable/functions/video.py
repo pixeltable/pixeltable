@@ -359,7 +359,9 @@ def clip(
 
 
 @pxt.udf(is_method=True)
-def segment_video(video: pxt.Video, *, duration: float, mode: Literal['fast', 'accurate'] = 'fast') -> list[str]:
+def segment_video(
+    video: pxt.Video, *, duration: float, mode: Literal['fast', 'accurate'] = 'fast', video_encoder: str | None = None
+) -> list[str]:
     """
     Split a video into fixed-size segments.
 
@@ -374,6 +376,7 @@ def segment_video(video: pxt.Video, *, duration: float, mode: Literal['fast', 'a
         mode: Segmentation mode:
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
             - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
 
     Returns:
         List of file paths for the generated video segments.
@@ -405,7 +408,6 @@ def segment_video(video: pxt.Video, *, duration: float, mode: Literal['fast', 'a
     if mode == 'accurate':
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
         output_pattern = f'{base_path}_segment_%03d.mp4'
-        video_encoder = Env.get().default_video_encoder
         cmd = av_utils.ffmpeg_segment_cmd(str(video), output_pattern, duration, video_encoder)
 
         try:

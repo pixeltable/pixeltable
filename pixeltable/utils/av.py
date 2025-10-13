@@ -134,8 +134,8 @@ def ffmpeg_segment_cmd(
         '0',  # Copy all streams from input
         '-c:v',  # re-encode video
         video_encoder,
-        '-c:a',
-        'aac',
+        '-c:a',  # don't re-encode audio
+        'copy',
         '-loglevel',
         'error',  # Only show errors
         output_pattern,

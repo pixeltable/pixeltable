@@ -395,18 +395,23 @@ class TestVideo:
             assert result.to_pandas()['duration'].between(0.0, max_duration + 1).all()
         pxt.drop_table('validate_segments')
 
-    def test_segment_video(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('mode', ['accurate'])
+    def test_segment_video(self, mode: str, reset_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         t.insert([{'video': f} for f in get_video_files()])
 
-        duration = t.video.get_metadata().streams[0].duration_seconds / 2
-        result = t.where(duration != None).select(segments=t.video.segment_video(duration=3.0)).collect()
+        duration = t.video.get_metadata().streams[0].duration_seconds
+        result = t.where(duration != None).select(segments=t.video.segment_video(duration=3.0, mode=mode)).collect()
         segments = result['segments'][0]
         assert len(segments) >= 1
         self._validate_segments(segments, max_duration=3.0)
 
         # split at midpoint
-        result = t.where(duration != None).select(segments=t.video.segment_video(duration=duration + 1)).collect()
+        result = (
+            t.where(duration != None)
+            .select(segments=t.video.segment_video(duration=duration / 2 + 1, mode=mode))
+            .collect()
+        )
         segments = result['segments'][0]
         assert len(segments) == 2
         self._validate_segments(segments)
