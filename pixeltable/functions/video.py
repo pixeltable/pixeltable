@@ -2,6 +2,7 @@
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
 """
 
+import glob
 import logging
 import pathlib
 import subprocess
@@ -400,6 +401,7 @@ def segment_video(video: pxt.Video, *, duration: float, mode: Literal['fast', 'a
 
     base_path = TempStore.create_path(extension='')
 
+    output_paths: list[str] = []
     if mode == 'accurate':
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
         output_pattern = f'{base_path}_segment_%03d.mp4'
@@ -407,23 +409,15 @@ def segment_video(video: pxt.Video, *, duration: float, mode: Literal['fast', 'a
         cmd = av_utils.ffmpeg_segment_cmd(str(video), output_pattern, duration, video_encoder)
 
         try:
-            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-            # Collect all generated segments
-            result: list[str] = []
-            segment_idx = 0
-            while True:
-                segment_path = f'{base_path}_segment_{segment_idx:03d}.mp4'
-                _logger.debug(f'segment_video accurate mode: checking {segment_path}')
-                if not pathlib.Path(segment_path).exists():
-                    _logger.debug(f'segment_video accurate mode: file not found, stopping at {segment_idx} segments')
-                    break
-                _logger.debug(f'segment_video accurate mode: found file, adding to result')
-                result.append(segment_path)
-                segment_idx += 1
-
-            _logger.debug(f'segment_video accurate mode: returning {len(result)} segments')
-            return result
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
+            # TODO: is this actually an error?
+            # if len(output_paths) == 0:
+            #     stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            #     raise pxt.Error(
+            #         f'ffmpeg failed to create output files for commandline: {" ".join(cmd)}\n{stderr_output}'
+            #     )
+            return output_paths
 
         except subprocess.CalledProcessError as e:
             _handle_ffmpeg_error(e)
@@ -431,10 +425,9 @@ def segment_video(video: pxt.Video, *, duration: float, mode: Literal['fast', 'a
         # Fast mode: extract consecutive clips using stream copy (no re-encoding)
         # This is faster but can only split at keyframes, leading to approximate durations
         start_time = 0.0
-        result: list[str] = []
         try:
             while True:
-                segment_path = f'{base_path}_segment_{len(result)}.mp4'
+                segment_path = f'{base_path}_segment_{len(output_paths)}.mp4'
                 cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
 
                 _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -442,15 +435,13 @@ def segment_video(video: pxt.Video, *, duration: float, mode: Literal['fast', 'a
                 if segment_duration == 0.0:
                     # we're done
                     pathlib.Path(segment_path).unlink()
-                    return result
-                result.append(segment_path)
+                    return output_paths
+                output_paths.append(segment_path)
                 start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
-
-            return result
 
         except subprocess.CalledProcessError as e:
             # clean up partial results
-            for segment_path in result:
+            for segment_path in output_paths:
                 pathlib.Path(segment_path).unlink()
             _handle_ffmpeg_error(e)
 

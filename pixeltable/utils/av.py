@@ -3,6 +3,8 @@ from typing import Any
 import av
 import av.stream
 
+from pixeltable.env import Env
+
 
 def get_metadata(path: str) -> dict:
     with av.open(path) as container:
@@ -114,22 +116,10 @@ def ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, durati
 def ffmpeg_segment_cmd(
     input_path: str, output_pattern: str, segment_duration: float, video_encoder: str | None = None
 ) -> list[str]:
-    """
-    Build ffmpeg command for accurate segmentation using the segment muxer.
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
 
-    Args:
-        input_path: Path to input video file
-        output_pattern: Output filename pattern (e.g., 'output_%03d.mp4')
-        segment_duration: Duration of each segment in seconds
-        video_encoder: Video encoder to use (defaults to mpeg4 if None)
-
-    Returns:
-        List of command arguments for subprocess
-    """
-    # Use mpeg4 as default - it's widely available and works without external dependencies
-    # Unlike libx264 which requires external library
-    default_encoder = video_encoder or 'mpeg4'
-
+    # commandline for frame-accurate segmentation
     cmd = [
         'ffmpeg',
         '-i',
@@ -142,10 +132,10 @@ def ffmpeg_segment_cmd(
         '1',  # Reset timestamps for each segment
         '-map',
         '0',  # Copy all streams from input
-        '-c:v',
-        default_encoder,  # Re-encode video for accurate splits
+        '-c:v',  # re-encode video
+        video_encoder,
         '-c:a',
-        'aac',  # Re-encode audio
+        'aac',
         '-loglevel',
         'error',  # Only show errors
         output_pattern,
