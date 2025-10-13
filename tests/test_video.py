@@ -1,5 +1,6 @@
 import math
 import os
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,7 @@ import pixeltable.functions as pxtf
 from pixeltable.env import Env
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.object_stores import ObjectOps
+
 from .utils import (
     generate_test_video,
     get_video_files,
@@ -879,5 +881,8 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
     def test_default_video_codec(self, reset_db: None) -> None:
+        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
+        print(f'ffmpeg -version:\n{result.stdout}')
+
         default_encoder = Env.get().default_video_encoder
         assert default_encoder == 'libx264'
