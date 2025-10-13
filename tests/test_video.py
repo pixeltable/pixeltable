@@ -1,5 +1,6 @@
 import math
 import os
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +9,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.env import Env
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -882,3 +884,10 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=0.0))
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
+
+    def test_default_video_codec(self, reset_db: None) -> None:
+        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
+        print(f'ffmpeg -version:\n{result.stdout}')
+
+        default_encoder = Env.get().default_video_encoder
+        assert default_encoder == 'libx264'
