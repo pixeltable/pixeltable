@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import av
 import pandas as pd
@@ -237,9 +237,15 @@ class VideoSplitter(ComponentIterator):
     seconds.
 
     Args:
-        segment_duration: Video segment duration in seconds
+        duration: Video segment duration in seconds
         overlap: Overlap between consecutive segments in seconds.
         min_segment_duration: Drop the last segment if it is smaller than min_segment_duration
+        mode: Segmentation mode:
+            - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
+            - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+            Only available for `mode='accurate'`.
+        video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
     """
 
     # Input parameters
@@ -257,10 +263,20 @@ class VideoSplitter(ComponentIterator):
     next_segment_start: float
     next_segment_start_pts: int
 
-    def __init__(self, video: str, segment_duration: float, *, overlap: float = 0.0, min_segment_duration: float = 0.0):
-        assert segment_duration > 0.0
-        assert segment_duration >= min_segment_duration
-        assert overlap < segment_duration
+    def __init__(
+        self,
+        video: str,
+        *,
+        duration: float,
+        overlap: float = 0.0,
+        min_segment_duration: float = 0.0,
+        mode: Literal['fast', 'accurate'] = 'fast',
+        video_encoder: str | None = None,
+        video_encoder_args: dict[str, Any] | None = None,
+    ):
+        assert duration > 0.0
+        assert duration >= min_segment_duration
+        assert overlap < duration
 
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
@@ -269,7 +285,7 @@ class VideoSplitter(ComponentIterator):
             raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use VideoSplitter.')
 
         self.video_path = video_path
-        self.segment_duration = segment_duration
+        self.segment_duration = duration
         self.overlap = overlap
         self.min_segment_duration = min_segment_duration
 
@@ -285,27 +301,27 @@ class VideoSplitter(ComponentIterator):
     def input_schema(cls) -> dict[str, ts.ColumnType]:
         return {
             'video': ts.VideoType(nullable=False),
-            'segment_duration': ts.FloatType(nullable=False),
+            'duration': ts.FloatType(nullable=True),
             'overlap': ts.FloatType(nullable=True),
             'min_segment_duration': ts.FloatType(nullable=True),
         }
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        param_names = ['segment_duration', 'overlap', 'min_segment_duration']
+        param_names = ['duration', 'overlap', 'min_segment_duration']
         params = dict(zip(param_names, args))
         params.update(kwargs)
 
-        segment_duration = params['segment_duration']
+        segment_duration = params['duration']
         min_segment_duration = params.get('min_segment_duration', 0.0)
         overlap = params.get('overlap', 0.0)
 
         if segment_duration <= 0.0:
-            raise excs.Error('segment_duration must be a positive number')
+            raise excs.Error('duration must be a positive number')
         if segment_duration < min_segment_duration:
-            raise excs.Error('segment_duration must be at least min_segment_duration')
+            raise excs.Error('duration must be at least min_segment_duration')
         if overlap >= segment_duration:
-            raise excs.Error('overlap must be less than segment_duration')
+            raise excs.Error('overlap must be less than duration')
 
         return {
             'segment_start': ts.FloatType(nullable=False),

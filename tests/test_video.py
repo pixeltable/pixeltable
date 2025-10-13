@@ -386,18 +386,22 @@ class TestVideo:
         with pytest.raises(pxt.Error):
             t.add_computed_column(invalid3=t.video.extract_frame(timestamp=-1.0))
 
-    def _validate_segments(self, segments: list[str], max_duration: float | None = None) -> None:
+    def _validate_segments(
+        self, segments: list[str], max_duration: float | None = None, eps: float | None = None
+    ) -> None:
         t = pxt.create_table('validate_segments', {'segment': pxt.Video}, media_validation='on_write')
         t.insert({'segment': s} for s in segments)
         duration = t.segment.get_metadata().streams[0].duration_seconds
-        result = t.select(duration=duration).collect()
+        result = t.select(duration=duration).head(n=len(segments))  # make sure output is ordered chronologically
         assert len(result) == len(segments)
         if max_duration is not None:
             # +1 to account for inevitable inaccuracy of clip extraction
-            assert result.to_pandas()['duration'].between(0.0, max_duration + 1).all()
+            df = result.to_pandas()
+            # :-1: omit last row since it typically contains the remainder and may be shorter
+            assert df.iloc[:-1]['duration'].between(max_duration - eps, max_duration + eps).all()
         pxt.drop_table('validate_segments')
 
-    @pytest.mark.parametrize('mode', ['accurate'])
+    @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_segment_video(self, mode: str, reset_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         t.insert([{'video': f} for f in get_video_files()])
@@ -406,7 +410,8 @@ class TestVideo:
         result = t.where(duration != None).select(segments=t.video.segment_video(duration=3.0, mode=mode)).collect()
         segments = result['segments'][0]
         assert len(segments) >= 1
-        self._validate_segments(segments, max_duration=3.0)
+        eps = 1.0 if mode == 'fast' else 0.1
+        self._validate_segments(segments, max_duration=3.0, eps=eps)
 
         # split at midpoint
         result = (
@@ -418,8 +423,20 @@ class TestVideo:
         assert len(segments) == 2
         self._validate_segments(segments)
 
+    def test_segment_video_errors(self, reset_db: None) -> None:
+        t = pxt.create_table('test_segments', {'video': pxt.Video})
+        t.insert([{'video': f} for f in get_video_files()])
+
         with pytest.raises(pxt.Error, match='duration must be positive'):
-            t.select(invalid=t.video.segment_video(duration=0.0)).collect()
+            _ = t.select(invalid=t.video.segment_video(duration=0.0)).collect()
+
+        with pytest.raises(pxt.Error, match='video_encoder is not supported'):
+            _ = t.select(invalid=t.video.segment_video(duration=5.0, mode='fast', video_encoder='libx264')).collect()
+
+        with pytest.raises(pxt.Error, match='video_encoder_args is not supported'):
+            _ = t.select(
+                invalid=t.video.segment_video(duration=5.0, mode='fast', video_encoder_args={'crf': 18})
+            ).collect()
 
     def test_concat_videos(self, reset_db: None) -> None:
         video_filepaths = get_video_files()[:3]  # Use first 3 videos

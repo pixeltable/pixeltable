@@ -6,7 +6,7 @@ import glob
 import logging
 import pathlib
 import subprocess
-from typing import Literal, NoReturn
+from typing import Any, Literal, NoReturn
 
 import av
 import av.stream
@@ -360,7 +360,13 @@ def clip(
 
 @pxt.udf(is_method=True)
 def segment_video(
-    video: pxt.Video, *, duration: float, mode: Literal['fast', 'accurate'] = 'fast', video_encoder: str | None = None
+    video: pxt.Video,
+    *,
+    duration: float | None = None,
+    segment_times: list[float] | None = None,
+    mode: Literal['fast', 'accurate'] = 'fast',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
     """
     Split a video into fixed-size segments.
@@ -372,11 +378,15 @@ def segment_video(
     Args:
         video: Input video file to segment
         duration: Duration of each segment (in seconds). For `mode='fast'`, this is approximate;
-            for `mode='accurate'`, segments will have exact durations.
+            for `mode='accurate'`, segments will have exact durations. Cannot be specified together with `segment_times`.
+        segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
+            segment durations. Cannot be specified together with `duration`.
         mode: Segmentation mode:
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
             - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
         video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+            Only available for `mode='accurate'`.
+        video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
 
     Returns:
         List of file paths for the generated video segments.
@@ -389,9 +399,15 @@ def segment_video(
 
         >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60)).collect()
 
-        Split video into exact 10-second segments with accurate mode:
+        Split video into exact 10-second segments with accurate mode, using the libx264 encoder with a CRF of 23 and
+        slow preset (for smaller output files):
 
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=10, mode='accurate')).collect()
+        >>> tbl.select(
+        ...     segment_paths=tbl.video.segment_video(
+        ...         duration=10, mode='accurate', video_encoder='libx264',
+        ...         video_encoder_args={'crf': 23, 'preset': 'slow'}
+        ...     )
+        ... ).collect()
 
         Split video into two parts at the midpoint:
 
@@ -401,6 +417,11 @@ def segment_video(
     Env.get().require_binary('ffmpeg')
     if duration <= 0:
         raise pxt.Error(f'duration must be positive, got {duration}')
+    if mode == 'fast':
+        if video_encoder is not None:
+            raise pxt.Error("video_encoder is not supported for mode='fast'")
+        if video_encoder_args is not None:
+            raise pxt.Error("video_encoder_args is not supported for mode='fast'")
 
     base_path = TempStore.create_path(extension='')
 
@@ -408,10 +429,10 @@ def segment_video(
     if mode == 'accurate':
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
         output_pattern = f'{base_path}_segment_%03d.mp4'
-        cmd = av_utils.ffmpeg_segment_cmd(str(video), output_pattern, duration, video_encoder)
+        cmd = av_utils.ffmpeg_segment_cmd(str(video), output_pattern, duration, video_encoder, video_encoder_args)
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
             output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
             # TODO: is this actually an error?
             # if len(output_paths) == 0:
