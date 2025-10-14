@@ -51,20 +51,28 @@ jobs:
   tests:
     strategy:
       fail-fast: false
+      # The standard unit tests run during merge queue on these configurations:
+      #   - Python 3.10 and 3.13 (minimum and maximum supported versions) on ubuntu-22.04, macos-15, macos-15-intel,
+      #     and windows-2022 runners.
+      #   - Additionally, Python 3.11 and 3.12 on ubuntu-22.04.
+      # On a PR, only Python 3.10 is tested, and macos-15-intel is disabled, to streamline PR CI.
+      # On scheduled runs, we additionally run Python 3.10 and 3.13 on ubuntu-x64-t4 (which is equipped with an
+      #     NVIDIA T4 GPU and costs money).
+      #
+      # In all cases, we also run some additional tests on ubuntu-22.04 / Python 3.10 only:
+      #   - A minimal installation of pixeltable (without dev dependencies)
+      #   - Notebook tests
+      #   - Linting, type-checking, docstring validation, etc.
+      #   - Random table ops
+      #
+      # A workflow_dispatch trigger will run the same tests as merge queue by default, but can be optionally
+      #     expanded to run all configurations including ubuntu-x64-t4.
       matrix:
-        # Test with Python 3.10 and 3.13 (minimum and maximum supported versions) on every platform.
-        # In most cases, test only the basic (free) platforms: ubuntu-22.04, macos-15, windows-2022.
-        # On a scheduled run, also test ubuntu-x64-t4 (which costs money). ubuntu-arm64 is disabled
-        # for now; it just has too many problems.
-        # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
         test-category: ["py"]
         uv-options: [""]
-        os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
-                && fromJSON('["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]')
-                || fromJSON('["ubuntu-22.04", "macos-15", "windows-2022"]') }}
+        os: ["ubuntu-22.04", "macos-15", "macos-15-intel", "windows-2022", "ubuntu-x64-t4"]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        # Add some additional matrix configurations that are run only on linux.
-        include:
+        include:  # Additional matrix configurations that are run only on ubuntu-22.04 / Python 3.10.
           # Minimal installation of pixeltable
           - test-category: "py"
             uv-options: "--no-dev"
@@ -86,9 +94,14 @@ jobs:
             os: ubuntu-22.04
             python-version: "3.10"
         exclude:  # Sadly, github only lets us specify these one at a time.
+          # Disable 3.11 and 3.12 on non-linux platforms.
           - os: macos-15
             python-version: "3.11"
           - os: macos-15
+            python-version: "3.12"
+          - os: macos-15-intel
+            python-version: "3.11"
+          - os: macos-15-intel
             python-version: "3.12"
           - os: windows-2022
             python-version: "3.11"
@@ -98,15 +111,17 @@ jobs:
             python-version: "3.11"
           - os: ubuntu-x64-t4
             python-version: "3.12"
-          - os: ubuntu-x64-t4
-            python-version: "3.13"
+          # Also disable ubuntu-x64-t4 except on scheduled runs or when explicitly requested via workflow_dispatch.
           - os: ubuntu-x64-t4
             python-version: |
               ${{ !(github.event_name == 'schedule' ||
                     (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms)) && '3.10' }}
+          # Also disable 3.11, 3.12, and 3.13 on all configurations during a PR, to streamline PR checks.
           - python-version: ${{ github.event_name == 'pull_request' && '3.11' }}
           - python-version: ${{ github.event_name == 'pull_request' && '3.12' }}
           - python-version: ${{ github.event_name == 'pull_request' && '3.13' }}
+          # Also disable macos-15-intel during a PR.
+          - os: ${{ github.event_name == 'pull_request' && 'macos-15-intel' }}
 
     runs-on: ${{ matrix.os }}
     defaults:
