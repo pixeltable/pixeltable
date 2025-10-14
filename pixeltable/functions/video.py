@@ -369,7 +369,7 @@ def segment_video(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
     """
-    Split a video into fixed-size segments.
+    Split a video into segments.
 
     __Requirements:__
 
@@ -378,9 +378,10 @@ def segment_video(
     Args:
         video: Input video file to segment
         duration: Duration of each segment (in seconds). For `mode='fast'`, this is approximate;
-            for `mode='accurate'`, segments will have exact durations. Cannot be specified together with `segment_times`.
+            for `mode='accurate'`, segments will have exact durations. Cannot be specified together with
+            `segment_times`.
         segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
-            segment durations. Cannot be specified together with `duration`.
+            segment durations. Cannot be empty or be specified together with `duration`.
         mode: Segmentation mode:
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
             - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
@@ -412,11 +413,15 @@ def segment_video(
         Split video into two parts at the midpoint:
 
         >>> duration = tbl.video.get_duration()
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()
+        >>> tbl.select(segment_paths=tbl.video.segment_video(segment_times=[duration / 2])).collect()
     """
     Env.get().require_binary('ffmpeg')
-    if duration <= 0:
+    if duration is not None and segment_times is not None:
+        raise pxt.Error('duration and segment_times cannot both be specified')
+    if duration is not None and duration <= 0:
         raise pxt.Error(f'duration must be positive, got {duration}')
+    if segment_times is not None and len(segment_times) == 0:
+        raise pxt.Error('segment_times cannot be empty')
     if mode == 'fast':
         if video_encoder is not None:
             raise pxt.Error("video_encoder is not supported for mode='fast'")
@@ -428,8 +433,15 @@ def segment_video(
     output_paths: list[str] = []
     if mode == 'accurate':
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
-        output_pattern = f'{base_path}_segment_%03d.mp4'
-        cmd = av_utils.ffmpeg_segment_cmd(str(video), output_pattern, duration, video_encoder, video_encoder_args)
+        output_pattern = f'{base_path}_segment_%04d.mp4'
+        cmd = av_utils.ffmpeg_segment_cmd(
+            str(video),
+            output_pattern,
+            segment_duration=duration,
+            segment_times=segment_times,
+            video_encoder=video_encoder,
+            video_encoder_args=video_encoder_args,
+        )
 
         try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -444,14 +456,23 @@ def segment_video(
 
         except subprocess.CalledProcessError as e:
             _handle_ffmpeg_error(e)
+
     else:
         # Fast mode: extract consecutive clips using stream copy (no re-encoding)
         # This is faster but can only split at keyframes, leading to approximate durations
         start_time = 0.0
+        segment_idx = 0
         try:
             while True:
+                target_duration: float | None
+                if duration is not None:
+                    target_duration = duration
+                elif segment_idx < len(segment_times):
+                    target_duration = segment_times[segment_idx] - start_time
+                else:
+                    target_duration = None  # the rest
                 segment_path = f'{base_path}_segment_{len(output_paths)}.mp4'
-                cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
+                cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, target_duration)
 
                 _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
                 segment_duration = av_utils.get_video_duration(segment_path)
@@ -461,6 +482,12 @@ def segment_video(
                     return output_paths
                 output_paths.append(segment_path)
                 start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
+
+                segment_idx += 1
+                if segment_times is not None and segment_idx > len(segment_times):
+                    break
+
+            return output_paths
 
         except subprocess.CalledProcessError as e:
             # clean up partial results

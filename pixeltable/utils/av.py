@@ -116,11 +116,13 @@ def ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, durati
 def ffmpeg_segment_cmd(
     input_path: str,
     output_pattern: str,
-    segment_duration: float,
+    segment_duration: float | None = None,
+    segment_times: list[float] | None = None,
     video_encoder: str | None = None,
     video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
     """Commandline for frame-accurate segmentation"""
+    assert (segment_duration is None) != (segment_times is None)
     if video_encoder is None:
         video_encoder = Env.get().default_video_encoder
 
@@ -130,26 +132,42 @@ def ffmpeg_segment_cmd(
         input_path,
         '-f',
         'segment',  # Use segment muxer
-        '-segment_time',
-        str(segment_duration),  # Target segment duration
-        '-break_non_keyframes',
-        '1',  # need to break at non-keyframes to get frame-accurate segments
-        '-reset_timestamps',
-        '1',  # Reset timestamps for each segment
-        '-map',
-        '0',  # Copy all streams from input
-        '-c:v',
-        video_encoder,  # re-encode video
-        '-force_key_frames',
-        f'expr:gte(t,n_forced*{segment_duration})',  # Force keyframe at each segment boundary
     ]
+
+    if segment_duration is not None:
+        cmd.extend(
+            [
+                '-segment_time',
+                str(segment_duration),  # Target segment duration
+                '-break_non_keyframes',
+                '1',  # need to break at non-keyframes to get frame-accurate segments
+                '-force_key_frames',
+                f'expr:gte(t,n_forced*{segment_duration})',  # Force keyframe at each segment boundary
+            ]
+        )
+    else:
+        assert segment_times is not None
+        times_str = ','.join([str(t) for t in segment_times])
+        cmd.extend(['-segment_times', times_str, '-force_key_frames', times_str])
+
+    cmd.extend(
+        [
+            '-reset_timestamps',
+            '1',  # Reset timestamps for each segment
+            '-map',
+            '0',  # Copy all streams from input
+            '-c:a',
+            'copy',  # don't re-encode audio
+            '-c:v',
+            video_encoder,  # re-encode video
+        ]
+    )
     if video_encoder_args is not None:
         for k, v in video_encoder_args.items():
             cmd.extend([f'-{k}', str(v)])
+
     cmd.extend(
         [
-            '-c:a',
-            'copy',  # don't re-encode audio
             '-loglevel',
             'error',  # Only show errors
             output_pattern,
