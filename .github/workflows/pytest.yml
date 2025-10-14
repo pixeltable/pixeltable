@@ -112,10 +112,8 @@ jobs:
           - os: ubuntu-x64-t4
             python-version: "3.12"
           # Also disable ubuntu-x64-t4 except on scheduled runs or when explicitly requested via workflow_dispatch.
-          - os: ubuntu-x64-t4
-            python-version: |
-              ${{ !(github.event_name == 'schedule' ||
-                    (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms)) && '3.10' }}
+          - os: ${{ !(github.event_name == 'schedule' ||
+                      (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms)) && 'ubuntu-x64-t4' }}
           # Also disable 3.11, 3.12, and 3.13 on all configurations during a PR, to streamline PR checks.
           - python-version: ${{ github.event_name == 'pull_request' && '3.11' }}
           - python-version: ${{ github.event_name == 'pull_request' && '3.12' }}
