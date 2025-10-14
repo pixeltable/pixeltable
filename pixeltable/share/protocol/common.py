@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class StorageDestination(str, Enum):
@@ -35,10 +35,11 @@ class PxtUri(BaseModel):
     table_identifier: str  # The table identifier (path or UUID)
     is_uuid: bool  # True if table_identifier is a UUID, False if it's a path
 
-    def __init__(self, uri: str, **data: Any):
-        # Parse and validate the URI first
-        parsed_data = self._parse_and_validate_uri(uri)
-        super().__init__(uri=uri, **parsed_data, **data)
+    @model_validator(mode='before')
+    @classmethod
+    def parse_uri(cls, data: dict) -> dict:  # Type as dict directly
+        uri = data['uri']  # KeyError if missing is correct behavior
+        return {'uri': uri, **cls._parse_and_validate_uri(uri)}
 
     def __str__(self) -> str:
         """Return the URI string."""
