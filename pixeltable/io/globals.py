@@ -152,7 +152,7 @@ def export_images_as_fo_dataset(
     (or expression) containing image data, along with optional additional columns containing labels. Currently, only
     classification and detection labels are supported.
 
-    The [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial contains a
+    The [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/examples/vision/voxel51) tutorial contains a
     fully worked example showing how to export data from a Pixeltable table and load it into Voxel51.
 
     Images in the dataset that already exist on disk will be exported directly, in whatever format they
@@ -211,7 +211,7 @@ def export_images_as_fo_dataset(
         ...     classifications=tbl.classifications
         ... )
 
-        See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial
+        See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/examples/vision/voxel51) tutorial
         for a fully worked example.
     """
     Env.get().require_package('fiftyone')
