@@ -37,7 +37,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @dataclasses.dataclass(frozen=True)
-class TableVersionMd:
+class TableVersionCompleteMd:
     """
     Complete set of md records for a specific TableVersion instance.
     """
@@ -224,7 +224,7 @@ class TableVersion:
         comment: str,
         media_validation: MediaValidation,
         view_md: Optional[schema.ViewMd] = None,
-    ) -> TableVersionMd:
+    ) -> TableVersionCompleteMd:
         user = Env.get().user
         timestamp = time.time()
 
@@ -283,7 +283,7 @@ class TableVersion:
             media_validation=media_validation.name.lower(),
             additional_md={},
         )
-        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
+        return TableVersionCompleteMd(tbl_md, table_version_md, schema_version_md)
 
     @classmethod
     def create(
@@ -347,7 +347,7 @@ class TableVersion:
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
     @classmethod
-    def create_replica(cls, md: TableVersionMd) -> TableVersion:
+    def create_replica(cls, md: TableVersionCompleteMd) -> TableVersion:
         assert Env.get().in_xact
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
