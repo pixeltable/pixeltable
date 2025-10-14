@@ -7,7 +7,7 @@ from tests import utils
 
 class TestPdfExtraction:
     @pytest.mark.usefixtures('reset_db')  # ensures DB is reset between test runs
-    def test_pdf_page_chunking(self):
+    def test_pdf_page_chunking(self) -> None:
         pdf_paths = [path for path in utils.get_documents() if path.endswith('.pdf')]
         assert pdf_paths, 'No PDF files found for testing.'
 
