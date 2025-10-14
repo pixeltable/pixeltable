@@ -20,12 +20,20 @@ Transform and process images using PIL methods and custom UDFs:
 
 | Recipe | Description |
 |--------|-------------|
-| [Transform images with PIL operations](images/image-transformations.ipynb) | Resize, rotate, flip, crop |
-| [Convert RGB images to grayscale](images/rgb-to-grayscale.ipynb) | Simple and perceptually accurate methods |
-| [Apply image filters](images/image-filters.ipynb) | Blur, sharpen, edge detection |
-| [Adjust image brightness and contrast](images/brightness-contrast.ipynb) | Fix lighting and enhance visibility |
-| [Add watermarks to images](images/add-watermarks.ipynb) | Brand or protect your images |
-| [Adjust image opacity](images/adjust-opacity.ipynb) | Create semi-transparent effects |
+| [Transform images with PIL operations](img-pil-transforms.ipynb) | Resize, rotate, flip, crop |
+| [Convert RGB images to grayscale](img-rgb-to-grayscale.ipynb) | Simple and perceptually accurate methods |
+| [Apply image filters](img-apply-filters.ipynb) | Blur, sharpen, edge detection |
+| [Adjust image brightness and contrast](img-brightness-contrast.ipynb) | Fix lighting and enhance visibility |
+| [Add watermarks to images](img-add-watermarks.ipynb) | Brand or protect your images |
+| [Adjust image opacity](img-adjust-opacity.ipynb) | Create semi-transparent effects |
+
+### Iteration
+
+Speed up your development workflow:
+
+| Recipe | Description |
+|--------|-------------|
+| [Get fast feedback on transformations](iter-fast-feedback-loops.ipynb) | Test logic before processing full datasets |
 
 ## Contributing
 

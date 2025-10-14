@@ -23,7 +23,8 @@ Before you submit, make sure your recipe includes:
 - [ ] Problem comes before Solution
 - [ ] Setup includes pip, imports, and `drop_dir`/`create_dir`
 - [ ] Table creation is separate from setup (in its own "Load images" or similar section)
-- [ ] For UDF recipes: define → test with `.head()` → apply with `add_computed_column()`
+- [ ] **Query-and-Commit pattern**: Every transformation uses `.select()` to preview, then `add_computed_column()` to save (same expression)
+- [ ] For UDF recipes: define → query with `.select().head()` → commit with `add_computed_column()`
 - [ ] Action-focused subsection headings ("Load images" not "Create a table")
 - [ ] Direct, respectful tone (no "we", no "let's")
 - [ ] See also has ≤ 3 bullets
@@ -35,18 +36,20 @@ Avoid these section names: "Overview", "What you'll learn", "Next steps", "Learn
 
 Place your recipe in the appropriate directory:
 
-- `vision/` - AI vision analysis (Anthropic, OpenAI)
-- `images/` - Image processing (PIL/Pillow operations)
-- `workflows/` - Common workflows (JSON extraction, API keys)
+Recipes use prefixes to indicate their category:
+
+- `img-` - Image processing (PIL/Pillow operations and custom UDFs)
+- `vision-` - AI vision analysis (Anthropic, OpenAI)  
+- `workflow-` - Common workflows (JSON extraction, API keys)
 - `iteration/` - Development patterns (refining columns, testing, caching)
 
 ## Example recipes
 
 These recipes demonstrate good structure and style:
 
-- [rgb-to-grayscale.ipynb](images/rgb-to-grayscale.ipynb) - Clear Problem → Solution flow, comparison table, test-then-apply pattern
-- [image-transformations.ipynb](images/image-transformations.ipynb) - Clean structure, multiple techniques in one recipe
-- [brightness-contrast.ipynb](images/brightness-contrast.ipynb) - UDF examples with test-then-apply workflow
+- [img-rgb-to-grayscale.ipynb](img-rgb-to-grayscale.ipynb) - Clear Problem → Solution flow, comparison table, Query-and-Commit pattern
+- [img-pil-transforms.ipynb](img-pil-transforms.ipynb) - Clean structure, multiple techniques in one recipe
+- [img-brightness-contrast.ipynb](img-brightness-contrast.ipynb) - UDF examples with Query-and-Commit workflow
 
 ## Check your recipe structure
 

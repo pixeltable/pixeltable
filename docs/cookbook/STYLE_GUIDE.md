@@ -14,10 +14,11 @@ Write clear, practical how-to guides that help users solve problems with Pixelta
 
 ## Quick reference
 
-**Directory structure:**
-- `vision/` - AI vision analysis (Anthropic, OpenAI)
-- `images/` - Image processing (PIL operations)
-- `workflows/` - Common workflows (JSON extraction, API keys)
+**Recipe organization:**
+- `img-` prefix - Image processing (PIL operations and custom UDFs)
+- `vision-` prefix - AI vision analysis (Anthropic, OpenAI)
+- `workflow-` prefix - Common workflows (JSON extraction, API keys)
+- `iteration/` directory - Development patterns (refining columns, testing, caching)
 
 **Every cookbook has:**
 1. Title + one-sentence description
@@ -118,15 +119,19 @@ def audit_notebook(nb_path):
     return issues, sections
 
 # Run audit
-recipe_dirs = ['vision', 'images', 'workflows', 'iteration']
 all_results = {}
 
-for dir_name in recipe_dirs:
-    dir_path = Path(dir_name)
-    if dir_path.exists():
-        for nb_file in dir_path.glob('*.ipynb'):
-            issues, sections = audit_notebook(nb_file)
-            all_results[str(nb_file)] = {'issues': issues, 'sections': sections}
+# Check recipes in current directory (prefixed) and subdirectories
+for nb_file in Path('.').glob('*.ipynb'):
+    issues, sections = audit_notebook(nb_file)
+    all_results[str(nb_file)] = {'issues': issues, 'sections': sections}
+
+# Check iteration subdirectory
+iteration_dir = Path('iteration')
+if iteration_dir.exists():
+    for nb_file in iteration_dir.glob('*.ipynb'):
+        issues, sections = audit_notebook(nb_file)
+        all_results[str(nb_file)] = {'issues': issues, 'sections': sections}
 
 # Print report
 total_recipes = len(all_results)
@@ -343,25 +348,57 @@ Use `###` for all subsections under Solution.
 - ✓ "Analyze each image with its specific prompt"
 - ✗ "Create a computed column with anthropic.messages"
 
-**When solution requires UDFs, use test-then-apply pattern:**
+**Every solution must use the Query-then-Commit pattern:**
 
-If the recipe requires custom UDFs (e.g., watermarks, filters, enhancements), show the workflow:
+All recipes follow this workflow:
 
-1. **Define the UDF**
-2. **Test with `.select().head()`** (preview on sample data)
-3. **Apply with `add_computed_column()`** (process all data)
+1. **DEFINE** - List functions (built-in PIL methods OR custom UDFs)
+2. **QUERY** - Use `.select()` to preview results (optionally with `.head()`)
+3. **COMMIT** - Use `.add_computed_column()` to save results (same expression)
+
+This pattern applies to:
+- Built-in Pixeltable functions (resize, rotate, convert)
+- PIL methods on image columns
+- Custom UDFs (watermarks, filters, enhancements)
+
+**Name the pattern:** "Query-then-Commit"
+
+### With built-in functions
 
 ✓ Good:
 ```markdown
-### Define watermark UDF
+### Built-in function for resizing
 
-### Test the watermark
+- `.resize(width, height)` - Change image dimensions
 
-Preview the result on one image before applying to all.
+### Test resize with a query
 
-### Apply to all images
+Use `.select()` with `.head()` to preview results. Using `.head()` is optional but recommended for expensive operations.
+```
 
-Add watermarked images as a computed column.
+Code cells:
+```python
+# Cell 1: Query - preview results
+t.select(t.image, t.image.resize((224, 224))).head(1)
+```
+
+```markdown
+### Commit changes with a computed column
+```
+
+```python
+# Cell 2: Commit - save as computed column
+t.add_computed_column(resized=t.image.resize((224, 224)))
+t.select(t.resized, t.resized.height, t.resized.width).show()
+```
+
+### With custom UDFs
+
+✓ Good:
+```markdown
+### Define function to add watermarks
+
+Defining a UDF makes our code easier to iterate on and easier to reuse in production when we commit to a transformation.
 ```
 
 Code cells:
@@ -370,16 +407,59 @@ Code cells:
 @pxt.udf
 def add_watermark(img: Image.Image, text: str) -> Image.Image:
     ...
+```
 
-# Cell 2: Test on sample
+```markdown
+### Test watermarks with a query
+
+Use `.select()` with `.head()` to preview results. Using `.head()` is optional but recommended for expensive operations.
+```
+
+```python
+# Cell 2: Query - test on sample
 t.select(t.image, add_watermark(t.image, '© 2024')).head(1)
+```
 
-# Cell 3: Apply to all
+```markdown
+### Commit changes with a computed column
+```
+
+```python
+# Cell 3: Commit - apply to all
 t.add_computed_column(watermarked=add_watermark(t.image, '© 2024'))
 t.select(t.image, t.watermarked).show()
 ```
 
-This reinforces the fast-feedback pattern from `iteration/fast-feedback-loops.ipynb`.
+**Heading format:**
+
+For built-in functions:
+- `### Built-in function(s) for [operation]` - singular or plural depending on count
+- List methods with brief descriptions in bullets
+
+For custom UDFs:
+- `### Define function(s) to [operation]` - singular or plural depending on count
+- Include the standard explanation: "Defining a UDF makes our code easier to iterate on and easier to reuse in production when we commit to a transformation."
+
+For query and commit steps (both built-in and UDF):
+- `### Test [operation] with a query` - describe the operation being tested
+- `### Commit changes with a computed column` - always the same heading
+- Include the standard note: "Use `.select()` with `.head()` to preview results. Using `.head()` is optional but recommended for expensive operations."
+
+**When to use `.head()`:**
+
+`.head()` is optional but encouraged for:
+- API calls (avoid unnecessary charges)
+- Expensive operations (long processing time)
+- Testing new transformations
+
+For fast operations (resize, rotate, convert), `.head()` is still recommended to reinforce the pattern. Use `.head(1)` to see one result.
+
+**Key points:**
+- Same expression in query and commit steps
+- Query step shows users what will happen before running on all data
+- Commit step saves results for reuse
+- Consistent headings make recipes easy to scan and compare
+- This reinforces the fast-feedback pattern from `iter-fast-feedback-loops.ipynb`
 
 ### Explanation section (optional)
 
