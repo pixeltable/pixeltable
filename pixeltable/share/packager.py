@@ -63,10 +63,14 @@ class TablePackager:
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-        # Load metadata
+        # Load metadata and convert to JSON immediately
         with catalog.Catalog.get().begin_xact(for_write=False):
             tbl_md = catalog.Catalog.get().load_replica_md(table)
-            self.bundle_md = {'pxt_version': pxt.__version__, 'pxt_md_version': metadata.VERSION, 'md': tbl_md}
+            self.bundle_md = {
+                'pxt_version': pxt.__version__,
+                'pxt_md_version': metadata.VERSION,
+                'md': [dataclasses.asdict(md) for md in tbl_md]
+            }
         if additional_md is not None:
             self.bundle_md.update(additional_md)
 
@@ -79,9 +83,7 @@ class TablePackager:
         _logger.info(f'Packaging table {self.table._path()!r} and its ancestors in: {self.tmp_dir}')
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
-            json_md = self.bundle_md.copy()
-            json_md['md'] = [dataclasses.asdict(md) for md in self.bundle_md['md']]
-            json.dump(json_md, fp)
+            json.dump(self.bundle_md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
         with catalog.Catalog.get().begin_xact(for_write=False):

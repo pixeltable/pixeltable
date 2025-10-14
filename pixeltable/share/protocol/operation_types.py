@@ -8,7 +8,6 @@ pixeltable core and cloud implementations.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Set
 
 
 class ReplicaOperationType(str, Enum):
@@ -26,7 +25,7 @@ class ReplicaOperationType(str, Enum):
 
 
 # Define the operation sets as module-level constants
-REPLICA_OPERATIONS: Set[ReplicaOperationType] = {
+REPLICA_OPERATIONS: set[ReplicaOperationType] = {
     ReplicaOperationType.PUBLISH_REPLICA,
     ReplicaOperationType.FINALIZE_REPLICA,
     ReplicaOperationType.CLONE_REPLICA,
