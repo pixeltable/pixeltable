@@ -1847,7 +1847,7 @@ class Catalog:
             return False  # Non-replica snapshots never have indices
 
         # Replicas can have indices if they're the most recent version available in the catalog.
-        head_version = self._collect_tbl_history(tbl_md.tbl_id, n=1)
+        head_version = self._collect_tbl_history(UUID(tbl_md.tbl_id), n=1)
         assert len(head_version) == 1
         # Use <= instead of == to handle the case where we are creating a new TableVersion instance with a newer
         # version than anything currently in the catalog.
