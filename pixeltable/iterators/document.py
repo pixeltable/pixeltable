@@ -265,7 +265,9 @@ class DocumentSplitter(ComponentIterator):
                 elif md_field == ChunkMetadata.BOUNDING_BOX:
                     result[md_field.name.lower()] = section.metadata.bounding_box
 
-            result['image'] = section.image
+             # FIX: only include image if schema supports it
+            if self._include_page_image:
+                result['image'] = section.image
 
             return result
 
