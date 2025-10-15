@@ -121,7 +121,6 @@ jobs:
           # Also disable macos-15-intel during a PR.
           - os: ${{ github.event_name == 'pull_request' && 'macos-15-intel' }}
 
-    if: ${{ matrix.os == 'ubuntu-22.04' }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -245,3 +244,11 @@ jobs:
       - name: Print utilization info
         if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         run: df -h
+
+  validate:
+    needs: tests
+    runs-on: ubuntu-22.04
+    if: success()
+    steps:
+      - name: All tests succeeded
+        run: echo "All tests succeeded"
