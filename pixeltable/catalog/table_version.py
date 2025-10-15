@@ -24,7 +24,7 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, is_valid_identifier
+from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
 from .tbl_ops import TableOp
 from .update_status import RowCountStats, UpdateStatus
 
@@ -460,7 +460,7 @@ class TableVersion:
             # TableVersion, so that we can make appropriate adjustments to the SA schema.
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index, cls_name)
-            idx_col = self._lookup_column(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            idx_col = self._lookup_column(QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id))
             assert idx_col is not None
             idx = cls.from_dict(idx_col, md.init_args)
 
@@ -506,17 +506,17 @@ class TableVersion:
                 )
                 self.idxs_by_name[md.name] = idx_info
 
-    def _lookup_column(self, tbl_id: UUID, col_id: int) -> Column | None:
+    def _lookup_column(self, id: QColumnId) -> Column | None:
         """
         Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
         to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
 
         This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
-        if tbl_id == self.id:
-            return next(col for col in self.cols if col.id == col_id)
+        if id.tbl_id == self.id:
+            return next(col for col in self.cols if col.id == id.col_id)
         elif self.base is not None:
-            return self.base.get()._lookup_column(tbl_id, col_id)
+            return self.base.get()._lookup_column(id)
         else:
             return None
 
