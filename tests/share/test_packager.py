@@ -22,7 +22,7 @@ from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
-from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.local_store import LocalStore, TempStore
 from tests.conftest import clean_db
 
 from ..utils import (
@@ -214,6 +214,7 @@ class TestPackager:
     def __do_round_trip(self, tbl: pxt.Table) -> None:
         bundle = self.__package_table(tbl)
         clean_db()
+        LocalStore(Env.get().media_dir).clear()
         reload_catalog()
         self.__restore_and_check_table(bundle, 'new_replica')
 
@@ -291,6 +292,14 @@ class TestPackager:
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
         snapshot = pxt.create_snapshot('snapshot', img_tbl)
         self.__do_round_trip(snapshot)
+
+    def test_array_round_trip(self, reset_db: None) -> None:
+        t = pxt.create_table('tbl', {'arr1': pxt.Array[pxt.Int, (200, 200)], 'arr2': pxt.Array[pxt.Bool]})  # type: ignore[misc]
+        t.insert(
+            {'arr1': np.ones((200, 200), dtype=np.int64) * i, 'arr2': np.array([j % 19 == 0 for j in range(10000 + i)])}
+            for i in range(5)
+        )
+        self.__do_round_trip(t)
 
     def test_views_round_trip(self, test_tbl: pxt.Table) -> None:
         v1 = pxt.create_view('v1', test_tbl, additional_columns={'x1': pxt.Int})
