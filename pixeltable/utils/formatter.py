@@ -233,7 +233,7 @@ class Formatter:
         if file_path.lower().endswith('.pdf'):
             try:
                 import fitz
-                
+
                 doc = fitz.open(file_path)
                 pixmap = doc.get_page_pixmap(0)
                 while pixmap.width > max_width or pixmap.height > max_height:
