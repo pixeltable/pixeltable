@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
-from .table_version import TableVersion, TableVersionMd
+from .table_version import TableVersion, TableVersionCompleteMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
@@ -86,7 +86,7 @@ class View(Table):
         media_validation: MediaValidation,
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
-    ) -> tuple[TableVersionMd, Optional[list[TableOp]]]:
+    ) -> tuple[TableVersionCompleteMd, Optional[list[TableOp]]]:
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
