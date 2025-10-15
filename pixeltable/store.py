@@ -434,8 +434,7 @@ class StoreBase:
             *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), filter_view.rowid_columns())],
         )
         stmt = (
-            sql.select('*')  # TODO: Use a more specific list of columns?
-            .select_from(self.sa_tbl)
+            sql.select(self.sa_tbl)
             .where(self.v_min_col <= version)
             .where(self.v_max_col > version)
             .where(sql.exists().where(filter_predicate))

@@ -1,5 +1,4 @@
 import base64
-import datetime
 import io
 import json
 import logging
@@ -13,6 +12,7 @@ from uuid import UUID
 
 import more_itertools
 import numpy as np
+import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
 import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -126,7 +126,7 @@ class TablePackager:
         # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Parquet table on disk.
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
-        parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
+        parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='snappy')
         filter_tv = self.table._tbl_version_path.tbl_version.get()
         row_iter = tv.store_tbl.dump_rows(tv.version, filter_tv.store_tbl, filter_tv.version)
         for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, parquet_schema):
@@ -138,7 +138,7 @@ class TablePackager:
     @classmethod
     def __to_parquet_schema(cls, store_tbl: sql.Table) -> pa.Schema:
         entries = [(col_name, cls.__to_parquet_type(col.type)) for col_name, col in store_tbl.columns.items()]
-        return pa.schema(entries)  # type: ignore[arg-type]
+        return pa.schema(entries)
 
     @classmethod
     def __to_parquet_type(cls, col_type: sql.types.TypeEngine[Any]) -> pa.DataType:
@@ -151,13 +151,17 @@ class TablePackager:
         if isinstance(col_type, sql.Float):
             return pa.float32()
         if isinstance(col_type, sql.TIMESTAMP):
-            return pa.timestamp('us', tz=datetime.timezone.utc)
+            return pa.timestamp('us', tz='UTC')
         if isinstance(col_type, sql.Date):
             return pa.date32()
         if isinstance(col_type, sql.JSON):
             return pa.string()  # JSON will be exported as strings
         if isinstance(col_type, sql.LargeBinary):
             return pa.binary()
+        if isinstance(col_type, sql_vector.Vector):
+            # Parquet/pyarrow do not handle null values properly for fixed_shape_tensor(), so we have to use list_()
+            # here instead.
+            return pa.list_(pa.float32())
         raise AssertionError(f'Unrecognized SQL type: {col_type} (type {type(col_type)})')
 
     def __to_pa_tables(
@@ -409,6 +413,9 @@ class TableRestorer:
         # 2. "rectify" the v_max values in both the temporary table and the existing table (more on this below);
         # 3. Delete any row instances from the temporary table that are already present in the existing table;
         # 4. Copy the remaining rows from the temporary table into the existing table.
+        # 5. Rectify any index columns.
+
+        # STEP 1: Import the parquet data into a temporary table.
 
         # Create a temporary table for the initial data load, containing columns for all columns present in the
         # parquet table. The parquet columns have identical names to those in the store table, so we can use the
@@ -416,7 +423,7 @@ class TableRestorer:
         # e.g., pa.string() may hold either VARCHAR or serialized JSONB).
         temp_cols: dict[str, sql.Column] = {}
         for field in parquet_table.schema:
-            assert field.name in store_sa_tbl.columns
+            assert field.name in store_sa_tbl.columns, f'{field.name} not in {list(store_sa_tbl.columns)}'
             col_type = store_sa_tbl.columns[field.name].type
             temp_cols[field.name] = sql.Column(field.name, col_type)
         temp_sa_tbl_name = f'temp_{uuid.uuid4().hex}'
@@ -431,6 +438,8 @@ class TableRestorer:
             pydict = batch.to_pydict()
             rows = self.__from_pa_pydict(tv, pydict)
             conn.execute(sql.insert(temp_sa_tbl), rows)
+
+        # STEP 2: Rectify v_max values.
 
         # Each row version is identified uniquely by its pk, a tuple (row_id, pos_0, pos_1, ..., pos_k, v_min).
         # Conversely, v_max is not part of the primary key, but is simply a bookkeeping device.
@@ -540,6 +549,8 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Rectified {result.rowcount} row(s) in {store_sa_tbl_name!r}.')
 
+        # STEP 3: Delete any row instances from the temporary table that are already present in the existing table.
+
         # Now we need to update rows in the existing table that are also present in the temporary table. This is to
         # account for the scenario where the temporary table has columns that are not present in the existing table.
         # (We can't simply replace the rows with their versions in the temporary table, because the converse scenario
@@ -570,7 +581,9 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Deleted {result.rowcount} row(s) from {temp_sa_tbl_name!r}.')
 
-        # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
+        # STEP 4: Copy the remaining rows from the temporary table into the existing table.
+
+        # Now copy the remaining data (consisting entirely of new row instances) from the temporary table into
         # the actual table.
         q = store_sa_tbl.insert().from_select(
             [store_sa_tbl.c[col_name] for col_name in temp_cols], sql.select(*temp_cols.values())
@@ -578,6 +591,66 @@ class TableRestorer:
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Inserted {result.rowcount} row(s) from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
+
+        # STEP 5: Rectify any index columns.
+
+        # Finally, rectify any index columns in the table. This involves shuffling data between the index's val and
+        # undo columns to ensure they appropriately reflect the most recent replicated version of the table.
+
+        # Get the most recent replicated version of the table. This might be the version we're currently importing,
+        # but it might be a different version of the table that was previously imported.
+        head_version_md = catalog.Catalog.get()._collect_tbl_history(tv.id, n=1)[0]
+        head_version = head_version_md.version_md.version
+        _logger.debug(f'Head version for index rectification is {head_version}.')
+
+        # Get the index info from the table metadata. Here we use the tbl_md that we just collected from the DB.
+        # This is to ensure we pick up ALL indices, including dropped indices and indices that are present in
+        # a previously replicated version of the table, but not in the one currently being imported.
+        index_md = head_version_md.tbl_md.index_md
+
+        # Now update the table. We can do this for all indices together with just two SQL queries. For each index,
+        # at most one of the val or undo columns will be non-NULL in any given row.
+        # For rows where v_min <= head_version < v_max, we set, for all indices:
+        #   val_col = whichever of (val_col, undo_col) is non-NULL (or NULL if both are, e.g., for a dropped index)
+        #   undo_col = NULL
+        # For rows where head_version < v_min or v_max <= head_version, vice versa.
+        val_sql_clauses: dict[str, sql.ColumnElement] = {}
+        undo_sql_clauses: dict[str, sql.ColumnElement] = {}
+        for index in index_md.values():
+            if index.class_fqn.endswith('.EmbeddingIndex'):
+                val_col_name = f'col_{index.index_val_col_id}'
+                undo_col_name = f'col_{index.index_val_undo_col_id}'
+                # Check that the val column for the index is actually present in the store table. We need to do this
+                # to properly handle the case where the replica represents a table version that was *not* the most
+                # recent version at the time it was published. In that case, it is possible for tbl_md to contain
+                # metadata for indices not known to any version that has been replicated. (However, the converse
+                # *does* hold: all replicated indices must have metadata in tbl_md; and that's what's important.)
+                if val_col_name in store_sa_tbl.c:
+                    assert undo_col_name in store_sa_tbl.c
+                    coalesce = sql.func.coalesce(store_sa_tbl.c[val_col_name], store_sa_tbl.c[undo_col_name])
+                    val_sql_clauses[val_col_name] = coalesce
+                    val_sql_clauses[undo_col_name] = sql.null()
+                    undo_sql_clauses[undo_col_name] = coalesce
+                    undo_sql_clauses[val_col_name] = sql.null()
+
+        if len(val_sql_clauses) > 0:
+            q2 = (
+                store_sa_tbl.update()
+                .values(**val_sql_clauses)
+                .where(sql.and_(tv.store_tbl.v_min_col <= head_version, tv.store_tbl.v_max_col > head_version))
+            )
+            _logger.debug(q2.compile())
+            _ = conn.execute(q2)
+            q2 = (
+                store_sa_tbl.update()
+                .values(**undo_sql_clauses)
+                .where(sql.or_(tv.store_tbl.v_min_col > head_version, tv.store_tbl.v_max_col <= head_version))
+            )
+            _logger.debug(q2.compile())
+            _ = conn.execute(q2)
+            _logger.debug(f'Rectified index columns in {store_sa_tbl_name!r}.')
+        else:
+            _logger.debug(f'No index columns to rectify in {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
@@ -608,6 +681,11 @@ class TableRestorer:
     ) -> Any:
         if val is None:
             return None
+        if isinstance(sql_type, sql_vector.Vector):
+            if isinstance(val, list):
+                val = np.array(val, dtype=np.float32)
+            assert isinstance(val, np.ndarray) and val.dtype == np.float32 and val.ndim == 1
+            return val
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
         if media_col is not None:
