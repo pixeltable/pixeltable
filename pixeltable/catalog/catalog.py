@@ -1829,30 +1829,6 @@ class Catalog:
 
         return schema.FullTableMd(tbl_md, version_md, schema_version_md)
 
-    def tv_supports_idxs(self, tbl_md: schema.TableMd, effective_version: Optional[int]) -> bool:
-        """
-        Determines if this TableVersion supports indices.
-
-        Ordinarily, snapshots do not have indices, since we cannot rely on the index information in the underlying
-        table(s) to align with the snapshot version. However, we *do* allow indices for replicas, provided that the
-        version of the replica is the most recent version available in the catalog.
-        """
-        # TODO: Ideally we wouldn't need the "provided that..." restriction, but resolving it will require some
-        #     rearchitecture of the way replica indices are stored.
-        # TODO: What if the user does a t.pull() and retrieves a more recent version than this one? Verify that this
-        #     correctly invalidates the indices in a TableVersion.
-        if effective_version is None:
-            return True  # Non-snapshots always support indices
-        if not tbl_md.is_replica:
-            return False  # Non-replica snapshots never have indices
-
-        # Replicas can have indices if they're the most recent version available in the catalog.
-        head_version = self._collect_tbl_history(UUID(tbl_md.tbl_id), n=1)
-        assert len(head_version) == 1
-        # Use <= instead of == to handle the case where we are creating a new TableVersion instance with a newer
-        # version than anything currently in the catalog.
-        return head_version[0].version_md.version <= effective_version
-
     def store_tbl_md(
         self,
         tbl_id: UUID,
@@ -1992,6 +1968,10 @@ class Catalog:
             snapshot_md = self.load_tbl_md(tbl._id, 0)
             md = [snapshot_md, *md]
 
+        for ancestor_md in md:
+            # Set the `is_replica` flag on every ancestor's TableMd.
+            ancestor_md.tbl_md.is_replica = True
+
         for ancestor_md in md[1:]:
             # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
             # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
@@ -2048,7 +2028,7 @@ class Catalog:
             mutable_view_ids = [r[0] for r in conn.execute(q).all()]
 
         mutable_views = [TableVersionHandle(id, None) for id in mutable_view_ids]
-        supports_idxs = self.tv_supports_idxs(tbl_md, effective_version)
+        supports_idxs = effective_version is None or (tbl_md.is_replica and effective_version == tbl_md.current_version)
 
         tbl_version: TableVersion
         if view_md is None:

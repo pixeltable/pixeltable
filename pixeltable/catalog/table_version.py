@@ -362,10 +362,13 @@ class TableVersion:
         from .catalog import Catalog, TableVersionPath
 
         assert Env.get().in_xact
+        assert md.tbl_md.is_replica
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
-        supports_idxs = Catalog.get().tv_supports_idxs(md.tbl_md, md.version_md.version)
+        # A replica TableVersion supports indices if and only if it tracks the head version of the table
+        # (i.e., the most recent version of the table that is known to the local catalog).
+        supports_idxs = (md.tbl_md.current_version == md.version_md.version)
         base_path = TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
