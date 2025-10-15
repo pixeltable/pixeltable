@@ -1962,6 +1962,9 @@ class Catalog:
             snapshot_md = self.load_tbl_md(tbl._id, 0)
             md = [snapshot_md, *md]
 
+        for ancestor_md in md:
+            ancestor_md.tbl_md.is_replica = True
+
         for ancestor_md in md[1:]:
             # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
             # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
