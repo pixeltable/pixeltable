@@ -52,10 +52,10 @@ jobs:
     strategy:
       fail-fast: false
       # The standard unit tests run during merge queue on these configurations:
-      #   - Python 3.10 and 3.13 (minimum and maximum supported versions) on ubuntu-22.04, macos-15, macos-15-intel,
+      #   - Python 3.10 and 3.13 (minimum and maximum supported versions) on ubuntu-22.04, macos-15,
       #     and windows-2022 runners.
       #   - Additionally, Python 3.11 and 3.12 on ubuntu-22.04.
-      # On a PR, only Python 3.10 is tested, and macos-15-intel is disabled, to streamline PR CI.
+      # On a PR, only Python 3.10 is tested, to streamline PR CI.
       # On scheduled runs, we additionally run Python 3.10 and 3.13 on ubuntu-x64-t4 (which is equipped with an
       #     NVIDIA T4 GPU and costs money).
       #
@@ -70,7 +70,7 @@ jobs:
       matrix:
         test-category: ["py"]
         uv-options: [""]
-        os: ["ubuntu-22.04", "macos-15", "macos-15-intel", "windows-2022", "ubuntu-x64-t4"]
+        os: ["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         include:  # Additional matrix configurations that are run only on ubuntu-22.04 / Python 3.10.
           # Minimal installation of pixeltable
@@ -99,10 +99,6 @@ jobs:
             python-version: "3.11"
           - os: macos-15
             python-version: "3.12"
-          - os: macos-15-intel
-            python-version: "3.11"
-          - os: macos-15-intel
-            python-version: "3.12"
           - os: windows-2022
             python-version: "3.11"
           - os: windows-2022
@@ -118,8 +114,6 @@ jobs:
           - python-version: ${{ github.event_name == 'pull_request' && '3.11' }}
           - python-version: ${{ github.event_name == 'pull_request' && '3.12' }}
           - python-version: ${{ github.event_name == 'pull_request' && '3.13' }}
-          # Also disable macos-15-intel during a PR.
-          - os: ${{ github.event_name == 'pull_request' && 'macos-15-intel' }}
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -248,7 +242,7 @@ jobs:
   validate:
     needs: tests
     runs-on: ubuntu-22.04
-    if: success()
+    if: failure()
     steps:
-      - name: All tests succeeded
-        run: echo "All tests succeeded"
+      - name: Fail on error
+        run: exit 1
