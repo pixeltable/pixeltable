@@ -111,6 +111,11 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
+        for index_md in [md for md in tbl_version.tbl_md.index_md.values() if md.schema_version_drop is None]:
+            val_col = next(c for c in tbl_version.cols if c.id == index_md.index_val_col_id)
+            idx = sql.Index(index_md.name, val_col.sa_col, postgresql_using='btree')
+            idxs.append(idx)
+
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 
@@ -213,7 +218,7 @@ class StoreBase:
             sql.exc.DBAPIError if there was a SQL error during execution
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
-        assert col.tbl.id == self.tbl_version.id
+        assert col.tbl().id == self.tbl_version.id
         num_excs = 0
         num_rows = 0
         # create temp table to store output of exec_plan, with the same primary key as the store table

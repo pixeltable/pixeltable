@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import warnings
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sql
 
@@ -16,7 +16,7 @@ from .globals import MediaValidation, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
-    from .table_version_handle import ColumnHandle
+    from .table_version_handle import ColumnHandle, TableVersionHandle
     from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
@@ -48,50 +48,51 @@ class Column:
     - if None: the system chooses for you (at present, this is always False, but this may change in the future)
     """
 
-    name: Optional[str]
-    id: Optional[int]
+    name: str | None
+    id: int | None
     col_type: ts.ColumnType
     stored: bool
     is_pk: bool
-    destination: Optional[str]  # An object store reference for computed files
-    _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
-    schema_version_add: Optional[int]
-    schema_version_drop: Optional[int]
-    _stores_cellmd: Optional[bool]
-    sa_col: Optional[sql.schema.Column]
-    sa_col_type: Optional[sql.sqltypes.TypeEngine]
-    sa_cellmd_col: Optional[sql.schema.Column]  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
-    _value_expr: Optional[exprs.Expr]
-    value_expr_dict: Optional[dict[str, Any]]
-    # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
-    # (re-resolving it later to a different instance doesn't make sense)
-    tbl: Optional[TableVersion]
+    is_iterator_col: bool
+    destination: str | None  # An object store reference for computed files
+    _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
+    schema_version_add: int | None
+    schema_version_drop: int | None
+    _stores_cellmd: bool | None
+    sa_col: sql.schema.Column | None
+    sa_col_type: sql.sqltypes.TypeEngine | None
+    sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
+    _value_expr: exprs.Expr | None
+    value_expr_dict: dict[str, Any] | None
+    # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
+    tbl_handle: 'TableVersionHandle' | None
 
     def __init__(
         self,
-        name: Optional[str],
-        col_type: Optional[ts.ColumnType] = None,
-        computed_with: Optional[exprs.Expr] = None,
+        name: str | None,
+        col_type: ts.ColumnType | None = None,
+        computed_with: exprs.Expr | None = None,
         is_pk: bool = False,
+        is_iterator_col: bool = False,
         stored: bool = True,
-        media_validation: Optional[MediaValidation] = None,
-        col_id: Optional[int] = None,
-        schema_version_add: Optional[int] = None,
-        schema_version_drop: Optional[int] = None,
-        sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
-        stores_cellmd: Optional[bool] = None,
-        value_expr_dict: Optional[dict[str, Any]] = None,
-        tbl: Optional[TableVersion] = None,
-        destination: Optional[str] = None,
+        media_validation: MediaValidation | None = None,
+        col_id: int | None = None,
+        schema_version_add: int | None = None,
+        schema_version_drop: int | None = None,
+        sa_col_type: sql.sqltypes.TypeEngine | None = None,
+        stores_cellmd: bool | None = None,
+        value_expr_dict: dict[str, Any] | None = None,
+        tbl_handle: 'TableVersionHandle' | None = None,
+        destination: str | None = None,
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f"Invalid column name: '{name}'")
         self.name = name
-        self.tbl = tbl
+        self.tbl_handle = tbl_handle
         if col_type is None and computed_with is None:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
-        self._value_expr: Optional[exprs.Expr] = None
+        self._value_expr = None
         self.value_expr_dict = value_expr_dict
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
@@ -115,6 +116,7 @@ class Column:
         # self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
+        self.is_iterator_col = is_iterator_col
         self._media_validation = media_validation
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
@@ -129,7 +131,7 @@ class Column:
         self.sa_cellmd_col = None
         self.destination = destination
 
-    def to_md(self, pos: Optional[int] = None) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
+    def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
         assert self.is_pk is not None
         col_md = schema.ColumnMd(
@@ -153,10 +155,11 @@ class Column:
         return col_md, sch_md
 
     @classmethod
-    def from_md(
-        cls, col_md: schema.ColumnMd, tbl: TableVersion, schema_col_md: Optional[schema.SchemaColumn]
-    ) -> Column:
-        """Create a Column from a ColumnMd."""
+    def from_md(cls, col_md: schema.ColumnMd, tbl: TableVersion, schema_col_md: schema.SchemaColumn | None) -> Column:
+        """
+        Create a Column from ColumnMd/SchemaColumn. Anything that cannot be derived from the metadata needs to be set
+        by the caller.
+        """
         assert col_md.id is not None
         col_name = schema_col_md.name if schema_col_md is not None else None
         media_val = (
@@ -174,7 +177,7 @@ class Column:
             schema_version_add=col_md.schema_version_add,
             schema_version_drop=col_md.schema_version_drop,
             value_expr_dict=col_md.value_expr,
-            tbl=tbl,
+            tbl_handle=tbl.handle,
             destination=col_md.destination,
         )
         return col
@@ -190,7 +193,7 @@ class Column:
             message = (
                 dedent(
                     f"""
-                    The computed column {self.name!r} in table {self.tbl.name!r} is no longer valid.
+                    The computed column {self.name!r} in table {self.tbl().name!r} is no longer valid.
                     {{validation_error}}
                     You can continue to query existing data from this column, but evaluating it on new data will raise an error.
                     """  # noqa: E501
@@ -200,17 +203,21 @@ class Column:
             )
             warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 
+    def tbl(self) -> TableVersion:
+        tv = self.tbl_handle.get()
+        return tv
+
     @property
     def handle(self) -> 'ColumnHandle':
         """Returns a ColumnHandle for this Column."""
         from .table_version_handle import ColumnHandle
 
-        assert self.tbl is not None
+        assert self.tbl_handle is not None
         assert self.id is not None
-        return ColumnHandle(self.tbl.handle, self.id)
+        return ColumnHandle(self.tbl_handle, self.id)
 
     @property
-    def value_expr(self) -> Optional[exprs.Expr]:
+    def value_expr(self) -> exprs.Expr | None:
         assert self.value_expr_dict is None or self._value_expr is not None
         return self._value_expr
 
@@ -236,11 +243,10 @@ class Column:
         )
         return len(window_fn_calls) > 0
 
-    # TODO: This should be moved out of `Column` (its presence in `Column` doesn't anticipate indices being defined on
-    #     multiple dependents)
-    def get_idx_info(self, reference_tbl: Optional['TableVersionPath'] = None) -> dict[str, 'TableVersion.IndexInfo']:
-        assert self.tbl is not None
-        tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl
+    # TODO: This does not belong here.
+    def get_idx_info(self, reference_tbl: 'TableVersionPath' | None = None) -> dict[str, 'TableVersion.IndexInfo']:
+        assert self.tbl() is not None
+        tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl()
         return {name: info for name, info in tbl.idxs_by_name.items() if info.col == self}
 
     @property
@@ -268,15 +274,15 @@ class Column:
 
     @property
     def qualified_name(self) -> str:
-        assert self.tbl is not None
-        return f'{self.tbl.name}.{self.name}'
+        assert self.tbl() is not None
+        return f'{self.tbl().name}.{self.name}'
 
     @property
     def media_validation(self) -> MediaValidation:
         if self._media_validation is not None:
             return self._media_validation
-        assert self.tbl is not None
-        return self.tbl.media_validation
+        assert self.tbl() is not None
+        return self.tbl().media_validation
 
     @property
     def is_required_for_insert(self) -> bool:
@@ -327,17 +333,17 @@ class Column:
         return f'{self.name}: {self.col_type}'
 
     def __repr__(self) -> str:
-        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.name!r})'
+        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl().name!r})'
 
     def __hash__(self) -> int:
         # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column
         #     abstraction (perhaps separating out the version-dependent properties into a different abstraction).
-        assert self.tbl is not None
-        return hash((self.tbl.id, self.id))
+        assert self.tbl_handle is not None
+        return hash((self.tbl_handle.id, self.id))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Column):
             return False
-        assert self.tbl is not None
-        assert other.tbl is not None
-        return self.tbl.id == other.tbl.id and self.id == other.id
+        assert self.tbl_handle is not None
+        assert other.tbl_handle is not None
+        return self.tbl_handle.id == other.tbl_handle.id and self.id == other.id

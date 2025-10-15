@@ -117,7 +117,7 @@ class Table(SchemaObject):
                 is_primary_key=col.is_pk,
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
-                defined_in=col.tbl.name,
+                defined_in=col.tbl().name,
             )
         # Pure snapshots have no indices
         indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}
@@ -442,7 +442,7 @@ class Table(SchemaObject):
         assert col is not None
         assert col.name in self._get_schema()
         cat = catalog.Catalog.get()
-        if any(c.name is not None for c in cat.get_column_dependents(col.tbl.id, col.id)):
+        if any(c.name is not None for c in cat.get_column_dependents(col.tbl().id, col.id)):
             return True
         assert self._tbl_version is not None
         return any(
@@ -865,7 +865,7 @@ class Table(SchemaObject):
                         raise excs.Error(f'Column {column!r} unknown')
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
-                if col.tbl.id != self._tbl_version_path.tbl_id:
+                if col.tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot drop base table column {col.name!r}')
                 col = self._tbl_version.get().cols_by_name[column]
             else:
@@ -876,10 +876,10 @@ class Table(SchemaObject):
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 col = column.col
-                if col.tbl.id != self._tbl_version_path.tbl_id:
+                if col.tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot drop base table column {col.name!r}')
 
-            dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
+            dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl().id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
                 raise excs.Error(
                     f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
@@ -895,7 +895,7 @@ class Table(SchemaObject):
                     predicate = view._tbl_version.get().predicate
                     if predicate is not None:
                         for predicate_col in exprs.Expr.get_refd_column_ids(predicate.as_dict()):
-                            if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
+                            if predicate_col.tbl_id == col.tbl().id and predicate_col.col_id == col.id:
                                 dependent_views.append((view, predicate))
 
             if len(dependent_views) > 0:
@@ -1257,9 +1257,9 @@ class Table(SchemaObject):
                 return
             idx_info = self._tbl_version.get().idxs_by_name[idx_name]
         else:
-            if col.tbl.id != self._tbl_version.id:
+            if col.tbl().id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name!r})'
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl().name!r})'
                 )
             idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
@@ -1277,7 +1277,7 @@ class Table(SchemaObject):
         # Find out if anything depends on this index
         val_col = idx_info.val_col
         dependent_user_cols = [
-            c for c in Catalog.get().get_column_dependents(val_col.tbl.id, val_col.id) if c.name is not None
+            c for c in Catalog.get().get_column_dependents(val_col.tbl().id, val_col.id) if c.name is not None
         ]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
@@ -1565,7 +1565,7 @@ class Table(SchemaObject):
                     col_name = col.name
                 if not col.is_computed:
                     raise excs.Error(f'Column {col_name!r} is not a computed column')
-                if col.tbl.id != self._tbl_version_path.tbl_id:
+                if col.tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot recompute column of a base: {col_name!r}')
                 col_names.append(col_name)
 

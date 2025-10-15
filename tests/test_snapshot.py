@@ -198,8 +198,8 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, reset_db: None, clip_embed: pxt.Function) -> None:
-        tbl = create_test_tbl()
+    def test_errors(self, test_tbl: pxt.Table, clip_embed: pxt.Function) -> None:
+        tbl = test_tbl
         snap = pxt.create_snapshot('snap', tbl)
         display_str = "snapshot 'snap'"
 
@@ -229,6 +229,9 @@ class TestSnapshot:
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
             snap.add_embedding_index('img', image_embed=clip_embed)
+
+        with pytest.raises(pxt.Error, match='Cannot create default indexes on a snapshot'):
+            _ = pxt.create_view('default_snap', tbl, is_snapshot=True, create_default_idxs=True)
 
     @pytest.mark.parametrize('anonymous', [True, False])
     def test_views_of_snapshots(self, anonymous: bool, reset_db: None) -> None:

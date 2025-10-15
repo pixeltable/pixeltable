@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -44,15 +44,16 @@ class ColumnRef(Expr):
 
     col: catalog.Column  # TODO: merge with col_handle
     col_handle: catalog.ColumnHandle
-    reference_tbl: Optional[catalog.TableVersionPath]
+    reference_tbl: catalog.TableVersionPath | None
     is_unstored_iter_col: bool
-    iter_arg_ctx: Optional[RowBuilder.EvalCtx]
-    base_rowid_len: int
-    base_rowid: Sequence[Optional[Any]]
-    iterator: Optional[iters.ComponentIterator]
-    pos_idx: Optional[int]
-    id: int
     perform_validation: bool  # if True, performs media validation
+    iter_arg_ctx: RowBuilder.EvalCtx | None
+    base_rowid_len: int  # number of rowid columns in the base table
+
+    # execution state
+    base_rowid: Sequence[Any | None]
+    iterator: iters.ComponentIterator | None
+    pos_idx: int
 
     def __init__(
         self,
@@ -61,19 +62,17 @@ class ColumnRef(Expr):
         perform_validation: Optional[bool] = None,
     ):
         super().__init__(col.col_type)
-        assert col.tbl is not None
+        # assert col.tbl is not None
         self.col = col
         self.reference_tbl = reference_tbl
-        self.col_handle = catalog.ColumnHandle(col.tbl.handle, col.id)
+        self.col_handle = col.handle
 
-        self.is_unstored_iter_col = col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
+        self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored
         self.iter_arg_ctx = None
-        # number of rowid columns in the base table
-        self.base_rowid_len = col.tbl.base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
-        self.base_rowid = [None] * self.base_rowid_len
+        self.base_rowid_len = 0
+        self.base_rowid = []
         self.iterator = None
-        # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        self.pos_idx = 0
 
         self.perform_validation = False
         if col.col_type.is_media_type():
@@ -99,14 +98,14 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [
             *super()._id_attrs(),
-            ('tbl_id', self.col.tbl.id),
+            ('tbl_id', self.col.tbl_handle.id),
             ('col_id', self.col.id),
             ('perform_validation', self.perform_validation),
         ]
 
     # override
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
-        target = tbl_versions[self.col.tbl.id]
+        target = tbl_versions[self.col.tbl_handle.id]
         assert self.col.id in target.cols_by_id
         col = target.cols_by_id[self.col.id]
         return ColumnRef(col, self.reference_tbl)
@@ -209,7 +208,7 @@ class ColumnRef(Expr):
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
-            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
+            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
             return tbl.select(self)
         else:
             # Explicit reference table; construct a DataFrame directly from it
@@ -244,7 +243,7 @@ class ColumnRef(Expr):
         return self._descriptors().to_html()
 
     def _descriptors(self) -> DescriptionHelper:
-        tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
+        tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
         helper = DescriptionHelper()
         helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         helper.append(tbl._col_descriptor([self.col.name]))
@@ -252,6 +251,17 @@ class ColumnRef(Expr):
         if len(idxs) > 0:
             helper.append(idxs)
         return helper
+
+    def prepare(self) -> None:
+        from pixeltable import store
+
+        if not self.is_unstored_iter_col:
+            return
+        col = self.col_handle.get()
+        self.base_rowid_len = col.tbl().base.get().num_rowid_columns()
+        self.base_rowid = [None] * self.base_rowid_len
+        assert isinstance(col.tbl().store_tbl, store.StoreComponentView)
+        self.pos_idx = cast(store.StoreComponentView, col.tbl().store_tbl).pos_col_idx
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if self.perform_validation:
@@ -298,20 +308,19 @@ class ColumnRef(Expr):
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.tbl.iterator_cls(**iterator_args)
+            self.iterator = self.col.tbl().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 
     def _as_dict(self) -> dict:
-        tbl = self.col.tbl
-        version = tbl.version if tbl.is_snapshot else None
+        tbl_handle = self.col.tbl_handle
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {
-            'tbl_id': str(tbl.id),
-            'tbl_version': version,
+            'tbl_id': str(tbl_handle.id),
+            'tbl_version': tbl_handle.effective_version,
             'col_id': self.col.id,
             'reference_tbl': self.reference_tbl.as_dict() if self.reference_tbl is not None else None,
             'perform_validation': self.perform_validation,

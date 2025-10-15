@@ -7,11 +7,12 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import skip_test_if_no_client, skip_test_if_not_installed
+from .utils import IN_CI, skip_test_if_no_client, skip_test_if_not_installed
 
 _logger = logging.getLogger('pixeltable')
 
 
+@pytest.mark.skipif(not IN_CI, reason='Hangs')
 class TestMcp:
     def test_mcp_server(self, reset_db: None, init_mcp_server: None) -> None:
         skip_test_if_not_installed('mcp')

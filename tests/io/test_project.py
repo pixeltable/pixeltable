@@ -159,9 +159,9 @@ class TestProject:
         t._link_external_store(store1)
         assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col.handle in store1.stored_proxies  # Stored proxy
-        assert store1.stored_proxies[t.rot_img.col.handle].get().tbl.id == t._tbl_version.id
+        assert store1.stored_proxies[t.rot_img.col.handle].get().tbl().id == t._tbl_version.id
         assert t.rot_other_img.col.handle in store1.stored_proxies  # Stored proxy
-        assert store1.stored_proxies[t.rot_other_img.col.handle].get().tbl.id == t._tbl_version.id
+        assert store1.stored_proxies[t.rot_other_img.col.handle].get().tbl().id == t._tbl_version.id
         # Verify that the stored proxies are properly materialized, and we can query them
         ref = ColumnRef(store1.stored_proxies[t.rot_img.col.handle].get())
         proxies = t.select(img=ref, path=ref.localpath).collect()
@@ -219,7 +219,7 @@ class TestProject:
 
         assert t.rot_img_renamed.col == v1.rot_img_renamed.col
         assert t.rot_img_renamed.col.handle in storev1.stored_proxies
-        assert storev1.stored_proxies[t.rot_img_renamed.col.handle].get().tbl.id == v1._id
+        assert storev1.stored_proxies[t.rot_img_renamed.col.handle].get().tbl().id == v1._id
 
         storev2 = MockProject.create(
             t, 'storev2', {'push_img': ts.ImageType()}, {'pull_str': ts.StringType()}, {'rot_img_renamed': 'push_img'}
@@ -238,5 +238,5 @@ class TestProject:
         # for each view
         assert t.rot_img_renamed.col.handle in storev1.stored_proxies
         assert t.rot_img_renamed.col.handle in storev2.stored_proxies
-        assert storev1.stored_proxies[t.rot_img_renamed.col.handle].get().tbl.id == v1._id
-        assert storev2.stored_proxies[t.rot_img_renamed.col.handle].get().tbl.id == v2._id
+        assert storev1.stored_proxies[t.rot_img_renamed.col.handle].get().tbl().id == v1._id
+        assert storev2.stored_proxies[t.rot_img_renamed.col.handle].get().tbl().id == v2._id
