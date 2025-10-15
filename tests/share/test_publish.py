@@ -30,7 +30,16 @@ class TestPublish:
 
         snap_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
         # tbl_remote_uri = f'pxt://{org_slug}/test_{uuid.uuid4().hex}'
-        pxt.publish(snap, snap_remote_uri)
+        try:
+            pxt.publish(snap, snap_remote_uri)
+        except pxt.Error as e:
+            if str(e).startswith('Error publishing snapshot: Bad Request : Invalid Pixeltable metadata version'):
+                # Skip this test if the remote server does not support the current metadata version.
+                # This is to protect the test suite in cases where the metadata version has advanced on main or a
+                # development branch, but the new metadata version has not yet been deployed to Cloud.
+                pytest.skip('Remote Pixeltable server does not support current metadata version')
+            else:
+                raise
         # _ = pxt.create_replica(tbl_remote_uri, source=tbl)
 
         clean_db()

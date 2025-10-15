@@ -472,11 +472,13 @@ class Catalog:
             else:
                 msg = ''
             _logger.debug(f'Exception: {e.orig.__class__}: {msg} ({e})')
+            # Suppress the underlying SQL exception unless DEBUG is enabled
+            raise_from = e if _logger.isEnabledFor(logging.DEBUG) else None
             raise excs.Error(
                 'That Pixeltable operation could not be completed because it conflicted with another '
                 'operation that was run on a different process.\n'
                 'Please re-run the operation.'
-            ) from None
+            ) from raise_from
 
     @property
     def in_write_xact(self) -> bool:
@@ -1748,6 +1750,9 @@ class Catalog:
 
     @retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
+        return self._collect_tbl_history(tbl_id, n)
+
+    def _collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 
@@ -1760,14 +1765,15 @@ class Catalog:
             Each row contains a TableVersion and a TableSchemaVersion object.
         """
         q = (
-            sql.select(schema.TableVersion, schema.TableSchemaVersion)
-            .select_from(schema.TableVersion)
-            .join(
-                schema.TableSchemaVersion,
-                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
-            )
+            sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
+            .where(schema.Table.id == tbl_id)
+            .join(schema.TableVersion)
             .where(schema.TableVersion.tbl_id == tbl_id)
+            .join(schema.TableSchemaVersion)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+            .where(
+                schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version
+            )
             .order_by(schema.TableVersion.version.desc())
         )
         if n is not None:
@@ -1775,7 +1781,7 @@ class Catalog:
         src_rows = Env.get().session.execute(q).fetchall()
         return [
             schema.FullTableMd(
-                None,
+                schema.md_from_dict(schema.TableMd, row.Table.md),
                 schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
                 schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
             )
@@ -1974,6 +1980,10 @@ class Catalog:
             snapshot_md = self.load_tbl_md(tbl._id, 0)
             md = [snapshot_md, *md]
 
+        for ancestor_md in md:
+            # Set the `is_replica` flag on every ancestor's TableMd.
+            ancestor_md.tbl_md.is_replica = True
+
         for ancestor_md in md[1:]:
             # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
             # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
@@ -2034,9 +2044,7 @@ class Catalog:
         tbl_version: TableVersion
         if view_md is None:
             # this is a base table
-            tbl_version = TableVersion(
-                tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views=mutable_views
-            )
+            tbl_version = TableVersion(tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
             # TODO: add TableVersionMd.is_pure_snapshot() and use that
