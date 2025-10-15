@@ -381,8 +381,10 @@ def segment_video(
             for `mode='accurate'`, segments will have exact durations. Cannot be specified together with
             `segment_times`.
         segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
-            segment durations. Cannot be empty or be specified together with `duration`.
+            segment durations. If all segment times are less than the duration of the video, produces exactly
+            `len(segment_times) + 1` segments. Cannot be empty or be specified together with `duration`.
         mode: Segmentation mode:
+
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
             - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
         video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
@@ -405,7 +407,9 @@ def segment_video(
 
         >>> tbl.select(
         ...     segment_paths=tbl.video.segment_video(
-        ...         duration=10, mode='accurate', video_encoder='libx264',
+        ...         duration=10,
+        ...         mode='accurate',
+        ...         video_encoder='libx264',
         ...         video_encoder_args={'crf': 23, 'preset': 'slow'}
         ...     )
         ... ).collect()
