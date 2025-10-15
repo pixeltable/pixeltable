@@ -196,13 +196,14 @@ class TestPackager:
 
         return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
 
-    def __restore_and_check_table(self, bundle_info: BundleInfo, tbl_name: str) -> None:
+    def __restore_and_check_table(self, bundle_info: BundleInfo, tbl_name: str, version: int | None = None) -> None:
         """
         Restores the table that was packaged in `bundle_info` and validates its contents against the tracked data.
         """
         restorer = TableRestorer(tbl_name)
         restorer.restore(bundle_info.bundle_path)
-        self.__check_table(bundle_info, tbl_name)
+        versioned_name = tbl_name if version is None else f'{tbl_name}:{version}'
+        self.__check_table(bundle_info, versioned_name)
 
     def __check_table(self, bundle_info: BundleInfo, tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
@@ -697,6 +698,22 @@ class TestPackager:
             for j in tables:
                 # Re-check all tables that are still present
                 self.__check_table(bundles[j], f'replica_{j}')
+
+    def test_older_versions_round_trip(self, reset_db: None) -> None:
+        t = pxt.create_table('tbl', {'int_col': pxt.Int})
+        for i in range(50):
+            t.insert([{'int_col': i}])
+        assert len(t.get_versions()) == 51
+
+        versions = (36, 11, 23, 42, 5, 46)
+        snapshots = tuple(pxt.get_table(f'tbl:{i}') for i in versions)
+        bundles = tuple(self.__package_table(snap) for snap in snapshots)
+
+        clean_db()
+        reload_catalog()
+
+        for i, bundle in zip(versions, bundles, strict=True):
+            self.__restore_and_check_table(bundle, 'replica', version=i)
 
     def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP

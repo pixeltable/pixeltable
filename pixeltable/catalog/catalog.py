@@ -1971,8 +1971,6 @@ class Catalog:
         for ancestor_md in md:
             # Set the `is_replica` flag on every ancestor's TableMd.
             ancestor_md.tbl_md.is_replica = True
-
-        for ancestor_md in md[1:]:
             # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
             # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
             # when the metadata is later stored in the catalog of a different Pixeltable instance, the values of
@@ -1980,6 +1978,8 @@ class Catalog:
             # destination catalog.
             ancestor_md.tbl_md.current_version = ancestor_md.version_md.version
             ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
+
+        for ancestor_md in md[1:]:
             # Also, the table version of every proper ancestor is emphemeral; it does not represent a queryable
             # table version (the data might be incomplete, since we have only retrieved one of its views, not
             # the table itself).
