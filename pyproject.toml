@@ -70,6 +70,7 @@ dependencies = [
     "pyarrow>=19",
     "pixeltable-pgserver==0.4.0",
     "tzlocal>=5.0",
+    "pymupdf"
 ]
 
 [project.urls]
@@ -211,6 +212,10 @@ show_error_codes = true
 strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["fitz"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = '-v -m "not remote_api and not expensive" --strict-markers'

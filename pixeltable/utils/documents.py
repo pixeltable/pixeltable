@@ -3,7 +3,7 @@ import os
 from typing import Optional
 
 import bs4
-import fitz  # type: ignore[import-untyped]
+import fitz   
 import puremagic
 
 from pixeltable import exceptions as excs, type_system as ts
