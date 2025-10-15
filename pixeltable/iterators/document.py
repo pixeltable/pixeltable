@@ -4,7 +4,7 @@ import io
 import logging
 from typing import Any, ClassVar, Iterable, Iterator, Optional
 
-import fitz  # pymupdf
+import fitz  # type: ignore[import-untyped]
 import ftfy
 import PIL.Image
 from bs4.element import NavigableString, Tag

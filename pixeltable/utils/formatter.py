@@ -232,7 +232,7 @@ class Formatter:
         """
         if file_path.lower().endswith('.pdf'):
             try:
-                import fitz
+                import fitz  # type: ignore[import-untyped]
 
                 doc = fitz.open(file_path)
                 pixmap = doc.get_page_pixmap(0)
