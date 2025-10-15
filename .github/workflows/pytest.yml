@@ -121,6 +121,7 @@ jobs:
           # Also disable macos-15-intel during a PR.
           - os: ${{ github.event_name == 'pull_request' && 'macos-15-intel' }}
 
+    if: ${{ matrix.os == 'ubuntu-22.04' }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
