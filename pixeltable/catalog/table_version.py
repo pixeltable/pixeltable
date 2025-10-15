@@ -96,8 +96,6 @@ class TableVersion:
     cols_by_name: dict[str, Column]
     # contains only columns visible in this version, both system and user
     cols_by_id: dict[int, Column]
-    # True if this TableVersion can have indices
-    supports_idxs: bool
     # contains only actively maintained indices
     idxs_by_name: dict[str, TableVersion.IndexInfo]
 
@@ -128,7 +126,6 @@ class TableVersion:
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
-        supports_idxs: bool,
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
         base: Optional[TableVersionHandle] = None,
     ):
@@ -139,7 +136,6 @@ class TableVersion:
         self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
         self.effective_version = effective_version
-        self.supports_idxs = supports_idxs
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
@@ -194,16 +190,7 @@ class TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(
-            self.id,
-            self.tbl_md,
-            self.version_md,
-            self.version,
-            self.schema_version_md,
-            [],
-            supports_idxs=False,
-            base=base,
-        )
+        return TableVersion(self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, [], base=base)
 
     @property
     def versioned_name(self) -> str:
@@ -309,9 +296,7 @@ class TableVersion:
 
         tbl_id = UUID(hex=initial_md.tbl_md.tbl_id)
         assert (tbl_id, None) not in cat._tbl_versions
-        tbl_version = cls(
-            tbl_id, initial_md.tbl_md, initial_md.version_md, None, initial_md.schema_version_md, [], supports_idxs=True
-        )
+        tbl_version = cls(tbl_id, initial_md.tbl_md, initial_md.version_md, None, initial_md.schema_version_md, [])
 
         @cat.register_undo_action
         def _() -> None:
@@ -359,16 +344,13 @@ class TableVersion:
 
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
-        from .catalog import Catalog, TableVersionPath
+        from .catalog import TableVersionPath
 
         assert Env.get().in_xact
         assert md.tbl_md.is_replica
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
-        # A replica TableVersion supports indices if and only if it tracks the head version of the table
-        # (i.e., the most recent version of the table that is known to the local catalog).
-        supports_idxs = (md.tbl_md.current_version == md.version_md.version)
         base_path = TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
@@ -378,7 +360,6 @@ class TableVersion:
             md.version_md.version,
             md.schema_version_md,
             [],
-            supports_idxs,
             base_path=base_path,
             base=base,
         )
@@ -507,8 +488,11 @@ class TableVersion:
             #     the head version); and
             # (ii) the index was created on or before the schema version of this TableVersion; and
             # (iii) the index was not dropped on or before the schema version of this TableVersion.
+            supports_idxs = self.effective_version is None or (
+                self.tbl_md.is_replica and self.effective_version == self.tbl_md.current_version
+            )
             if (
-                self.supports_idxs
+                supports_idxs
                 and md.schema_version_add <= self.schema_version
                 and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
             ):

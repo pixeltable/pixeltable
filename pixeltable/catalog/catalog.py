@@ -2028,14 +2028,11 @@ class Catalog:
             mutable_view_ids = [r[0] for r in conn.execute(q).all()]
 
         mutable_views = [TableVersionHandle(id, None) for id in mutable_view_ids]
-        supports_idxs = effective_version is None or (tbl_md.is_replica and effective_version == tbl_md.current_version)
 
         tbl_version: TableVersion
         if view_md is None:
             # this is a base table
-            tbl_version = TableVersion(
-                tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views, supports_idxs
-            )
+            tbl_version = TableVersion(tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
             # TODO: add TableVersionMd.is_pure_snapshot() and use that
@@ -2062,7 +2059,6 @@ class Catalog:
                 effective_version,
                 schema_version_md,
                 mutable_views,
-                supports_idxs,
                 base_path=base_path,
                 base=base,
             )
