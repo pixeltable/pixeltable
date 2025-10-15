@@ -6,10 +6,9 @@ Command-line utility for CI/CD operations.
 """
 
 import argparse
+import json
 import sys
 from typing import Literal, NamedTuple, NoReturn
-
-import json
 
 
 class MatrixConfig(NamedTuple):
@@ -66,11 +65,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     configs.sort()
 
-    matrix = {
-        'include': [
-            cfg._asdict() for cfg in configs
-        ]
-    }
+    matrix = {'include': [cfg._asdict() for cfg in configs]}
 
     print(json.dumps(matrix, indent=4).replace('_', '-'))
     output = f'matrix={json.dumps(matrix).replace("_", "-")}\n'
