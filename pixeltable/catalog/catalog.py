@@ -1958,7 +1958,7 @@ class Catalog:
 
         # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
         # TableVersionPath. We need to prepend it separately.
-        if isinstance(tbl, View) and tbl._snapshot_only:
+        if isinstance(tbl, View) and tbl._is_named_pure_snapshot():
             snapshot_md = self.load_tbl_md(tbl._id, 0)
             md = [snapshot_md, *md]
 

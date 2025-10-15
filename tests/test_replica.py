@@ -16,9 +16,11 @@ class TestReplica:
         with cat.begin_xact(for_write=False):
             md1 = cat.load_replica_md(pure_snapshot)
             md2 = cat.load_replica_md(snapshot_view)
+            md3 = cat.load_replica_md(test_tbl)
 
         assert len(md1) == 2
         assert len(md2) == 2
+        assert len(md3) == 1
 
         for i, md in enumerate(md1):
             print(f'\n{i}: {md}')
