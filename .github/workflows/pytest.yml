@@ -48,7 +48,25 @@ env:
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
 
 jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Install python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Generate test matrix
+        id: set-matrix
+        run: |
+          ARGS=${{ github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms && '--force-all' || '' }}
+          python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
+
   tests:
+    needs: generate-matrix
     strategy:
       fail-fast: false
       # The standard unit tests run during merge queue on these configurations:
@@ -67,53 +85,7 @@ jobs:
       #
       # A workflow_dispatch trigger will run the same tests as merge queue by default, but can be optionally
       #     expanded to run all configurations including ubuntu-x64-t4.
-      matrix:
-        test-category: ["py"]
-        uv-options: [""]
-        os: ["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-        include:  # Additional matrix configurations that are run only on ubuntu-22.04 / Python 3.10.
-          # Minimal installation of pixeltable
-          - test-category: "py"
-            uv-options: "--no-dev"
-            os: ubuntu-22.04
-            python-version: "3.10"
-          # Notebook tests
-          - test-category: "ipynb"
-            uv-options: ""
-            os: ubuntu-22.04
-            python-version: "3.10"
-          # Linting, type-checking, docstrings validation, etc.
-          - test-category: "lint"
-            uv-options: ""
-            os: ubuntu-22.04
-            python-version: "3.10"
-          # Random table ops
-          - test-category: "random-tbl-ops"
-            uv-options: "--no-dev"
-            os: ubuntu-22.04
-            python-version: "3.10"
-        exclude:  # Sadly, github only lets us specify these one at a time.
-          # Disable 3.11 and 3.12 on non-linux platforms.
-          - os: macos-15
-            python-version: "3.11"
-          - os: macos-15
-            python-version: "3.12"
-          - os: windows-2022
-            python-version: "3.11"
-          - os: windows-2022
-            python-version: "3.12"
-          - os: ubuntu-x64-t4
-            python-version: "3.11"
-          - os: ubuntu-x64-t4
-            python-version: "3.12"
-          # Also disable ubuntu-x64-t4 except on scheduled runs or when explicitly requested via workflow_dispatch.
-          - os: ${{ !(github.event_name == 'schedule' ||
-                      (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms)) && 'ubuntu-x64-t4' }}
-          # Also disable 3.11, 3.12, and 3.13 on all configurations during a PR, to streamline PR checks.
-          - python-version: ${{ github.event_name == 'pull_request' && '3.11' }}
-          - python-version: ${{ github.event_name == 'pull_request' && '3.12' }}
-          - python-version: ${{ github.event_name == 'pull_request' && '3.13' }}
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}
     defaults:

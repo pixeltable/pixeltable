@@ -32,6 +32,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     print('Generating test matrix configuration.')
     print('Output file : ', output_file)
     print('Triggered on: ', trigger)
+    print('Force all   : ', force_all)
     print()
 
     # Special configs that are always run
@@ -66,17 +67,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
     configs.sort()
 
     matrix = {
-        'test-category': [],
-        'uv-options': [],
-        'os': [],
-        'python-version': [],
         'include': [
             cfg._asdict() for cfg in configs
         ]
     }
 
-    output = json.dumps(matrix, indent=4).replace('_', '-')
-    print(output)
+    print(json.dumps(matrix, indent=4).replace('_', '-'))
+    output = f'matrix={json.dumps(matrix).replace("_", "-")}\n'
     with open(output_file, 'a', encoding='utf8') as fp:
         fp.write(output)
 
