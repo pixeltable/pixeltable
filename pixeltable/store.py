@@ -143,14 +143,13 @@ class StoreBase:
     def create(self) -> None:
         """Create If Not Exists for this table"""
         conn = Env.get().conn
-        stmt = sql.schema.CreateTable(self.sa_tbl).compile(conn)
+        stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(conn)
         create_stmt = str(stmt)
-        if_not_exists_stmt = create_stmt.replace('CREATE TABLE', 'CREATE TABLE IF NOT EXISTS')
 
         # Postgres seems not to handle concurrent Create Table If Not Exists correctly, we need to ignore the various
         # errors that can occur when two connections run the same Create Table statement.
         try:
-            conn.execute(sql.text(if_not_exists_stmt))
+            conn.execute(sql.text(create_stmt))
         except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
             Env.get().console_logger.info(f'StoreBase.create() failed with: {e}')
             if (

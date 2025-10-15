@@ -19,7 +19,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, TableOp
+from .tbl_ops import CreateIndexOp, CreateStoreTableOp, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -94,10 +94,28 @@ class InsertableTable(Table):
             create_default_idxs=create_default_idxs,
             view_md=None,
         )
-        op = TableOp(
-            tbl_id=md.tbl_md.tbl_id, op_sn=0, num_ops=1, needs_xact=False, create_store_table_op=CreateStoreTableOp()
-        )
-        return md, [op]
+
+        num_ops = 1 + len(md.tbl_md.index_md)
+        ops = [
+            TableOp(
+                tbl_id=md.tbl_md.tbl_id,
+                op_sn=0,
+                num_ops=num_ops,
+                needs_xact=False,
+                create_store_table_op=CreateStoreTableOp(),
+            )
+        ]
+        for index_md in md.tbl_md.index_md.values():
+            ops.append(
+                TableOp(
+                    tbl_id=md.tbl_md.tbl_id,
+                    op_sn=len(ops),
+                    num_ops=num_ops,
+                    needs_xact=False,
+                    create_index_op=CreateIndexOp(index_md.id),
+                )
+            )
+        return md, ops
 
     @overload
     def insert(

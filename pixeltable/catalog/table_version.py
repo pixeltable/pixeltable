@@ -329,6 +329,10 @@ class TableVersion:
             with Env.get().begin_xact():
                 self.store_tbl.create()
 
+        elif op.create_index_op is not None:
+            idx_info = self.idxs_by_name[self._tbl_md.index_md[op.create_index_op.idx_id].name]
+            idx_info.idx.create_index(self._store_idx_name(op.create_index_op.idx_id), idx_info.val_col)
+
         elif op.load_view_op is not None:
             from pixeltable.catalog import Catalog
             from pixeltable.plan import Planner
