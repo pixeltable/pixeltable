@@ -306,10 +306,12 @@ class TestPackager:
     def test_json_round_trip(self, reset_db: None) -> None:
         images = get_image_files()
         t = pxt.create_table('tbl', {'jcol': pxt.Json})
-        t.insert([
-            {'jcol': {'this': 'is', 'a': 'test', 'img1': images[0], 'img2': images[22]}},
-            {'jcol': {'this': 'is', 'a': 'test', 'img': images[34], 'arr': np.ones((200, 200), dtype=np.int64)}},
-        ])
+        t.insert(
+            [
+                {'jcol': {'this': 'is', 'a': 'test', 'img1': images[0], 'img2': images[22]}},
+                {'jcol': {'this': 'is', 'a': 'test', 'img': images[34], 'arr': np.ones((200, 200), dtype=np.int64)}},
+            ]
+        )
         self.__do_round_trip(t)
 
     def test_views_round_trip(self, test_tbl: pxt.Table) -> None:

@@ -185,11 +185,15 @@ class TablePackager:
         for rows in more_itertools.batched(row_iter, batch_size):
             cols = {}
             for name, sql_type in sql_types.items():
-                values = [self.__to_pa_value(row.get(name), sql_type, name in media_cols, name in cellmd_cols) for row in rows]
+                values = [
+                    self.__to_pa_value(row.get(name), sql_type, name in media_cols, name in cellmd_cols) for row in rows
+                ]
                 cols[name] = values
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
-    def __to_pa_value(self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool, is_cellmd_col: bool) -> Any:
+    def __to_pa_value(
+        self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool, is_cellmd_col: bool
+    ) -> Any:
         if val is None:
             return None
         if is_cellmd_col:
@@ -703,7 +707,12 @@ class TableRestorer:
         return rows
 
     def __from_pa_value(
-        self, val: Any, sql_type: sql.types.TypeEngine[Any], col: Optional[catalog.Column], is_media_col: bool, is_cellmd_col: bool
+        self,
+        val: Any,
+        sql_type: sql.types.TypeEngine[Any],
+        col: Optional[catalog.Column],
+        is_media_col: bool,
+        is_cellmd_col: bool,
     ) -> Any:
         if val is None:
             return None
