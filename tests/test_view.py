@@ -30,8 +30,6 @@ def add_unstored_base_val(vals: Batch[int]) -> Batch[int]:
         results.append(val + test_unstored_base_val)
     return results
 
-import sysconfig
-
 
 class TestView:
     """
@@ -40,10 +38,6 @@ class TestView:
     - test consecutive component views
 
     """
-
-    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-x86_64', reason='test')
-    def test_test(self) -> None:
-        raise AssertionError()
 
     def create_tbl(self) -> pxt.Table:
         """Create table with computed columns"""
