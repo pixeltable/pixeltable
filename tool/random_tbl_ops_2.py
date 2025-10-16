@@ -34,7 +34,7 @@ TABLE_OPS = (
     ('drop_table', 0.25, False),
 )
 
-OP_NAMES = set(name for name, _, _ in TABLE_OPS)
+OP_NAMES = {name for name, _, _ in TABLE_OPS}
 
 # Basic schema for all tables created by RandomTableOps. Additional columns may be added or removed as the script
 # progresses, but the basic columns (bc_*) will always be present.
@@ -107,7 +107,7 @@ class RandomTableOps:
     logger = logging.getLogger('random_tbl_ops')
 
     config: RandomTableOpsConfig
-    base_table_names: tuple[str]
+    base_table_names: tuple[str, ...]
     random_ops: list[tuple[float, Callable]]
 
     worker_id: int
@@ -447,7 +447,8 @@ def main() -> None:
                 setattr(config, name, type(field)(value))
             except Exception as e:
                 print(
-                    f'-D: error setting config parameter {name!r} of type `{type(field).__name__}` to value {value!r}: {e}'
+                    f'-D: error setting config parameter {name!r} '
+                    f'(of type `{type(field).__name__}`) to value {value!r}: {e}'
                 )
                 sys.exit(1)
 

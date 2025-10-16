@@ -433,7 +433,7 @@ class Catalog:
 
         The function should not raise exceptions; if it does, they are logged and ignored.
         """
-        assert Env.get().in_xact
+        assert self.in_write_xact
         self._undo_actions.append(func)
         return func
 
@@ -1091,7 +1091,7 @@ class Catalog:
         The metadata should be presented in standard "ancestor order", with the table being replicated at
         list position 0 and the (root) base table at list position -1.
         """
-        assert Env.get().in_xact
+        assert self.in_write_xact
 
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
