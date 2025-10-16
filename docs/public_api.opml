@@ -2,8 +2,7 @@
 <opml version="2.0">
   <head>
     <title>Pixeltable SDK Documentation Structure</title>
-    <description>Module-first OPML with top-level grouping for Mintlify SDK documentation</description>
-    <dateCreated>Mon, 19 Aug 2025 00:00:00 GMT</dateCreated>
+    <description>Complete explicit listing of all functions and UDFs</description>
   </head>
   <body>
     
@@ -25,10 +24,10 @@
           <outline text="func|pixeltable.move" />
           <outline text="func|pixeltable.configure_logging" />
           <outline text="func|pixeltable.init" />
-          <outline text="func|pixeltable.udf" />
+          <outline text="udf|pixeltable.udf" />
           <outline text="func|pixeltable.query" />
           
-          <!-- Core classes with ALL their methods (no sub-grouping) -->
+          <!-- Core classes with ALL their methods -->
           <outline text="class|pixeltable.Table">
             <outline text="method|pixeltable.Table.add_column" />
             <outline text="method|pixeltable.Table.drop_column" />
@@ -71,95 +70,178 @@
 
       <!-- Built-in Functions and Operators group -->
       <outline text="group|Built-in Functions and Operators">
-        <outline text="module|pixeltable.functions.audio" />
-        <outline text="module|pixeltable.functions.date" />
-        <outline text="module|pixeltable.functions.image" />
-        <outline text="module|pixeltable.functions.json" />
-        <outline text="module|pixeltable.functions.math" />
-        <outline text="module|pixeltable.functions.string" />
-        <outline text="module|pixeltable.functions.timestamp" />
-        <outline text="module|pixeltable.functions.video" />
+        <outline text="module|pixeltable.functions.audio">
+          <outline text="udf|pixeltable.functions.audio.get_metadata" />
+        </outline>
+        <outline text="module|pixeltable.functions.date">
+          <outline text="udf|pixeltable.functions.date.year" />
+          <outline text="udf|pixeltable.functions.date.month" />
+          <outline text="udf|pixeltable.functions.date.day" />
+          <outline text="udf|pixeltable.functions.date.make_date" />
+          <outline text="udf|pixeltable.functions.date.weekday" />
+          <outline text="udf|pixeltable.functions.date.isoweekday" />
+          <outline text="udf|pixeltable.functions.date.isocalendar" />
+          <outline text="udf|pixeltable.functions.date.isoformat" />
+          <outline text="udf|pixeltable.functions.date.toordinal" />
+          <outline text="udf|pixeltable.functions.date.strftime" />
+          <outline text="udf|pixeltable.functions.date.add_days" />
+        </outline>
+        <outline text="module|pixeltable.functions.image">
+          <outline text="udf|pixeltable.functions.image.b64_encode" />
+          <outline text="udf|pixeltable.functions.image.alpha_composite" />
+          <outline text="udf|pixeltable.functions.image.blend" />
+          <outline text="udf|pixeltable.functions.image.composite" />
+          <outline text="udf|pixeltable.functions.image.convert" />
+          <outline text="udf|pixeltable.functions.image.crop" />
+          <outline text="udf|pixeltable.functions.image.getchannel" />
+          <outline text="udf|pixeltable.functions.image.get_metadata" />
+          <outline text="udf|pixeltable.functions.image.point" />
+          <outline text="udf|pixeltable.functions.image.resize" />
+          <outline text="udf|pixeltable.functions.image.rotate" />
+          <outline text="udf|pixeltable.functions.image.effect_spread" />
+          <outline text="udf|pixeltable.functions.image.transpose" />
+          <outline text="udf|pixeltable.functions.image.entropy" />
+          <outline text="udf|pixeltable.functions.image.getbands" />
+          <outline text="udf|pixeltable.functions.image.getbbox" />
+          <outline text="udf|pixeltable.functions.image.getcolors" />
+          <outline text="udf|pixeltable.functions.image.getextrema" />
+          <outline text="udf|pixeltable.functions.image.getpalette" />
+          <outline text="udf|pixeltable.functions.image.getpixel" />
+          <outline text="udf|pixeltable.functions.image.getprojection" />
+          <outline text="udf|pixeltable.functions.image.histogram" />
+          <outline text="udf|pixeltable.functions.image.quantize" />
+          <outline text="udf|pixeltable.functions.image.reduce" />
+          <outline text="udf|pixeltable.functions.image.width" />
+          <outline text="udf|pixeltable.functions.image.height" />
+          <outline text="udf|pixeltable.functions.image.mode" />
+        </outline>
+        <outline text="module|pixeltable.functions.json">
+        </outline>
+        <outline text="module|pixeltable.functions.math">
+          <outline text="udf|pixeltable.functions.math.abs" />
+          <outline text="udf|pixeltable.functions.math.ceil" />
+          <outline text="udf|pixeltable.functions.math.floor" />
+          <outline text="udf|pixeltable.functions.math.round" />
+          <outline text="udf|pixeltable.functions.math.pow" />
+          <outline text="udf|pixeltable.functions.math.bitwise_and" />
+          <outline text="udf|pixeltable.functions.math.bitwise_or" />
+          <outline text="udf|pixeltable.functions.math.bitwise_xor" />
+        </outline>
+        <outline text="module|pixeltable.functions.string">
+        </outline>
+        <outline text="module|pixeltable.functions.timestamp">
+          <outline text="udf|pixeltable.functions.timestamp.year" />
+          <outline text="udf|pixeltable.functions.timestamp.month" />
+          <outline text="udf|pixeltable.functions.timestamp.day" />
+          <outline text="udf|pixeltable.functions.timestamp.hour" />
+          <outline text="udf|pixeltable.functions.timestamp.minute" />
+          <outline text="udf|pixeltable.functions.timestamp.second" />
+          <outline text="udf|pixeltable.functions.timestamp.microsecond" />
+          <outline text="udf|pixeltable.functions.timestamp.astimezone" />
+          <outline text="udf|pixeltable.functions.timestamp.weekday" />
+          <outline text="udf|pixeltable.functions.timestamp.isoweekday" />
+          <outline text="udf|pixeltable.functions.timestamp.isocalendar" />
+          <outline text="udf|pixeltable.functions.timestamp.isoformat" />
+          <outline text="udf|pixeltable.functions.timestamp.strftime" />
+          <outline text="udf|pixeltable.functions.timestamp.make_timestamp" />
+          <outline text="udf|pixeltable.functions.timestamp.replace" />
+          <outline text="udf|pixeltable.functions.timestamp.toordinal" />
+          <outline text="udf|pixeltable.functions.timestamp.posix_timestamp" />
+        </outline>
+        <outline text="module|pixeltable.functions.video">
+          <outline text="udf|pixeltable.functions.video.extract_audio" />
+          <outline text="udf|pixeltable.functions.video.get_metadata" />
+          <outline text="udf|pixeltable.functions.video.get_duration" />
+          <outline text="udf|pixeltable.functions.video.extract_frame" />
+          <outline text="udf|pixeltable.functions.video.clip" />
+          <outline text="udf|pixeltable.functions.video.segment_video" />
+          <outline text="udf|pixeltable.functions.video.concat_videos" />
+          <outline text="udf|pixeltable.functions.video.with_audio" />
+          <outline text="udf|pixeltable.functions.video.overlay_text" />
+        </outline>
+        <outline text="module|pixeltable.functions.huggingface">
+        </outline>
+        <outline text="module|pixeltable.functions.yolox">
+          <outline text="udf|pixeltable.functions.yolox.yolox" />
+          <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
+        </outline>
+        <outline text="module|pixeltable.functions.whisperx">
+          <outline text="udf|pixeltable.functions.whisperx.transcribe" />
+        </outline>
       </outline>
 
       <!-- AI Integrations group -->
       <outline text="group|AI Integrations">
         <outline text="module|pixeltable.functions.openai">
-          <outline text="func|pixeltable.functions.openai.speech" />
-          <outline text="func|pixeltable.functions.openai.transcriptions" />
-          <outline text="func|pixeltable.functions.openai.translations" />
-          <outline text="func|pixeltable.functions.openai.chat_completions" />
-          <outline text="func|pixeltable.functions.openai.vision" />
-          <outline text="func|pixeltable.functions.openai.embeddings" />
-          <outline text="func|pixeltable.functions.openai.image_generations" />
-          <outline text="func|pixeltable.functions.openai.moderations" />
+          <outline text="udf|pixeltable.functions.openai.speech" />
+          <outline text="udf|pixeltable.functions.openai.transcriptions" />
+          <outline text="udf|pixeltable.functions.openai.translations" />
+          <outline text="udf|pixeltable.functions.openai.chat_completions" />
+          <outline text="udf|pixeltable.functions.openai.vision" />
+          <outline text="udf|pixeltable.functions.openai.embeddings" />
+          <outline text="udf|pixeltable.functions.openai.image_generations" />
+          <outline text="udf|pixeltable.functions.openai.moderations" />
           <outline text="func|pixeltable.functions.openai.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.anthropic">
-          <outline text="func|pixeltable.functions.anthropic.messages" />
+          <outline text="udf|pixeltable.functions.anthropic.messages" />
           <outline text="func|pixeltable.functions.anthropic.invoke_tools" />
         </outline>
-        <outline text="module|pixeltable.functions.huggingface">
-          <!-- Add specific functions when known -->
-        </outline>
         <outline text="module|pixeltable.functions.gemini">
-          <outline text="func|pixeltable.functions.gemini.generate_content" />
-          <outline text="func|pixeltable.functions.gemini.generate_images" />
-          <outline text="func|pixeltable.functions.gemini.generate_videos" />
+          <outline text="udf|pixeltable.functions.gemini.generate_content" />
+          <outline text="udf|pixeltable.functions.gemini.generate_images" />
+          <outline text="udf|pixeltable.functions.gemini.generate_videos" />
           <outline text="func|pixeltable.functions.gemini.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.bedrock">
-          <outline text="func|pixeltable.functions.bedrock.converse" />
+          <outline text="udf|pixeltable.functions.bedrock.converse" />
           <outline text="func|pixeltable.functions.bedrock.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.groq">
-          <outline text="func|pixeltable.functions.groq.chat_completions" />
+          <outline text="udf|pixeltable.functions.groq.chat_completions" />
           <outline text="func|pixeltable.functions.groq.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.replicate">
-          <outline text="func|pixeltable.functions.replicate.run" />
+          <outline text="udf|pixeltable.functions.replicate.run" />
         </outline>
         <outline text="module|pixeltable.functions.together">
-          <outline text="func|pixeltable.functions.together.completions" />
-          <outline text="func|pixeltable.functions.together.chat_completions" />
-          <outline text="func|pixeltable.functions.together.embeddings" />
-          <outline text="func|pixeltable.functions.together.image_generations" />
+          <outline text="udf|pixeltable.functions.together.completions" />
+          <outline text="udf|pixeltable.functions.together.chat_completions" />
+          <outline text="udf|pixeltable.functions.together.embeddings" />
+          <outline text="udf|pixeltable.functions.together.image_generations" />
         </outline>
         <outline text="module|pixeltable.functions.fireworks">
-          <outline text="func|pixeltable.functions.fireworks.chat_completions" />
+          <outline text="udf|pixeltable.functions.fireworks.chat_completions" />
         </outline>
         <outline text="module|pixeltable.functions.mistralai">
-          <outline text="func|pixeltable.functions.mistralai.chat_completions" />
-          <outline text="func|pixeltable.functions.mistralai.fim_completions" />
-          <outline text="func|pixeltable.functions.mistralai.embeddings" />
+          <outline text="udf|pixeltable.functions.mistralai.chat_completions" />
+          <outline text="udf|pixeltable.functions.mistralai.fim_completions" />
+          <outline text="udf|pixeltable.functions.mistralai.embeddings" />
         </outline>
         <outline text="module|pixeltable.functions.deepseek">
-          <outline text="func|pixeltable.functions.deepseek.chat_completions" />
+          <outline text="udf|pixeltable.functions.deepseek.chat_completions" />
         </outline>
         <outline text="module|pixeltable.functions.ollama">
-          <outline text="func|pixeltable.functions.ollama.generate" />
-          <outline text="func|pixeltable.functions.ollama.chat" />
-          <outline text="func|pixeltable.functions.ollama.embed" />
+          <outline text="udf|pixeltable.functions.ollama.generate" />
+          <outline text="udf|pixeltable.functions.ollama.chat" />
+          <outline text="udf|pixeltable.functions.ollama.embed" />
         </outline>
         <outline text="module|pixeltable.functions.llama_cpp">
-          <outline text="func|pixeltable.functions.llama_cpp.create_chat_completion" />
+          <outline text="udf|pixeltable.functions.llama_cpp.create_chat_completion" />
           <outline text="func|pixeltable.functions.llama_cpp.cleanup" />
         </outline>
         <outline text="module|pixeltable.functions.whisper">
-          <outline text="func|pixeltable.functions.whisper.transcribe" />
+          <outline text="udf|pixeltable.functions.whisper.transcribe" />
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
           <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
         </outline>
-        <outline text="module|pixeltable.functions.yolox" />
-        <outline text="module|pixeltable.functions.whisperx" />
       </outline>
-
 
       <!-- Iterators group -->
       <outline text="group|Iterators">
         <outline text="module|pixeltable.iterators">
-          <!-- Iterator classes listed alphabetically -->
           <outline text="class|pixeltable.iterators.AudioSplitter" />
           <outline text="class|pixeltable.iterators.ComponentIterator" />
           <outline text="class|pixeltable.iterators.DocumentSplitter" />
@@ -173,7 +255,6 @@
       <!-- Import/Export group -->
       <outline text="group|Import/Export">
         <outline text="module|pixeltable.io">
-          <!-- Import functions -->
           <outline text="func|pixeltable.io.import_csv" />
           <outline text="func|pixeltable.io.import_excel" />
           <outline text="func|pixeltable.io.import_json" />
@@ -181,7 +262,6 @@
           <outline text="func|pixeltable.io.import_parquet" />
           <outline text="func|pixeltable.io.import_rows" />
           <outline text="func|pixeltable.io.import_huggingface_dataset" />
-          <!-- Export functions -->
           <outline text="func|pixeltable.io.export_parquet" />
           <outline text="func|pixeltable.io.export_lancedb" />
           <outline text="func|pixeltable.io.export_images_as_fo_dataset" />
@@ -192,3 +272,4 @@
     </outline>
   </body>
 </opml>
+
