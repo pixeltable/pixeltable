@@ -1046,7 +1046,7 @@ class TableVersion:
                 continue
             col = self.path.get_column(col_name)
             if col is None:
-                raise excs.Error(f'Column {col_name!r} unknown')
+                raise excs.Error(f'Unknown column: {col_name}')
             if col.tbl.id != self.id:
                 raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
