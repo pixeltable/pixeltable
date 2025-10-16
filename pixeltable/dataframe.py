@@ -781,19 +781,21 @@ class DataFrame:
             on = [on]
         elif isinstance(on, exprs.Expr):
             if not on.is_bound_by(joined_tbls):
-                raise excs.Error(f"`on` expression cannot be evaluated in the context of the joined tables: {on}")
+                raise excs.Error(f'`on` expression cannot be evaluated in the context of the joined tables: {on}')
             if not on.col_type.is_bool_type():
-                raise excs.Error(f"`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on}")
+                raise excs.Error(
+                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on}'
+                )
             return on
         elif not isinstance(on, Sequence) or len(on) == 0:
-            raise excs.Error("`on` must be a sequence of column references or a boolean expression")
+            raise excs.Error('`on` must be a sequence of column references or a boolean expression')
 
         assert isinstance(on, Sequence)
         for col_ref in on:
             if not isinstance(col_ref, exprs.ColumnRef):
-                raise excs.Error("`on` must be a sequence of column references or a boolean expression")
+                raise excs.Error('`on` must be a sequence of column references or a boolean expression')
             if not col_ref.is_bound_by(joined_tbls):
-                raise excs.Error(f"`on` expression cannot be evaluated in the context of the joined tables: {col_ref}")
+                raise excs.Error(f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref}')
             col_refs.append(col_ref)
 
         predicates: list[exprs.Expr] = []
@@ -803,7 +805,7 @@ class DataFrame:
             # identify the referenced column by name in 'other'
             rhs_col = other.get_column(col_ref.col.name)
             if rhs_col is None:
-                raise excs.Error(f"`on` column {col_ref.col.name!r} not found in joined table")
+                raise excs.Error(f'`on` column {col_ref.col.name!r} not found in joined table')
             rhs_col_ref = exprs.ColumnRef(rhs_col)
 
             lhs_col_ref: Optional[exprs.ColumnRef] = None
@@ -817,11 +819,11 @@ class DataFrame:
                     if col is None:
                         continue
                     if lhs_col_ref is not None:
-                        raise excs.Error(f"`on`: ambiguous column reference: {col_ref.col.name}")
+                        raise excs.Error(f'`on`: ambiguous column reference: {col_ref.col.name}')
                     lhs_col_ref = exprs.ColumnRef(col)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
-                    raise excs.Error(f"`on`: column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
+                    raise excs.Error(f'`on`: column {col_ref.col.name!r} not found in any of: {" ".join(tbl_names)}')
             pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
             predicates.append(pred)
 
@@ -888,13 +890,13 @@ class DataFrame:
         join_pred: Optional[exprs.Expr]
         if how == 'cross':
             if on is not None:
-                raise excs.Error("`on` not allowed for cross join")
+                raise excs.Error('`on` not allowed for cross join')
             join_pred = None
         else:
             if on is None:
-                raise excs.Error(f"`how={how!r}` requires `on` to be present")
+                raise excs.Error(f'`how={how!r}` requires `on` to be present')
             join_pred = self._create_join_predicate(other._tbl_version_path, on)
-        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, "`how`"), join_predicate=join_pred)
+        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, '`how`'), join_predicate=join_pred)
         from_clause = plan.FromClause(
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
             join_clauses=[*self._from_clause.join_clauses, join_clause],

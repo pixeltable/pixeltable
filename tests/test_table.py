@@ -624,12 +624,12 @@ class TestTable:
             _ = t.insert(rows3)
 
         # mixed models
-        with pytest.raises(pxt.Error, match="Expected an instance of `TestModel1`; got `TestModel2`"):
+        with pytest.raises(pxt.Error, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
 
     def test_pydantic_errors(self, reset_db: None) -> None:
         # value provided for computed column
-        with pytest.raises(pxt.Error, match="has fields for computed columns: c1"):
+        with pytest.raises(pxt.Error, match='has fields for computed columns: c1'):
             t = pxt.create_table('bad1', {'i': pxt.Int})
             t.add_computed_column(c1=t.i + 1)
 
@@ -654,7 +654,9 @@ class TestTable:
             _ = t.insert([BadModel2(i=0, en=E1.A)])
 
         # wrong Literal type
-        with pytest.raises(pxt.Error, match=r"incompatible type `Literal` for column 'r' \(of Pixeltable type `String`\)"):
+        with pytest.raises(
+            pxt.Error, match=r"incompatible type `Literal` for column 'r' \(of Pixeltable type `String`\)"
+        ):
             t = pxt.create_table('bad7', {'i': pxt.Int, 'r': pxt.Required[pxt.String]})
 
             class BadModel3(pydantic.BaseModel):
@@ -664,7 +666,7 @@ class TestTable:
             _ = t.insert([BadModel3(i=0, r=1)])
 
         # missing required field in model
-        with pytest.raises(pxt.Error, match="is missing required columns: s"):
+        with pytest.raises(pxt.Error, match='is missing required columns: s'):
             t = pxt.create_table('bad3', {'i': pxt.Int, 's': pxt.Required[pxt.String]})
 
             class BadModel4(pydantic.BaseModel):
@@ -1204,7 +1206,9 @@ class TestTable:
             t.insert(json_col={'a': 'apples'})  # Missing required field
         assert "'b' is a required property" in str(exc_info.value)
 
-        with pytest.raises(pxt.Error, match=r'Type `Json` of value.*is not compatible with the type.*of column \'json_col\''):
+        with pytest.raises(
+            pxt.Error, match=r'Type `Json` of value.*is not compatible with the type.*of column \'json_col\''
+        ):
             t.update({'json_col': {'a': 'apples'}})  # Validation error on update
 
     def test_validate_image(self, reset_db: None) -> None:
@@ -1804,7 +1808,7 @@ class TestTable:
         with pytest.raises(pxt.Error) as exc_info:
             # can't mix _rowid with primary key
             _ = t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0, '_rowid': (1,)}])
-        assert '\'c1\' is a primary key column' in str(exc_info.value).lower()
+        assert "'c1' is a primary key column" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # bad literal
@@ -1814,7 +1818,7 @@ class TestTable:
         with pytest.raises(pxt.Error) as exc_info:
             # missing primary key column
             t.batch_update([{'c1': '1', 'c3': 2.0}])
-        assert 'primary key column(s) \'c2\' missing' in str(exc_info.value).lower()
+        assert "primary key column(s) 'c2' missing" in str(exc_info.value).lower()
 
         # table without primary key
         t2 = pxt.create_table('no_pk', schema)
@@ -2430,17 +2434,17 @@ class TestTable:
 
         # if_exists='error' raises an error if the column already exists
         # by default, if_exists='error'
-        with pytest.raises(pxt.Error, match="Duplicate column name: c1"):
+        with pytest.raises(pxt.Error, match='Duplicate column name: c1'):
             t.add_column(c1=pxt.Int)
-        with pytest.raises(pxt.Error, match="Duplicate column name: c1"):
+        with pytest.raises(pxt.Error, match='Duplicate column name: c1'):
             t.add_computed_column(c1=t.c2 + t.c3)
-        with pytest.raises(pxt.Error, match="Duplicate column name: c1"):
+        with pytest.raises(pxt.Error, match='Duplicate column name: c1'):
             t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String})
-        with pytest.raises(pxt.Error, match="Duplicate column name: c1"):
+        with pytest.raises(pxt.Error, match='Duplicate column name: c1'):
             t.add_column(c1=pxt.Int, if_exists='error')
-        with pytest.raises(pxt.Error, match="Duplicate column name: c1"):
+        with pytest.raises(pxt.Error, match='Duplicate column name: c1'):
             t.add_computed_column(c1=t.c2 + t.c3, if_exists='error')
-        with pytest.raises(pxt.Error, match="Duplicate column name: c1"):
+        with pytest.raises(pxt.Error, match='Duplicate column name: c1'):
             t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
         assert orig_cnames == t.columns()
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
@@ -2646,7 +2650,7 @@ class TestTable:
             t.drop_column(non_existing_col, if_not_exists='error')
         err_msg = str(exc_info.value)
         if isinstance(non_existing_col, str):
-            assert err_msg == f"Unknown column: {non_existing_col}"
+            assert err_msg == f'Unknown column: {non_existing_col}'
         else:
             assert err_msg == f'Unknown column: {non_existing_col.col.qualified_name}'
         # if_not_exists='ignore' does nothing if the column does not exist
@@ -2659,9 +2663,9 @@ class TestTable:
         t.drop_column('c1')
         assert len(t.columns()) == num_orig_cols - 1
         assert 'c1' not in t.columns()
-        with pytest.raises(AttributeError, match="Unknown column: c1"):
+        with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = t.c1
-        with pytest.raises(pxt.Error, match="Unknown column: c1"):
+        with pytest.raises(pxt.Error, match='Unknown column: c1'):
             t.drop_column('c1')
         # non-existing column by name - column was already dropped
         self.__test_drop_column_if_not_exists(t, 'c1')
@@ -2669,9 +2673,9 @@ class TestTable:
         # but of a different table
         self.__test_drop_column_if_not_exists(t, dummy_t.dummy_col)
         assert 'unknown' not in t.columns()
-        with pytest.raises(pxt.Error, match="Unknown column: unknown"):
+        with pytest.raises(pxt.Error, match='Unknown column: unknown'):
             t.drop_column('unknown')
-        with pytest.raises(AttributeError, match="Unknown column: unknown"):
+        with pytest.raises(AttributeError, match='Unknown column: unknown'):
             t.drop_column(t.unknown)
         # non-existing column by name - column was never created
         self.__test_drop_column_if_not_exists(t, 'unknown')
@@ -2728,7 +2732,7 @@ class TestTable:
         t2 = pxt.create_table('test2', {'c1': pxt.String, 'c2': pxt.String})
 
         # cannot pass another table's column reference
-        with pytest.raises(pxt.Error, match=r'Unknown column: test2.c2') as exc_info:
+        with pytest.raises(pxt.Error, match=r'Unknown column: test2.c2'):
             t1.drop_column(t2.c2)
         assert 'c2' in t1.columns()
         assert 'c2' in t2.columns()
@@ -2737,9 +2741,9 @@ class TestTable:
 
         t1.drop_column(t1.c2)
         assert 'c2' not in t1.columns()
-        with pytest.raises(AttributeError, match="Unknown column: c2") as exc_info:
+        with pytest.raises(AttributeError, match='Unknown column: c2'):
             _ = t1.c2
-        with pytest.raises(AttributeError, match="Unknown column: c2") as exc_info:
+        with pytest.raises(AttributeError, match='Unknown column: c2'):
             t1.drop_column(t1.c2)
         assert 'c2' in t2.columns()
         pxt.drop_table(t1)
@@ -3088,20 +3092,20 @@ class TestTable:
         )
         _ = pxt.create_view('view4', v3.where((t.c2 / v3.vc3) < 19), additional_columns={'vc4': pxt.Int})
 
-        with pytest.raises(pxt.Error, match='Cannot drop column \'c1\' because the following views depend on it') as e:
+        with pytest.raises(pxt.Error, match="Cannot drop column 'c1' because the following views depend on it") as e:
             t.drop_column('c1')
 
         assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
         assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 
-        with pytest.raises(pxt.Error, match='Cannot drop column \'c2\' because the following views depend on it') as e:
+        with pytest.raises(pxt.Error, match="Cannot drop column 'c2' because the following views depend on it") as e:
             t.drop_column('c2')
 
         assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
         assert 'view: view4, predicate: c2 / vc3 < 19' in str(e.value).lower()
 
-        with pytest.raises(pxt.Error, match='Cannot drop column \'vc1\' because the following views depend on it') as e:
+        with pytest.raises(pxt.Error, match="Cannot drop column 'vc1' because the following views depend on it") as e:
             v1.drop_column('vc1')
 
         assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
@@ -3112,10 +3116,10 @@ class TestTable:
         # drop the first column
         t.drop_column('c1')
         # drop an unknown column
-        with pytest.raises(pxt.Error, match="Unknown column: c3"):
+        with pytest.raises(pxt.Error, match='Unknown column: c3'):
             t.drop_column('c3')
         # drop the last column
         with pytest.raises(
-            pxt.Error, match='Cannot drop column \'c2\' because it is the last remaining column in this table'
+            pxt.Error, match="Cannot drop column 'c2' because it is the last remaining column in this table"
         ):
             t.drop_column('c2')

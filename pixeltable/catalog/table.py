@@ -1271,7 +1271,7 @@ class Table(SchemaObject):
                 assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
             if len(idx_info_list) > 1:
-                raise excs.Error(f"Column {col.name!r} has multiple indices; specify `idx_name` explicitly to drop one")
+                raise excs.Error(f'Column {col.name!r} has multiple indices; specify `idx_name` explicitly to drop one')
             idx_info = idx_info_list[0]
 
         # Find out if anything depends on this index
@@ -1489,7 +1489,9 @@ class Table(SchemaObject):
                     col_names = {col.name for col in col_vals}
                     if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
                         missing_cols = pk_col_names - {col.name for col in col_vals}
-                        raise excs.Error(f'Primary key column(s) {", ".join(repr(c) for c in missing_cols)} missing in {row_spec}')
+                        raise excs.Error(
+                            f'Primary key column(s) {", ".join(repr(c) for c in missing_cols)} missing in {row_spec}'
+                        )
                 row_updates.append(col_vals)
 
             result = self._tbl_version.get().batch_update(
@@ -1570,7 +1572,7 @@ class Table(SchemaObject):
                 col_names.append(col_name)
 
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
-                raise excs.Error(f"`where` predicate ({where}) is not bound by {self._display_str()}")
+                raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
 
             result = self._tbl_version.get().recompute_columns(
                 col_names, where=where, errors_only=errors_only, cascade=cascade

@@ -253,15 +253,13 @@ class InsertableTable(Table):
         missing_required = required_cols - model_field_names
         if missing_required:
             raise excs.Error(
-                f'Pydantic model `{model.__name__}` is missing required columns: ' +
-                ", ".join(missing_required)
+                f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(missing_required)
             )
 
         computed_in_model = computed_cols & model_field_names
         if computed_in_model:
             raise excs.Error(
-                f'Pydantic model `{model.__name__}` has fields for computed columns: ' +
-                ", ".join(computed_in_model)
+                f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(computed_in_model)
             )
 
         # validate type compatibility
@@ -288,7 +286,7 @@ class InsertableTable(Table):
                 # media types require file paths, either as str or Path
                 if not inferred_pxt_type.is_string_type():
                     raise excs.Error(
-                        f"Column {field_name!r} requires a `str` or `Path` field in `{model.__name__}`, but it is "
+                        f'Column {field_name!r} requires a `str` or `Path` field in `{model.__name__}`, but it is '
                         f'`{model_type.__name__}`'
                     )
             else:

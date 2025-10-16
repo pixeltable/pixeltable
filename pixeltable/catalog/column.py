@@ -85,7 +85,7 @@ class Column:
         destination: Optional[str] = None,
     ):
         if name is not None and not is_valid_identifier(name):
-            raise excs.Error(f"Invalid column name: {name}")
+            raise excs.Error(f'Invalid column name: {name}')
         self.name = name
         self.tbl = tbl
         if col_type is None and computed_with is None:
@@ -222,8 +222,8 @@ class Column:
         assert self._value_expr is not None
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.Error(
-                f'Column {self.name!r}: `stored={self.stored}` not supported for columns computed with window functions:'
-                f'\n{self.value_expr}'
+                f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
+                f'computed with window functions:\n{self.value_expr}'
             )
 
     def has_window_fn_call(self) -> bool:

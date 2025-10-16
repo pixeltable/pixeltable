@@ -857,7 +857,7 @@ class TableVersion:
         if col.tbl.id != self.id:
             raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
-            raise excs.Error(f"Invalid column name: {new_name}")
+            raise excs.Error(f'Invalid column name: {new_name}')
         if new_name in self.cols_by_name:
             raise excs.Error(f'Column {new_name!r} already exists')
         del self.cols_by_name[old_name]
@@ -976,7 +976,7 @@ class TableVersion:
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
-                raise excs.Error(f"`where` argument must be a valid Pixeltable expression; got `{type(where)}`")
+                raise excs.Error(f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`')
             analysis_info = Planner.analyze(self.path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
@@ -1096,7 +1096,7 @@ class TableVersion:
         target_columns = [self.cols_by_name[name] for name in col_names]
         where_clause: Optional[exprs.Expr] = None
         if where is not None:
-            self._validate_where_clause(where, error_prefix="`where` argument")
+            self._validate_where_clause(where, error_prefix='`where` argument')
             where_clause = where
         if errors_only:
             errortype_pred = (
@@ -1182,7 +1182,7 @@ class TableVersion:
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
         assert self.is_insertable
         if where is not None:
-            self._validate_where_clause(where, error_prefix="`where` argument")
+            self._validate_where_clause(where, error_prefix='`where` argument')
         status = self.propagate_delete(where, base_versions=[], timestamp=time.time())
         return status
 

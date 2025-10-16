@@ -108,7 +108,9 @@ class View(Table):
             if sample_clause.stratify_exprs is not None and not all(
                 stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
             ):
-                raise excs.Error(f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}')
+                raise excs.Error(
+                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}'
+                )
             # create a copy that we can modify and store
             sc = sample_clause
             sample_clause = SampleClause(

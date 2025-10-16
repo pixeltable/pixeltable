@@ -134,7 +134,7 @@ class TestComponentView:
         validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
-        with pytest.raises(pxt.Error, match='Duplicate column name: annotation') as excinfo:
+        with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
 
     def test_update(self, reset_db: None) -> None:

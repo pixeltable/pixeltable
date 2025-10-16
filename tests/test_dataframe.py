@@ -205,7 +205,7 @@ class TestDataFrame:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, how='cross', on=t2.id).collect()
-        assert "`on` not allowed for cross join" in str(exc_info.value)
+        assert '`on` not allowed for cross join' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2).collect()
@@ -221,11 +221,13 @@ class TestDataFrame:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id + 1).collect()
-        assert '`on` expects an expression of type `Bool`, but got one of type `Optional[Int]`: id + 1' in str(exc_info.value)
+        assert '`on` expects an expression of type `Bool`, but got one of type `Optional[Int]`: id + 1' in str(
+            exc_info.value
+        )
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
-        assert "ambiguous column reference: id" in str(exc_info.value)
+        assert 'ambiguous column reference: id' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()

@@ -49,7 +49,7 @@ class TestConfig:
 
         spawn_cmd(
             'pxt.init({"pixeltable.verbosity": "eggs"})',
-            'pixeltable.exceptions.Error: Invalid value for configuration parameter \'pixeltable.verbosity\': eggs',
+            "pixeltable.exceptions.Error: Invalid value for configuration parameter 'pixeltable.verbosity': eggs",
         )
 
         pxt.init()
