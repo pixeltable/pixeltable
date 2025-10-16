@@ -35,6 +35,7 @@ class RandomTblOps:
     - Capture the outcome of the operation in $PIXELTABLE_HOME/random-tbl-ops.log and on the console.
     - Sleep for a short random time (0.1 to 0.5 seconds) before starting the next iteration.
     """
+    logger = logging.getLogger('random_tbl_ops')
 
     # TODO: Support additional operations such as index ops, pxt.move(), and replicas
     # TODO: Add additional datatypes including media data
@@ -46,7 +47,7 @@ class RandomTblOps:
     ]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
     NUM_COLUMN_NAMES = 100  # c0 ... c{n-1}
-    NUM_VIEW_NAMES = 10  # view_0 ... view_{n-1}
+    NUM_VIEW_NAMES = 100  # view_0 ... view_{n-1}
 
     # (operation_name, relative_prob, is_read_op)
     # The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
@@ -64,17 +65,27 @@ class RandomTblOps:
         ('drop_view', 1, False),
         ('drop_table', 0.25, False),
     )
+    OP_NAMES = set(name for name, _, _ in RANDOM_OPS_DEF)
 
     random_ops: list[tuple[float, Callable]]
 
-    logger = logging.getLogger('random_tbl_ops')
-
     worker_id: int
-    read_only: bool
 
-    def __init__(self, worker_id: int, read_only: bool) -> None:
+    def __init__(self, worker_id: int, read_only: bool, exclude_ops: list[str]) -> None:
         self.worker_id = worker_id
         self.read_only = read_only
+        ops_config = {
+            (op_name, weight) for op_name, weight, is_read_op in self.RANDOM_OPS_DEF
+            if op_name not in exclude_ops and (is_read_op or not read_only)
+        }
+
+        # Initialize random_ops.
+        self.random_ops = []
+        total_weight = sum(float(weight) for _, weight in ops_config)
+        cumulative_weight = 0.0
+        for op_name, weight in ops_config:
+            cumulative_weight += float(weight)
+            self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
         handler = logging.FileHandler(Config.get().home / 'random-tbl-ops.log')
         handler.setLevel(logging.INFO)
@@ -254,23 +265,12 @@ class RandomTblOps:
 
     def run(self) -> None:
         """Run random table operations indefinitely."""
-        # Initialize random_ops.
-        allowed_ops = [
-            (op_name, weight) for op_name, weight, is_read_op in self.RANDOM_OPS_DEF if is_read_op or not self.read_only
-        ]
-        self.random_ops = []
-        total_weight = sum(float(weight) for _, weight in allowed_ops)
-        cumulative_weight = 0.0
-        for op_name, weight in allowed_ops:
-            cumulative_weight += float(weight)
-            self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
-
         while True:
             self.random_tbl_op()
             time.sleep(random.uniform(0.1, 0.5))
 
 
-def run(worker_id: int, read_only: bool) -> None:
+def run(worker_id: int, read_only: bool, exclude_ops: list[str] | None) -> None:
     """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
@@ -287,7 +287,7 @@ def run(worker_id: int, read_only: bool) -> None:
         time.sleep(5)
 
     try:
-        RandomTblOps(worker_id, read_only).run()
+        RandomTblOps(worker_id, read_only, exclude_ops or []).run()
     except KeyboardInterrupt:
         # Suppress the stack trace, but abort.
         pass
@@ -300,6 +300,7 @@ def make_parser() -> ArgumentParser:
     parser.add_argument(
         '-r', '--read-only-workers', type=int, default=0, help='Number of read-only workers (default: 0)'
     )
+    parser.add_argument('--exclude', nargs='+', type=str, help='List of operations to exclude')
     return parser
 
 
@@ -315,8 +316,18 @@ def main() -> None:
         print('--read-only-workers must be between 0 and `workers`')
         sys.exit(1)
 
+    if args.exclude is not None:
+        for op_name in args.exclude:
+            if op_name not in RandomTblOps.OP_NAMES:
+                print(f'--exclude: unrecognized op name: {op_name}')
+                sys.exit(1)
+
     worker_args = [
-        ['-c', f'from tool.random_tbl_ops_2 import run; run({i}, {i >= args.workers - args.read_only_workers})']
+        [
+            '-c',
+            'from tool.random_tbl_ops_2 import run; '
+            f'run({i}, {i >= args.workers - args.read_only_workers}, {args.exclude})'
+        ]
         for i in range(args.workers)
     ]
 
