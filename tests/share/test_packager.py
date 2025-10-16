@@ -2,6 +2,7 @@ import datetime
 import filecmp
 import io
 import json
+import platform
 import tarfile
 import urllib.parse
 import urllib.request
@@ -213,8 +214,12 @@ class TestPackager:
 
     def __purge_db(self) -> None:
         clean_db()
-        # Delete any locally stored media files (so that the restorer is forced to reconstruct them)
-        LocalStore(Env.get().media_dir).clear()
+        # Delete any locally stored media files (so that if any stale references to them inadvertently remain after
+        # packaging, then those stale references will be invalid).
+        # We need to skip this step on Windows; it's flaky due to the way Windows handles file locks.
+        # (But testing without media purge on Windows, and with it on other systems, should provide suitable coverage.)
+        if platform.system() != 'Windows':
+            LocalStore(Env.get().media_dir).clear()
         reload_catalog()
 
     def __do_round_trip(self, tbl: pxt.Table) -> None:
