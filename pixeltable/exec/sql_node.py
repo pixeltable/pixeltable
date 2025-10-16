@@ -1,5 +1,7 @@
+import dataclasses
 import datetime
 import logging
+import random
 import warnings
 from decimal import Decimal
 from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Optional, Sequence
@@ -648,6 +650,11 @@ class SqlSampleNode(SqlNode):
         )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause
+        if sample_clause.seed is None:
+            # If no seed was specified, pick a random one now.
+            self.sample_clause = dataclasses.replace(sample_clause, seed=random.randint(0, 1 << 31))
+        else:
+            self.sample_clause = sample_clause
         assert isinstance(self.sample_clause.seed, int)
 
     @classmethod

@@ -101,10 +101,6 @@ class SampleClause:
         # If no version was provided, provide the default version
         if self.version is None:
             self.version = self.CURRENT_VERSION
-        # If no seed was specified, pick a random one. (This will ensure that separate calls to sample() will be
-        # nondeterministic, but once a DataFrame is constructed it will be internally consistent.)
-        if self.seed is None:
-            self.seed = random.randint(0, 1 << 32)
 
     @property
     def is_stratified(self) -> bool:
