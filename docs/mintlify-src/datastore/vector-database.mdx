@@ -1,0 +1,328 @@
+---
+title: 'Vector Database'
+description: 'Learn how to create, populate and query embedding indexes in Pixeltable'
+icon: 'cube'
+---
+
+<Info>
+Learn more about embedding/vector indexes with this [in-depth guide](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/embedding-indexes.ipynb).
+</Info>
+
+## What are Embedding/Vector Indexes?
+
+Embedding indexes let you search your data based on meaning, not just keywords. They work with all kinds of content - text, images, audio, video, and documents - making it easy to build powerful search systems.
+
+### Multimodal Search Examples
+
+Pixeltable makes it easy to build semantic search for different media types:
+
+<CardGroup cols={3}>
+  <Card title="Audio" icon="volume-high" href="/docs/examples/search/audio">
+    Build semantic search for audio files and podcasts
+  </Card>
+  <Card title="Image" icon="image" href="/docs/examples/search/images">
+    Create visual search engines with embedding models
+  </Card>
+  <Card title="Document" icon="file-pdf" href="/docs/examples/search/PDF">
+    Search through PDFs and other document formats
+  </Card>
+  <Card title="Video" icon="film" href="/docs/examples/search/video">
+    Find relevant content within video libraries
+  </Card>
+  <Card title="Website" icon="globe" href="/docs/examples/search/website">
+    Search across web content with semantic understanding
+  </Card>
+  <Card title="Text" icon="text" href="https://github.com/pixeltable/pixelagent/tree/main/examples/memory">
+    Use metadata to search for long term memory for ai agents
+  </Card>  
+</CardGroup>
+
+## How Pixeltable Makes Embeddings Easy
+
+- **No infrastructure headaches** - embeddings are managed automatically
+- **Works with any media type** - text, images, audio, video, or documents
+- **Updates automatically** - when data changes, embeddings update too
+- **Compatible with your favorite models** - use Hugging Face, OpenAI, or your custom models
+
+## Phase 1: Setup Embeddings Model and Index
+
+The setup phase defines your schema and creates embedding indexes.
+
+<Tabs>
+  <Tab title="Sentence Transformers">
+    ```bash
+    pip install pixeltable sentence-transformers
+    ```
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.huggingface import sentence_transformer
+    
+    # Create a directory to organize data (optional)
+    pxt.drop_dir('knowledge_base', force=True)
+    pxt.create_dir('knowledge_base')
+    
+    # Create table
+    docs = pxt.create_table(
+        "knowledge_base.documents",
+        {
+            "content": pxt.String,
+            "metadata": pxt.Json
+        }
+    )
+    
+    # Create embedding index
+    embed_model = sentence_transformer.using(
+        model_id="intfloat/e5-large-v2"
+    )
+    docs.add_embedding_index(
+        column='content',
+        string_embed=embed_model
+    )
+    ```
+  </Tab>
+
+  <Tab title="OpenAI">
+    ```bash
+    pip install pixeltable openai
+    ```  
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.openai import embeddings 
+    
+    # Create a directory to organize data (optional)
+    pxt.drop_dir('knowledge_base', force=True)
+    pxt.create_dir('knowledge_base')
+    
+    # Create table
+    docs = pxt.create_table(
+        "knowledge_base.documents",
+        {
+            "content": pxt.String,
+            "metadata": pxt.Json
+        }
+    )
+    
+    # Create embedding index
+    embed_model = embeddings.using(model_id="text-embedding-3-small")
+    docs.add_embedding_index(
+        column='content',
+        embedding=embed_model
+    )
+    ```
+  </Tab>  
+  
+  <Tab title="Custom">
+    ```python
+    import tensorflow as tf
+    import tensorflow_hub as hub
+    import tensorflow_text
+    
+    @pxt.udf
+    def bert(input: str) -> pxt.Array[(512,), pxt.Float]:
+        """Computes text embeddings using small_bert."""
+        preprocessor = hub.load(
+            'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3'
+        )
+        bert_model = hub.load(
+            'https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-4_H-512_A-8/2'
+        )
+        tensor = tf.constant([input])
+        result = bert_model(preprocessor(tensor))['pooled_output']
+        return result.numpy()[0, :]
+    
+    # Add custom embedding index
+    docs.add_embedding_index(
+        column='content',
+        idx_name='bert_idx',
+        string_embed=bert
+    )
+    ```
+  </Tab>
+</Tabs>
+
+### Supported Index Options
+
+<CardGroup cols={1}>
+  <Card title="Similarity Metrics" icon="calculator">
+    ```python
+    # Available metrics:
+    docs.add_embedding_index(
+        column='content',
+        metric='cosine'  # Default
+        # Other options:
+        # metric='ip'    # Inner product
+        # metric='l2'    # L2 distance
+    )
+    ```
+  </Card>
+  
+  <Card title="Index Configuration" icon="gear">
+    ```python
+    # Optional parameters
+    docs.add_embedding_index(
+        column='content',
+        idx_name='custom_name',  # Optional name
+        string_embed=embed_model,
+        image_embed=img_model,   # For image columns
+    )
+    ```
+  </Card>
+</CardGroup>
+
+## Phase 2: Insert
+
+The insert phase populates your indexes with data. Pixeltable automatically computes embeddings and maintains index consistency.
+
+```python
+# Single insertion
+docs.insert([
+    {
+        "content": "Your document text here",
+        "metadata": {"source": "web", "category": "tech"}
+    }
+])
+
+# Batch insertion
+docs.insert([
+    {
+        "content": "First document",
+        "metadata": {"source": "pdf", "category": "science"}
+    },
+    {
+        "content": "Second document", 
+        "metadata": {"source": "web", "category": "news"}
+    }
+])
+
+# Image insertion
+image_urls = [
+    'https://example.com/image1.jpg',
+    'https://example.com/image2.jpg'
+]
+images.insert({'image': url} for url in image_urls)
+```
+
+<Warning>
+Large batch insertions are more efficient than multiple single insertions as they reduce the number of embedding computations.
+</Warning>
+
+## Phase 3: Query
+
+The query phase allows you to search your indexed content using the `similarity()` function.
+
+<Tabs>
+  <Tab title="Similarity Search">
+    ```python
+      sim = docs.content.similarity("what is the documentation")
+      
+      # Return top-k most similar documents
+      results = (docs.order_by(sim, asc=False)
+          .select(docs.content, docs.metadata, score=sim)
+          .limit(10)
+      )
+  
+      for i in results:
+          print(f"Similarity: {i['score']:.3f}")
+          print(f"Text: {i['content']}\n")
+    ```
+  </Tab>
+    
+  <Tab title="Use in a Computed Column">
+    ```python
+    @pxt.query
+    def filtered_search(query: str, category: str):
+        sim = docs.content.similarity(query)
+        
+        return (
+            docs
+            .where(docs.metadata['category'] == category)
+            .order_by(sim, asc=False)
+            .select(docs.content, score=sim)
+            .limit(5)
+        )
+
+    docs.add_computed_column(
+      filtered_search(docs.content, docs.category)
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Direct Embedding Access
+
+Pixeltable allows direct access to the raw embedding vectors through the `.embedding()` method. This feature lets you retrieve the actual vector representations that power similarity search.
+
+```python
+# Access embeddings from a column with a single index
+results = docs.select(
+    docs.content,
+    embedding=docs.content.embedding()
+).limit(5)
+
+# Access embeddings from a column with multiple indices
+results = docs.select(
+    docs.content,
+    embedding=docs.content.embedding(idx='custom_idx_name')
+).limit(5)
+
+# Embeddings are returned as numpy arrays
+import numpy as np
+assert isinstance(results[0, 'embedding'], np.ndarray)
+
+# You can also store embeddings in a computed column
+docs.add_computed_column(
+    embedding_copy=docs.content.embedding()
+)
+```
+
+<Warning>
+- The `.similarity()` method cannot be used directly in computed columns
+- Embedding indices cannot be dropped if there are computed columns that depend on them
+- When a column has multiple embedding indices, you must specify which index to use with the `idx` parameter
+</Warning>
+
+## Management Operations
+
+<CardGroup cols={1}>
+  <Card title="Drop Index" icon="trash">
+    ```python
+    # Drop by name
+    docs.drop_embedding_index(idx_name='e5_idx')
+    
+    # Drop by column (if single index)
+    docs.drop_embedding_index(column='content')
+    ```
+  </Card>
+  
+  <Card title="Update Index" icon="arrows-rotate">
+    ```python
+    # Indexes auto-update on changes
+    docs.update({
+        'content': docs.content + ' Updated!'
+    })
+    ```
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<Warning>
+- Cache embedding models in production UDFs
+- Use batching for better performance
+- Consider index size vs. search speed tradeoffs 
+- Monitor embedding computation time
+</Warning>
+
+## Additional Resources
+
+<CardGroup cols={3}>
+  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete API reference
+  </Card>
+  <Card title="Multimodal Indexes" icon="lightbulb" href="/docs/examples/chat/multimodal">
+    Examples of multimodal embedding indexes
+  </Card>
+  <Card title="Model Hub" icon="brain" href="https://huggingface.co/models">
+    Connect with your favorite Hugging Face models
+  </Card>
+</CardGroup>

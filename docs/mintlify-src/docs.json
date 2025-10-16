@@ -1,0 +1,272 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pixeltable Documentation",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Welcome to Pixeltable",
+            "pages": [
+              "overview/pixeltable",
+              "overview/installation",
+              "overview/configuration",
+              "overview/quick-start",
+              "overview/building-pixeltable-with-llms"
+            ]
+          },
+          {
+            "group": "Multimodal AI Datastore",
+            "pages": [
+              "datastore/tables-and-operations",
+              "datastore/views",
+              "datastore/iterators",
+              "datastore/bringing-data",
+              "datastore/filtering-and-selecting",
+              "datastore/computed-columns",
+              "datastore/vector-database",
+              "datastore/custom-functions",
+              "datastore/sampling"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/fundamentals",
+              "tutorials/feature-guide"
+            ]
+          },
+          {
+            "group": "Libraries",
+            "pages": [
+              "libraries/pixelagent",
+              "libraries/mcp",
+              "libraries/yolox"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Explore",
+            "pages": [
+              "examples/use-cases",
+              "examples/interactive-demos",
+              "examples/sample-apps"
+            ]
+          },
+          {
+            "group": "Chatbot",
+            "pages": [
+              "examples/chat/multimodal",
+              "examples/chat/memory",
+              "examples/chat/tools",
+              "examples/chat/evals"
+            ]
+          },
+          {
+            "group": "Computer Vision",
+            "pages": [
+              "examples/vision/label-studio",
+              "examples/vision/voxel51",
+              "examples/vision/yolox"
+            ]
+          },
+          {
+            "group": "Semantic Search",
+            "pages": [
+              "examples/search/audio",
+              "examples/search/images",
+              "examples/search/PDF",
+              "examples/search/website",
+              "examples/search/video"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Pixeltable SDK",
+        "dropdowns": [
+          {
+            "dropdown": "latest",
+            "icon": "rocket",
+            "groups": [
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  {
+                    "group": "Core API",
+                    "pages": [
+                      "sdk/latest/pixeltable",
+                      "sdk/latest/table",
+                      "sdk/latest/dataframe",
+                      "sdk/latest/columnmetadata",
+                      "sdk/latest/dircontents",
+                      "sdk/latest/indexmetadata",
+                      "sdk/latest/tablemetadata",
+                      "sdk/latest/updatestatus",
+                      "sdk/latest/versionmetadata"
+                    ]
+                  },
+                  {
+                    "group": "Built-in Functions and Operators",
+                    "pages": [
+                      "sdk/latest/audio",
+                      "sdk/latest/date",
+                      "sdk/latest/image",
+                      "sdk/latest/json",
+                      "sdk/latest/math",
+                      "sdk/latest/string",
+                      "sdk/latest/timestamp",
+                      "sdk/latest/video"
+                    ]
+                  },
+                  {
+                    "group": "AI Integrations",
+                    "pages": [
+                      "sdk/latest/openai",
+                      "sdk/latest/anthropic",
+                      "sdk/latest/huggingface",
+                      "sdk/latest/gemini",
+                      "sdk/latest/bedrock",
+                      "sdk/latest/groq",
+                      "sdk/latest/replicate",
+                      "sdk/latest/together",
+                      "sdk/latest/fireworks",
+                      "sdk/latest/mistralai",
+                      "sdk/latest/deepseek",
+                      "sdk/latest/ollama",
+                      "sdk/latest/llama_cpp",
+                      "sdk/latest/whisper",
+                      "sdk/latest/vision",
+                      "sdk/latest/yolox",
+                      "sdk/latest/whisperx"
+                    ]
+                  },
+                  {
+                    "group": "Iterators",
+                    "pages": [
+                      "sdk/latest/iterators",
+                      "sdk/latest/audiosplitter",
+                      "sdk/latest/componentiterator",
+                      "sdk/latest/documentsplitter",
+                      "sdk/latest/frameiterator",
+                      "sdk/latest/stringsplitter",
+                      "sdk/latest/tileiterator",
+                      "sdk/latest/videosplitter"
+                    ]
+                  },
+                  {
+                    "group": "Import/Export",
+                    "pages": [
+                      "sdk/latest/io"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Built-in Integrations",
+            "pages": [
+              "integrations/frameworks",
+              "integrations/models"
+            ]
+          },
+          {
+            "group": "Bring Your Own",
+            "pages": [
+              "integrations/embedding-model"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Changelog",
+        "groups": [
+          {
+            "group": "Changelog",
+            "pages": [
+              "changelog/product-updates"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Support",
+        "groups": [
+          {
+            "group": "Support",
+            "pages": [
+              "support/getting-help",
+              "support/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/_logo/pxt-light.svg",
+    "dark": "/_logo/pxt-dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/QPyqFYx2UN"
+      },
+      {
+        "label": "Book a Demo",
+        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+      },
+      {
+        "label": "Hiring",
+        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pixeltable/pixeltable"
+    }
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs..."
+  },
+  "footer": {
+    "socials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}

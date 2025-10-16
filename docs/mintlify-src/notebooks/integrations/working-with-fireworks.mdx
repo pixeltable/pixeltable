@@ -1,0 +1,153 @@
+
+
+export const quartoRawHtml =
+[`
+<table class="dataframe" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr style="text-align: right;">
+<th data-quarto-table-cell-role="th">input</th>
+<th data-quarto-table-cell-role="th">response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Can you tell me who was President of the US in 1961?</td>
+<td>Yes, the President of the United States in 1961 was John F. Kennedy.
+He served as the 35th U.S. President from January 20, 1961, until his
+assassination on November 22, 1963. Kennedy was a Democrat from
+Massachusetts and is known for his role in the Cuban Missile Crisis and
+his establishment of the Peace Corps.</td>
+</tr>
+</tbody>
+</table>
+`];
+
+[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fireworks.ipynb)  
+[![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fireworks.ipynb)  
+<a href="https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/notebooks/integrations/working-with-fireworks.ipynb" download><img src="https://img.shields.io/badge/%E2%AC%87-Download%20Notebook-blue" alt="Download Notebook"></a>
+
+# Working with Fireworks AI in Pixeltable
+
+Pixeltable’s Fireworks integration enables you to access LLMs hosted on
+the Fireworks platform.
+
+### Prerequisites
+
+-   A Fireworks account with an API key (https://fireworks.ai/api-keys)
+
+### Important Notes
+
+-   Fireworks usage may incur costs based on your Fireworks plan.
+-   Be mindful of sensitive data and consider security measures when
+    integrating with external services.
+
+First you’ll need to install required libraries and enter a Fireworks
+API key.
+
+
+```python
+%pip install -qU pixeltable fireworks-ai
+```
+
+
+```python
+import os
+import getpass
+
+if 'FIREWORKS_API_KEY' not in os.environ:
+    os.environ['FIREWORKS_API_KEY'] = getpass.getpass('Fireworks API Key:')
+```
+
+Now let’s create a Pixeltable directory to hold the tables for our demo.
+
+
+```python
+import pixeltable as pxt
+
+# Remove the 'fireworks_demo' directory and its contents, if it exists
+pxt.drop_dir('fireworks_demo', force=True)
+pxt.create_dir('fireworks_demo')
+```
+
+``` text
+Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
+Created directory 'fireworks_demo'.
+```
+
+``` text
+<pixeltable.catalog.dir.Dir at 0x301799de0>
+```
+
+## Completions
+
+Create a Table: In Pixeltable, create a table with columns to represent
+your input data and the columns where you want to store the results from
+Fireworks.
+
+
+```python
+from pixeltable.functions.fireworks import chat_completions
+
+# Create a table in Pixeltable and pick a model hosted on Fireworks with some parameters
+
+t = pxt.create_table('fireworks_demo.chat', {'input': pxt.String})
+
+messages = [{'role': 'user', 'content': t.input}]
+t.add_computed_column(output=chat_completions(
+    messages=messages,
+    model='accounts/fireworks/models/mixtral-8x22b-instruct',
+    model_kwargs={
+        # Optional dict with parameters for the Fireworks API
+        'max_tokens': 300,
+        'top_k': 40,
+        'top_p': 0.9,
+        'temperature': 0.7
+    }
+))
+```
+
+``` text
+Created table `chat`.
+Added 0 column values with 0 errors.
+```
+
+``` text
+UpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+
+```python
+# Parse the bot_response into a new column
+t.add_computed_column(response=t.output.choices[0].message.content)
+```
+
+``` text
+Added 0 column values with 0 errors.
+```
+
+``` text
+UpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+
+```python
+# Start a conversation
+t.insert(input="Can you tell me who was President of the US in 1961?")
+t.select(t.input, t.response).show()
+```
+
+``` text
+Inserting rows into `chat`: 1 rows [00:00, 85.10 rows/s]
+Inserted 1 row with 0 errors.
+```
+
+<div dangerouslySetInnerHTML={{ __html: quartoRawHtml[0] }} />
+
+### Learn More
+
+To learn more about advanced techniques like RAG operations in
+Pixeltable, check out the [RAG Operations in
+Pixeltable](https://pixeltable.readme.io/docs/rag-operations-in-pixeltable)
+tutorial.
+
+If you have any questions, don’t hesitate to reach out.
