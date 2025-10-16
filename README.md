@@ -17,7 +17,7 @@ The only open source Python library providing declarative data infrastructure fo
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![My Discord (1306431018890166272)](https://img.shields.io/badge/💬-Discord-%235865F2.svg)](https://discord.gg/QPyqFYx2UN)
 
-[**Quick Start**](https://docs.pixeltable.com/docs/overview/quick-start) |
+[**Quick Start**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**API Reference**](https://pixeltable.github.io/pixeltable/) |
 [**Sample Apps**](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps) |
@@ -39,8 +39,8 @@ https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
 ## Quick Start
 
 With Pixeltable, you define your *entire* data processing and AI workflow declaratively using
-**[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on
-**[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**.
+**[computed columns](https://docs.pixeltable.com/datastore/computed-columns)** on
+**[tables](https://docs.pixeltable.com/datastore/tables-and-operations)**.
 Focus on your application logic, not the data plumbing.
 
 ```python
@@ -94,17 +94,17 @@ results = t.select(
 
 ## What Happened?
 
-* **Data Ingestion & Storage:** References [files](https://docs.pixeltable.com/docs/datastore/bringing-data)
+* **Data Ingestion & Storage:** References [files](https://docs.pixeltable.com/datastore/bringing-data)
     (images, videos, audio, docs) in place, handles structured data.
-* **Transformation & Processing:** Applies *any* Python function ([UDFs](https://docs.pixeltable.com/docs/datastore/custom-functions))
-    or built-in operations ([chunking, frame extraction](https://docs.pixeltable.com/docs/datastore/iterators)) automatically.
-* **AI Model Integration:** Runs inference ([embeddings](https://docs.pixeltable.com/docs/datastore/embedding-index),
-    [object detection](https://docs.pixeltable.com/docs/examples/vision/yolox),
-    [LLMs](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers)) as part of the data pipeline.
+* **Transformation & Processing:** Applies *any* Python function ([UDFs](https://docs.pixeltable.com/datastore/custom-functions))
+    or built-in operations ([chunking, frame extraction](https://docs.pixeltable.com/datastore/iterators)) automatically.
+* **AI Model Integration:** Runs inference ([embeddings](https://docs.pixeltable.com/datastore/vector-database),
+    [object detection](https://docs.pixeltable.com/examples/vision/yolox),
+    [LLMs](https://docs.pixeltable.com/integrations/frameworks#cloud-llm-providers)) as part of the data pipeline.
 * **Indexing & Retrieval:** Creates and manages vector indexes for fast
-    [semantic search](https://docs.pixeltable.com/docs/datastore/embedding-index#phase-3%3A-query)
+    [semantic search](https://docs.pixeltable.com/datastore/vector-database#phase-3%3A-query)
     alongside traditional filtering.
-* **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/docs/overview/quick-start) what's
+* **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/overview/quick-start) what's
     necessary when data or code changes, saving time and cost.
 * **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility. See below for an example
     that uses "time travel" to query an older version of a table.
@@ -128,7 +128,7 @@ managed by Pixeltable and is intended to be accessed through the Pixeltable Pyth
 
 ## Key Principles
 
-**[Unified Multimodal Interface:](https://docs.pixeltable.com/docs/datastore/tables-and-operations)** `pxt.Image`,
+**[Unified Multimodal Interface:](https://docs.pixeltable.com/datastore/tables-and-operations)** `pxt.Image`,
 `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
 
 ```python
@@ -141,7 +141,7 @@ t = pxt.create_table(
 )
 ```
 
-**[Declarative Computed Columns:](https://docs.pixeltable.com/docs/datastore/computed-columns)** Define processing
+**[Declarative Computed Columns:](https://docs.pixeltable.com/datastore/computed-columns)** Define processing
 steps once; they run automatically on new/updated data.
 
 ```python
@@ -152,7 +152,7 @@ t.add_computed_column(
 )
 ```
 
-**[Built-in Vector Search:](https://docs.pixeltable.com/docs/datastore/embedding-index)** Add embedding indexes and
+**[Built-in Vector Search:](https://docs.pixeltable.com/datastore/vector-database)** Add embedding indexes and
 perform similarity searches directly on tables/views.
 
 ```python
@@ -166,7 +166,7 @@ t.add_embedding_index(
 sim = t.img.similarity("cat playing with yarn")
 ```
 
-**[Incremental View Maintenance:](https://docs.pixeltable.com/docs/datastore/views)** Create virtual tables using iterators
+**[Incremental View Maintenance:](https://docs.pixeltable.com/datastore/views)** Create virtual tables using iterators
 for efficient processing without data duplication.
 
 ```python
@@ -183,7 +183,7 @@ frames = pxt.create_view('frames', videos,
    iterator=FrameIterator.create(video=videos.video, fps=0.5))
 ```
 
-**[Seamless AI Integration:](https://docs.pixeltable.com/docs/integrations/frameworks)** Built-in functions for
+**[Seamless AI Integration:](https://docs.pixeltable.com/integrations/frameworks)** Built-in functions for
 OpenAI, Anthropic, Hugging Face, CLIP, YOLOX, and more.
 
 ```python
@@ -207,7 +207,7 @@ t.add_computed_column(
 )
 ```
 
-**[Bring Your Own Code:](https://docs.pixeltable.com/docs/datastore/custom-functions)** Extend Pixeltable with UDFs, batch processing, and custom aggregators.
+**[Bring Your Own Code:](https://docs.pixeltable.com/datastore/custom-functions)** Extend Pixeltable with UDFs, batch processing, and custom aggregators.
 
 ```python
 @pxt.udf
@@ -215,7 +215,7 @@ def format_prompt(context: list, question: str) -> str:
    return f"Context: {context}\nQuestion: {question}"
 ```
 
-**[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/docs/examples/chat/tools)** Register `@pxt.udf`, 
+**[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/examples/chat/tools)** Register `@pxt.udf`, 
 `@pxt.query` functions, or **MCP tools** as tools.
 
 ```python
@@ -229,7 +229,7 @@ t.add_computed_column(
 )
 ```
 
-**[Data Persistence:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data,
+**[Data Persistence:](https://docs.pixeltable.com/datastore/tables-and-operations#data-operations)** All data,
 metadata, and computed results are automatically stored and versioned.
 
 ```python
@@ -238,7 +238,7 @@ t.select(t.account, t.balance).collect()  # Query its contents
 t.revert()  # Undo the last modification to the table and restore its previous state
 ```
 
-**[Time Travel:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** By default,
+**[Time Travel:](https://docs.pixeltable.com/datastore/tables-and-operations#data-operations)** By default,
 Pixeltable preserves the full change history of each table, and any prior version can be selected and queried.
 
 ```python
@@ -247,7 +247,7 @@ old_version = pxt.get_table('my_table:472')  # Get a handle to a specific table 
 old_version.select(t.account, t.balance).collect()  # Query the older version
 ```
 
-**[SQL-like Python Querying:](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting)** Familiar syntax
+**[SQL-like Python Querying:](https://docs.pixeltable.com/datastore/filtering-and-selecting)** Familiar syntax
 combined with powerful AI capabilities.
 
 ```python
@@ -284,7 +284,7 @@ pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
 
 ## Key Examples
 
-*(See the [Full Quick Start](https://docs.pixeltable.com/docs/overview/quick-start) or
+*(See the [Full Quick Start](https://docs.pixeltable.com/overview/quick-start) or
 [Notebook Gallery](#-notebook-gallery) for more details)*
 
 **1. Multimodal Data Store and Data Transformation (Computed Column):**
@@ -485,7 +485,7 @@ Explore Pixeltable's capabilities interactively:
 | 10-Min Tour | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | OpenAI | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
 | Tables & Ops | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Anthropic | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-anthropic.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
 | UDFs | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Together AI | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-together.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
-| Embedding Index | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/embedding-and-vector-indexes.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Label Studio | <a target="_blank" href="https://docs.pixeltable.com/docs/cookbooks/vision/label-studio"> <img src="https://img.shields.io/badge/📚%20Docs-013056" alt="Visit Docs"/></a> |
+| Embedding Index | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/embedding-and-vector-indexes.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Label Studio | <a target="_blank" href="https://docs.pixeltable.com/examples/vision/label-studio"> <img src="https://img.shields.io/badge/📚%20Docs-013056" alt="Visit Docs"/></a> |
 | External Files | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/working-with-external-files.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Mistral | <a target="_blank" href="https://colab.research.google.com/github/mistralai/cookbook/blob/main/third_party/Pixeltable/incremental_prompt_engineering_and_model_comparison.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Github"/> |
 | **Use Cases** | | **Sample Apps** | |
 | RAG Demo | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> | Multimodal Agent | <a target="_blank" href="https://huggingface.co/spaces/Pixeltable/Multimodal-Powerhouse"> <img src="https://img.shields.io/badge/🤗%20Demo-FF7D04" alt="HF Space"/></a> |
@@ -494,7 +494,7 @@ Explore Pixeltable's capabilities interactively:
 
 ## Maintaining Production-Ready Multimodal AI Apps is Still Too Hard
 
-Building robust AI applications, especially [multimodal](https://docs.pixeltable.com/docs/datastore/bringing-data) ones,
+Building robust AI applications, especially [multimodal](https://docs.pixeltable.com/datastore/bringing-data) ones,
 requires stitching together numerous tools:
 
 * ETL pipelines for data loading and transformation.
