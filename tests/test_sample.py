@@ -1,9 +1,8 @@
 import pytest
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester, assert_resultset_eq, rerun
+from .utils import SAMPLE_IMAGE_URL, ReloadTester, rerun
 
 
 class TestSample:
@@ -190,7 +189,9 @@ class TestSample:
         self._check_sample_count(0.1 * t_rows, len(r))
         print(r)
 
-    def validate_snapshot(self, df: pxt.DataFrame, t_rows: int, allow_mutable_view: bool = False, seeded: bool = False) -> None:
+    def validate_snapshot(
+        self, df: pxt.DataFrame, t_rows: int, allow_mutable_view: bool = False, seeded: bool = False
+    ) -> None:
         snap = pxt.create_snapshot('sampled_snap', df, if_exists='replace')
 
         # Subsequent calls to the same snapshot should return the same results.
