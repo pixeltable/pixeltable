@@ -14,6 +14,9 @@ from pixeltable.config import Config
 from tool.worker_harness import run_workers
 
 
+import numpy as np
+import PIL.Image
+
 class RandomTblOps:
     """
     Runs random table operations on a single worker.
@@ -41,9 +44,9 @@ class RandomTblOps:
     # TODO: Add additional datatypes including media data
     NUM_BASE_TABLES = 4
     BASE_TABLE_NAMES = tuple(f'tbl_{i}' for i in range(NUM_BASE_TABLES))
-    BASIC_SCHEMA: ClassVar[dict[str, type]] = {'c0': pxt.Int, 'c1': pxt.Float, 'c2': pxt.String}
+    BASIC_SCHEMA: ClassVar[dict[str, type]] = {'c0': pxt.Int, 'c1': pxt.Float, 'c2': pxt.String, 'c3': pxt.Image}
     INITIAL_ROWS: ClassVar[list[dict[str, Any]]] = [
-        {'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(50)
+        {'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}', 'c3': None} for i in range(50)
     ]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
     NUM_COLUMN_NAMES = 100  # c0 ... c{n-1}
@@ -111,7 +114,7 @@ class RandomTblOps:
         while True:
             name = random.choice(self.BASE_TABLE_NAMES)
             # If the table does not already exist, create it and populate with some initial data
-            t = pxt.create_table(name, source=self.INITIAL_ROWS, if_exists='ignore')
+            t = pxt.create_table(name, source=self.INITIAL_ROWS, schema_overrides=self.BASIC_SCHEMA, if_exists='ignore')
             if not allow_view:
                 return t  # View not allowed
             if allow_base_tbl and random.uniform(0, 1) < 0.5:
@@ -136,8 +139,20 @@ class RandomTblOps:
         num_rows = int(random.uniform(20, 50))
         yield f'Insert {num_rows} rows into {self.tbl_descr(t)}: '
         i_start = random.randint(100, 1000000000)
-        us = t.insert([{'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}'} for i in range(i_start, i_start + num_rows)])
+        us = t.insert([{'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}', 'c3': self.random_img()} for i in range(i_start, i_start + num_rows)])
         yield f'Inserted {us.row_count_stats.ins_rows} rows (total now {t.count()}).'
+
+    def random_img(self) -> pxt.Image | None:
+        r = random.uniform(0, 1)
+        if r < 0.9:
+            return None
+
+        if r < 0.95:
+            random_data = np.random.randint(0, 256, size=(256, 256, 3), dtype=np.uint8)
+            return PIL.Image.fromarray(random_data, 'RGB')
+        else:
+            random_data = np.random.randint(0, 256, size=(256, 256, 4), dtype=np.uint8)
+            return PIL.Image.fromarray(random_data, 'RGBA')
 
     def update_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
@@ -175,7 +190,7 @@ class RandomTblOps:
         cnames = [
             col_name
             for col_name, col in t.get_metadata()['columns'].items()
-            if col['defined_in'] == t._name and col_name not in ('c0', 'c1', 'c2')
+            if col['defined_in'] == t._name and col_name not in ('c0', 'c1', 'c2', 'c3')
         ]
         if len(cnames) == 0:
             yield 'No columns to drop.'
