@@ -16,9 +16,10 @@ import pixeltable as pxt
 from pixeltable.config import Config
 from tool.worker_harness import run_workers
 
+# List of table operations that can be performed by RandomTableOps.
 # (operation_name, relative_prob, is_read_op)
 # The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
-# worker, then only the operations with is_read_op=True will participate in the normalization.
+# worker, then only the operations with is_read_op=True will participate.
 TABLE_OPS = (
     ('query', 100, True),
     ('insert_rows', 30, False),
@@ -32,7 +33,11 @@ TABLE_OPS = (
     ('drop_view', 1, False),
     ('drop_table', 0.25, False),
 )
+
 OP_NAMES = set(name for name, _, _ in TABLE_OPS)
+
+# Basic schema for all tables created by RandomTableOps. Additional columns may be added or removed as the script
+# progresses, but the basic columns (bc_*) will always be present.
 BASIC_SCHEMA: dict[str, type] = {
     'bc_string': pxt.String,
     'bc_int': pxt.Int,
@@ -44,6 +49,8 @@ BASIC_SCHEMA: dict[str, type] = {
     'bc_json': pxt.Json,
     'bc_image': pxt.Image,
 }
+
+# Initial rows to populate a newly created table. These will be augmented by additional rows as the script runs.
 INITIAL_ROWS: list[dict[str, Any]] = [
     {
         'bc_string': f'str_{i}',
@@ -58,9 +65,13 @@ INITIAL_ROWS: list[dict[str, Any]] = [
     }
     for i in range(50)
 ]
+
+# Primes used for selecting rows to update or delete; by filtering on rows modulo a prime, we ensure a distribution
+# of filters that are overlapping but not nested.
 PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
 
 
+# Configuration options with reasonable default values; they can be tuned via -D commandline parameters.
 @dataclasses.dataclass
 class RandomTableOpsConfig:
     num_base_tables: int = 4  # number of base tables to maintain (they will be occasionally dropped and recreated)
@@ -71,7 +82,7 @@ class RandomTableOpsConfig:
     random_img_freq: float = 0.1  # probability of including an image when inserting a row
 
 
-class RandomTblOps:
+class RandomTableOps:
     """
     Runs random table operations on a single worker.
 
@@ -170,36 +181,64 @@ class RandomTblOps:
         num_rows = int(random.uniform(20, 50))
         yield f'Insert {num_rows} rows into {self.tbl_descr(t)}: '
         i_start = random.randint(100, 1000000000)
-        us = t.insert(
-            [
-                {
-                    'bc_string': f'str_{i}',
-                    'bc_int': i,
-                    'bc_float': float(i) * 1.1,
-                    'bc_bool': i % 3 == 0,
-                    'bc_timestamp': datetime.now(),
-                    'bc_date': f'2025-10-{i % 30 + 1:02d}',
-                    'bc_array': self.random_array(),
-                    'bc_json': self.random_json(),
-                    'bc_image': self.random_img(),
-                }
-                for i in range(i_start, i_start + num_rows)
-            ]
+        rows = [
+            {
+                'bc_string': f'str_{i}',
+                'bc_int': i,
+                'bc_float': float(i) * 1.1,
+                'bc_bool': i % 3 == 0,
+                'bc_timestamp': datetime.now(),
+                'bc_date': f'2025-10-{i % 30 + 1:02d}',
+                'bc_array': self.random_array(self.config.random_array_freq),
+                'bc_json': self.random_json(self.config.random_json_freq),
+                'bc_image': self.random_img(self.config.random_img_freq),
+            }
+            for i in range(i_start, i_start + num_rows)
+        ]
+
+        us = t.insert(rows)
+        arrays = sum(1 for row in rows if row['bc_array'] is not None)
+        jsons = sum(1 for row in rows if row['bc_json'] is not None)
+        imgs = sum(1 for row in rows if row['bc_image'] is not None)
+        yield (
+            f'Inserted {us.row_count_stats.ins_rows} rows '
+            f'(with {arrays} arrays, {jsons} jsons, {imgs} images) (total now {t.count()} rows).'
         )
-        yield f'Inserted {us.row_count_stats.ins_rows} rows (total now {t.count()}).'
 
-    def random_array(self) -> np.ndarray | None:
-        return None
-
-    def random_json(self) -> Any:
-        return None
-
-    def random_img(self) -> pxt.Image | None:
+    def random_array(self, freq: float) -> np.ndarray | None:
         r = random.uniform(0, 1)
-        if r < self.config.random_img_freq / 2:
+        if r >= freq:
+            return None
+
+        shape = (random.randint(1, 50), random.randint(1, 50))
+        dtype = random.choice((np.int64, np.float32, np.bool, np.str_))
+        return np.array(np.ones(shape, dtype))
+
+    def random_json(self, freq: float) -> Any:
+        r = random.uniform(0, 1)
+        if r >= freq:
+            return None
+
+        match random.randint(0, 4):
+            case 0:
+                return {'this': 'is', 'a': 'simple', 'json': 'dict'}
+            case 1:
+                return ['this', 'is', 'a', 'simple', 'json', 'list']
+            case 2:
+                return {'json': 'dict', 'with': 'image', 'img': self.random_img(freq=1.0)}
+            case 3:
+                return {'json': 'dict', 'with': 'array', 'array': self.random_array(freq=1.0)}
+
+    def random_img(self, freq: float) -> pxt.Image | None:
+        """Return an image with probability `freq`. 50% of the time it will be an RGB image, 50% RGBA."""
+        r = random.uniform(0, 1)
+        if r >= freq:
+            return None
+
+        if r < freq / 2:
             random_data = np.random.randint(0, 16, size=(128, 128, 3), dtype=np.uint8)
             return PIL.Image.fromarray(random_data, 'RGB')
-        elif r < self.config.random_img_freq:
+        else:
             random_data = np.random.randint(0, 16, size=(128, 128, 4), dtype=np.uint8)
             return PIL.Image.fromarray(random_data, 'RGBA')
 
@@ -356,7 +395,7 @@ def run(worker_id: int, read_only: bool, exclude_ops: list[str] | None, config_s
         time.sleep(5)
 
     try:
-        RandomTblOps(worker_id, read_only, exclude_ops or [], config).run()
+        RandomTableOps(worker_id, read_only, exclude_ops or [], config).run()
     except KeyboardInterrupt:
         # Suppress the stack trace, but abort.
         pass
