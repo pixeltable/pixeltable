@@ -21,6 +21,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.env import Env
+from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
@@ -109,9 +110,12 @@ class TablePackager:
         assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
+        cellmd_cols: set[str] = set()
         for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
                 media_cols.add(col.store_name())
+            if col.stores_cellmd:
+                cellmd_cols.add(col.cellmd_store_name())
 
         parquet_schema = self.__to_parquet_schema(tv.store_tbl.sa_tbl)
         # TODO: Partition larger tables into multiple parquet files. (The parquet file naming scheme anticipates
@@ -129,7 +133,7 @@ class TablePackager:
         parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='snappy')
         filter_tv = self.table._tbl_version_path.tbl_version.get()
         row_iter = tv.store_tbl.dump_rows(tv.version, filter_tv.store_tbl, filter_tv.version)
-        for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, parquet_schema):
+        for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, cellmd_cols, parquet_schema):
             parquet_writer.write_table(pa_table)
         parquet_writer.close()
 
@@ -169,6 +173,7 @@ class TablePackager:
         row_iter: Iterator[dict[str, Any]],
         sql_types: dict[str, sql.types.TypeEngine[Any]],
         media_cols: set[str],
+        cellmd_cols: set[str],
         arrow_schema: pa.Schema,
         batch_size: int = 1_000,
     ) -> Iterator[pa.Table]:
@@ -180,14 +185,21 @@ class TablePackager:
         for rows in more_itertools.batched(row_iter, batch_size):
             cols = {}
             for name, sql_type in sql_types.items():
-                is_media_col = name in media_cols
-                values = [self.__to_pa_value(row.get(name), sql_type, is_media_col) for row in rows]
+                values = [
+                    self.__to_pa_value(row.get(name), sql_type, name in media_cols, name in cellmd_cols) for row in rows
+                ]
                 cols[name] = values
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
-    def __to_pa_value(self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool) -> Any:
+    def __to_pa_value(
+        self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool, is_cellmd_col: bool
+    ) -> Any:
         if val is None:
             return None
+        if is_cellmd_col:
+            assert isinstance(val, dict)
+            # Export JSON as strings
+            return json.dumps(self.__process_cellmd(val))
         if isinstance(sql_type, sql.JSON):
             # Export JSON as strings
             return json.dumps(val)
@@ -198,6 +210,10 @@ class TablePackager:
         return val
 
     def __process_media_url(self, url: str) -> str:
+        """
+        Process a media URL for export. If it's a local file URL (file://), then replace it with a pxtmedia:// URI,
+        copying the file into the tarball if necessary. If it's any other type of URL, return it unchanged.
+        """
         parsed_url = urllib.parse.urlparse(url)
         if parsed_url.scheme == 'file':
             # It's the URL of a local file. Replace it with a pxtmedia:// URI.
@@ -217,6 +233,21 @@ class TablePackager:
             return f'pxtmedia://{self.media_files[path]}'
         # For any type of URL other than a local file, just return the URL as-is.
         return url
+
+    def __process_cellmd(self, cellmd: dict[str, Any]) -> dict[str, Any]:
+        """
+        Process a cellmd dictionary for export. This involves replacing any local file references
+        with pxtmedia:// URIs, as described above.
+        """
+        cellmd_ = CellMd.from_dict(cellmd)
+        if cellmd_.file_urls is None:
+            return cellmd  # No changes
+
+        updated_urls: list[str] = []
+        for url in cellmd_.file_urls:
+            updated_urls.append(self.__process_media_url(url))
+        cellmd_.file_urls = updated_urls
+        return cellmd_.as_dict()
 
     def __build_tarball(self) -> Path:
         bundle_path = self.tmp_dir / 'bundle.tar.bz2'
@@ -658,26 +689,30 @@ class TableRestorer:
         for col_name in pydict:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
-        media_cols: dict[str, catalog.Column] = {}
-        for col in tv.cols:
-            if col.is_stored and col.col_type.is_media_type():
-                assert tv.id == col.tbl.id
-                assert tv.version == col.tbl.version
-                media_cols[col.store_name()] = col
+        stored_cols: dict[str, catalog.Column] = {col.store_name(): col for col in tv.cols if col.is_stored}
+        stored_cols |= {col.cellmd_store_name(): col for col in tv.cols if col.stores_cellmd}
 
         row_count = len(next(iter(pydict.values())))
-        rows: list[dict[str, Any]] = []
-        for i in range(row_count):
-            row = {
-                col_name: self.__from_pa_value(col_vals[i], sql_types[col_name], media_cols.get(col_name))
-                for col_name, col_vals in pydict.items()
-            }
-            rows.append(row)
+        rows: list[dict[str, Any]] = [{} for _ in range(row_count)]
+        for col_name, col_vals in pydict.items():
+            assert len(col_vals) == row_count
+            col = stored_cols.get(col_name)  # Will be None for system columns
+            is_media_col = col is not None and col.is_stored and col.col_type.is_media_type()
+            is_cellmd_col = col is not None and col.stores_cellmd and col_name == col.cellmd_store_name()
+            assert col is None or is_cellmd_col or col_name == col.store_name()
+
+            for i, val in enumerate(col_vals):
+                rows[i][col_name] = self.__from_pa_value(val, sql_types[col_name], col, is_media_col, is_cellmd_col)
 
         return rows
 
     def __from_pa_value(
-        self, val: Any, sql_type: sql.types.TypeEngine[Any], media_col: Optional[catalog.Column]
+        self,
+        val: Any,
+        sql_type: sql.types.TypeEngine[Any],
+        col: Optional[catalog.Column],
+        is_media_col: bool,
+        is_cellmd_col: bool,
     ) -> Any:
         if val is None:
             return None
@@ -686,10 +721,15 @@ class TableRestorer:
                 val = np.array(val, dtype=np.float32)
             assert isinstance(val, np.ndarray) and val.dtype == np.float32 and val.ndim == 1
             return val
+        if is_cellmd_col:
+            assert col is not None
+            assert isinstance(val, str)
+            return self.__restore_cellmd(col, json.loads(val))
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
-        if media_col is not None:
-            return self.__relocate_media_file(media_col, val)
+        if is_media_col:
+            assert col is not None
+            return self.__relocate_media_file(col, val)
         return val
 
     def __relocate_media_file(self, media_col: catalog.Column, url: str) -> str:
@@ -707,3 +747,14 @@ class TableRestorer:
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
+
+    def __restore_cellmd(self, col: catalog.Column, cellmd: dict[str, Any]) -> dict[str, Any]:
+        cellmd_ = CellMd.from_dict(cellmd)
+        if cellmd_.file_urls is None:
+            return cellmd  # No changes
+
+        updated_urls: list[str] = []
+        for url in cellmd_.file_urls:
+            updated_urls.append(self.__relocate_media_file(col, url))
+        cellmd_.file_urls = updated_urls
+        return cellmd_.as_dict()

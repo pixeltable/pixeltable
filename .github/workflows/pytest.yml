@@ -215,8 +215,8 @@ jobs:
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
           df -h
-          du -h -d3 /home/runner
-          du -h -d3 /home/runner/.cache
+          du -h -d3 /home/runner || true
+          du -h -d3 /home/runner/.cache || true
       - name: Print utilization info
         if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         run: df -h
