@@ -487,7 +487,13 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     return tbl
 
 
-def move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'error', if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+def move(
+    path: str,
+    new_path: str,
+    *,
+    if_exists: Literal['error', 'ignore'] = 'error',
+    if_not_exists: Literal['error', 'ignore'] = 'error',
+) -> None:
     """Move a schema object to a new directory and/or rename a schema object.
 
     Args:

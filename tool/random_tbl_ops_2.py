@@ -1,5 +1,3 @@
-# Script that runs an infinite sequence of random directory operations.
-
 import logging
 import os
 import random
@@ -9,13 +7,13 @@ from argparse import ArgumentParser
 from datetime import datetime
 from typing import Any, Callable, ClassVar, Iterator
 
+import numpy as np
+import PIL.Image
+
 import pixeltable as pxt
 from pixeltable.config import Config
 from tool.worker_harness import run_workers
 
-
-import numpy as np
-import PIL.Image
 
 class RandomTblOps:
     """
@@ -38,15 +36,37 @@ class RandomTblOps:
     - Capture the outcome of the operation in $PIXELTABLE_HOME/random-tbl-ops.log and on the console.
     - Sleep for a short random time (0.1 to 0.5 seconds) before starting the next iteration.
     """
+
     logger = logging.getLogger('random_tbl_ops')
 
     # TODO: Support additional operations such as index ops, pxt.move(), and replicas
     # TODO: Add additional datatypes including media data
     NUM_BASE_TABLES = 4
     BASE_TABLE_NAMES = tuple(f'tbl_{i}' for i in range(NUM_BASE_TABLES))
-    BASIC_SCHEMA: ClassVar[dict[str, type]] = {'c0': pxt.Int, 'c1': pxt.Float, 'c2': pxt.String, 'c3': pxt.Image}
+    BASIC_SCHEMA: ClassVar[dict[str, type]] = {
+        'bc_string': pxt.String,
+        'bc_int': pxt.Int,
+        'bc_float': pxt.Float,
+        'bc_bool': pxt.Bool,
+        'bc_timestamp': pxt.Timestamp,
+        'bc_date': pxt.Date,
+        'bc_array': pxt.Array,
+        'bc_json': pxt.Json,
+        'bc_image': pxt.Image,
+    }
     INITIAL_ROWS: ClassVar[list[dict[str, Any]]] = [
-        {'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}', 'c3': None} for i in range(50)
+        {
+            'bc_string': f'str_{i}',
+            'bc_int': i,
+            'bc_float': float(i) * 1.1,
+            'bc_bool': (i % 3 == 0),
+            'bc_timestamp': datetime.now(),
+            'bc_date': f'2025-10-{(i % 30) + 1}',
+            'bc_array': None,
+            'bc_json': None,
+            'bc_image': None,
+        }
+        for i in range(50)
     ]
     PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
     NUM_COLUMN_NAMES = 100  # c0 ... c{n-1}
@@ -78,7 +98,8 @@ class RandomTblOps:
         self.worker_id = worker_id
         self.read_only = read_only
         ops_config = {
-            (op_name, weight) for op_name, weight, is_read_op in self.RANDOM_OPS_DEF
+            (op_name, weight)
+            for op_name, weight, is_read_op in self.RANDOM_OPS_DEF
             if op_name not in exclude_ops and (is_read_op or not read_only)
         }
 
@@ -139,7 +160,12 @@ class RandomTblOps:
         num_rows = int(random.uniform(20, 50))
         yield f'Insert {num_rows} rows into {self.tbl_descr(t)}: '
         i_start = random.randint(100, 1000000000)
-        us = t.insert([{'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}', 'c3': self.random_img()} for i in range(i_start, i_start + num_rows)])
+        us = t.insert(
+            [
+                {'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}', 'c3': self.random_img()}
+                for i in range(i_start, i_start + num_rows)
+            ]
+        )
         yield f'Inserted {us.row_count_stats.ins_rows} rows (total now {t.count()}).'
 
     def random_img(self) -> pxt.Image | None:
@@ -190,7 +216,7 @@ class RandomTblOps:
         cnames = [
             col_name
             for col_name, col in t.get_metadata()['columns'].items()
-            if col['defined_in'] == t._name and col_name not in ('c0', 'c1', 'c2', 'c3')
+            if col['defined_in'] == t._name and col_name not in self.BASIC_SCHEMA
         ]
         if len(cnames) == 0:
             yield 'No columns to drop.'
@@ -220,11 +246,7 @@ class RandomTblOps:
             n = (n + 1) % self.NUM_VIEW_NAMES  # Ensure new name is different
         new_name = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         yield f'Rename view {self.tbl_descr(t)} to {new_name!r}: '
-        try:
-            pxt.move(t._name, new_name)
-        except pxt.Error as e:
-            yield f'pxt.Error: {e}'
-            return
+        pxt.move(t._name, new_name, if_exists='ignore', if_not_exists='ignore')
         yield 'Success.'
 
     def drop_view(self) -> Iterator[str]:
@@ -341,7 +363,7 @@ def main() -> None:
         [
             '-c',
             'from tool.random_tbl_ops_2 import run; '
-            f'run({i}, {i >= args.workers - args.read_only_workers}, {args.exclude})'
+            f'run({i}, {i >= args.workers - args.read_only_workers}, {args.exclude})',
         ]
         for i in range(args.workers)
     ]
