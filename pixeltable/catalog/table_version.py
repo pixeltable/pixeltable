@@ -11,6 +11,7 @@ from uuid import UUID
 
 import jsonschema.exceptions
 import sqlalchemy as sql
+from sqlalchemy import exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -21,20 +22,16 @@ from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 
-from .tbl_ops import TableOp
-
-if TYPE_CHECKING:
-    from pixeltable.plan import SampleClause
-
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, is_valid_identifier
+from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
+from .tbl_ops import TableOp
 from .update_status import RowCountStats, UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
-
-    from .table_version_handle import TableVersionHandle
+    from pixeltable.catalog.table_version_handle import TableVersionHandle
+    from pixeltable.plan import SampleClause
 
 _logger = logging.getLogger('pixeltable')
 
@@ -193,9 +190,7 @@ class TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(
-            self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, mutable_views=[], base=base
-        )
+        return TableVersion(self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, [], base=base)
 
     @property
     def versioned_name(self) -> str:
@@ -203,6 +198,12 @@ class TableVersion:
             return self.name
         else:
             return f'{self.name}:{self.effective_version}'
+
+    def __repr__(self) -> str:
+        return (
+            f'TableVersion(id={self.id!r}, name={self.name!r}, '
+            f'version={self.version}, effective_version={self.effective_version})'
+        )
 
     @property
     def handle(self) -> 'TableVersionHandle':
@@ -290,11 +291,18 @@ class TableVersion:
         comment: str,
         media_validation: MediaValidation,
     ) -> tuple[UUID, Optional[TableVersion]]:
-        inital_md = cls.create_initial_md(name, cols, num_retained_versions, comment, media_validation, view_md=None)
+        initial_md = cls.create_initial_md(name, cols, num_retained_versions, comment, media_validation, view_md=None)
         cat = pxt.catalog.Catalog.get()
 
-        tbl_id = UUID(hex=inital_md.tbl_md.tbl_id)
-        tbl_version = cls(tbl_id, inital_md.tbl_md, inital_md.version_md, None, inital_md.schema_version_md, [])
+        tbl_id = UUID(hex=initial_md.tbl_md.tbl_id)
+        assert (tbl_id, None) not in cat._tbl_versions
+        tbl_version = cls(tbl_id, initial_md.tbl_md, initial_md.version_md, None, initial_md.schema_version_md, [])
+
+        @cat.register_undo_action
+        def _() -> None:
+            if (tbl_id, None) in cat._tbl_versions:
+                del cat._tbl_versions[tbl_id, None]
+
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
         cat._tbl_versions[tbl_id, None] = tbl_version
         tbl_version.init()
@@ -308,8 +316,8 @@ class TableVersion:
             tbl_id=tbl_id,
             dir_id=dir_id,
             tbl_md=tbl_version.tbl_md,
-            version_md=inital_md.version_md,
-            schema_version_md=inital_md.schema_version_md,
+            version_md=initial_md.version_md,
+            schema_version_md=initial_md.schema_version_md,
         )
         return tbl_id, tbl_version
 
@@ -336,11 +344,14 @@ class TableVersion:
 
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
+        from .catalog import TableVersionPath
+
         assert Env.get().in_xact
+        assert md.tbl_md.is_replica
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
-        base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
+        base_path = TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
             tbl_id,
@@ -405,8 +416,8 @@ class TableVersion:
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
         self._init_cols()
-        if not self.is_snapshot:
-            self._init_idxs()
+        self._init_idxs()
+
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
 
@@ -444,39 +455,70 @@ class TableVersion:
             #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
-        # self.idx_md = tbl_md.index_md
-        self.idxs_by_name = {}
-        import pixeltable.index as index_module
-
         for md in self.tbl_md.index_md.values():
-            if md.schema_version_add > self.schema_version or (
-                md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version
-            ):
-                # index not visible in this schema version
-                continue
-
-            # instantiate index object
+            # Instantiate index object. This needs to be done for all indices, even those that are not active in this
+            # TableVersion, so that we can make appropriate adjustments to the SA schema.
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
-            cls = getattr(index_module, cls_name)
-            idx_col: Column
-            if md.indexed_col_tbl_id == str(self.id):
-                # this is a reference to one of our columns: avoid TVP.get_column_by_id() here, because we're not fully
-                # initialized yet
-                idx_col = self.cols_by_id[md.indexed_col_id]
-            else:
-                assert self.path.base is not None
-                idx_col = self.path.base.get_column_by_id(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+            cls = getattr(index, cls_name)
+            idx_col = self._lookup_column(QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id))
+            assert idx_col is not None
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
-            val_col = self.cols_by_id[md.index_val_col_id]
+            # we need to do this for all indices, not just those that are active in this TableVersion, to ensure we get
+            # the correct SA schema in the StoreTable.
+            val_col = next(col for col in self.cols if col.id == md.index_val_col_id)
             val_col.sa_col_type = idx.index_sa_type()
-            val_col._stores_cellmd = False
-            undo_col = self.cols_by_id[md.index_val_undo_col_id]
+            undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
             undo_col.sa_col_type = idx.index_sa_type()
+            if not isinstance(idx, index.EmbeddingIndex):
+                # Historically, the intent has been not to store cellmd data, even for embedding indices. However,
+                # the cellmd columns get created anyway, even if stores_cellmd is set to `False` here, due to the
+                # timing of index column creation. In order to ensure that SA schemas align with what is actually in
+                # the physical tables, we keep this `True` for embedding indices.
+                # TODO: Decide whether index columns should store cellmd data.
+                #     - If not, set to `False`, fix the column creation timing issue, and add a migration script to
+                #       remedy existing cellmd columns.
+                #     - If so, remove this TODO.
+                val_col._stores_cellmd = False
             undo_col._stores_cellmd = False
-            idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
-            self.idxs_by_name[md.name] = idx_info
+
+            # The index is active in this TableVersion provided that:
+            # (i) the TableVersion supports indices (either it's not a snapshot, or it's a replica at
+            #     the head version); and
+            # (ii) the index was created on or before the schema version of this TableVersion; and
+            # (iii) the index was not dropped on or before the schema version of this TableVersion.
+            supports_idxs = self.effective_version is None or (
+                self.tbl_md.is_replica and self.effective_version == self.tbl_md.current_version
+            )
+            if (
+                supports_idxs
+                and md.schema_version_add <= self.schema_version
+                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
+            ):
+                # Since the index is present in this TableVersion, its associated columns must be as well.
+                # Sanity-check this.
+                assert md.indexed_col_id in self.cols_by_id
+                assert md.index_val_col_id in self.cols_by_id
+                assert md.index_val_undo_col_id in self.cols_by_id
+                idx_info = self.IndexInfo(
+                    id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col
+                )
+                self.idxs_by_name[md.name] = idx_info
+
+    def _lookup_column(self, id: QColumnId) -> Column | None:
+        """
+        Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
+        to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
+
+        This will search through *all* known columns, including columns that are not visible in this TableVersion.
+        """
+        if id.tbl_id == self.id:
+            return next(col for col in self.cols if col.id == id.col_id)
+        elif self.base is not None:
+            return self.base.get()._lookup_column(id)
+        else:
+            return None
 
     def _init_sa_schema(self) -> None:
         # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
@@ -507,9 +549,7 @@ class TableVersion:
 
     def add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
@@ -620,9 +660,7 @@ class TableVersion:
         assert idx_id in self._tbl_md.index_md
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         idx_md = self._tbl_md.index_md[idx_id]
         idx_md.schema_version_drop = self.schema_version
         assert idx_md.name in self.idxs_by_name
@@ -651,9 +689,7 @@ class TableVersion:
             self.next_col_id += 1
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
         for col in cols:
@@ -685,7 +721,11 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
+        from pixeltable.catalog import Catalog
+        from pixeltable.plan import Planner
+
         cols_to_add = list(cols)
+
         row_count = self.store_tbl.count()
         for col in cols_to_add:
             assert col.tbl is self
@@ -722,17 +762,19 @@ class TableVersion:
                 continue
 
             # populate the column
-            from pixeltable.plan import Planner
-
             plan = Planner.create_add_column_plan(self.path, col)
             plan.ctx.num_rows = row_count
             try:
                 plan.open()
                 try:
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
-                except sql.exc.DBAPIError as exc:
-                    # Wrap the DBAPIError in an excs.Error to unify processing in the subsequent except block
-                    raise excs.Error(f'SQL error during execution of computed column `{col.name}`:\n{exc}') from exc
+                except sql_exc.DBAPIError as exc:
+                    Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                    # If it wasn't converted, re-raise as a generic Pixeltable error
+                    # (this means it's not a known concurrency error; it's something else)
+                    raise excs.Error(
+                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
+                    ) from exc
                 if excs_per_col > 0:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
@@ -740,7 +782,7 @@ class TableVersion:
             finally:
                 plan.close()
 
-        pxt.catalog.Catalog.get().record_column_dependencies(self)
+        Catalog.get().record_column_dependencies(self)
 
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
@@ -760,9 +802,7 @@ class TableVersion:
         assert self.is_mutable
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
 
         # drop this column and all dependent index columns and indices
         dropped_cols = [col]
@@ -826,9 +866,7 @@ class TableVersion:
         self._schema_version_md.columns[col.id].name = new_name
 
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
 
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
@@ -848,9 +886,7 @@ class TableVersion:
 
     def _create_schema_version(self) -> None:
         # we're creating a new schema version
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
@@ -897,8 +933,7 @@ class TableVersion:
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
-        self.version += 1
-        self.created_at = timestamp
+        self.bump_version(timestamp, bump_schema_version=False)
         cols_with_excs, row_counts = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
@@ -933,9 +968,10 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
-        assert self.is_mutable
-
+        from pixeltable.exprs import SqlElementCache
         from pixeltable.plan import Planner
+
+        assert self.is_mutable
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
@@ -947,7 +983,6 @@ class TableVersion:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
-        from pixeltable.exprs import SqlElementCache
 
         result = self.propagate_update(
             plan,
@@ -974,10 +1009,10 @@ class TableVersion:
             batch: one dict per row, each mapping Columns to LiteralExprs representing the new values
             rowids: if not empty, one tuple per row, each containing the rowid values for the corresponding row in batch
         """
+        from pixeltable.plan import Planner
+
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-
-        from pixeltable.plan import Planner
 
         plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
             self.path, batch, rowids, cascade=cascade
@@ -1050,13 +1085,13 @@ class TableVersion:
     def recompute_columns(
         self, col_names: list[str], where: exprs.Expr | None = None, errors_only: bool = False, cascade: bool = True
     ) -> UpdateStatus:
+        from pixeltable.exprs import CompoundPredicate, SqlElementCache
+        from pixeltable.plan import Planner
+
         assert self.is_mutable
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
-
-        from pixeltable.exprs import CompoundPredicate
-        from pixeltable.plan import Planner
 
         target_columns = [self.cols_by_name[name] for name in col_names]
         where_clause: Optional[exprs.Expr] = None
@@ -1072,7 +1107,6 @@ class TableVersion:
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(
             self.path, update_targets={}, recompute_targets=target_columns, where_clause=where_clause, cascade=cascade
         )
-        from pixeltable.exprs import SqlElementCache
 
         result = self.propagate_update(
             plan,
@@ -1096,11 +1130,14 @@ class TableVersion:
         cascade: bool,
         show_progress: bool = True,
     ) -> UpdateStatus:
+        from pixeltable.catalog import Catalog
+        from pixeltable.plan import Planner
+
+        Catalog.get().mark_modified_tvs(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
-            self.version += 1
-            self.created_at = timestamp
+            self.bump_version(timestamp, bump_schema_version=False)
             cols_with_excs, row_counts = self.store_tbl.insert_rows(
                 plan, v_min=self.version, show_progress=show_progress
             )
@@ -1119,8 +1156,6 @@ class TableVersion:
                 recomputed_cols = [col for col in recomputed_view_cols if col.tbl.id == view.id]
                 plan = None
                 if len(recomputed_cols) > 0:
-                    from pixeltable.plan import Planner
-
                     plan = Planner.create_view_update_plan(view.get().path, recompute_targets=recomputed_cols)
                 status = view.get().propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
@@ -1155,6 +1190,10 @@ class TableVersion:
         self, where: Optional[exprs.Expr], base_versions: list[Optional[int]], timestamp: float
     ) -> UpdateStatus:
         """Delete rows in this table and propagate to views"""
+        from pixeltable.catalog import Catalog
+
+        Catalog.get().mark_modified_tvs(self.handle)
+
         # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         # #print(f'sql_where_clause={str(sql_where_clause) if sql_where_clause is not None else None}')
@@ -1171,8 +1210,7 @@ class TableVersion:
         result = UpdateStatus(row_count_stats=row_counts)
         if del_rows > 0:
             # we're creating a new version
-            self.version += 1
-            self.created_at = timestamp
+            self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
             status = view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
@@ -1198,6 +1236,8 @@ class TableVersion:
         Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
         and relies on Catalog to reload it
         """
+        from pixeltable.catalog import Catalog
+
         conn = Env.get().conn
         # make sure we don't have a snapshot referencing this version
         # (unclear how to express this with sqlalchemy)
@@ -1217,8 +1257,6 @@ class TableVersion:
                 )
             )
 
-        # delete newly-added data
-        self.delete_media(tbl_version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
         # revert new deletions
@@ -1233,6 +1271,8 @@ class TableVersion:
         # revert schema changes:
         # - undo changes to self._tbl_md and write that back
         # - delete newly-added TableVersion/TableSchemaVersion records
+        Catalog.get().mark_modified_tvs(self.handle)
+        old_version = self.version
         if self.version == self.schema_version:
             # physically delete newly-added columns and remove them from the stored md
             added_cols = [col for col in self.cols if col.schema_version_add == self.schema_version]
@@ -1279,18 +1319,22 @@ class TableVersion:
             .where(schema.TableVersion.version == self.version)
         )
 
-        self.version -= 1
+        self._tbl_md.current_version = self._version_md.version = self.version - 1
+
         self._write_md(new_version=False, new_schema_version=False)
 
         # propagate to views
-        views_str = ', '.join([str(v.id) for v in self.mutable_views])
-        print(f'revert(): mutable_views={views_str}')
         for view in self.mutable_views:
             view.get()._revert()
 
         # force reload on next operation
         self.is_validated = False
-        pxt.catalog.Catalog.get().remove_tbl_version(self)
+        Catalog.get().remove_tbl_version(self)
+
+        # delete newly-added data
+        # Do this at the end, after all DB operations have completed.
+        # TODO: The transaction could still fail. Really this should be done via PendingTableOps.
+        self.delete_media(tbl_version=old_version)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     def _init_external_stores(self) -> None:
@@ -1301,9 +1345,7 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: pxt.io.ExternalStore) -> None:
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
 
         self.external_stores[store.name] = store
         self._tbl_md.external_stores.append(
@@ -1313,9 +1355,7 @@ class TableVersion:
 
     def unlink_external_store(self, store: pxt.io.ExternalStore) -> None:
         del self.external_stores[store.name]
-        self.version += 1
-        self.created_at = time.time()
-        self.schema_version = self.version
+        self.bump_version(bump_schema_version=True)
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
         self._write_md(new_version=True, new_schema_version=True)
@@ -1371,35 +1411,52 @@ class TableVersion:
         # if this is a snapshot instance, we need to ignore current_version
         return self._tbl_md.current_version if self.effective_version is None else self.effective_version
 
-    @version.setter
-    def version(self, version: int) -> None:
-        assert self.effective_version is None
-        self._tbl_md.current_version = version
-        self._version_md.version = version
-
     @property
     def created_at(self) -> float:
         return self._version_md.created_at
-
-    @created_at.setter
-    def created_at(self, ts: float) -> None:
-        assert self.effective_version is None
-        self._version_md.created_at = ts
 
     @property
     def schema_version(self) -> int:
         return self._schema_version_md.schema_version
 
-    @schema_version.setter
-    def schema_version(self, version: int) -> None:
+    def bump_version(self, timestamp: Optional[float] = None, *, bump_schema_version: bool) -> None:
+        """
+        Increments the table version and adjusts all associated metadata. This will *not* trigger a database action;
+        _write_md() must be called separately to persist the changes.
+
+        Args:
+            timestamp: the creation time for the new version. Can be used to synchronize multiple metadata changes
+                to the same timestamp. If `None`, then defaults to `time.time()`.
+            bump_schema_version: if True, also adjusts the schema version (setting it equal to the new version)
+                and associated metadata.
+        """
+        from pixeltable.catalog import Catalog
+
         assert self.effective_version is None
-        self._tbl_md.current_schema_version = version
-        self._version_md.schema_version = version
-        self._schema_version_md.preceding_schema_version = self._schema_version_md.schema_version
-        self._schema_version_md.schema_version = version
+
+        if timestamp is None:
+            timestamp = time.time()
+
+        Catalog.get().mark_modified_tvs(self.handle)
+
+        old_version = self._tbl_md.current_version
+        assert self._version_md.version == old_version
+        new_version = old_version + 1
+        self._tbl_md.current_version = new_version
+        self._version_md.version = new_version
+        self._version_md.created_at = timestamp
+
+        if bump_schema_version:
+            old_schema_version = self._tbl_md.current_schema_version
+            assert self._version_md.schema_version == old_schema_version
+            assert self._schema_version_md.schema_version == old_schema_version
+            self._tbl_md.current_schema_version = new_version
+            self._version_md.schema_version = new_version
+            self._schema_version_md.preceding_schema_version = old_schema_version
+            self._schema_version_md.schema_version = new_version
 
     @property
-    def preceding_schema_version(self) -> int:
+    def preceding_schema_version(self) -> Optional[int]:
         return self._schema_version_md.preceding_schema_version
 
     @property
@@ -1531,8 +1588,8 @@ class TableVersion:
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
-        from pixeltable import catalog
+        from pixeltable.catalog import Catalog
 
         id = UUID(d['id'])
         effective_version = d['effective_version']
-        return catalog.Catalog.get().get_tbl_version(id, effective_version)
+        return Catalog.get().get_tbl_version(id, effective_version)

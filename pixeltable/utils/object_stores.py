@@ -22,6 +22,7 @@ class StorageTarget(enum.Enum):
     LOCAL_STORE = 'os'  # Local file system
     S3_STORE = 's3'  # Amazon S3
     R2_STORE = 'r2'  # Cloudflare R2
+    B2_STORE = 'b2'  # Backblaze B2
     GCS_STORE = 'gs'  # Google Cloud Storage
     AZURE_STORE = 'az'  # Azure Blob Storage
     HTTP_STORE = 'http'  # HTTP/HTTPS
@@ -63,6 +64,7 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.LOCAL_STORE,
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
+            StorageTarget.B2_STORE,
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
@@ -218,15 +220,23 @@ class ObjectPath:
             # Standard HTTP(S) URL format
             # https://account.blob.core.windows.net/container/<optional path>/<optional object>
             # https://account.r2.cloudflarestorage.com/container/<optional path>/<optional object>
+            # https://s3.us-west-004.backblazeb2.com/container/<optional path>/<optional object>
             # and possibly others
             key = parsed.path
             if 'cloudflare' in parsed.netloc:
                 storage_target = StorageTarget.R2_STORE
+            elif 'backblazeb2' in parsed.netloc:
+                storage_target = StorageTarget.B2_STORE
             elif 'windows' in parsed.netloc:
                 storage_target = StorageTarget.AZURE_STORE
             else:
                 storage_target = StorageTarget.HTTP_STORE
-            if storage_target in [StorageTarget.S3_STORE, StorageTarget.AZURE_STORE, StorageTarget.R2_STORE]:
+            if storage_target in (
+                StorageTarget.S3_STORE,
+                StorageTarget.AZURE_STORE,
+                StorageTarget.R2_STORE,
+                StorageTarget.B2_STORE,
+            ):
                 account_name = parsed.netloc.split('.', 1)[0]
                 account_extension = parsed.netloc.split('.', 1)[1]
                 path_parts = key.lstrip('/').split('/', 1)
@@ -367,6 +377,11 @@ class ObjectOps:
 
             return S3Store(soa)
         if soa.storage_target == StorageTarget.R2_STORE:
+            env.Env.get().require_package('boto3')
+            from pixeltable.utils.s3_store import S3Store
+
+            return S3Store(soa)
+        if soa.storage_target == StorageTarget.B2_STORE:
             env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 

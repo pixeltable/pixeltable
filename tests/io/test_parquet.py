@@ -1,6 +1,5 @@
 import datetime
 import pathlib
-from typing import TYPE_CHECKING, Iterable
 
 import pandas as pd
 import pytest
@@ -9,9 +8,6 @@ import pixeltable as pxt
 from pixeltable.env import Env
 
 from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
-
-if TYPE_CHECKING:
-    import pyarrow as pa
 
 
 class TestParquet:
@@ -112,11 +108,12 @@ class TestParquet:
 
     def test_export_parquet_simple(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
+        from zoneinfo import ZoneInfo
+
         import pyarrow as pa
         from pyarrow import parquet
 
         t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp})
-        from zoneinfo import ZoneInfo
 
         tz = ZoneInfo('America/Anchorage')
         t.insert(
@@ -136,11 +133,11 @@ class TestParquet:
         ptest1 = parquet.read_table(str(export_file1))
         assert ptest1.num_rows == 2
         assert ptest1.column_names == ['c1', 'c2', 'c3']
-        assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us', tz=datetime.timezone.utc)]
-        assert pa.array(ptest1.column('c1')).equals(self.__pa_array([1, 2]))
-        assert pa.array(ptest1.column('c2')).equals(self.__pa_array(['row1', 'row2']))
-        assert pa.array(ptest1.column('c3')).equals(
-            self.__pa_array(
+        assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us', tz='UTC')]
+        assert pa.array(ptest1.column('c1'), type='int64').equals(pa.array([1, 2]))
+        assert pa.array(ptest1.column('c2'), type='str').equals(pa.array(['row1', 'row2']))
+        assert pa.array(ptest1.column('c3')).equals(  # type: ignore[call-overload]
+            pa.array(
                 [
                     datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
                     datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
@@ -154,8 +151,8 @@ class TestParquet:
         ptest2 = parquet.read_table(str(export_file2))
         assert ptest2.num_rows == 2
         assert ptest2.column_names == ['c1', 'c2']
-        assert pa.array(ptest2.column('c1')).equals(self.__pa_array([1, 2]))
-        assert pa.array(ptest2.column('c2')).equals(self.__pa_array(['row1', 'row2']))
+        assert pa.array(ptest2.column('c1'), type='int64').equals(pa.array([1, 2]))
+        assert pa.array(ptest2.column('c2'), type='str').equals(pa.array(['row1', 'row2']))
 
         export_file3 = tmp_path / 'test3.pq'
         pxt.io.export_parquet(t.where(t.c1 == 1), export_file3)
@@ -163,10 +160,10 @@ class TestParquet:
         ptest3 = parquet.read_table(str(export_file3))
         assert ptest3.num_rows == 1
         assert ptest3.column_names == ['c1', 'c2', 'c3']
-        assert pa.array(ptest3.column('c1')).equals(self.__pa_array([1]))
-        assert pa.array(ptest3.column('c2')).equals(self.__pa_array(['row1']))
-        assert pa.array(ptest3.column('c3')).equals(
-            self.__pa_array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)])
+        assert pa.array(ptest3.column('c1'), type='int64').equals(pa.array([1]))
+        assert pa.array(ptest3.column('c2'), type='str').equals(pa.array(['row1']))
+        assert pa.array(ptest3.column('c3')).equals(  # type: ignore[call-overload]
+            pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)])
         )
 
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
@@ -261,11 +258,3 @@ class TestParquet:
         with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
         assert 'Could not infer pixeltable type for column(s): c1' in str(exc_info.value)
-
-    def __pa_array(self, obj: Iterable) -> 'pa.Array':
-        """The output of pa.array can be either a pa.Array or a pa.ChunkedArray; this forces the former"""
-        import pyarrow as pa
-
-        arr = pa.array(obj)
-        assert isinstance(arr, pa.Array)
-        return arr

@@ -7,7 +7,6 @@ from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple, Optional
-from uuid import UUID
 
 from pixeltable import exprs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
@@ -81,9 +80,7 @@ class ObjectStoreSaveNode(ExecNode):
         num_missing: int  # number of references to media files in this row
         delete_destinations: list[Path]  # paths to delete after all copies are complete
 
-    def __init__(
-        self, tbl_id: UUID, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode, retain_input_order: bool = True
-    ):
+    def __init__(self, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode, retain_input_order: bool = True):
         # input_/output_exprs=[]: we don't have anything to evaluate
         super().__init__(input.row_builder, [], [], input)
         self.retain_input_order = retain_input_order
