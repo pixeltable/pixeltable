@@ -44,16 +44,15 @@ help:
 	@echo 'See: https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md'
 	@echo ''
 	@echo 'Targets:'
-	@echo '  install          Install the development environment'
-	@echo '  test             Run pytest, stresstest, and check'
-	@echo '  fulltest         Run fullpytest, nbtest, stresstest, and check'
-	@echo '  check            Run typecheck, docscheck, lint, and formatcheck'
-	@echo '  format           Run `ruff format` (updates .py files in place)'
-	@echo '  release          Create a pypi release and post to github'
-	@echo '  update-doctools  Update pixeltable-doctools to latest version'
-	@echo '  docs-local       Build documentation for local preview (auto-updates doctools)'
-	@echo '  docs-stage       Deploy versioned documentation to staging (auto-updates doctools)'
-	@echo '  docs-prod        Deploy documentation from staging to production (auto-updates doctools)'
+	@echo '  install       Install the development environment'
+	@echo '  test          Run pytest, stresstest, and check'
+	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
+	@echo '  check         Run typecheck, docscheck, lint, and formatcheck'
+	@echo '  format        Run `ruff format` (updates .py files in place)'
+	@echo '  release       Create a pypi release and post to github'
+	@echo '  docs-local    Build documentation for local preview (auto-updates doctools)'
+	@echo '  docs-stage    Deploy versioned documentation to staging (auto-updates doctools)'
+	@echo '  docs-prod     Deploy documentation from staging to production (auto-updates doctools)'
 	@echo ''
 	@echo 'Individual test targets:'
 	@echo '  clean         Remove generated files and temp files'
@@ -176,12 +175,6 @@ release: install
 .PHONY: release-docs
 release-docs: install
 	@mkdocs gh-deploy
-
-.PHONY: update-doctools
-update-doctools: install
-	@echo 'Updating pixeltable-doctools...'
-	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
-	@echo 'pixeltable-doctools updated successfully!'
 
 .PHONY: docs-local
 docs-local: install
