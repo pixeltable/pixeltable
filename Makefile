@@ -190,7 +190,7 @@ docs-local: install
 docs-stage: install
 	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=v0.4.17" && exit 1)
 	@echo 'Updating pixeltable-doctools...'
-	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
+	@python -m pip install -q --upgrade --no-cache-dir --force-reinstall --no-deps git+https://github.com/pixeltable/pixeltable-doctools.git
 	@echo 'Building and deploying documentation for $(VERSION) to staging...'
 	@conda run -n pxt deploy-docs-stage --version=$(VERSION)
 
