@@ -44,15 +44,16 @@ help:
 	@echo 'See: https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md'
 	@echo ''
 	@echo 'Targets:'
-	@echo '  install       Install the development environment'
-	@echo '  test          Run pytest, stresstest, and check'
-	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
-	@echo '  check		   Run typecheck, docscheck, lint, and formatcheck'
-	@echo '  format        Run `ruff format` (updates .py files in place)'
-	@echo '  release       Create a pypi release and post to github'
-	@echo '  docs-local    Build documentation for local preview'
-	@echo '  docs-stage    Deploy versioned documentation to staging (requires VERSION=vX.Y.Z)'
-	@echo '  docs-prod     Deploy documentation from staging to production'
+	@echo '  install          Install the development environment'
+	@echo '  test             Run pytest, stresstest, and check'
+	@echo '  fulltest         Run fullpytest, nbtest, stresstest, and check'
+	@echo '  check            Run typecheck, docscheck, lint, and formatcheck'
+	@echo '  format           Run `ruff format` (updates .py files in place)'
+	@echo '  release          Create a pypi release and post to github'
+	@echo '  update-doctools  Update pixeltable-doctools to latest version'
+	@echo '  docs-local       Build documentation for local preview (auto-updates doctools)'
+	@echo '  docs-stage       Deploy versioned documentation to staging (auto-updates doctools)'
+	@echo '  docs-prod        Deploy documentation from staging to production (auto-updates doctools)'
 	@echo ''
 	@echo 'Individual test targets:'
 	@echo '  clean         Remove generated files and temp files'
@@ -176,8 +177,16 @@ release: install
 release-docs: install
 	@mkdocs gh-deploy
 
+.PHONY: update-doctools
+update-doctools: install
+	@echo 'Updating pixeltable-doctools...'
+	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
+	@echo 'pixeltable-doctools updated successfully!'
+
 .PHONY: docs-local
 docs-local: install
+	@echo 'Updating pixeltable-doctools...'
+	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
 	@echo 'Building documentation for local preview...'
 	@conda run -n pxt deploy-docs-local --target=local
 	@echo ''
@@ -187,11 +196,15 @@ docs-local: install
 .PHONY: docs-stage
 docs-stage: install
 	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=v0.4.17" && exit 1)
+	@echo 'Updating pixeltable-doctools...'
+	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
 	@echo 'Building and deploying documentation for $(VERSION) to staging...'
 	@conda run -n pxt deploy-docs-stage --version=$(VERSION)
 
 .PHONY: docs-prod
 docs-prod: install
+	@echo 'Updating pixeltable-doctools...'
+	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
 	@echo 'Deploying documentation from stage to production...'
 	@echo 'This will completely replace production with staging content.'
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || (echo "Deployment cancelled." && exit 1)
