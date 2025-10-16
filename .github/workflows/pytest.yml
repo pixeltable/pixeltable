@@ -7,17 +7,20 @@ name: tests
 #   - Linting, type-checking, docstring validation, etc.
 #   - Random ops (for 30 minutes).
 #
-# In merge queue, all of the above tests are run, and additionally:
+# In merge queue, all of the above configurations are run, and additionally:
 #   - Python 3.13 on ubuntu-24.04, macos-15, and windows-2022 runners.
 #   - Python 3.11 and 3.12 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.13 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
 #
-# On a weekly schedule, all of the above tests are run on `main`, and additionally:
+# On a weekly schedule, all of the above configurations are run (against branch 'main'), and additionally:
 #   - Python 3.10 on ubuntu-x64-t4 (equipped with an NVIDIA T4 GPU).
 #
 # A workflow_dispatch trigger will emulate the merge queue tests by default, but can be optionally
 #     selected to run all configurations including ubuntu-x64-t4.
+#
+# Github Actions secrets are unavailable on PRs; hence any tests that require API keys will be skipped.
+# Secrets are available on all other triggers.
 
 on:
   pull_request:
