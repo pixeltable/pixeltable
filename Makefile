@@ -50,7 +50,9 @@ help:
 	@echo '  check		   Run typecheck, docscheck, lint, and formatcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
-	@echo '  release-docs  Build and deploy API documentation (must be run from home repo, not a fork)'
+	@echo '  docs-local    Build documentation for local preview'
+	@echo '  docs-stage    Deploy versioned documentation to staging (requires VERSION=vX.Y.Z)'
+	@echo '  docs-prod     Deploy documentation from staging to production'
 	@echo ''
 	@echo 'Individual test targets:'
 	@echo '  clean         Remove generated files and temp files'
@@ -187,6 +189,13 @@ docs-stage: install
 	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=v0.4.17" && exit 1)
 	@echo 'Building and deploying documentation for $(VERSION) to staging...'
 	@conda run -n pxt deploy-docs-stage --version=$(VERSION)
+
+.PHONY: docs-prod
+docs-prod: install
+	@echo 'Deploying documentation from stage to production...'
+	@echo 'This will completely replace production with staging content.'
+	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || (echo "Deployment cancelled." && exit 1)
+	@conda run -n pxt deploy-docs-prod
 
 .PHONY: clean
 clean:
