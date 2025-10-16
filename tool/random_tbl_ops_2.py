@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import logging
 import os
 import random
@@ -5,7 +7,7 @@ import sys
 import time
 from argparse import ArgumentParser
 from datetime import datetime
-from typing import Any, Callable, ClassVar, Iterator
+from typing import Any, Callable, Iterator
 
 import numpy as np
 import PIL.Image
@@ -13,6 +15,60 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable.config import Config
 from tool.worker_harness import run_workers
+
+# (operation_name, relative_prob, is_read_op)
+# The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
+# worker, then only the operations with is_read_op=True will participate in the normalization.
+TABLE_OPS = (
+    ('query', 100, True),
+    ('insert_rows', 30, False),
+    ('update_rows', 15, False),
+    ('delete_rows', 15, False),
+    ('add_data_column', 5, False),
+    ('add_computed_column', 5, False),
+    ('drop_column', 3, False),
+    ('create_view', 5, False),
+    ('rename_view', 5, False),
+    ('drop_view', 1, False),
+    ('drop_table', 0.25, False),
+)
+OP_NAMES = set(name for name, _, _ in TABLE_OPS)
+BASIC_SCHEMA: dict[str, type] = {
+    'bc_string': pxt.String,
+    'bc_int': pxt.Int,
+    'bc_float': pxt.Float,
+    'bc_bool': pxt.Bool,
+    'bc_timestamp': pxt.Timestamp,
+    'bc_date': pxt.Date,
+    'bc_array': pxt.Array,
+    'bc_json': pxt.Json,
+    'bc_image': pxt.Image,
+}
+INITIAL_ROWS: list[dict[str, Any]] = [
+    {
+        'bc_string': f'str_{i}',
+        'bc_int': i,
+        'bc_float': float(i) * 1.1,
+        'bc_bool': i % 3 == 0,
+        'bc_timestamp': datetime.now(),
+        'bc_date': f'2025-10-{i % 30 + 1:02d}',
+        'bc_array': None,
+        'bc_json': None,
+        'bc_image': None,
+    }
+    for i in range(50)
+]
+PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
+
+
+@dataclasses.dataclass
+class RandomTableOpsConfig:
+    num_base_tables: int = 4  # number of base tables to maintain (they will be occasionally dropped and recreated)
+    num_column_names: int = 100  # number of possible column names (c0 ... c{n-1})
+    num_view_names: int = 100  # number of possible view names (view_0 ... view_{n-1})
+    random_array_freq: float = 0.1  # probability of including an array when inserting a row
+    random_json_freq: float = 0.1  # probability of including a JSON object when inserting a row
+    random_img_freq: float = 0.1  # probability of including an image when inserting a row
 
 
 class RandomTblOps:
@@ -39,75 +95,29 @@ class RandomTblOps:
 
     logger = logging.getLogger('random_tbl_ops')
 
-    # TODO: Support additional operations such as index ops, pxt.move(), and replicas
-    # TODO: Add additional datatypes including media data
-    NUM_BASE_TABLES = 4
-    BASE_TABLE_NAMES = tuple(f'tbl_{i}' for i in range(NUM_BASE_TABLES))
-    BASIC_SCHEMA: ClassVar[dict[str, type]] = {
-        'bc_string': pxt.String,
-        'bc_int': pxt.Int,
-        'bc_float': pxt.Float,
-        'bc_bool': pxt.Bool,
-        'bc_timestamp': pxt.Timestamp,
-        'bc_date': pxt.Date,
-        'bc_array': pxt.Array,
-        'bc_json': pxt.Json,
-        'bc_image': pxt.Image,
-    }
-    INITIAL_ROWS: ClassVar[list[dict[str, Any]]] = [
-        {
-            'bc_string': f'str_{i}',
-            'bc_int': i,
-            'bc_float': float(i) * 1.1,
-            'bc_bool': (i % 3 == 0),
-            'bc_timestamp': datetime.now(),
-            'bc_date': f'2025-10-{(i % 30) + 1}',
-            'bc_array': None,
-            'bc_json': None,
-            'bc_image': None,
-        }
-        for i in range(50)
-    ]
-    PRIMES = (23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97)
-    NUM_COLUMN_NAMES = 100  # c0 ... c{n-1}
-    NUM_VIEW_NAMES = 100  # view_0 ... view_{n-1}
-
-    # (operation_name, relative_prob, is_read_op)
-    # The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
-    # worker, then only the operations with is_read_op=True will participate in the normalization.
-    RANDOM_OPS_DEF = (
-        ('query', 100, True),
-        ('insert_rows', 30, False),
-        ('update_rows', 15, False),
-        ('delete_rows', 15, False),
-        ('add_data_column', 5, False),
-        ('add_computed_column', 5, False),
-        ('drop_column', 3, False),
-        ('create_view', 5, False),
-        ('rename_view', 5, False),
-        ('drop_view', 1, False),
-        ('drop_table', 0.25, False),
-    )
-    OP_NAMES = set(name for name, _, _ in RANDOM_OPS_DEF)
-
+    config: RandomTableOpsConfig
+    base_table_names: tuple[str]
     random_ops: list[tuple[float, Callable]]
 
     worker_id: int
 
-    def __init__(self, worker_id: int, read_only: bool, exclude_ops: list[str]) -> None:
+    def __init__(self, worker_id: int, read_only: bool, exclude_ops: list[str], config: RandomTableOpsConfig) -> None:
         self.worker_id = worker_id
         self.read_only = read_only
-        ops_config = {
+        self.config = config
+        self.base_table_names = tuple(f'tbl_{i}' for i in range(config.num_base_tables))
+
+        op_weights = {
             (op_name, weight)
-            for op_name, weight, is_read_op in self.RANDOM_OPS_DEF
+            for op_name, weight, is_read_op in TABLE_OPS
             if op_name not in exclude_ops and (is_read_op or not read_only)
         }
 
         # Initialize random_ops.
         self.random_ops = []
-        total_weight = sum(float(weight) for _, weight in ops_config)
+        total_weight = sum(float(weight) for _, weight in op_weights)
         cumulative_weight = 0.0
-        for op_name, weight in ops_config:
+        for op_name, weight in op_weights:
             cumulative_weight += float(weight)
             self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
@@ -133,9 +143,9 @@ class RandomTblOps:
         # dropped by another process. So we wrap the whole operation in a while loop and keep trying until it succeeds.
         # (At least 99% of the time it succeeds on the first try.)
         while True:
-            name = random.choice(self.BASE_TABLE_NAMES)
+            name = random.choice(self.base_table_names)
             # If the table does not already exist, create it and populate with some initial data
-            t = pxt.create_table(name, source=self.INITIAL_ROWS, schema_overrides=self.BASIC_SCHEMA, if_exists='ignore')
+            t = pxt.create_table(name, source=INITIAL_ROWS, schema_overrides=BASIC_SCHEMA, if_exists='ignore')
             if not allow_view:
                 return t  # View not allowed
             if allow_base_tbl and random.uniform(0, 1) < 0.5:
@@ -162,41 +172,56 @@ class RandomTblOps:
         i_start = random.randint(100, 1000000000)
         us = t.insert(
             [
-                {'c0': i, 'c1': float(i) * 1.1, 'c2': f'str_{i}', 'c3': self.random_img()}
+                {
+                    'bc_string': f'str_{i}',
+                    'bc_int': i,
+                    'bc_float': float(i) * 1.1,
+                    'bc_bool': i % 3 == 0,
+                    'bc_timestamp': datetime.now(),
+                    'bc_date': f'2025-10-{i % 30 + 1:02d}',
+                    'bc_array': self.random_array(),
+                    'bc_json': self.random_json(),
+                    'bc_image': self.random_img(),
+                }
                 for i in range(i_start, i_start + num_rows)
             ]
         )
         yield f'Inserted {us.row_count_stats.ins_rows} rows (total now {t.count()}).'
 
+    def random_array(self) -> np.ndarray | None:
+        return None
+
+    def random_json(self) -> Any:
+        return None
+
     def random_img(self) -> pxt.Image | None:
         r = random.uniform(0, 1)
-        if r < 0.9:
-            return None
-
-        if r < 0.95:
-            random_data = np.random.randint(0, 256, size=(256, 256, 3), dtype=np.uint8)
+        if r < self.config.random_img_freq / 2:
+            random_data = np.random.randint(0, 16, size=(128, 128, 3), dtype=np.uint8)
             return PIL.Image.fromarray(random_data, 'RGB')
-        else:
-            random_data = np.random.randint(0, 256, size=(256, 256, 4), dtype=np.uint8)
+        elif r < self.config.random_img_freq:
+            random_data = np.random.randint(0, 16, size=(128, 128, 4), dtype=np.uint8)
             return PIL.Image.fromarray(random_data, 'RGBA')
 
     def update_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
-        p = random.choice(self.PRIMES)
-        yield f'Update rows in {self.tbl_descr(t)} where c0 % {p} == 0: '
-        us = t.where(t.c0 % p == 0).update({'c1': t.c1 + 1.9, 'c2': t.c2 + '_u'})
+        p = random.choice(PRIMES)
+        yield f'Update rows in {self.tbl_descr(t)} where bc_int % {p} == 0: '
+        us = t.where(t.bc_int % p == 0).update(
+            {'bc_string': t.bc_string + '_u', 'bc_float': t.bc_float + 1.9, 'bc_bool': ~t.bc_bool}
+        )
         yield f'Updated {us.row_count_stats.upd_rows}.'
 
     def delete_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
-        p = random.choice(self.PRIMES)
-        yield f'Delete rows from {self.tbl_descr(t)} where c0 % {p} == 0: '
-        us = t.where(t.c0 % p == 0).delete()
+        p = random.choice(PRIMES)
+        yield f'Delete rows from {self.tbl_descr(t)} where bc_int % {p} == 0: '
+        us = t.where(t.bc_int % p == 0).delete()
         yield f'Deleted {us.row_count_stats.del_rows} rows (total now {t.count()}).'
 
     def add_data_column(self) -> Iterator[str]:
         t = self.get_random_tbl()
-        n = int(random.uniform(0, self.NUM_COLUMN_NAMES))
+        n = int(random.uniform(0, self.config.num_column_names))
         cname = f'c{n}'
         yield f'Add data column {cname!r} to {self.tbl_descr(t)}: '
         t.add_column(**{cname: pxt.String}, if_exists='ignore')
@@ -204,10 +229,10 @@ class RandomTblOps:
 
     def add_computed_column(self) -> Iterator[str]:
         t = self.get_random_tbl()
-        n = int(random.uniform(0, self.NUM_COLUMN_NAMES))
+        n = int(random.uniform(0, self.config.num_column_names))
         cname = f'c{n}'
         yield f'Add computed column {cname!r} to {self.tbl_descr(t)}: '
-        t.add_computed_column(**{cname: t.c0 * random.uniform(1.0, 5.0)}, if_exists='ignore')
+        t.add_computed_column(**{cname: t.bc_int * random.uniform(1.0, 5.0)}, if_exists='ignore')
         yield 'Success.'
 
     def drop_column(self) -> Iterator[str]:
@@ -216,7 +241,7 @@ class RandomTblOps:
         cnames = [
             col_name
             for col_name, col in t.get_metadata()['columns'].items()
-            if col['defined_in'] == t._name and col_name not in self.BASIC_SCHEMA
+            if col['defined_in'] == t._name and col_name not in BASIC_SCHEMA
         ]
         if len(cnames) == 0:
             yield 'No columns to drop.'
@@ -228,12 +253,12 @@ class RandomTblOps:
 
     def create_view(self) -> Iterator[str]:
         t = self.get_random_tbl()  # Allows views on views
-        n = int(random.uniform(0, self.NUM_VIEW_NAMES))
+        n = int(random.uniform(0, self.config.num_view_names))
         vname = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
-        p = random.choice(self.PRIMES)
+        p = random.choice(PRIMES)
         yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
         # TODO: Change 'ignore' to 'replace-force' after fixing PXT-774
-        pxt.create_view(vname, t.where(t.c0 % p == 0), if_exists='ignore')
+        pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='ignore')
         yield 'Success.'
 
     def rename_view(self) -> Iterator[str]:
@@ -241,9 +266,9 @@ class RandomTblOps:
         if t is None:
             yield 'No views to rename.'
             return
-        n = int(random.uniform(0, self.NUM_VIEW_NAMES))
+        n = int(random.uniform(0, self.config.num_view_names))
         if f'view_{n}' == t._name:
-            n = (n + 1) % self.NUM_VIEW_NAMES  # Ensure new name is different
+            n = (n + 1) % self.config.num_view_names  # Ensure new name is different
         new_name = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         yield f'Rename view {self.tbl_descr(t)} to {new_name!r}: '
         pxt.move(t._name, new_name, if_exists='ignore', if_not_exists='ignore')
@@ -307,24 +332,31 @@ class RandomTblOps:
             time.sleep(random.uniform(0.1, 0.5))
 
 
-def run(worker_id: int, read_only: bool, exclude_ops: list[str] | None) -> None:
+def init(config: RandomTableOpsConfig) -> None:
+    """Initialization. This will ONLY be run once (globally), on Worker 0."""
+    print(json.dumps(dataclasses.asdict(config), indent=4))
+    pxt.init()
+
+
+def run(worker_id: int, read_only: bool, exclude_ops: list[str] | None, config_str: str) -> None:
     """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
+    config = RandomTableOpsConfig(**json.loads(config_str))
 
     # In order to localize initialization to a single process, we call pxt.init() only from worker 0. The timings are
     # adjusted so that all workers start issuing operations at approximately the same time.
     # TODO: Do we want pxt.init() to be concurrency-safe (the first time it is called, when setting up the DB)?
     if worker_id == 0:
         t = time.monotonic()
-        pxt.init()
+        init(config)
         time.sleep(5 - time.monotonic() + t)  # Sleep until 5 seconds after init
     else:
         time.sleep(5)
 
     try:
-        RandomTblOps(worker_id, read_only, exclude_ops or []).run()
+        RandomTblOps(worker_id, read_only, exclude_ops or [], config).run()
     except KeyboardInterrupt:
         # Suppress the stack trace, but abort.
         pass
@@ -338,6 +370,7 @@ def make_parser() -> ArgumentParser:
         '-r', '--read-only-workers', type=int, default=0, help='Number of read-only workers (default: 0)'
     )
     parser.add_argument('--exclude', nargs='+', type=str, help='List of operations to exclude')
+    parser.add_argument('-D', action='append', type=str, help='Override config parameter, e.g., -D random_img_freq=1.0')
     return parser
 
 
@@ -355,15 +388,37 @@ def main() -> None:
 
     if args.exclude is not None:
         for op_name in args.exclude:
-            if op_name not in RandomTblOps.OP_NAMES:
+            if op_name not in OP_NAMES:
                 print(f'--exclude: unrecognized op name: {op_name}')
                 sys.exit(1)
+
+    config = RandomTableOpsConfig()
+    if args.D is not None:
+        for kv in args.D:
+            assert isinstance(kv, str)
+            if '=' not in kv:
+                print(f'-D: expected param=value format; got: {kv}')
+                sys.exit(1)
+            name, value = kv.split('=', 1)
+            if not hasattr(config, name):
+                print(f'-D: unrecognized config parameter: {name}')
+                sys.exit(1)
+            field = getattr(config, name)
+            try:
+                setattr(config, name, type(field)(value))
+            except Exception as e:
+                print(
+                    f'-D: error setting config parameter {name!r} of type `{type(field).__name__}` to value {value!r}: {e}'
+                )
+                sys.exit(1)
+
+    config_str = repr(json.dumps(dataclasses.asdict(config)))
 
     worker_args = [
         [
             '-c',
             'from tool.random_tbl_ops_2 import run; '
-            f'run({i}, {i >= args.workers - args.read_only_workers}, {args.exclude})',
+            f'run({i}, {i >= args.workers - args.read_only_workers}, {args.exclude}, {config_str})',
         ]
         for i in range(args.workers)
     ]
