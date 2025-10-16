@@ -5,8 +5,8 @@ import os
 import re
 from typing import Any, Optional
 
-import pytest
 import PIL.Image
+import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -364,10 +364,7 @@ class TestDocument:
             'chunks',
             t,
             iterator=DocumentSplitter.create(
-                document=t.doc,
-                separators='page',
-                elements=['image'],
-                metadata='title,page',
+                document=t.doc, separators='page', elements=['image'], metadata='title,page'
             ),
         )
         status = t.insert({'doc': p} for p in file_paths)

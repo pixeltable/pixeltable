@@ -4,15 +4,16 @@ import io
 import logging
 from typing import Any, ClassVar, Iterable, Iterator, Literal
 
-import PIL.Image
 import fitz  # type: ignore[import-untyped]
 import ftfy
+import PIL.Image
 from bs4.element import NavigableString, Tag
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
 from pixeltable.type_system import ColumnType, DocumentType, ImageType, IntType, JsonType, StringType
 from pixeltable.utils.documents import get_document_handle
+
 from .base import ComponentIterator
 
 _logger = logging.getLogger('pixeltable')
