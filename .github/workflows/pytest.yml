@@ -1,5 +1,24 @@
 name: tests
 
+# On PR updates, the basic test configurations are run:
+#   - Python 3.10 on ubuntu-24.04, macos-15, and windows-2022 runners.
+#   - A minimal installation of Pixeltable (--no-dev) with Python 3.10 on ubuntu-24.04.
+#   - Notebook tests.
+#   - Linting, type-checking, docstring validation, etc.
+#   - Random ops (for 30 minutes).
+#
+# In merge queue, all of the above tests are run, and additionally:
+#   - Python 3.13 on ubuntu-24.04, macos-15, and windows-2022 runners.
+#   - Python 3.11 and 3.12 on ubuntu-24.04.
+#   - Minimal Pixeltable with Python 3.13 on ubuntu-24.04.
+#   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
+#
+# On a weekly schedule, all of the above tests are run on `main`, and additionally:
+#   - Python 3.10 on ubuntu-x64-t4 (equipped with an NVIDIA T4 GPU).
+#
+# A workflow_dispatch trigger will emulate the merge queue tests by default, but can be optionally
+#     selected to run all configurations including ubuntu-x64-t4.
+
 on:
   pull_request:
     branches: [main]
@@ -69,22 +88,6 @@ jobs:
     needs: generate-matrix
     strategy:
       fail-fast: false
-      # The standard unit tests run during merge queue on these configurations:
-      #   - Python 3.10 and 3.13 (minimum and maximum supported versions) on ubuntu-22.04, macos-15,
-      #     and windows-2022 runners.
-      #   - Additionally, Python 3.11 and 3.12 on ubuntu-22.04.
-      # On a PR, only Python 3.10 is tested, to streamline PR CI.
-      # On scheduled runs, we additionally run Python 3.10 and 3.13 on ubuntu-x64-t4 (which is equipped with an
-      #     NVIDIA T4 GPU and costs money).
-      #
-      # In all cases, we also run some additional tests on ubuntu-22.04 / Python 3.10 only:
-      #   - A minimal installation of pixeltable (without dev dependencies)
-      #   - Notebook tests
-      #   - Linting, type-checking, docstring validation, etc.
-      #   - Random table ops
-      #
-      # A workflow_dispatch trigger will run the same tests as merge queue by default, but can be optionally
-      #     expanded to run all configurations including ubuntu-x64-t4.
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}

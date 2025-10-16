@@ -63,7 +63,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
         # Expensive tests on special hardware on Python 3.10
         configs.extend(MatrixConfig('py', '', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
-    configs.sort()
+    configs.sort(key=str)
 
     matrix = {'include': [cfg._asdict() for cfg in configs]}
 
