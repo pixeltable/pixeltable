@@ -37,7 +37,6 @@ jobs:
         with:
           miniconda-version: latest
           activate-environment: pxt
-          use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Install python
         run: |
           conda install -y python=3.10 pip=25.0

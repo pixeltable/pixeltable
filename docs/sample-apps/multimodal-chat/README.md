@@ -30,9 +30,9 @@ sequenceDiagram
 - **Multimodal Data Support**: Process and analyze documents, videos, and audio files
 - **Advanced Processing**: Leverages [Pixeltable's data types and formats](https://docs.pixeltable.com/docs/data-types-and-formats)
 - **Flexible LLM Integration**: 
-  - Default: [OpenAI](https://docs.pixeltable.com/docs/working-with-openai)
-  - Alternative options: [Ollama](https://docs.pixeltable.com/docs/working-with-ollama), [LLama.cpp](https://docs.pixeltable.com/docs/working-with-llamacpp)
-- **Local Processing Options**: Use [Whisper/WhisperX](https://docs.pixeltable.com/docs/whisper) for local transcription
+  - Default: [OpenAI](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb)
+  - Alternative options: [Ollama](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-ollama.ipynb), [LLama.cpp](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-llama-cpp.ipynb)
+- **Local Processing Options**: Use [Whisper/WhisperX](https://docs.pixeltable.com/examples/search/audio) for local transcription
 
 ## Deployment Options
 

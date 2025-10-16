@@ -8,6 +8,7 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestTogether:
+    @pytest.mark.skip('Not working due to API issues')
     def test_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')
