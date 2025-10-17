@@ -675,7 +675,7 @@ def token_classification(
     """
     Extracts named entities from text using a pretrained named entity recognition (NER) model.
     `model_id` should be a reference to a pretrained
-    [token classification model](https://huggingface.co/models?pipeline_tag=token-classification).
+    [token classification model](https://huggingface.co/models?pipeline_tag=token-classification) for NER.
 
     __Requirements:__
 
@@ -893,7 +893,7 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
 
 @pxt.udf(batch_size=8)
 def translation(
-    text: Batch[str], *, model_id: str, src_lang: Optional[str] = None, tgt_lang: Optional[str] = None
+    text: Batch[str], *, model_id: str, src_lang: Optional[str] = None, target_lang: Optional[str] = None
 ) -> Batch[str]:
     """
     Translates text using a pretrained translation model. `model_id` should be a reference to a pretrained
@@ -907,7 +907,7 @@ def translation(
         text: The text to translate.
         model_id: The pretrained translation model to use.
         src_lang: Source language code (optional, can be inferred from model).
-        tgt_lang: Target language code (optional, can be inferred from model).
+        target_lang: Target language code (optional, can be inferred from model).
 
     Returns:
         The translated text.
@@ -919,7 +919,7 @@ def translation(
         ...     tbl.english_text,
         ...     model_id='Helsinki-NLP/opus-mt-en-fr',
         ...     src_lang='en',
-        ...     tgt_lang='fr'
+        ...     target_lang='fr'
         ... ))
     """
     env.Env.get().require_package('transformers')
@@ -929,29 +929,29 @@ def translation(
 
     model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
+    lang_code_to_id: dict | None = getattr(tokenizer, 'lang_code_to_id', {})
 
     # Language validation - following speech2text_for_conditional_generation pattern
-    if src_lang is not None and hasattr(tokenizer, 'lang_code_to_id') and src_lang not in tokenizer.lang_code_to_id:
+    if src_lang is not None and src_lang not in lang_code_to_id:
         raise excs.Error(
-            f"Source language code '{src_lang}' is not supported by the model '{model_id}'. "
-            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
+            f"Source language code {src_lang!r} is not supported by the model {model_id!r}. "
+            f'Supported languages are: {list(lang_code_to_id.keys())}'
         )
 
-    if tgt_lang is not None and hasattr(tokenizer, 'lang_code_to_id') and tgt_lang not in tokenizer.lang_code_to_id:
+    if target_lang is not None and target_lang not in lang_code_to_id:
         raise excs.Error(
-            f"Target language code '{tgt_lang}' is not supported by the model '{model_id}'. "
-            f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
+            f"Target language code {target_lang!r} is not supported by the model {model_id!r}. "
+            f'Supported languages are: {list(lang_code_to_id.keys())}'
         )
 
     with torch.no_grad():
-        # Process entire batch at once - following sentence_transformer pattern
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=512)
 
-        # Set forced_bos_token_id for target language if supported (like speech2text pattern)
+        # Set forced_bos_token_id for target language if supported
         generate_kwargs = {'max_length': 512, 'num_beams': 4, 'early_stopping': True}
 
-        if tgt_lang is not None and hasattr(tokenizer, 'lang_code_to_id'):
-            generate_kwargs['forced_bos_token_id'] = tokenizer.lang_code_to_id.get(tgt_lang)
+        if target_lang is not None:
+            generate_kwargs['forced_bos_token_id'] = lang_code_to_id[target_lang]
 
         outputs = model.generate(**inputs.to(device), **generate_kwargs)
 
@@ -967,33 +967,24 @@ def text_to_image(
     model_id: str,
     height: int = 512,
     width: int = 512,
-    num_inference_steps: int = 20,
-    guidance_scale: float = 7.5,
-    seed: Optional[int] = None,
+    model_kwargs: Optional[dict[str, Any]] = None,
 ) -> Batch[PIL.Image.Image]:
     """
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
     pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as
     Stable Diffusion or FLUX.
 
-    This is a **generic function** that works with diffusers-compatible models. For production use or
-    specific API integrations, consider specialized functions like `openai.image_generations()`.
-
     __Requirements:__
 
     - `pip install torch transformers diffusers accelerate`
-
-    __Recommended Models:__
-
-    - **Stable Diffusion 1.5**: `runwayml/stable-diffusion-v1-5` (balanced quality/speed)
-    - **Stable Diffusion 2.1**: `stabilityai/stable-diffusion-2-1` (improved quality)
-    - **SDXL**: `stabilityai/stable-diffusion-xl-base-1.0` (highest quality, requires more memory)
 
     Args:
         prompt: The text prompt describing the desired image.
         model_id: The pretrained text-to-image model to use.
         height: Height of the generated image in pixels.
         width: Width of the generated image in pixels.
+        model_kwargs: Additional keyword arguments to pass to the model, such as `num_inference_steps`,
+            `guidance_scale`, or `seed`.
         num_inference_steps: Number of denoising steps (more steps = higher quality, slower).
         guidance_scale: How closely to follow the prompt (higher = more adherence).
         seed: Random seed for reproducible generation.
@@ -1034,26 +1025,17 @@ def text_to_image(
         raise excs.Error(f'guidance_scale must be non-negative, got {guidance_scale}')
 
     # Model loading with error handling - following best practices pattern
-    try:
-        pipeline = _lookup_model(
-            model_id,
-            lambda x: AutoPipelineForText2Image.from_pretrained(
-                x,
-                torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-                device_map='auto' if device == 'cuda' else None,
-                safety_checker=None,  # Disable safety checker for performance
-                requires_safety_checker=False,
-            ),
-            device=device,
-        )
-    except Exception as e:
-        raise excs.Error(
-            f'Error loading text-to-image model {model_id}: {e}\n'
-            f'Try these recommended models instead:\n'
-            f'  - runwayml/stable-diffusion-v1-5 (balanced quality/speed)\n'
-            f'  - stabilityai/stable-diffusion-2-1 (improved quality)\n'
-            f'  - CompVis/stable-diffusion-v1-4 (classic)'
-        ) from e
+    pipeline = _lookup_model(
+        model_id,
+        lambda x: AutoPipelineForText2Image.from_pretrained(
+            x,
+            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+            device_map='auto' if device == 'cuda' else None,
+            safety_checker=None,  # Disable safety checker for performance
+            requires_safety_checker=False,
+        ),
+        device=device,
+    )
 
     # Enable optimizations once - following best practices
     try:
@@ -1072,36 +1054,17 @@ def text_to_image(
     results = []
 
     for prompt_text in prompt:
-        try:
-            # Input validation per prompt
-            if not prompt_text or not prompt_text.strip():
-                # Return a minimal default image for empty prompts
-                import PIL.Image
+        # Generate image with proper error handling
+        with torch.no_grad():
+            result = pipeline(
+                prompt_text.strip(),
+                height=height,
+                width=width,
+                **model_kwargs
+            )
 
-                default_image = PIL.Image.new('RGB', (width, height), (240, 240, 240))
-                results.append(default_image)
-                continue
-
-            # Generate image with proper error handling
-            with torch.no_grad():
-                result = pipeline(
-                    prompt_text.strip(),
-                    height=height,
-                    width=width,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    generator=generator,
-                )
-
-                if hasattr(result, 'images') and len(result.images) > 0:
-                    image = result.images[0]
-                    results.append(image)
-                else:
-                    raise excs.Error('Pipeline returned no images')
-
-        except Exception:
-            # Better error handling - return None instead of blank image
-            results.append(None)
+            image = result.images[0]
+            results.append(image)
 
     return results
 
@@ -1143,104 +1106,74 @@ def text_to_speech(
     import numpy as np
     import soundfile as sf  # type: ignore[import-untyped]
     import torch
+    from transformers import SpeechT5ForTextToSpeech, SpeechT5HifiGan, SpeechT5Processor
+    from transformers import AutoModelForTextToWaveform, AutoProcessor
+    from transformers import AutoProcessor, BarkModel
+    from datasets import load_dataset  # type: ignore[import-untyped]
 
     # Model loading with error handling - following best practices pattern
-    try:
-        if 'speecht5' in model_id.lower():
-            from transformers import SpeechT5ForTextToSpeech, SpeechT5HifiGan, SpeechT5Processor
+    if 'speecht5' in model_id.lower():
+        model = _lookup_model(model_id, SpeechT5ForTextToSpeech.from_pretrained, device=device)
+        processor = _lookup_processor(model_id, SpeechT5Processor.from_pretrained)
+        vocoder_model_id = vocoder or 'microsoft/speecht5_hifigan'
+        vocoder_model = _lookup_model(vocoder_model_id, SpeechT5HifiGan.from_pretrained, device=device)
 
-            model = _lookup_model(model_id, SpeechT5ForTextToSpeech.from_pretrained, device=device)
-            processor = _lookup_processor(model_id, SpeechT5Processor.from_pretrained)
-            vocoder_model_id = vocoder or 'microsoft/speecht5_hifigan'
-            vocoder_model = _lookup_model(vocoder_model_id, SpeechT5HifiGan.from_pretrained, device=device)
+    elif 'bark' in model_id.lower():
+        model = _lookup_model(model_id, BarkModel.from_pretrained, device=device)
+        processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+        vocoder_model = None
 
-        elif 'bark' in model_id.lower():
-            from transformers import AutoProcessor, BarkModel
-
-            model = _lookup_model(model_id, BarkModel.from_pretrained, device=device)
-            processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
-            vocoder_model = None
-
-        else:
-            # Generic fallback using Auto classes - following best practices
-            from transformers import AutoModelForTextToWaveform, AutoProcessor
-
-            try:
-                model = _lookup_model(model_id, AutoModelForTextToWaveform.from_pretrained, device=device)
-                processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
-                vocoder_model = None
-            except Exception:
-                raise excs.Error(
-                    f'TTS model {model_id} not supported. Try these recommended models:\n'
-                    f'  - microsoft/speecht5_tts (high quality)\n'
-                    f'  - suno/bark (expressive)\n'
-                    f'  - facebook/mms-tts (multilingual)'
-                ) from None
-
-    except Exception as e:
-        raise excs.Error(
-            f'Error loading TTS model {model_id}: {e}\n'
-            f'Try these recommended models instead:\n'
-            f'  - microsoft/speecht5_tts (high quality)\n'
-            f'  - suno/bark (expressive)\n'
-            f'  - facebook/mms-tts (multilingual)'
-        ) from e
+    else:
+        model = _lookup_model(model_id, AutoModelForTextToWaveform.from_pretrained, device=device)
+        processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+        vocoder_model = None
 
     # Load speaker embeddings once for SpeechT5 (following speech2text pattern)
     speaker_embeddings = None
     if 'speecht5' in model_id.lower():
-        try:
-            from datasets import load_dataset  # type: ignore[import-untyped]
-
-            embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
-            speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
-        except Exception as e:
-            raise excs.Error(f'Error loading speaker embeddings for SpeechT5: {e}') from e
+        embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
+        speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
     results: list[pxt.Audio] = []
 
     # Process each text input - following pattern from other functions
     with torch.no_grad():
         for text_input in text:
-            try:
-                if not text_input or not text_input.strip():
-                    results.append(None)
-                    continue
-
-                # Generate speech based on model type
-                if 'speecht5' in model_id.lower():
-                    inputs = processor(text=text_input, return_tensors='pt').to(device)
-                    speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)
-                    audio_np = speech.cpu().numpy()
-                    sample_rate = 16000
-
-                elif 'bark' in model_id.lower():
-                    inputs = processor(text_input, return_tensors='pt').to(device)
-                    audio_array = model.generate(**inputs)
-                    audio_np = audio_array.cpu().numpy().squeeze()
-                    sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
-
-                else:
-                    # Generic approach for other TTS models
-                    inputs = processor(text_input, return_tensors='pt').to(device)
-                    audio_output = model(**inputs)
-                    audio_np = audio_output.waveform.cpu().numpy().squeeze()
-                    sample_rate = getattr(model.config, 'sample_rate', 22050)
-
-                # Normalize audio - following consistent pattern
-                if audio_np.dtype != np.float32:
-                    audio_np = audio_np.astype(np.float32)
-
-                if np.max(np.abs(audio_np)) > 0:
-                    audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
-
-                # Create output file
-                output_filename = str(env.Env.get().create_tmp_path('.wav'))
-                sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
-                results.append(output_filename)
-
-            except Exception:
+            if not text_input or not text_input.strip():
                 results.append(None)
+                continue
+
+            # Generate speech based on model type
+            if 'speecht5' in model_id.lower():
+                inputs = processor(text=text_input, return_tensors='pt').to(device)
+                speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)
+                audio_np = speech.cpu().numpy()
+                sample_rate = 16000
+
+            elif 'bark' in model_id.lower():
+                inputs = processor(text_input, return_tensors='pt').to(device)
+                audio_array = model.generate(**inputs)
+                audio_np = audio_array.cpu().numpy().squeeze()
+                sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
+
+            else:
+                # Generic approach for other TTS models
+                inputs = processor(text_input, return_tensors='pt').to(device)
+                audio_output = model(**inputs)
+                audio_np = audio_output.waveform.cpu().numpy().squeeze()
+                sample_rate = getattr(model.config, 'sample_rate', 22050)
+
+            # Normalize audio - following consistent pattern
+            if audio_np.dtype != np.float32:
+                audio_np = audio_np.astype(np.float32)
+
+            if np.max(np.abs(audio_np)) > 0:
+                audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
+
+            # Create output file
+            output_filename = str(env.Env.get().create_tmp_path('.wav'))
+            sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
+            results.append(output_filename)
 
     return results
 

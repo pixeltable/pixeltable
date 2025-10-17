@@ -159,6 +159,7 @@ dev = [
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.10",
+    "diffusers>=0.34",
 ]
 test = [
     "pytest>=8.4",
