@@ -296,14 +296,15 @@ class TestVideo:
         base_t, view_t = pxt.get_table(base_t._name), pxt.get_table(view_t._name)
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
-    def test_clip(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('mode', ['fast', 'accurate'])
+    def test_clip(self, mode: str, reset_db: None) -> None:
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
         video_filepaths = get_video_files()
         t.insert({'video': p} for p in video_filepaths)
 
-        clip_5_10 = t.video.clip(start_time=5.0, end_time=10.0)
-        clip_0_5 = t.video.clip(start_time=0.0, duration=5.0)
-        clip_10_end = t.video.clip(start_time=10.0)
+        clip_5_10 = t.video.clip(start_time=5.0, end_time=10.0, mode=mode)
+        clip_0_5 = t.video.clip(start_time=0.0, duration=5.0, mode=mode)
+        clip_10_end = t.video.clip(start_time=10.0, mode=mode)
         result = t.select(
             clip_5_10=clip_5_10,
             clip_5_10_duration=clip_5_10.get_metadata().streams[0].duration_seconds,
@@ -326,7 +327,7 @@ class TestVideo:
 
         # requesting a time range past the end of the video returns None
         duration = t.video.get_metadata().streams[0].duration_seconds
-        result_df = t.where(duration != None).select(clip=t.video.clip(start_time=1000.0)).collect().to_pandas()
+        result_df = t.where(duration != None).select(clip=t.video.clip(start_time=1000.0, mode=mode)).collect().to_pandas()
         assert result_df['clip'].isnull().all(), result_df['clip']
 
         with pytest.raises(pxt.Error, match='start_time must be non-negative'):

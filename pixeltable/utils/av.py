@@ -91,25 +91,58 @@ def has_audio_stream(path: str) -> bool:
     return any(stream['type'] == 'audio' for stream in md['streams'])
 
 
-def ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, duration: float | None = None) -> list[str]:
-    # the order of arguments is critical: -ss <start> -t <duration> -i <input>
-    cmd = ['ffmpeg', '-ss', str(start_time)]
+def ffmpeg_clip_cmd(
+    input_path: str,
+    output_path: str,
+    start_time: float,
+    duration: float | None = None,
+    fast: bool = True,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> list[str]:
+    cmd = ['ffmpeg']
+    if fast:
+        # fast: -ss before -i
+        cmd.extend(
+            [
+                '-ss',
+                str(start_time),
+                '-i',
+                input_path,
+                '-map',
+                '0',  # Copy all streams from input
+                '-c',
+                'copy',  # Stream copy (no re-encoding)
+            ]
+        )
+    else:
+        if video_encoder is None:
+            video_encoder = Env.get().default_video_encoder
+
+        # accurate: -ss after -i
+        cmd.extend(
+            [
+                '-i',
+                input_path,
+                '-ss',
+                str(start_time),
+                '-map',
+                '0',  # Copy all streams from input
+                '-c:a',
+                'copy',  # audio copy
+                '-c:s',
+                'copy',  # subtitle copy
+                '-c:v',
+                video_encoder,  # re-encode video
+            ]
+        )
+        if video_encoder_args is not None:
+            for k, v in video_encoder_args.items():
+                cmd.extend([f'-{k}', str(v)])
+
     if duration is not None:
         cmd.extend(['-t', str(duration)])
-    cmd.extend(
-        [
-            '-i',  # Input file
-            input_path,
-            '-y',  # Overwrite output file
-            '-loglevel',
-            'error',  # Only show errors
-            '-c',
-            'copy',  # Stream copy (no re-encoding)
-            '-map',
-            '0',  # Copy all streams from input
-            output_path,
-        ]
-    )
+    cmd.extend(['-loglevel', 'error', output_path])
     return cmd
 
 

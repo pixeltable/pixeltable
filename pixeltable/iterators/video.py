@@ -271,7 +271,7 @@ class VideoSplitter(ComponentIterator):
         duration: float,
         overlap: float = 0.0,
         min_segment_duration: float = 0.0,
-        mode: Literal['fast', 'accurate'] = 'fast',
+        mode: Literal['fast', 'accurate'] = 'accurate',
         video_encoder: str | None = None,
         video_encoder_args: dict[str, Any] | None = None,
     ):
