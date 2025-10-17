@@ -355,6 +355,8 @@ class Env:
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
             path_parts = list(Path(record.pathname).parts)
             path_parts.reverse()
+            if 'pixeltable' not in path_parts:
+                return False
             max_idx = path_parts.index('pixeltable')
             for module_name in path_parts[:max_idx]:
                 if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
@@ -576,6 +578,12 @@ class Env:
             assert isinstance(tz_name, str)
             self._logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
+            if self.is_using_cockroachdb:
+                # This could be set when the database is created, but we set it now
+                conn.execute(sql.text('SET null_ordered_last = true;'))
+                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
+                assert isinstance(null_ordered_last, str)
+                self._logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
