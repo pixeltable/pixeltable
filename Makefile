@@ -81,7 +81,7 @@ endif
 .make-install/uv:
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
-	@python -m pip install -q uv==0.8.2
+	@python -m pip install -q uv==0.9.3
 	@echo 'Installing ffmpeg ...'
 	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 	@$(TOUCH) .make-install/uv
