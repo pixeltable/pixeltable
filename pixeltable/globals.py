@@ -411,7 +411,7 @@ def publish(
     these methods:
 
     - Environment variable: `PIXELTABLE_API_KEY`
-    - Config file: Add `api_key = 'your-key'` to the `[pixeltable]` section in `~/.pixeltable/config.toml`
+    - Config file: Add `api_key = 'your-key'` to the `[pixeltable]` section in your Pixeltable configuration file (usually `~/.pixeltable/config.toml`)."
 
     Without a valid API key, this function will fail when attempting to publish to the cloud.
 
