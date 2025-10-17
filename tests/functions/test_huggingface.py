@@ -472,7 +472,6 @@ class TestHuggingface:
         assert result['modified_image'] is not None
         # Should be a PIL Image or similar
 
-    @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
     def test_image_to_video(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -486,7 +485,7 @@ class TestHuggingface:
                 t.img,
                 model_id='ali-vilab/i2vgen-xl',
                 num_frames=8,  # Minimal frames for testing
-                num_inference_steps=5,  # Fewer steps for testing
+                model_kwargs={'num_inference_steps': 5},
             )
         )
 

@@ -9,6 +9,7 @@ UDFs).
 
 from typing import Any, Callable, Literal, Optional, TypeVar
 
+import av
 import numpy as np
 import PIL.Image
 
@@ -19,6 +20,7 @@ from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.local_store import TempStore
 
 T = TypeVar('T')
 
@@ -747,9 +749,8 @@ def token_classification(
 
         current_entity = None
 
-        for _i, (token_class, confidence, (start_offset, end_offset)) in enumerate(
-            zip(predicted_token_classes, confidence_scores, offset_mapping)
-        ):
+        for token_class, confidence, (start_offset, end_offset) in \
+            zip(predicted_token_classes, confidence_scores, offset_mapping):
             # Skip special tokens (offset is (0, 0))
             if start_offset == 0 and end_offset == 0:
                 continue
@@ -1046,9 +1047,9 @@ def text_to_image(
         return result.images[0]
 
 
-@pxt.udf(batch_size=4)
+@pxt.udf
 def text_to_speech(
-    text: Batch[str], *, model_id: str, speaker_id: Optional[int] = None, vocoder: Optional[str] = None
+    text: str, *, model_id: str, speaker_id: Optional[int] = None, vocoder: Optional[str] = None
 ) -> Batch[pxt.Audio]:
     """
     Converts text to speech using a pretrained TTS model. `model_id` should be a reference to a
@@ -1110,48 +1111,39 @@ def text_to_speech(
         embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
         speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
-    results: list[pxt.Audio] = []
-
     # Process each text input - following pattern from other functions
     with torch.no_grad():
-        for text_input in text:
-            if not text_input or not text_input.strip():
-                results.append(None)
-                continue
+        # Generate speech based on model type
+        if 'speecht5' in model_id.lower():
+            inputs = processor(text=text, return_tensors='pt').to(device)
+            speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)
+            audio_np = speech.cpu().numpy()
+            sample_rate = 16000
 
-            # Generate speech based on model type
-            if 'speecht5' in model_id.lower():
-                inputs = processor(text=text_input, return_tensors='pt').to(device)
-                speech = model.generate_speech(inputs['input_ids'], speaker_embeddings, vocoder=vocoder_model)
-                audio_np = speech.cpu().numpy()
-                sample_rate = 16000
+        elif 'bark' in model_id.lower():
+            inputs = processor(text, return_tensors='pt').to(device)
+            audio_array = model.generate(**inputs)
+            audio_np = audio_array.cpu().numpy().squeeze()
+            sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
 
-            elif 'bark' in model_id.lower():
-                inputs = processor(text_input, return_tensors='pt').to(device)
-                audio_array = model.generate(**inputs)
-                audio_np = audio_array.cpu().numpy().squeeze()
-                sample_rate = getattr(model.generation_config, 'sample_rate', 24000)
+        else:
+            # Generic approach for other TTS models
+            inputs = processor(text, return_tensors='pt').to(device)
+            audio_output = model(**inputs)
+            audio_np = audio_output.waveform.cpu().numpy().squeeze()
+            sample_rate = getattr(model.config, 'sample_rate', 22050)
 
-            else:
-                # Generic approach for other TTS models
-                inputs = processor(text_input, return_tensors='pt').to(device)
-                audio_output = model(**inputs)
-                audio_np = audio_output.waveform.cpu().numpy().squeeze()
-                sample_rate = getattr(model.config, 'sample_rate', 22050)
+        # Normalize audio - following consistent pattern
+        if audio_np.dtype != np.float32:
+            audio_np = audio_np.astype(np.float32)
 
-            # Normalize audio - following consistent pattern
-            if audio_np.dtype != np.float32:
-                audio_np = audio_np.astype(np.float32)
+        if np.max(np.abs(audio_np)) > 0:
+            audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
 
-            if np.max(np.abs(audio_np)) > 0:
-                audio_np = audio_np / np.max(np.abs(audio_np)) * 0.9
-
-            # Create output file
-            output_filename = str(env.Env.get().create_tmp_path('.wav'))
-            sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
-            results.append(output_filename)
-
-    return results
+        # Create output file
+        output_filename = str(TempStore.create_path(extension='.wav'))
+        sf.write(output_filename, audio_np, sample_rate, format='WAV', subtype='PCM_16')
+        return output_filename
 
 
 @pxt.udf
@@ -1199,6 +1191,9 @@ def image_to_image(
     import torch
     from diffusers import StableDiffusionImg2ImgPipeline
 
+    if model_kwargs is None:
+        model_kwargs = {}
+
     pipe = _lookup_model(
         model_id,
         lambda x: StableDiffusionImg2ImgPipeline.from_pretrained(
@@ -1232,15 +1227,15 @@ def image_to_image(
         return result.images[0]
 
 
-@pxt.udf(batch_size=4)
+@pxt.udf
 def automatic_speech_recognition(
-    audio: Batch[pxt.Audio],
+    audio: pxt.Audio,
     *,
     model_id: str,
     language: Optional[str] = None,
     chunk_length_s: Optional[int] = None,
     return_timestamps: bool = False,
-) -> Batch[str]:
+) -> str:
     """
     Transcribes speech to text using a pretrained ASR model. `model_id` should be a reference to a
     pretrained [automatic-speech-recognition model](https://huggingface.co/models?pipeline_tag=automatic-speech-recognition).
@@ -1293,131 +1288,106 @@ def automatic_speech_recognition(
     import torchaudio
 
     # Try to load model and processor using direct model loading - following speech2text pattern
-    try:
-        # Handle different ASR model types
-        if 'whisper' in model_id.lower():
-            from transformers import WhisperForConditionalGeneration, WhisperProcessor
+    # Handle different ASR model types
+    if 'whisper' in model_id.lower():
+        from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
-            model = _lookup_model(model_id, WhisperForConditionalGeneration.from_pretrained, device=device)
-            processor = _lookup_processor(model_id, WhisperProcessor.from_pretrained)
+        model = _lookup_model(model_id, WhisperForConditionalGeneration.from_pretrained, device=device)
+        processor = _lookup_processor(model_id, WhisperProcessor.from_pretrained)
 
-            # Language validation for Whisper - following speech2text pattern
-            if language is not None and hasattr(processor.tokenizer, 'get_decoder_prompt_ids'):
-                try:
-                    # Test if language is supported
-                    _ = processor.tokenizer.get_decoder_prompt_ids(language=language)
-                except Exception:
-                    raise excs.Error(
-                        f"Language code '{language}' is not supported by Whisper model '{model_id}'. "
-                        f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'."
-                    ) from None
-
-        elif 'wav2vec2' in model_id.lower():
-            from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-
-            model = _lookup_model(model_id, Wav2Vec2ForCTC.from_pretrained, device=device)
-            processor = _lookup_processor(model_id, Wav2Vec2Processor.from_pretrained)
-
-        elif 'speech_to_text' in model_id.lower() or 's2t' in model_id.lower():
-            # Use the existing speech2text function for these models
-            from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
-
-            model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
-            processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
-
-        else:
-            # Generic fallback using Auto classes
-            from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
-
+        # Language validation for Whisper - following speech2text pattern
+        if language is not None and hasattr(processor.tokenizer, 'get_decoder_prompt_ids'):
             try:
-                model = _lookup_model(model_id, AutoModelForSpeechSeq2Seq.from_pretrained, device=device)
-                processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+                # Test if language is supported
+                _ = processor.tokenizer.get_decoder_prompt_ids(language=language)
             except Exception:
-                # Fallback to CTC models
-                from transformers import AutoModelForCTC
+                raise excs.Error(
+                    f"Language code '{language}' is not supported by Whisper model '{model_id}'. "
+                    f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'."
+                ) from None
 
-                model = _lookup_model(model_id, AutoModelForCTC.from_pretrained, device=device)
-                processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+    elif 'wav2vec2' in model_id.lower():
+        from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
-    except Exception as e:
-        raise excs.Error(
-            f'Error loading ASR model {model_id}: {e}\n'
-            f'Try these recommended models instead:\n'
-            f'  - openai/whisper-tiny.en (lightweight)\n'
-            f'  - facebook/wav2vec2-base-960h (English)\n'
-            f'  - facebook/mms-1b-all (multilingual)'
-        ) from e
+        model = _lookup_model(model_id, Wav2Vec2ForCTC.from_pretrained, device=device)
+        processor = _lookup_processor(model_id, Wav2Vec2Processor.from_pretrained)
 
-    results = []
+    elif 'speech_to_text' in model_id.lower() or 's2t' in model_id.lower():
+        # Use the existing speech2text function for these models
+        from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
+
+        model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
+        processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
+
+    else:
+        # Generic fallback using Auto classes
+        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+
+        try:
+            model = _lookup_model(model_id, AutoModelForSpeechSeq2Seq.from_pretrained, device=device)
+            processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
+        except Exception:
+            # Fallback to CTC models
+            from transformers import AutoModelForCTC
+
+            model = _lookup_model(model_id, AutoModelForCTC.from_pretrained, device=device)
+            processor = _lookup_processor(model_id, AutoProcessor.from_pretrained)
 
     # Get model's expected sampling rate - following speech2text pattern
     model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
 
-    for audio_file in audio:
-        try:
-            if audio_file is None:
-                results.append('')
-                continue
+    # Load and preprocess audio - following speech2text pattern
+    waveform, sampling_rate = torchaudio.load(audio)
 
-            # Load and preprocess audio - following speech2text pattern
-            waveform, sampling_rate = torchaudio.load(audio_file)
+    # Resample if necessary
+    if sampling_rate != model_sampling_rate:
+        waveform = torchaudio.transforms.Resample(sampling_rate, model_sampling_rate)(waveform)
 
-            # Resample if necessary
-            if sampling_rate != model_sampling_rate:
-                waveform = torchaudio.transforms.Resample(sampling_rate, model_sampling_rate)(waveform)
+    # Convert to mono if stereo
+    if waveform.dim() == 2:
+        waveform = torch.mean(waveform, dim=0)
+    assert waveform.dim() == 1
 
-            # Convert to mono if stereo
-            if waveform.dim() == 2:
-                waveform = torch.mean(waveform, dim=0)
-            assert waveform.dim() == 1
+    with torch.no_grad():
+        # Process audio with the model
+        inputs = processor(waveform, sampling_rate=model_sampling_rate, return_tensors='pt')
 
-            with torch.no_grad():
-                # Process audio with the model
-                inputs = processor(waveform, sampling_rate=model_sampling_rate, return_tensors='pt')
+        # Handle different model types for generation
+        if 'whisper' in model_id.lower():
+            # Whisper-specific generation
+            generate_kwargs = {}
+            if language is not None:
+                generate_kwargs['language'] = language
+            if return_timestamps:
+                generate_kwargs['return_timestamps'] = 'word' if return_timestamps else None
 
-                # Handle different model types for generation
-                if 'whisper' in model_id.lower():
-                    # Whisper-specific generation
-                    generate_kwargs = {}
-                    if language is not None:
-                        generate_kwargs['language'] = language
-                    if return_timestamps:
-                        generate_kwargs['return_timestamps'] = 'word' if return_timestamps else None
+            generated_ids = model.generate(**inputs.to(device), **generate_kwargs)
+            transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
-                    generated_ids = model.generate(**inputs.to(device), **generate_kwargs)
-                    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        elif hasattr(model, 'generate'):
+            # Seq2Seq models (Speech2Text, etc.)
+            generated_ids = model.generate(**inputs.to(device))
+            transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
-                elif hasattr(model, 'generate'):
-                    # Seq2Seq models (Speech2Text, etc.)
-                    generated_ids = model.generate(**inputs.to(device))
-                    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        else:
+            # CTC models (Wav2Vec2, etc.)
+            logits = model(**inputs.to(device)).logits
+            predicted_ids = torch.argmax(logits, dim=-1)
+            transcription = processor.batch_decode(predicted_ids)[0]
 
-                else:
-                    # CTC models (Wav2Vec2, etc.)
-                    logits = model(**inputs.to(device)).logits
-                    predicted_ids = torch.argmax(logits, dim=-1)
-                    transcription = processor.batch_decode(predicted_ids)[0]
-
-            results.append(transcription.strip())
-
-        except Exception:
-            # Follow speech2text pattern - append empty string on error rather than None
-            results.append('')
-
-    return results
+    return transcription.strip()
 
 
-@pxt.udf(batch_size=1)
+@pxt.udf
 def image_to_video(
-    image: Batch[PIL.Image.Image],
+    image: PIL.Image.Image,
     *,
     model_id: str,
     num_frames: int = 25,
     fps: int = 7,
-    num_inference_steps: int = 25,
-    motion_scale: float = 1.3,
     seed: Optional[int] = None,
-) -> Batch[pxt.Video]:
+    model_kwargs: Optional[dict[str, Any]] = None,
+) -> pxt.Video:
     """
     Generates videos from input images using a pretrained image-to-video model.
     `model_id` should be a reference to a pretrained
@@ -1425,16 +1395,16 @@ def image_to_video(
 
     __Requirements:__
 
-    - `pip install torch transformers diffusers accelerate av`
+    - `pip install torch transformers diffusers accelerate`
 
     Args:
         image: The input image to animate into a video.
         model_id: The pretrained image-to-video model to use.
         num_frames: Number of video frames to generate.
         fps: Frames per second for the output video.
-        num_inference_steps: Number of denoising steps (more steps = higher quality, slower).
-        motion_scale: How much motion/animation to add (higher = more movement).
         seed: Random seed for reproducibility.
+        model_kwargs: Additional keyword arguments to pass to the model, such as `num_inference_steps`,
+            `motion_bucket_id`, or `guidance_scale`.
 
     Returns:
         The generated video file.
@@ -1452,19 +1422,14 @@ def image_to_video(
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('diffusers')
     env.Env.get().require_package('accelerate')
-    device = resolve_torch_device('auto')
+    device = resolve_torch_device('auto', allow_mps=False)
     import numpy as np
     import torch
 
-    # Check for av package separately since it's more specialized
-    try:
-        import av
-    except ImportError:
-        raise excs.Error(
-            'The "av" package is required for video generation. Install it with:\npip install av'
-        ) from None
-
     from diffusers import StableVideoDiffusionPipeline
+
+    if model_kwargs is None:
+        model_kwargs = {}
 
     # Parameter validation - following best practices pattern
     if num_frames < 1:
@@ -1479,33 +1444,16 @@ def image_to_video(
     if fps > 60:
         raise excs.Error(f'fps should not exceed 60 for reasonable video generation, got {fps}')
 
-    if num_inference_steps < 1:
-        raise excs.Error(f'num_inference_steps must be at least 1, got {num_inference_steps}')
+    pipe = _lookup_model(
+        model_id,
+        lambda x: StableVideoDiffusionPipeline.from_pretrained(
+            x,
+            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+            variant='fp16' if device == 'cuda' else None,
+        ),
+        device=device,
+    )
 
-    if not (0.0 <= motion_scale <= 10.0):
-        raise excs.Error(f'motion_scale should be between 0.0 and 10.0, got {motion_scale}')
-
-    # Model loading with error handling - following best practices pattern
-    try:
-        pipe = _lookup_model(
-            model_id,
-            lambda x: StableVideoDiffusionPipeline.from_pretrained(
-                x,
-                torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-                variant='fp16' if device == 'cuda' else None,
-            ),
-            device=device,
-        )
-    except Exception as e:
-        raise excs.Error(
-            f'Error loading image-to-video model {model_id}: {e}\n'
-            f'Try these recommended models instead:\n'
-            f'  - stabilityai/stable-video-diffusion-img2vid-xt (recommended)\n'
-            f'  - stabilityai/stable-video-diffusion-img2vid (lightweight)\n'
-            f'Note: Image-to-video models require significant GPU memory'
-        ) from e
-
-    # Apply optimizations with error handling - following best practices
     try:
         if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
             pipe.enable_model_cpu_offload()
@@ -1514,81 +1462,54 @@ def image_to_video(
     except Exception:
         pass  # Ignore optimization failures
 
-    # Set random seed if provided - following best practices pattern
-    generator = None
-    if seed is not None:
-        generator = torch.Generator(device=device).manual_seed(seed)
+    generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
-    results: list[pxt.Video | None] = []
-    for input_image in image:
-        try:
-            # Input validation per item
-            if input_image is None:
-                results.append(None)
-                continue
+    # Ensure image is in RGB mode and proper size
+    processed_image = image.convert('RGB')
+    target_width, target_height = 512, 320
+    processed_image = processed_image.resize((target_width, target_height), PIL.Image.Resampling.LANCZOS)
 
-            # Ensure image is in RGB mode and proper size
-            processed_image = input_image.convert('RGB') if input_image.mode != 'RGB' else input_image
+    # Generate video frames with proper error handling
+    with torch.no_grad():
+        result = pipe(
+            image=processed_image,
+            num_frames=num_frames,
+            generator=generator,
+            **model_kwargs
+        )
+        frames = result.frames[0]
 
-            # Resize image to model requirements (using smaller resolution to save memory)
-            _width, _height = processed_image.size
-            # Use smaller resolution for better memory efficiency
-            target_width, target_height = 512, 320  # Reduced from 1024x576
-            processed_image = processed_image.resize((target_width, target_height), PIL.Image.Resampling.LANCZOS)
+    # Create output video file
+    output_path = TempStore.create_path('.mp4')
 
-            # Generate video frames with proper error handling
-            with torch.no_grad():
-                result = pipe(
-                    image=processed_image,
-                    decode_chunk_size=8,
-                    generator=generator,
-                    motion_bucket_id=int(motion_scale * 100),  # Controls motion intensity (0-255)
-                    noise_aug_strength=0.02,
-                    num_inference_steps=num_inference_steps,
-                    num_frames=num_frames,
-                )
+    # Write frames to video using av with better error handling
+    try:
+        with av.open(output_path, mode='w') as container:
+            stream = container.add_stream('h264', rate=fps)
+            stream.width = target_width
+            stream.height = target_height
+            stream.pix_fmt = 'yuv420p'
 
-                if hasattr(result, 'frames') and len(result.frames) > 0:
-                    frames = result.frames[0]
-                else:
-                    raise excs.Error('Pipeline returned no frames')
+            # Set codec options for better compatibility
+            stream.codec_context.options = {'crf': '23', 'preset': 'medium'}
 
-            # Create output video file
-            output_path = str(env.Env.get().create_tmp_path('.mp4'))
+            for frame_pil in frames:
+                # Convert PIL to numpy array
+                frame_array = np.array(frame_pil)
+                # Create av VideoFrame
+                av_frame = av.VideoFrame.from_ndarray(frame_array, format='rgb24')
+                # Encode and mux
+                for packet in stream.encode(av_frame):
+                    container.mux(packet)
 
-            # Write frames to video using av with better error handling
-            try:
-                with av.open(output_path, mode='w') as container:
-                    stream = container.add_stream('h264', rate=fps)
-                    stream.width = target_width
-                    stream.height = target_height
-                    stream.pix_fmt = 'yuv420p'
+            # Flush encoder
+            for packet in stream.encode():
+                container.mux(packet)
 
-                    # Set codec options for better compatibility
-                    stream.codec_context.options = {'crf': '23', 'preset': 'medium'}
+    except Exception as video_error:
+        raise excs.Error(f'Error creating video file: {video_error}') from video_error
 
-                    for frame_pil in frames:
-                        # Convert PIL to numpy array
-                        frame_array = np.array(frame_pil)
-                        # Create av VideoFrame
-                        av_frame = av.VideoFrame.from_ndarray(frame_array, format='rgb24')
-                        # Encode and mux
-                        for packet in stream.encode(av_frame):
-                            container.mux(packet)
-
-                    # Flush encoder
-                    for packet in stream.encode():
-                        container.mux(packet)
-
-            except Exception as video_error:
-                raise excs.Error(f'Error creating video file: {video_error}') from video_error
-
-            results.append(output_path)
-
-        except Exception:
-            results.append(None)
-
-    return results
+    return output_path
 
 
 def _lookup_model(
