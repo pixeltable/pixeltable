@@ -672,10 +672,10 @@ def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dic
     return tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
 
-@pxt.udf(batch_size=16)
+@pxt.udf
 def token_classification(
-    text: Batch[str], *, model_id: str, aggregation_strategy: Literal['simple', 'first', 'average', 'max'] = 'simple'
-) -> Batch[list[dict[str, Any]]]:
+    text: str, *, model_id: str, aggregation_strategy: Literal['simple', 'first', 'average', 'max'] = 'simple'
+) -> list[dict[str, Any]]:
     """
     Extracts named entities from text using a pretrained named entity recognition (NER) model.
     `model_id` should be a reference to a pretrained
@@ -717,109 +717,104 @@ def token_classification(
             f"Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {', '.join(valid_strategies)}"
         )
 
-    results = []
-
     with torch.no_grad():
-        for txt in text:
-            # Tokenize with special tokens and return offsets for entity extraction
-            inputs = tokenizer(
-                txt,
-                return_tensors='pt',
-                truncation=True,
-                max_length=512,
-                return_offsets_mapping=True,
-                add_special_tokens=True,
-            )
+        # Tokenize with special tokens and return offsets for entity extraction
+        inputs = tokenizer(
+            text,
+            return_tensors='pt',
+            truncation=True,
+            max_length=512,
+            return_offsets_mapping=True,
+            add_special_tokens=True,
+        )
 
-            # Get model predictions
-            outputs = model(**{k: v.to(device) for k, v in inputs.items() if k != 'offset_mapping'})
-            predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+        # Get model predictions
+        outputs = model(**{k: v.to(device) for k, v in inputs.items() if k != 'offset_mapping'})
+        predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
 
-            # Get the predicted labels and confidence scores
-            predicted_token_classes = predictions.argmax(dim=-1).squeeze().tolist()
-            confidence_scores = predictions.max(dim=-1).values.squeeze().tolist()
+        # Get the predicted labels and confidence scores
+        predicted_token_classes = predictions.argmax(dim=-1).squeeze().tolist()
+        confidence_scores = predictions.max(dim=-1).values.squeeze().tolist()
 
-            # Handle single token case
-            if not isinstance(predicted_token_classes, list):
-                predicted_token_classes = [predicted_token_classes]
-                confidence_scores = [confidence_scores]
+        # Handle single token case
+        if not isinstance(predicted_token_classes, list):
+            predicted_token_classes = [predicted_token_classes]
+            confidence_scores = [confidence_scores]
 
-            # Extract entities from predictions
-            entities = []
-            offset_mapping = inputs['offset_mapping'][0].tolist()
+        # Extract entities from predictions
+        entities = []
+        offset_mapping = inputs['offset_mapping'][0].tolist()
 
-            current_entity = None
+        current_entity = None
 
-            for _i, (token_class, confidence, (start_offset, end_offset)) in enumerate(
-                zip(predicted_token_classes, confidence_scores, offset_mapping)
-            ):
-                # Skip special tokens (offset is (0, 0))
-                if start_offset == 0 and end_offset == 0:
-                    continue
+        for _i, (token_class, confidence, (start_offset, end_offset)) in enumerate(
+            zip(predicted_token_classes, confidence_scores, offset_mapping)
+        ):
+            # Skip special tokens (offset is (0, 0))
+            if start_offset == 0 and end_offset == 0:
+                continue
 
-                label = model.config.id2label[token_class]
+            label = model.config.id2label[token_class]
 
-                # Skip 'O' (outside) labels
-                if label == 'O':
-                    if current_entity:
-                        entities.append(current_entity)
-                        current_entity = None
-                    continue
+            # Skip 'O' (outside) labels
+            if label == 'O':
+                if current_entity:
+                    entities.append(current_entity)
+                    current_entity = None
+                continue
 
-                # Parse BIO/BILOU tags
-                if label.startswith('B-') or (label.startswith('I-') and current_entity is None):
-                    # Begin new entity
-                    if current_entity:
-                        entities.append(current_entity)
+            # Parse BIO/BILOU tags
+            if label.startswith('B-') or (label.startswith('I-') and current_entity is None):
+                # Begin new entity
+                if current_entity:
+                    entities.append(current_entity)
 
-                    entity_type = label[2:] if label.startswith(('B-', 'I-')) else label
+                entity_type = label[2:] if label.startswith(('B-', 'I-')) else label
+                current_entity = {
+                    'word': text[start_offset:end_offset],
+                    'entity_group': entity_type,
+                    'score': float(confidence),
+                    'start': start_offset,
+                    'end': end_offset,
+                }
+
+            elif label.startswith('I-') and current_entity:
+                # Continue current entity
+                entity_type = label[2:]
+                if current_entity['entity_group'] == entity_type:
+                    # Extend the current entity
+                    current_entity['word'] = text[current_entity['start'] : end_offset]
+                    current_entity['end'] = end_offset
+
+                    # Update confidence based on aggregation strategy
+                    if aggregation_strategy == 'average':
+                        # Simple average (could be improved with token count weighting)
+                        current_entity['score'] = (current_entity['score'] + float(confidence)) / 2
+                    elif aggregation_strategy == 'max':
+                        current_entity['score'] = max(current_entity['score'], float(confidence))
+                    elif aggregation_strategy == 'first':
+                        pass  # Keep first confidence
+                    # 'simple' uses the same logic as 'first'
+                else:
+                    # Different entity type, start new entity
+                    entities.append(current_entity)
                     current_entity = {
-                        'word': txt[start_offset:end_offset],
+                        'word': text[start_offset:end_offset],
                         'entity_group': entity_type,
                         'score': float(confidence),
                         'start': start_offset,
                         'end': end_offset,
                     }
 
-                elif label.startswith('I-') and current_entity:
-                    # Continue current entity
-                    entity_type = label[2:]
-                    if current_entity['entity_group'] == entity_type:
-                        # Extend the current entity
-                        current_entity['word'] = txt[current_entity['start'] : end_offset]
-                        current_entity['end'] = end_offset
+        # Don't forget the last entity
+        if current_entity:
+            entities.append(current_entity)
 
-                        # Update confidence based on aggregation strategy
-                        if aggregation_strategy == 'average':
-                            # Simple average (could be improved with token count weighting)
-                            current_entity['score'] = (current_entity['score'] + float(confidence)) / 2
-                        elif aggregation_strategy == 'max':
-                            current_entity['score'] = max(current_entity['score'], float(confidence))
-                        elif aggregation_strategy == 'first':
-                            pass  # Keep first confidence
-                        # 'simple' uses the same logic as 'first'
-                    else:
-                        # Different entity type, start new entity
-                        entities.append(current_entity)
-                        current_entity = {
-                            'word': txt[start_offset:end_offset],
-                            'entity_group': entity_type,
-                            'score': float(confidence),
-                            'start': start_offset,
-                            'end': end_offset,
-                        }
-
-            # Don't forget the last entity
-            if current_entity:
-                entities.append(current_entity)
-
-            results.append(entities)
-
-    return results
+        return entities
 
 
-@pxt.udf(batch_size=8)
-def question_answering(context: Batch[str], question: Batch[str], *, model_id: str) -> Batch[dict[str, Any]]:
+@pxt.udf
+def question_answering(context: str, question: str, *, model_id: str) -> dict[str, Any]:
     """
     Answers questions based on provided context using a pretrained QA model. `model_id` should be a reference to a
     pretrained [question answering model](https://huggingface.co/models?pipeline_tag=question-answering) such as
@@ -854,43 +849,38 @@ def question_answering(context: Batch[str], question: Batch[str], *, model_id: s
     model = _lookup_model(model_id, AutoModelForQuestionAnswering.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
 
-    results = []
-
     with torch.no_grad():
-        for i in range(len(context)):
-            # Tokenize the question and context
-            inputs = tokenizer.encode_plus(
-                question[i], context[i], add_special_tokens=True, return_tensors='pt', truncation=True, max_length=512
-            )
+        # Tokenize the question and context
+        inputs = tokenizer.encode_plus(
+            question, context, add_special_tokens=True, return_tensors='pt', truncation=True, max_length=512
+        )
 
-            # Get model predictions
-            outputs = model(**inputs.to(device))
-            start_scores = outputs.start_logits
-            end_scores = outputs.end_logits
+        # Get model predictions
+        outputs = model(**inputs.to(device))
+        start_scores = outputs.start_logits
+        end_scores = outputs.end_logits
 
-            # Find the tokens with the highest start and end scores
-            start_idx = torch.argmax(start_scores)
-            end_idx = torch.argmax(end_scores)
+        # Find the tokens with the highest start and end scores
+        start_idx = torch.argmax(start_scores)
+        end_idx = torch.argmax(end_scores)
 
-            # Ensure end_idx >= start_idx
-            if end_idx < start_idx:
-                end_idx = start_idx
+        # Ensure end_idx >= start_idx
+        if end_idx < start_idx:
+            end_idx = start_idx
 
-            # Convert token positions to string
-            input_ids = inputs['input_ids'][0]
+        # Convert token positions to string
+        input_ids = inputs['input_ids'][0]
 
-            # Extract answer tokens
-            answer_tokens = input_ids[start_idx : end_idx + 1]
-            answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
+        # Extract answer tokens
+        answer_tokens = input_ids[start_idx : end_idx + 1]
+        answer = tokenizer.decode(answer_tokens, skip_special_tokens=True)
 
-            # Calculate confidence score
-            start_probs = torch.softmax(start_scores, dim=1)
-            end_probs = torch.softmax(end_scores, dim=1)
-            confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
+        # Calculate confidence score
+        start_probs = torch.softmax(start_scores, dim=1)
+        end_probs = torch.softmax(end_scores, dim=1)
+        confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
 
-            results.append(
-                {'answer': answer.strip(), 'score': confidence, 'start': int(start_idx), 'end': int(end_idx)}
-            )
+        return {'answer': answer.strip(), 'score': confidence, 'start': int(start_idx), 'end': int(end_idx)}
 
     return results
 
@@ -964,6 +954,7 @@ def translation(
     return translations
 
 
+@pxt.udf
 def text_to_image(
     prompt: str,
     *,
@@ -1163,6 +1154,7 @@ def text_to_speech(
     return results
 
 
+@pxt.udf
 def image_to_image(
     image: PIL.Image.Image,
     prompt: str,

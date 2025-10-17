@@ -267,8 +267,8 @@ class TestHuggingface:
             for item in result['sentiment']:
                 assert 'label' in item
                 assert 'score' in item
-        assert results[0]['sentiment'][0]['label'] == 'positive'
-        assert results[1]['sentiment'][0]['label'] == 'negative'
+        assert results[0]['sentiment'][0]['label_text'] == 'positive'
+        assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
     def test_image_captioning(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
@@ -345,7 +345,7 @@ class TestHuggingface:
 
         # Test with Helsinki-NLP translation model
         t.add_computed_column(
-            french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr', src_lang='en', target_lang='fr')
+            french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr')
         )
 
         validate_update_status(t.insert(text=english_text), expected_rows=1)
@@ -461,8 +461,7 @@ class TestHuggingface:
                 t.img,
                 t.prompt,
                 model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
-                strength=0.5,
-                num_inference_steps=10,  # Fewer steps for testing
+                model_kwargs={'strength': 0.5, 'num_inference_steps': 10},
             )
         )
 
