@@ -270,6 +270,7 @@ class TestHuggingface:
         assert results[0]['sentiment'][0]['label_text'] == 'positive'
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
+    @pytest.mark.expensive
     def test_image_captioning(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import image_captioning
@@ -303,7 +304,7 @@ class TestHuggingface:
 
         # Test with BART model
         t.add_computed_column(
-            summary=summarization(t.text, model_id='facebook/bart-large-cnn', model_kwargs={'max_length': 50, 'min_length': 10})
+            summary=summarization(t.text, model_id='Falconsai/text_summarization', model_kwargs={'max_length': 50, 'min_length': 10})
         )
 
         validate_update_status(t.insert(text=long_text), expected_rows=1)
@@ -366,7 +367,7 @@ class TestHuggingface:
         # Test with BERT NER model
         t.add_computed_column(
             entities=token_classification(
-                t.text, model_id='dbmdz/bert-large-cased-finetuned-conll03-english', aggregation_strategy='simple'
+                t.text, model_id='dslim/bert-base-NER', aggregation_strategy='simple'
             )
         )
 
@@ -381,7 +382,6 @@ class TestHuggingface:
             assert 'score' in entity
             assert 'word' in entity
 
-    @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
     def test_automatic_speech_recognition(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import automatic_speech_recognition
@@ -420,6 +420,7 @@ class TestHuggingface:
         assert result['audio'] is not None
         # Audio should be pxt.Audio type - basic check that it's not empty
 
+    @pytest.mark.expensive
     def test_text_to_image(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -445,8 +446,8 @@ class TestHuggingface:
 
         # Verify we got an image
         assert result['image'] is not None
-        # Should be a PIL Image or similar
 
+    @pytest.mark.expensive
     def test_image_to_image(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -470,8 +471,8 @@ class TestHuggingface:
 
         # Verify we got a modified image
         assert result['modified_image'] is not None
-        # Should be a PIL Image or similar
 
+    @pytest.mark.expensive
     def test_image_to_video(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -479,12 +480,11 @@ class TestHuggingface:
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
 
-        # Test with I2VGen-XL (use minimal settings for testing)
         t.add_computed_column(
             video=image_to_video(
                 t.img,
-                model_id='ali-vilab/i2vgen-xl',
-                num_frames=8,  # Minimal frames for testing
+                model_id='stabilityai/stable-video-diffusion-img2vid-xt',
+                num_frames=2,  # Minimal frames for testing
                 model_kwargs={'num_inference_steps': 5},
             )
         )
@@ -494,4 +494,3 @@ class TestHuggingface:
 
         # Verify we got a video
         assert result['video'] is not None
-        # Should be pxt.Video type

@@ -1384,7 +1384,7 @@ def image_to_video(
     *,
     model_id: str,
     num_frames: int = 25,
-    fps: int = 7,
+    fps: int = 6,
     seed: Optional[int] = None,
     model_kwargs: Optional[dict[str, Any]] = None,
 ) -> pxt.Video:
@@ -1480,34 +1480,29 @@ def image_to_video(
         frames = result.frames[0]
 
     # Create output video file
-    output_path = TempStore.create_path('.mp4')
+    output_path = str(TempStore.create_path(extension='.mp4'))
 
-    # Write frames to video using av with better error handling
-    try:
-        with av.open(output_path, mode='w') as container:
-            stream = container.add_stream('h264', rate=fps)
-            stream.width = target_width
-            stream.height = target_height
-            stream.pix_fmt = 'yuv420p'
+    with av.open(output_path, mode='w') as container:
+        stream = container.add_stream('h264', rate=fps)
+        stream.width = target_width
+        stream.height = target_height
+        stream.pix_fmt = 'yuv420p'
 
-            # Set codec options for better compatibility
-            stream.codec_context.options = {'crf': '23', 'preset': 'medium'}
+        # Set codec options for better compatibility
+        stream.codec_context.options = {'crf': '23', 'preset': 'medium'}
 
-            for frame_pil in frames:
-                # Convert PIL to numpy array
-                frame_array = np.array(frame_pil)
-                # Create av VideoFrame
-                av_frame = av.VideoFrame.from_ndarray(frame_array, format='rgb24')
-                # Encode and mux
-                for packet in stream.encode(av_frame):
-                    container.mux(packet)
-
-            # Flush encoder
-            for packet in stream.encode():
+        for frame_pil in frames:
+            # Convert PIL to numpy array
+            frame_array = np.array(frame_pil)
+            # Create av VideoFrame
+            av_frame = av.VideoFrame.from_ndarray(frame_array, format='rgb24')
+            # Encode and mux
+            for packet in stream.encode(av_frame):
                 container.mux(packet)
 
-    except Exception as video_error:
-        raise excs.Error(f'Error creating video file: {video_error}') from video_error
+        # Flush encoder
+        for packet in stream.encode():
+            container.mux(packet)
 
     return output_path
 
