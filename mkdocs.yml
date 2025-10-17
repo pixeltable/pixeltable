@@ -19,7 +19,7 @@ extra_css:
 nav:
   - Home: index.md
   - 'API Cheat Sheet': api-cheat-sheet.md
-  - 'Configuration Options': https://docs.pixeltable.com/docs/overview/configuration
+  - 'Configuration Options': https://docs.pixeltable.com/overview/configuration
   - 'API Reference':
     - pixeltable: pixeltable/pixeltable.md
     - pixeltable.io: pixeltable/io.md
@@ -61,6 +61,7 @@ nav:
     - mistralai: pixeltable/functions/mistralai.md
     - ollama: pixeltable/functions/ollama.md
     - openai: pixeltable/functions/openai.md
+    - openrouter: pixeltable/functions/openrouter.md
     - replicate: pixeltable/functions/replicate.md
     - together: pixeltable/functions/together.md
     - whisper: pixeltable/functions/whisper.md

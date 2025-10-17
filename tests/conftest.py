@@ -3,7 +3,7 @@ import logging
 import os
 import pathlib
 import shutil
-from typing import Callable, Iterator
+from typing import Callable
 
 import pytest
 import requests
@@ -47,17 +47,17 @@ def pytest_configure(config: PytestConfig) -> None:
     DO_RERUN = not config.getoption('--no-rerun')
 
 
-@pytest.fixture(autouse=True)
-def pxt_test_harness() -> Iterator[None]:
+def pytest_runtest_setup(item: pytest.Item) -> None:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
     pxtf.huggingface._model_cache.clear()
     pxtf.huggingface._processor_cache.clear()
 
-    yield
 
+def pytest_runtest_teardown(item: pytest.Item) -> None:
     if IN_CI:
         _free_disk_space()
+    current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
@@ -75,6 +75,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
+    os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
@@ -86,6 +87,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
         'PIXELTABLE_CONFIG',
         'PIXELTABLE_DB',
         'PIXELTABLE_PGDATA',
+        'PIXELTABLE_API_URL',
         'FIFTYONE_DATABASE_DIR',
         'PIXELTABLE_DB_CONNECT_STR',
     ):

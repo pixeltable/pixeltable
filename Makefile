@@ -61,7 +61,7 @@ help:
 	@echo '  typecheck     Run `mypy`'
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
-	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)
+	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 
 .PHONY: setup-install
 setup-install:
@@ -83,10 +83,10 @@ endif
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.8.2
 	@echo 'Installing ffmpeg ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1'
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 	@$(TOUCH) .make-install/uv
 
-.make-install/deps: uv.lock
+.make-install/deps: pyproject.toml uv.lock
 	@echo 'Installing dependencies from uv ...'
 	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
 	@$(TOUCH) .make-install/deps
@@ -124,8 +124,8 @@ fullpytest: install
 .PHONY: nbtest
 nbtest: install
 	@echo 'Running `pytest` on notebooks ...'
-	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
+	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
+	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) tests/target/nb-tests/*.ipynb
 
 .PHONY: stresstest
 stresstest: install
@@ -176,3 +176,4 @@ clean:
 	@$(RMDIR) .make-install || true
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
+	@$(RMDIR) tests/target || true

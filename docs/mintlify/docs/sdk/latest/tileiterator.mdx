@@ -1,0 +1,96 @@
+---
+title: "pixeltable.iterators.TileIterator"
+sidebarTitle: "TileIterator"
+icon: "square-c"
+---
+
+Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with blackspace, so that the output images all have the exact size `tile_size`.
+
+Args: image: Image to split into tiles. tile_size: Size of each tile, as a pair of integers `[width, height]`. overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/image.py#L10" target="_blank">View source on GitHub</a>
+
+## Methods
+
+
+---
+
+### `close()`
+
+Close the iterator and release all resources
+
+
+**Signature:**
+
+```python
+close()-> None
+```
+
+
+---
+
+### `create()`
+
+**Signature:**
+
+```python
+create(**kwargs: Any)-> tuple[type[ComponentIterator], dict[str, Any]]
+```
+
+
+---
+
+### `input_schema()`
+
+Provide the Pixeltable types of the init() parameters
+
+
+The keys need to match the names of the init() parameters. This is equivalent to the parameters_types parameter of the @function decorator.
+
+
+**Signature:**
+
+```python
+input_schema(
+    *args: Any,
+    **kwargs: Any
+)-> dict[str, pixeltable.type_system.ColumnType]
+```
+
+
+---
+
+### `output_schema()`
+
+Specify the dictionary returned by next() and a list of unstored column names
+
+
+**Signature:**
+
+```python
+output_schema(
+    *args: Any,
+    **kwargs: Any
+)-> tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]
+```
+
+**Returns:**
+
+- *tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]*: a dictionary which is turned into a list of columns in the output table a list of unstored column names
+
+
+
+---
+
+### `set_pos()`
+
+Set the iterator position to pos
+
+
+**Signature:**
+
+```python
+set_pos(pos: int)-> None
+```
+

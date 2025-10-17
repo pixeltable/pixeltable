@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import io
 import urllib.parse
@@ -13,15 +14,72 @@ import PIL
 import PIL.Image
 import sqlalchemy as sql
 
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, env
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.misc import non_none_dict_factory
+
+
+@dataclasses.dataclass
+class ArrayMd:
+    """
+    Metadata for array cells that are stored externally.
+    """
+
+    start: int
+    end: int
+
+    # we store bool arrays as packed bits (uint8 arrays), and need to record the shape to reconstruct the array
+    is_bool: bool = False
+    shape: tuple[int, ...] | None = None
+
+    def as_dict(self) -> dict:
+        # dict_factory: suppress Nones
+        x = dataclasses.asdict(self, dict_factory=non_none_dict_factory)
+        return x
+
+
+@dataclasses.dataclass
+class CellMd:
+    """
+    Content of the cellmd column.
+
+    All fields are optional, to minimize storage.
+    """
+
+    errortype: str | None = None
+    errormsg: str | None = None
+
+    # a list of file urls that are used to store images and arrays; only set for json and array columns
+    # for json columns: a list of all urls referenced in the column value
+    # for array columns: a single url
+    file_urls: list[str] | None = None
+
+    array_md: ArrayMd | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> CellMd:
+        x: CellMd
+        if 'array_md' in d:
+            d2 = d.copy()
+            del d2['array_md']
+            x = cls(**d2, array_md=ArrayMd(**d['array_md']))
+        else:
+            x = cls(**d)
+        return x
+
+    def as_dict(self) -> dict:
+        x = dataclasses.asdict(self, dict_factory=non_none_dict_factory)
+        return x
 
 
 class DataRow:
     """
     Encapsulates all data and execution state needed by RowBuilder and DataRowBatch:
     - state for in-memory computation
-    - state for storing the data
+    - state needed for expression evaluation
+    - containers for output column values
+
     This is not meant to be a black-box abstraction.
 
     In-memory representations by column type:
@@ -39,41 +97,49 @@ class DataRow:
     - DocumentType: local path if available, otherwise url
     """
 
+    # expr evaluation state; indexed by slot idx
     vals: np.ndarray  # of object
     has_val: np.ndarray  # of bool
     excs: np.ndarray  # of object
-
-    # If `may_have_exc` is False, then we guarantee that no slot has an exception set. This is used to optimize
-    # exception handling under normal operation.
-    _may_have_exc: bool
-
-    # expr evaluation state; indexed by slot idx
     missing_slots: np.ndarray  # of bool; number of missing dependencies
     missing_dependents: np.ndarray  # of int16; number of missing dependents
     is_scheduled: np.ndarray  # of bool; True if this slot is scheduled for evaluation
 
-    # control structures that are shared across all DataRows in a batch
-    img_slot_idxs: list[int]
-    media_slot_idxs: list[int]
-    array_slot_idxs: list[int]
-
-    # the primary key of a store row is a sequence of ints (the number is different for table vs view)
-    pk: Optional[tuple[int, ...]]
+    # CellMd needed for query execution; needs to be indexed by slot idx, not column id, to work for joins
+    slot_md: dict[int, CellMd]
 
     # file_urls:
     # - stored url of file for media in vals[i]
     # - None if vals[i] is not media type
     # - not None if file_paths[i] is not None
+    # TODO: this is a sparse vector; should it be a dict[int, str]?
     file_urls: np.ndarray  # of str
 
     # file_paths:
     # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
     # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
+    # TODO: this is a sparse vector; should it be a dict[int, str]?
     file_paths: np.ndarray  # of str
 
+    # If `may_have_exc` is False, then we guarantee that no slot has an exception set. This is used to optimize
+    # exception handling under normal operation.
+    _may_have_exc: bool
+
+    # the primary key of a store row is a sequence of ints (the number is different for table vs view)
+    pk: Optional[tuple[int, ...]]
     # for nested rows (ie, those produced by JsonMapperDispatcher)
     parent_row: Optional[DataRow]
     parent_slot_idx: Optional[int]
+
+    # state for table output (insert()/update()); key: column id
+    cell_vals: dict[int, Any]  # materialized values of output columns, in the format required for the column
+    cell_md: dict[int, CellMd]
+
+    # control structures that are shared across all DataRows in a batch
+    img_slot_idxs: list[int]
+    media_slot_idxs: list[int]
+    array_slot_idxs: list[int]
+    json_slot_idxs: list[int]
 
     def __init__(
         self,
@@ -81,37 +147,42 @@ class DataRow:
         img_slot_idxs: list[int],
         media_slot_idxs: list[int],
         array_slot_idxs: list[int],
+        json_slot_idxs: list[int],
         parent_row: Optional[DataRow] = None,
         parent_slot_idx: Optional[int] = None,
     ):
-        self.img_slot_idxs = img_slot_idxs
-        self.media_slot_idxs = media_slot_idxs
-        self.array_slot_idxs = array_slot_idxs
         self.init(size)
         self.parent_row = parent_row
         self.parent_slot_idx = parent_slot_idx
+        self.img_slot_idxs = img_slot_idxs
+        self.media_slot_idxs = media_slot_idxs
+        self.array_slot_idxs = array_slot_idxs
+        self.json_slot_idxs = json_slot_idxs
 
-    def init(self, num_slots: int) -> None:
-        self.vals = np.full(num_slots, None, dtype=object)
-        self.has_val = np.zeros(num_slots, dtype=bool)
-        self.excs = np.full(num_slots, None, dtype=object)
+    def init(self, size: int) -> None:
+        self.vals = np.full(size, None, dtype=object)
+        self.has_val = np.zeros(size, dtype=bool)
+        self.excs = np.full(size, None, dtype=object)
+        self.missing_slots = np.zeros(size, dtype=bool)
+        self.missing_dependents = np.zeros(size, dtype=np.int16)
+        self.is_scheduled = np.zeros(size, dtype=bool)
+        self.slot_md = {}
+        self.file_urls = np.full(size, None, dtype=object)
+        self.file_paths = np.full(size, None, dtype=object)
         self._may_have_exc = False
-        self.missing_slots = np.zeros(num_slots, dtype=bool)
-        self.missing_dependents = np.zeros(num_slots, dtype=np.int16)
-        self.is_scheduled = np.zeros(num_slots, dtype=bool)
+        self.cell_vals = {}
+        self.cell_md = {}
         self.pk = None
-        self.file_urls = np.full(num_slots, None, dtype=object)
-        self.file_paths = np.full(num_slots, None, dtype=object)
         self.parent_row = None
         self.parent_slot_idx = None
 
-    def clear(self, idxs: Optional[np.ndarray] = None) -> None:
-        if idxs is not None:
-            self.has_val[idxs] = False
-            self.vals[idxs] = None
-            self.excs[idxs] = None
-            self.file_urls[idxs] = None
-            self.file_paths[idxs] = None
+    def clear(self, slot_idxs: Optional[np.ndarray] = None) -> None:
+        if slot_idxs is not None:
+            self.has_val[slot_idxs] = False
+            self.vals[slot_idxs] = None
+            self.excs[slot_idxs] = None
+            self.file_urls[slot_idxs] = None
+            self.file_paths[slot_idxs] = None
         else:
             self.init(len(self.vals))
 
@@ -292,9 +363,7 @@ class DataRow:
         val = self.vals[index]
         format = None
         if isinstance(val, PIL.Image.Image):
-            # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
-            # In that case, use WebP instead.
-            format = 'webp' if val.has_transparency_data else 'jpeg'
+            format = image_utils.default_format(val)
         filepath, url = TempStore.save_media_object(val, col, format=format)
         self.file_paths[index] = str(filepath) if filepath is not None else None
         self.vals[index] = None

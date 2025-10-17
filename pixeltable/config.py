@@ -163,6 +163,7 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'API key for Pixeltable cloud',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
+        'b2_profile': 'S3-compatible profile name used to access Backblaze B2 storage',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'bedrock': {'api_key': 'AWS Bedrock API key'},
@@ -180,6 +181,12 @@ KNOWN_CONFIG_OPTIONS = {
         'base_url': 'OpenAI API base URL',
         'api_version': 'API version if using Azure OpenAI',
         'rate_limits': 'Per-model rate limits for OpenAI API requests',
+    },
+    'openrouter': {
+        'api_key': 'OpenRouter API key',
+        'site_url': 'Optional URL for your application (for OpenRouter analytics)',
+        'app_name': 'Optional name for your application (for OpenRouter analytics)',
+        'rate_limit': 'Rate limit for OpenRouter API requests',
     },
     'replicate': {'api_token': 'Replicate API token'},
     'together': {

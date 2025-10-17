@@ -43,6 +43,7 @@ env:
   HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
 
@@ -121,7 +122,6 @@ jobs:
         with:
           miniconda-version: latest
           activate-environment: pxt
-          use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Install python
         run: |
           conda install -y python=${{ matrix.python-version }} pip=25.0
@@ -129,7 +129,7 @@ jobs:
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
         # libiconv and ffmpeg are needed by WhisperX.
-        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1'
+        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Install ollama
         if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-22.04' }}
         run: |
@@ -174,8 +174,13 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-          pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
+          ./scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
+          set +e  # don't exit immediately on error, so that we can retry
+          pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb
+          pytest -v -m '' --nbmake --nbmake-timeout=1800 --lf --lfnf=none  # retry failed tests once
+          if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
+            exit 1
+          fi
       - name: Run random table ops
         if: ${{ matrix.test-category == 'random-tbl-ops' }}
         run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
@@ -210,8 +215,8 @@ jobs:
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
           df -h
-          du -h -d3 /home/runner
-          du -h -d3 /home/runner/.cache
+          du -h -d3 /home/runner || true
+          du -h -d3 /home/runner/.cache || true
       - name: Print utilization info
         if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         run: df -h

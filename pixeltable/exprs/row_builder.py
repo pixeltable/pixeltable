@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import dataclasses
 import sys
 import time
-from dataclasses import dataclass
 from typing import Any, Iterable, NamedTuple, Optional, Sequence
 from uuid import UUID
 
 import numpy as np
+import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exprs, utils
 from pixeltable.env import Env
+from pixeltable.utils.misc import non_none_dict_factory
 
 from .data_row import DataRow
 from .expr import Expr, ExprScope
@@ -68,7 +70,7 @@ class RowBuilder:
     input_exprs: ExprSet
 
     tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
-    table_columns: list[ColumnSlotIdx]
+    table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
 
@@ -92,10 +94,9 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
-    stored_img_cols: list[exprs.ColumnSlotIdx]
-    stored_media_cols: list[exprs.ColumnSlotIdx]
+    json_slot_idxs: list[int]  # Indices of json slots
 
-    @dataclass
+    @dataclasses.dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
 
@@ -113,8 +114,6 @@ class RowBuilder:
     ):
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
-        self.stored_img_cols = []
-        self.stored_media_cols = []
 
         # record input and output exprs; make copies to avoid reusing execution state
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
@@ -138,7 +137,7 @@ class RowBuilder:
         from .column_ref import ColumnRef
 
         self.tbl = tbl
-        self.table_columns: list[ColumnSlotIdx] = []
+        self.table_columns = {}
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
         for col in columns:
@@ -245,17 +244,27 @@ class RowBuilder:
             e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
+        self.json_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_json_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
-        """Record a column that is part of the table row"""
+        """Record an output column for which the value is produced via expr evaluation"""
         assert self.tbl is not None
         assert col.is_stored
-        info = ColumnSlotIdx(col, slot_idx)
-        self.table_columns.append(info)
-        if col.col_type.is_media_type():
-            self.stored_media_cols.append(info)
-            if col.col_type.is_image_type():
-                self.stored_img_cols.append(info)
+        self.table_columns[col] = slot_idx
+
+    def add_table_columns(self, cols: list[catalog.Column]) -> None:
+        """Record output columns whose values are materialized into DataRow.cell_vals"""
+        for col in cols:
+            self.table_columns[col] = None
+
+    @property
+    def media_output_col_info(self) -> list[ColumnSlotIdx]:
+        """Return slot idxs for media output columns whose values are produced by expr evaluation"""
+        return [
+            ColumnSlotIdx(col, slot_idx)
+            for col, slot_idx in self.table_columns.items()
+            if col.col_type.is_media_type() and slot_idx is not None
+        ]
 
     @property
     def num_materialized(self) -> int:
@@ -462,13 +471,30 @@ class RowBuilder:
 
         num_excs = 0
         table_row: list[Any] = list(pk)
-        for col, slot_idx in self.table_columns:
+        # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
+        for col, slot_idx in self.table_columns.items():
+            if col.id in data_row.cell_vals:
+                table_row.append(data_row.cell_vals[col.id])
+                if col.stores_cellmd:
+                    if data_row.cell_md[col.id] is None:
+                        table_row.append(sql.sql.null())
+                    else:
+                        # we want to minimize the size of the stored dict and use dict_factory to remove Nones
+                        md = dataclasses.asdict(data_row.cell_md[col.id], dict_factory=non_none_dict_factory)
+                        assert len(md) > 0
+                        table_row.append(md)
+                if slot_idx is not None and data_row.has_exc(slot_idx):
+                    num_excs += 1
+                    if cols_with_excs is not None:
+                        cols_with_excs.add(col.id)
+                continue
+
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
                 if cols_with_excs is not None:
                     cols_with_excs.add(col.id)
-                table_row.append(None)
+                table_row.append(sql.sql.null() if col.col_type.is_json_type() else None)
                 if col.stores_cellmd:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
@@ -476,7 +502,7 @@ class RowBuilder:
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
                 if col.stores_cellmd:
-                    table_row.append(None)  # placeholder for cellmd column
+                    table_row.append(sql.sql.null())  # placeholder for cellmd column
 
         return table_row, num_excs
 
@@ -490,12 +516,18 @@ class RowBuilder:
         store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
 
         for col in self.table_columns:
-            store_col_names.append(col.col.store_name())
-            if col.col.stores_cellmd:
-                store_col_names.append(col.col.cellmd_store_name())
+            store_col_names.append(col.store_name())
+            if col.stores_cellmd:
+                store_col_names.append(col.cellmd_store_name())
 
         return store_col_names
 
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""
-        return exprs.DataRow(self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+        return exprs.DataRow(
+            size=self.num_materialized,
+            img_slot_idxs=self.img_slot_idxs,
+            media_slot_idxs=self.media_slot_idxs,
+            array_slot_idxs=self.array_slot_idxs,
+            json_slot_idxs=self.json_slot_idxs,
+        )

@@ -2,11 +2,11 @@
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
 """
 
+import glob
 import logging
 import pathlib
-import shutil
 import subprocess
-from typing import Literal, NoReturn
+from typing import Any, Literal, NoReturn
 
 import av
 import av.stream
@@ -327,6 +327,7 @@ def clip(
     Returns:
         New video containing only the specified time range or None if start_time is beyond the end of the video.
     """
+    Env.get().require_binary('ffmpeg')
     if start_time < 0:
         raise pxt.Error(f'start_time must be non-negative, got {start_time}')
     if end_time is not None and end_time <= start_time:
@@ -335,8 +336,6 @@ def clip(
         raise pxt.Error(f'duration must be positive, got {duration}')
     if end_time is not None and duration is not None:
         raise pxt.Error('end_time and duration cannot both be specified')
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use get_clip().')
 
     video_duration = av_utils.get_video_duration(video)
     if video_duration is not None and start_time > video_duration:
@@ -360,9 +359,17 @@ def clip(
 
 
 @pxt.udf(is_method=True)
-def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
+def segment_video(
+    video: pxt.Video,
+    *,
+    duration: float | None = None,
+    segment_times: list[float] | None = None,
+    mode: Literal['fast', 'accurate'] = 'fast',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> list[str]:
     """
-    Split a video into fixed-size segments.
+    Split a video into segments.
 
     __Requirements:__
 
@@ -370,7 +377,19 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
 
     Args:
         video: Input video file to segment
-        duration: Approximate duration of each segment (in seconds).
+        duration: Duration of each segment (in seconds). For `mode='fast'`, this is approximate;
+            for `mode='accurate'`, segments will have exact durations. Cannot be specified together with
+            `segment_times`.
+        segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
+            segment durations. If all segment times are less than the duration of the video, produces exactly
+            `len(segment_times) + 1` segments. Cannot be empty or be specified together with `duration`.
+        mode: Segmentation mode:
+
+            - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
+            - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+            Only available for `mode='accurate'`.
+        video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
 
     Returns:
         List of file paths for the generated video segments.
@@ -379,46 +398,106 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
         pxt.Error: If the video is missing timing information.
 
     Examples:
-        Split a video at 1 minute intervals
+        Split a video at 1 minute intervals using fast mode:
 
         >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60)).collect()
+
+        Split video into exact 10-second segments with accurate mode, using the libx264 encoder with a CRF of 23 and
+        slow preset (for smaller output files):
+
+        >>> tbl.select(
+        ...     segment_paths=tbl.video.segment_video(
+        ...         duration=10,
+        ...         mode='accurate',
+        ...         video_encoder='libx264',
+        ...         video_encoder_args={'crf': 23, 'preset': 'slow'}
+        ...     )
+        ... ).collect()
 
         Split video into two parts at the midpoint:
 
         >>> duration = tbl.video.get_duration()
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()
+        >>> tbl.select(segment_paths=tbl.video.segment_video(segment_times=[duration / 2])).collect()
     """
-    if duration <= 0:
+    Env.get().require_binary('ffmpeg')
+    if duration is not None and segment_times is not None:
+        raise pxt.Error('duration and segment_times cannot both be specified')
+    if duration is not None and duration <= 0:
         raise pxt.Error(f'duration must be positive, got {duration}')
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use segment_video().')
+    if segment_times is not None and len(segment_times) == 0:
+        raise pxt.Error('segment_times cannot be empty')
+    if mode == 'fast':
+        if video_encoder is not None:
+            raise pxt.Error("video_encoder is not supported for mode='fast'")
+        if video_encoder_args is not None:
+            raise pxt.Error("video_encoder_args is not supported for mode='fast'")
 
     base_path = TempStore.create_path(extension='')
 
-    # we extract consecutive clips instead of running ffmpeg -f segment, which is inexplicably much slower
-    start_time = 0.0
-    result: list[str] = []
-    try:
-        while True:
-            segment_path = f'{base_path}_segment_{len(result)}.mp4'
-            cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
+    output_paths: list[str] = []
+    if mode == 'accurate':
+        # Use ffmpeg -f segment for accurate segmentation with re-encoding
+        output_pattern = f'{base_path}_segment_%04d.mp4'
+        cmd = av_utils.ffmpeg_segment_cmd(
+            str(video),
+            output_pattern,
+            segment_duration=duration,
+            segment_times=segment_times,
+            video_encoder=video_encoder,
+            video_encoder_args=video_encoder_args,
+        )
 
+        try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            segment_duration = av_utils.get_video_duration(segment_path)
-            if segment_duration == 0.0:
-                # we're done
+            output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
+            # TODO: is this actually an error?
+            # if len(output_paths) == 0:
+            #     stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            #     raise pxt.Error(
+            #         f'ffmpeg failed to create output files for commandline: {" ".join(cmd)}\n{stderr_output}'
+            #     )
+            return output_paths
+
+        except subprocess.CalledProcessError as e:
+            _handle_ffmpeg_error(e)
+
+    else:
+        # Fast mode: extract consecutive clips using stream copy (no re-encoding)
+        # This is faster but can only split at keyframes, leading to approximate durations
+        start_time = 0.0
+        segment_idx = 0
+        try:
+            while True:
+                target_duration: float | None
+                if duration is not None:
+                    target_duration = duration
+                elif segment_idx < len(segment_times):
+                    target_duration = segment_times[segment_idx] - start_time
+                else:
+                    target_duration = None  # the rest
+                segment_path = f'{base_path}_segment_{len(output_paths)}.mp4'
+                cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, target_duration)
+
+                _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                segment_duration = av_utils.get_video_duration(segment_path)
+                if segment_duration == 0.0:
+                    # we're done
+                    pathlib.Path(segment_path).unlink()
+                    return output_paths
+                output_paths.append(segment_path)
+                start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
+
+                segment_idx += 1
+                if segment_times is not None and segment_idx > len(segment_times):
+                    break
+
+            return output_paths
+
+        except subprocess.CalledProcessError as e:
+            # clean up partial results
+            for segment_path in output_paths:
                 pathlib.Path(segment_path).unlink()
-                return result
-            result.append(segment_path)
-            start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
-
-        return result
-
-    except subprocess.CalledProcessError as e:
-        # clean up partial results
-        for segment_path in result:
-            pathlib.Path(segment_path).unlink()
-        _handle_ffmpeg_error(e)
+            _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
@@ -436,10 +515,9 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     Returns:
         A new video containing the merged videos.
     """
+    Env.get().require_binary('ffmpeg')
     if len(videos) == 0:
         raise pxt.Error('concat_videos(): empty argument list')
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use concat_videos().')
 
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
@@ -528,6 +606,125 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         filelist_path.unlink()
 
 
+@pxt.udf
+def with_audio(
+    video: pxt.Video,
+    audio: pxt.Audio,
+    *,
+    video_start_time: float = 0.0,
+    video_duration: float | None = None,
+    audio_start_time: float = 0.0,
+    audio_duration: float | None = None,
+) -> pxt.Video:
+    """
+    Creates a new video that combines the video stream from `video` and the audio stream from `audio`.
+    The `start_time` and `duration` parameters can be used to select a specific time range from each input.
+    If the audio input (or selected time range) is longer than the video, the audio will be truncated.
+
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        audio: Input audio.
+        video_start_time: Start time in the video input (in seconds).
+        video_duration: Duration of video segment (in seconds). If None, uses the remainder of the video after
+            `video_start_time`. `video_duration` determines the duration of the output video.
+        audio_start_time: Start time in the audio input (in seconds).
+        audio_duration: Duration of audio segment (in seconds). If None, uses the remainder of the audio after
+            `audio_start_time`. If the audio is longer than the output video, it will be truncated.
+
+    Returns:
+        A new video file with the audio track added.
+
+    Examples:
+        Add background music to a video:
+
+        >>> tbl.select(tbl.video.with_audio(tbl.music_track)).collect()
+
+        Add audio starting 5 seconds into both files:
+
+        >>> tbl.select(
+        ...     tbl.video.with_audio(
+        ...         tbl.music_track,
+        ...         video_start_time=5.0,
+        ...         audio_start_time=5.0
+        ...     )
+        ... ).collect()
+
+        Use a 10-second clip from the middle of both files:
+
+        >>> tbl.select(
+        ...     tbl.video.with_audio(
+        ...         tbl.music_track,
+        ...         video_start_time=30.0,
+        ...         video_duration=10.0,
+        ...         audio_start_time=15.0,
+        ...         audio_duration=10.0
+        ...     )
+        ... ).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+    if video_start_time < 0:
+        raise pxt.Error(f'video_offset must be non-negative, got {video_start_time}')
+    if audio_start_time < 0:
+        raise pxt.Error(f'audio_offset must be non-negative, got {audio_start_time}')
+    if video_duration is not None and video_duration <= 0:
+        raise pxt.Error(f'video_duration must be positive, got {video_duration}')
+    if audio_duration is not None and audio_duration <= 0:
+        raise pxt.Error(f'audio_duration must be positive, got {audio_duration}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    cmd = ['ffmpeg']
+    if video_start_time > 0:
+        # fast seek, must precede -i
+        cmd.extend(['-ss', str(video_start_time)])
+    if video_duration is not None:
+        cmd.extend(['-t', str(video_duration)])
+    else:
+        video_duration = av_utils.get_video_duration(video)
+    cmd.extend(['-i', str(video)])
+
+    if audio_start_time > 0:
+        cmd.extend(['-ss', str(audio_start_time)])
+    if audio_duration is not None:
+        cmd.extend(['-t', str(audio_duration)])
+    cmd.extend(['-i', str(audio)])
+
+    cmd.extend(
+        [
+            '-map',
+            '0:v:0',  # video from first input
+            '-map',
+            '1:a:0',  # audio from second input
+            '-c:v',
+            'copy',  # avoid re-encoding
+            '-c:a',
+            'copy',  # avoid re-encoding
+            '-t',
+            str(video_duration),  # limit output duration to video duration
+            '-loglevel',
+            'error',  # only show errors
+            output_path,
+        ]
+    )
+
+    _logger.debug(f'with_audio(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
 @pxt.udf(is_method=True)
 def overlay_text(
     video: pxt.Video,
@@ -614,8 +811,7 @@ def overlay_text(
         ...     )
         ... ).collect()
     """
-    if not shutil.which('ffmpeg'):
-        raise pxt.Error('ffmpeg is not installed or not in PATH. Please install ffmpeg to use overlay_text().')
+    Env.get().require_binary('ffmpeg')
     if font_size <= 0:
         raise pxt.Error(f'font_size must be positive, got {font_size}')
     if opacity < 0.0 or opacity > 1.0:

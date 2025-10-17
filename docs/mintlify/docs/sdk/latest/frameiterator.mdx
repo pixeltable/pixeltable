@@ -1,0 +1,104 @@
+---
+title: "pixeltable.iterators.FrameIterator"
+sidebarTitle: "FrameIterator"
+icon: "square-c"
+---
+
+Iterator over frames of a video. At most one of `fps` or `num_frames` may be specified. If `fps` is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified, then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
+
+Args: fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5. If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be extracted). If `fps` is greater than the frame rate of the video, an error will be raised. num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If `num_frames` is greater than the number of frames in the video, all frames will be extracted. all_frame_attrs: If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes (for more information, see `pyav`'s documentation on [VideoFrame](https://pyav.org/docs/develop/api/video.html#module-av.video.frame) and [Frame](https://pyav.org/docs/develop/api/frame.html)):
+
+        * `index` (`int`)
+        * `pts` (`Optional[int]`)
+        * `dts` (`Optional[int]`)
+        * `time` (`Optional[float]`)
+        * `is_corrupt` (`bool`)
+        * `key_frame` (`bool`)
+        * `pict_type` (`int`)
+        * `interlaced_frame` (`bool`)
+
+        If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
+
+
+<a href="https://github.com/pixeltable/pixeltable/blob/main/pixeltable/iterators/video.py#L24" target="_blank">View source on GitHub</a>
+
+## Methods
+
+
+---
+
+### `close()`
+
+Close the iterator and release all resources
+
+
+**Signature:**
+
+```python
+close()-> None
+```
+
+
+---
+
+### `create()`
+
+**Signature:**
+
+```python
+create(**kwargs: Any)-> tuple[type[ComponentIterator], dict[str, Any]]
+```
+
+
+---
+
+### `input_schema()`
+
+Provide the Pixeltable types of the init() parameters
+
+
+The keys need to match the names of the init() parameters. This is equivalent to the parameters_types parameter of the @function decorator.
+
+
+**Signature:**
+
+```python
+input_schema()-> dict[str, pixeltable.type_system.ColumnType]
+```
+
+
+---
+
+### `output_schema()`
+
+Specify the dictionary returned by next() and a list of unstored column names
+
+
+**Signature:**
+
+```python
+output_schema(
+    *args: Any,
+    **kwargs: Any
+)-> tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]
+```
+
+**Returns:**
+
+- *tuple[dict[str, pixeltable.type_system.ColumnType], list[str]]*: a dictionary which is turned into a list of columns in the output table a list of unstored column names
+
+
+
+---
+
+### `set_pos()`
+
+Set the iterator position to pos
+
+
+**Signature:**
+
+```python
+set_pos(pos: int)-> None
+```
+

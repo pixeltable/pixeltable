@@ -46,6 +46,9 @@ below.
       - drop_table
       - get_dir_contents
       - get_table
+      - get_versions
       - init
       - ls
       - move
+      - publish
+      - replicate

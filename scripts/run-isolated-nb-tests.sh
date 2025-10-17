@@ -4,6 +4,8 @@ IFS=$'\n'
 SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR/.."
 PY_VERSION="$1"
+# For isolated NB tests, use a directory that is *not* controlled by conftest.py
+# (The whole point is to run independently of our dev environment.)
 TEST_PATH="target/nb-tests"
 
 if [ -z "$PY_VERSION" ]; then
@@ -18,7 +20,7 @@ eval "$(conda shell.bash hook)"
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
-"$SCRIPT_DIR/prepare-nb-tests.sh" docs/notebooks
+"$SCRIPT_DIR/prepare-nb-tests.sh" "$TEST_PATH" docs/notebooks
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 
 NB_CONDA_ENV=nb-test-env

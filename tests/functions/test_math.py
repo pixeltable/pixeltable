@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exprs, functions as pxtf
+from pixeltable import env, exprs, functions as pxtf
 
 
 class TestMath:
-    TEST_FLOATS = (0.0, 1.6, -19.274, 1.32e57, math.inf, -math.inf, math.nan)
+    TEST_FLOATS = (0.0, 1.6, -19.27469, 1.32e57, math.inf, -math.inf, math.nan)
     TEST_INTS = (0, 1, -19, 4171780)
 
     @pytest.mark.parametrize('method_type', [pxt.Float, pxt.Int])
@@ -18,6 +18,8 @@ class TestMath:
         t = pxt.create_table('test_tbl', {'x': method_type})
         values = self.TEST_FLOATS if method_type is pxt.Float else self.TEST_INTS
         t.insert({'x': x} for x in values)
+        r = t.collect()
+        assert np.array_equal(r['x'], np.array(values), equal_nan=True), r
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]]
 
@@ -42,14 +44,30 @@ class TestMath:
 
         for pxt_fn, py_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actual = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
+            actualdb = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
             expected = [py_fn(x, *args, **kwargs) for x in values]
-            assert np.array_equal(actual, expected, equal_nan=True), f'{actual} != {expected}'
+            if (
+                env.Env.get().is_using_cockroachdb
+                and method_type == pxt.Float
+                and pxt_fn == pxtf.math.round
+                and (len(args) == 1)
+            ):
+                # cockroachdb does not support values of +-Infinity for NUMERIC / DECIMAL types
+                # This means that our implementation of round(x, d) returns NaN if x is +-inf
+                expecteddb = [math.nan if (math.isinf(x)) else y for x, y in zip(values, expected)]
+            else:
+                expecteddb = expected
+            print(f'  values:   {values}')
+            print(f'  actualdb:   {actualdb}')
+            print(f'  expected: {expected}')
+            print(f'  expecteddb: {expecteddb}')
+            assert np.array_equal(actualdb, expecteddb, equal_nan=True), f'{actualdb} != {expecteddb}'
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
             actual_py = t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=method_type), *args, **kwargs)).collect()[
                 'out'
             ]
+            print(f'  actualpy: {actual_py}')
             assert np.array_equal(actual_py, expected, equal_nan=True), f'{actual_py} != {expected}'
 
         # Check that they can all be called with method syntax too

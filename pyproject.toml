@@ -52,7 +52,7 @@ dependencies = [
     "psycopg[binary]>=3.1.18",
     "psutil>=5.9.5",
     "sqlalchemy>=2.0.23",
-    "pgvector>=0.2.1",
+    "pgvector>=0.4.0",
     "av>=10.0.0",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
@@ -67,8 +67,9 @@ dependencies = [
     "pymupdf>=1.24.1",
     "ftfy>=6.2.0",
     "pydantic>=2.7.4",
-    "pyarrow>=13.0.0",
-    "pixeltable-pgserver==0.3.1",
+    "pyarrow>=19",
+    "pixeltable-pgserver==0.4.0",
+    "tzlocal>=5.0",
 ]
 
 [project.urls]
@@ -101,7 +102,7 @@ dev = [
     "mypy>=1.16",
     "boto3-stubs==1.36.23",
     "pandas-stubs>=2.0",
-    "pyarrow-stubs>=10.0.1.7,<11",
+    "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",
     "types-jmespath>=1.0",
     "types-jsonschema>=4.1.0",
@@ -122,7 +123,7 @@ dev = [
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
-    "nbmake>=1.4.6,<2",
+    "nbmake>=1.5,<2",
     "mistune>=3.0.2,<4",
     "pyiceberg>=0.6.0",
     "torch~=2.7",
@@ -130,7 +131,7 @@ dev = [
     "torchvision>=0.22,<0.23",
     "openai>=1.86.0",
     "anthropic>=0.53.0",
-    "together>=1.5.11",
+    "together>=1.5.26",
     "fireworks-ai>=0.17.6",
     "mistralai>=1.8.2",
     "replicate>=1.0.7,<2",
@@ -157,7 +158,7 @@ dev = [
     "lancedb>=0.20",
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
-    "psycopg2-binary>=2.9.10"
+    "psycopg2-binary>=2.9.10",
 ]
 test = [
     "pytest>=8.4",

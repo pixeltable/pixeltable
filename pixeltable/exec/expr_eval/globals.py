@@ -149,6 +149,7 @@ class ExecCtx:
     gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
     eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
     literals: dict[int, Any]  # key: slot idx; value: literal value for this slot; used to pre-populate rows
+    all_exprs: list[exprs.Expr]  # all evaluated exprs; needed for cleanup
 
     def __init__(
         self,
@@ -165,6 +166,7 @@ class ExecCtx:
         self.gc_targets[[e.slot_idx for e in self.row_builder.output_exprs]] = False
 
         output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
+        self.all_exprs = output_ctx.exprs
         self.literals = {e.slot_idx: e.val for e in output_ctx.exprs if isinstance(e, exprs.Literal)}
         self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
         non_literal_slot_idxs = [e.slot_idx for e in output_ctx.exprs if not isinstance(e, exprs.Literal)]

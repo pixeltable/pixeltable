@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
+import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
@@ -71,6 +72,7 @@ class Env:
     _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
     _db_url: Optional[str]
     _default_time_zone: Optional[ZoneInfo]
+    _verbosity: int
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
@@ -218,9 +220,17 @@ class Env:
         """
         This is not a publicly visible setter; it is only for testing purposes.
         """
-        tz_name = None if tz is None else tz.key
+        if tz is None:
+            tz_name = self._get_tz_name()
+        else:
+            assert isinstance(tz, ZoneInfo)
+            tz_name = tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
+
+    @property
+    def verbosity(self) -> int:
+        return self._verbosity
 
     @property
     def conn(self) -> Optional[sql.Connection]:
@@ -238,6 +248,11 @@ class Env:
         return self._dbms
 
     @property
+    def is_using_cockroachdb(self) -> bool:
+        assert self._dbms is not None
+        return isinstance(self._dbms, CockroachDbms)
+
+    @property
     def in_xact(self) -> bool:
         return self._current_conn is not None
 
@@ -247,7 +262,7 @@ class Env:
         return self._db_server is not None
 
     @contextmanager
-    def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
+    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
         """
         Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
 
@@ -340,6 +355,8 @@ class Env:
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
             path_parts = list(Path(record.pathname).parts)
             path_parts.reverse()
+            if 'pixeltable' not in path_parts:
+                return False
             max_idx = path_parts.index('pixeltable')
             for module_name in path_parts[:max_idx]:
                 if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
@@ -349,6 +366,26 @@ class Env:
     @property
     def console_logger(self) -> ConsoleLogger:
         return self._console_logger
+
+    def _get_tz_name(self) -> str:
+        """Get the time zone name from the configuration, or the system local time zone if not specified.
+
+        Returns:
+            str: The time zone name.
+        """
+        tz_name = Config.get().get_string_value('time_zone')
+        if tz_name is not None:
+            # Validate tzname
+            if not isinstance(tz_name, str):
+                self._logger.error('Invalid time zone specified in configuration.')
+            else:
+                try:
+                    _ = ZoneInfo(tz_name)
+                except ZoneInfoNotFoundError:
+                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+        else:
+            tz_name = tzlocal.get_localzone_name()
+        return tz_name
 
     def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
@@ -393,10 +430,12 @@ class Env:
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
-        # Set verbose level for user visible console messages
-        verbosity = map_level(config.get_int_value('verbosity'))
+        # Set verbosity level for user visible console messages
+        self._verbosity = config.get_int_value('verbosity')
+        if self._verbosity is None:
+            self._verbosity = 1
         stdout_handler = ConsoleOutputHandler(stream=stdout)
-        stdout_handler.setLevel(verbosity)
+        stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
         self._console_logger = ConsoleLogger(self._logger)
@@ -430,6 +469,7 @@ class Env:
         http_logger.propagate = False
 
         self.clear_tmp_dir()
+        tz_name = self._get_tz_name()
 
         # configure pixeltable database
         self._init_db(config)
@@ -439,22 +479,10 @@ class Env:
                 'Reinitializing pixeltable database is not supported when running in non-local environment'
             )
 
-        tz_name = config.get_string_value('time_zone')
-        if tz_name is not None:
-            # Validate tzname
-            if not isinstance(tz_name, str):
-                self._logger.error('Invalid time zone specified in configuration.')
-            else:
-                try:
-                    _ = ZoneInfo(tz_name)
-                except ZoneInfoNotFoundError:
-                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
-
         if reinit_db and self._store_db_exists():
             self._drop_store_db()
 
         create_db = not self._store_db_exists()
-
         if create_db:
             self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
@@ -534,19 +562,28 @@ class Env:
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
-    def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
-        connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
+    def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
+        connect_args = {'options': f'-c timezone={time_zone_name}'}
+        self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
         self._sa_engine = sql.create_engine(
             self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        self._logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
+        self._logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
             assert isinstance(tz_name, str)
             self._logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
+            if self.is_using_cockroachdb:
+                # This could be set when the database is created, but we set it now
+                conn.execute(sql.text('SET null_ordered_last = true;'))
+                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
+                assert isinstance(null_ordered_last, str)
+                self._logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -773,6 +810,10 @@ class Env:
             is_installed=is_installed,
             library_name=library_name or package_name,  # defaults to package_name unless specified otherwise
         )
+
+    def require_binary(self, binary_name: str) -> None:
+        if not shutil.which(binary_name):
+            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
     def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
         """
