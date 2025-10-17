@@ -160,6 +160,7 @@ dev = [
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.10",
     "diffusers>=0.34",
+    "accelerate>=1.10",
 ]
 test = [
     "pytest>=8.4",

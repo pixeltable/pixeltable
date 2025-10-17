@@ -290,9 +290,9 @@ class TestHuggingface:
         assert isinstance(result['caption'], str)
         assert 'food' in result['caption']
 
-    def test_text_summarization(self, reset_db: None) -> None:
+    def test_summarization(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
-        from pixeltable.functions.huggingface import text_summarization
+        from pixeltable.functions.huggingface import summarization
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
         long_text = (
@@ -303,7 +303,7 @@ class TestHuggingface:
 
         # Test with BART model
         t.add_computed_column(
-            summary=text_summarization(t.text, model_id='facebook/bart-large-cnn', max_length=50, min_length=10)
+            summary=summarization(t.text, model_id='facebook/bart-large-cnn', model_kwargs={'max_length': 50, 'min_length': 10})
         )
 
         validate_update_status(t.insert(text=long_text), expected_rows=1)
@@ -319,7 +319,7 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import question_answering
 
         t = pxt.create_table('test_tbl', {'context': pxt.String, 'question': pxt.String})
-        context = 'Paris is the capital of France. It is known for the Eiffel Tower.'
+        context = 'Paris is the capital of France.'
         question = 'What is the capital of France?'
 
         # Test with DistilBERT QA model
@@ -345,7 +345,7 @@ class TestHuggingface:
 
         # Test with Helsinki-NLP translation model
         t.add_computed_column(
-            french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr', src_lang='en', tgt_lang='fr')
+            french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr', src_lang='en', target_lang='fr')
         )
 
         validate_update_status(t.insert(text=english_text), expected_rows=1)
@@ -358,14 +358,14 @@ class TestHuggingface:
 
     def test_named_entity_recognition(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
-        from pixeltable.functions.huggingface import named_entity_recognition
+        from pixeltable.functions.huggingface import token_classification
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})
         text_with_entities = 'Apple Inc. is located in Cupertino, California.'
 
         # Test with BERT NER model
         t.add_computed_column(
-            entities=named_entity_recognition(
+            entities=token_classification(
                 t.text, model_id='dbmdz/bert-large-cased-finetuned-conll03-english', aggregation_strategy='simple'
             )
         )
@@ -432,10 +432,11 @@ class TestHuggingface:
         t.add_computed_column(
             image=text_to_image(
                 t.prompt,
-                model_id='runwayml/stable-diffusion-v1-5',
+                model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
                 height=256,
                 width=256,
-                num_inference_steps=10,  # Fewer steps for testing
+                seed=42,
+                model_kwargs={'num_inference_steps': 10},  # Fewer steps for testing
             )
         )
 
@@ -459,7 +460,7 @@ class TestHuggingface:
             modified_image=image_to_image(
                 t.img,
                 t.prompt,
-                model_id='runwayml/stable-diffusion-v1-5',
+                model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
                 strength=0.5,
                 num_inference_steps=10,  # Fewer steps for testing
             )
@@ -476,7 +477,6 @@ class TestHuggingface:
     def test_image_to_video(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
-        skip_test_if_not_installed('av')
         from pixeltable.functions.huggingface import image_to_video
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})

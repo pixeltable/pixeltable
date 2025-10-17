@@ -9,6 +9,7 @@ UDFs).
 
 from typing import Any, Callable, Literal, Optional, TypeVar
 
+import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
@@ -624,7 +625,7 @@ def image_captioning(
 
 
 @pxt.udf(batch_size=8)
-def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]]) -> Batch[str]:
+def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> Batch[str]:
     """
     Summarizes text using a pretrained summarization model. `model_id` should be a reference to a pretrained
     [summarization model](https://huggingface.co/models?pipeline_tag=summarization) such as BART, T5, or Pegasus.
@@ -654,6 +655,9 @@ def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dic
     device = resolve_torch_device('auto')
     import torch
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    if model_kwargs is None:
+        model_kwargs = {}
 
     model = _lookup_model(model_id, AutoModelForSeq2SeqLM.from_pretrained, device=device)
     tokenizer = _lookup_processor(model_id, AutoTokenizer.from_pretrained)
@@ -960,15 +964,15 @@ def translation(
     return translations
 
 
-@pxt.udf(batch_size=2)
 def text_to_image(
-    prompt: Batch[str],
+    prompt: str,
     *,
     model_id: str,
     height: int = 512,
     width: int = 512,
+    seed: Optional[int] = None,
     model_kwargs: Optional[dict[str, Any]] = None,
-) -> Batch[PIL.Image.Image]:
+) -> PIL.Image.Image:
     """
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
     pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as
@@ -983,33 +987,33 @@ def text_to_image(
         model_id: The pretrained text-to-image model to use.
         height: Height of the generated image in pixels.
         width: Width of the generated image in pixels.
+        seed: Optional random seed for reproducibility.
         model_kwargs: Additional keyword arguments to pass to the model, such as `num_inference_steps`,
-            `guidance_scale`, or `seed`.
-        num_inference_steps: Number of denoising steps (more steps = higher quality, slower).
-        guidance_scale: How closely to follow the prompt (higher = more adherence).
-        seed: Random seed for reproducible generation.
+            `guidance_scale`, or `negative_prompt`.
 
     Returns:
-        The generated PIL Image.
+        The generated Image.
 
     Examples:
         Add a computed column that generates images from text prompts:
 
         >>> tbl.add_computed_column(generated_image=text_to_image(
         ...     tbl.prompt,
-        ...     model_id='runwayml/stable-diffusion-v1-5',  # Recommended
+        ...     model_id='stable-diffusion-v1.5/stable-diffusion-v1-5',
         ...     height=512,
         ...     width=512,
-        ...     num_inference_steps=25
+        ...     model_kwargs={'num_inference_steps': 25},
         ... ))
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('diffusers')
     env.Env.get().require_package('accelerate')
-    device = resolve_torch_device('auto')
-
+    device = resolve_torch_device('auto', allow_mps=False)
     import torch
     from diffusers import AutoPipelineForText2Image
+
+    if model_kwargs is None:
+        model_kwargs = {}
 
     # Parameter validation - following best practices pattern
     if height <= 0 or width <= 0:
@@ -1018,13 +1022,6 @@ def text_to_image(
     if height % 8 != 0 or width % 8 != 0:
         raise excs.Error(f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models')
 
-    if num_inference_steps < 1:
-        raise excs.Error(f'num_inference_steps must be at least 1, got {num_inference_steps}')
-
-    if guidance_scale < 0:
-        raise excs.Error(f'guidance_scale must be non-negative, got {guidance_scale}')
-
-    # Model loading with error handling - following best practices pattern
     pipeline = _lookup_model(
         model_id,
         lambda x: AutoPipelineForText2Image.from_pretrained(
@@ -1037,7 +1034,6 @@ def text_to_image(
         device=device,
     )
 
-    # Enable optimizations once - following best practices
     try:
         if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
             pipeline.enable_model_cpu_offload()
@@ -1046,27 +1042,17 @@ def text_to_image(
     except Exception:
         pass  # Ignore optimization failures
 
-    # Set global random seed if provided - following best practices pattern
-    generator = None
-    if seed is not None:
-        generator = torch.Generator(device=device).manual_seed(seed)
+    generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
-    results = []
-
-    for prompt_text in prompt:
-        # Generate image with proper error handling
-        with torch.no_grad():
-            result = pipeline(
-                prompt_text.strip(),
-                height=height,
-                width=width,
-                **model_kwargs
-            )
-
-            image = result.images[0]
-            results.append(image)
-
-    return results
+    with torch.no_grad():
+        result = pipeline(
+            prompt,
+            height=height,
+            width=width,
+            generator=generator,
+            **model_kwargs
+        )
+        return result.images[0]
 
 
 @pxt.udf(batch_size=4)
@@ -1103,7 +1089,6 @@ def text_to_speech(
     env.Env.get().require_package('datasets')
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
-    import numpy as np
     import soundfile as sf  # type: ignore[import-untyped]
     import torch
     from transformers import SpeechT5ForTextToSpeech, SpeechT5HifiGan, SpeechT5Processor
@@ -1178,17 +1163,14 @@ def text_to_speech(
     return results
 
 
-@pxt.udf(batch_size=2)
 def image_to_image(
-    image: Batch[PIL.Image.Image],
-    prompt: Batch[str],
+    image: PIL.Image.Image,
+    prompt: str,
     *,
     model_id: str,
-    strength: float = 0.75,
-    guidance_scale: float = 7.5,
-    num_inference_steps: int = 20,
     seed: Optional[int] = None,
-) -> Batch[PIL.Image.Image]:
+    model_kwargs: Optional[dict[str, Any]] = None,
+) -> PIL.Image.Image:
     """
     Transforms input images based on text prompts using a pretrained image-to-image model.
     `model_id` should be a reference to a pretrained
@@ -1202,10 +1184,9 @@ def image_to_image(
         image: The input image to transform.
         prompt: The text prompt describing the desired transformation.
         model_id: The pretrained image-to-image model to use.
-        strength: How much to transform the input image (0.0 = no change, 1.0 = complete transformation).
-        guidance_scale: How closely to follow the text prompt (higher = more adherence).
-        num_inference_steps: Number of denoising steps (more steps = higher quality, slower).
         seed: Random seed for reproducibility.
+        model_kwargs: Additional keyword arguments to pass to the model, such as `strength`,
+            `guidance_scale`, or `num_inference_steps`.
 
     Returns:
         The transformed image.
@@ -1226,38 +1207,17 @@ def image_to_image(
     import torch
     from diffusers import StableDiffusionImg2ImgPipeline
 
-    # Parameter validation - following best practices pattern
-    if not (0.0 <= strength <= 1.0):
-        raise excs.Error(f'strength must be between 0.0 and 1.0, got {strength}')
+    pipe = _lookup_model(
+        model_id,
+        lambda x: StableDiffusionImg2ImgPipeline.from_pretrained(
+            x,
+            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+            safety_checker=None,
+            requires_safety_checker=False,
+        ),
+        device=device,
+    )
 
-    if guidance_scale < 0:
-        raise excs.Error(f'guidance_scale must be non-negative, got {guidance_scale}')
-
-    if num_inference_steps < 1:
-        raise excs.Error(f'num_inference_steps must be at least 1, got {num_inference_steps}')
-
-    # Model loading with error handling - following best practices pattern
-    try:
-        pipe = _lookup_model(
-            model_id,
-            lambda x: StableDiffusionImg2ImgPipeline.from_pretrained(
-                x,
-                torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-                safety_checker=None,
-                requires_safety_checker=False,
-            ),
-            device=device,
-        )
-    except Exception as e:
-        raise excs.Error(
-            f'Error loading image-to-image model {model_id}: {e}\n'
-            f'Try these recommended models instead:\n'
-            f'  - runwayml/stable-diffusion-v1-5 (general purpose)\n'
-            f'  - stabilityai/stable-diffusion-2-1 (improved quality)\n'
-            f'  - CompVis/stable-diffusion-v1-4 (classic)'
-        ) from e
-
-    # Apply optimizations with error handling - following best practices
     try:
         if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
             pipe.enable_model_cpu_offload()
@@ -1266,48 +1226,18 @@ def image_to_image(
     except Exception:
         pass  # Ignore optimization failures
 
-    # Set random seed if provided - following best practices pattern
-    generator = None
-    if seed is not None:
-        generator = torch.Generator(device=device).manual_seed(seed)
+    generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
-    results: list[PIL.Image.Image | None] = []
-    for input_image, prompt_text in zip(image, prompt):
-        try:
-            # Input validation per item
-            if input_image is None:
-                results.append(None)
-                continue
+    processed_image = image.convert('RGB')
 
-            if not prompt_text or not prompt_text.strip():
-                # For empty prompts, return original image
-                results.append(input_image)
-                continue
-
-            # Ensure image is in RGB mode
-            processed_image = input_image.convert('RGB') if input_image.mode != 'RGB' else input_image
-
-            # Transform image with proper error handling
-            with torch.no_grad():
-                result = pipe(
-                    prompt=prompt_text.strip(),
-                    image=processed_image,
-                    strength=strength,
-                    guidance_scale=guidance_scale,
-                    num_inference_steps=num_inference_steps,
-                    generator=generator,
-                )
-
-                if hasattr(result, 'images') and len(result.images) > 0:
-                    transformed_image = result.images[0]
-                    results.append(transformed_image)
-                else:
-                    raise excs.Error('Pipeline returned no images')
-
-        except Exception:
-            results.append(None)
-
-    return results
+    with torch.no_grad():
+        result = pipe(
+            prompt=prompt,
+            image=processed_image,
+            generator=generator,
+            **model_kwargs,
+        )
+        return result.images[0]
 
 
 @pxt.udf(batch_size=4)
