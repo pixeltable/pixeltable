@@ -304,7 +304,9 @@ class TestHuggingface:
 
         # Test with BART model
         t.add_computed_column(
-            summary=summarization(t.text, model_id='Falconsai/text_summarization', model_kwargs={'max_length': 50, 'min_length': 10})
+            summary=summarization(
+                t.text, model_id='Falconsai/text_summarization', model_kwargs={'max_length': 50, 'min_length': 10}
+            )
         )
 
         validate_update_status(t.insert(text=long_text), expected_rows=1)
@@ -345,9 +347,7 @@ class TestHuggingface:
         english_text = 'Hello, how are you?'
 
         # Test with Helsinki-NLP translation model
-        t.add_computed_column(
-            french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr')
-        )
+        t.add_computed_column(french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr'))
 
         validate_update_status(t.insert(text=english_text), expected_rows=1)
         result = t.select(t.french).collect()[0]
@@ -366,9 +366,7 @@ class TestHuggingface:
 
         # Test with BERT NER model
         t.add_computed_column(
-            entities=token_classification(
-                t.text, model_id='dslim/bert-base-NER', aggregation_strategy='simple'
-            )
+            entities=token_classification(t.text, model_id='dslim/bert-base-NER', aggregation_strategy='simple')
         )
 
         validate_update_status(t.insert(text=text_with_entities), expected_rows=1)

@@ -172,7 +172,7 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import CLIPModel, CLIPProcessor  # type: ignore[import-untyped]
+    from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
     processor = _lookup_processor(model_id, CLIPProcessor.from_pretrained)
@@ -568,7 +568,8 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
                 {
                     'label': top_k_indices[i, k].item(),
                     'label_text': model.config.id2label[top_k_indices[i, k].item()],
-                    'score': top_k_probs[i, k].item()},
+                    'score': top_k_probs[i, k].item(),
+                }
             )
         results.append(classification_items)
 
@@ -666,10 +667,7 @@ def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dic
 
     with torch.no_grad():
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
-        outputs = model.generate(
-            **inputs.to(device),
-            **model_kwargs
-        )
+        outputs = model.generate(**inputs.to(device), **model_kwargs)
 
     return tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
@@ -716,7 +714,7 @@ def token_classification(
     valid_strategies = {'simple', 'first', 'average', 'max'}
     if aggregation_strategy not in valid_strategies:
         raise excs.Error(
-            f"Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {', '.join(valid_strategies)}"
+            f'Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {", ".join(valid_strategies)}'
         )
 
     with torch.no_grad():
@@ -749,8 +747,9 @@ def token_classification(
 
         current_entity = None
 
-        for token_class, confidence, (start_offset, end_offset) in \
-            zip(predicted_token_classes, confidence_scores, offset_mapping):
+        for token_class, confidence, (start_offset, end_offset) in zip(
+            predicted_token_classes, confidence_scores, offset_mapping
+        ):
             # Skip special tokens (offset is (0, 0))
             if start_offset == 0 and end_offset == 0:
                 continue
@@ -866,8 +865,7 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
         end_idx = torch.argmax(end_scores)
 
         # Ensure end_idx >= start_idx
-        if end_idx < start_idx:
-            end_idx = start_idx
+        end_idx = torch.max(end_idx, start_idx)
 
         # Convert token positions to string
         input_ids = inputs['input_ids'][0]
@@ -882,8 +880,6 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
         confidence = float(start_probs[0][start_idx] * end_probs[0][end_idx])
 
         return {'answer': answer.strip(), 'score': confidence, 'start': int(start_idx), 'end': int(end_idx)}
-
-    return results
 
 
 @pxt.udf(batch_size=8)
@@ -929,13 +925,13 @@ def translation(
     # Language validation - following speech2text_for_conditional_generation pattern
     if src_lang is not None and src_lang not in lang_code_to_id:
         raise excs.Error(
-            f"Source language code {src_lang!r} is not supported by the model {model_id!r}. "
+            f'Source language code {src_lang!r} is not supported by the model {model_id!r}. '
             f'Supported languages are: {list(lang_code_to_id.keys())}'
         )
 
     if target_lang is not None and target_lang not in lang_code_to_id:
         raise excs.Error(
-            f"Target language code {target_lang!r} is not supported by the model {model_id!r}. "
+            f'Target language code {target_lang!r} is not supported by the model {model_id!r}. '
             f'Supported languages are: {list(lang_code_to_id.keys())}'
         )
 
@@ -1037,20 +1033,14 @@ def text_to_image(
     generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
     with torch.no_grad():
-        result = pipeline(
-            prompt,
-            height=height,
-            width=width,
-            generator=generator,
-            **model_kwargs
-        )
+        result = pipeline(prompt, height=height, width=width, generator=generator, **model_kwargs)
         return result.images[0]
 
 
 @pxt.udf
 def text_to_speech(
     text: str, *, model_id: str, speaker_id: Optional[int] = None, vocoder: Optional[str] = None
-) -> Batch[pxt.Audio]:
+) -> pxt.Audio:
     """
     Converts text to speech using a pretrained TTS model. `model_id` should be a reference to a
     pretrained [text-to-speech model](https://huggingface.co/models?pipeline_tag=text-to-speech).
@@ -1083,10 +1073,15 @@ def text_to_speech(
     device = resolve_torch_device('auto')
     import soundfile as sf  # type: ignore[import-untyped]
     import torch
-    from transformers import SpeechT5ForTextToSpeech, SpeechT5HifiGan, SpeechT5Processor
-    from transformers import AutoModelForTextToWaveform, AutoProcessor
-    from transformers import AutoProcessor, BarkModel
     from datasets import load_dataset  # type: ignore[import-untyped]
+    from transformers import (
+        AutoModelForTextToWaveform,
+        AutoProcessor,
+        BarkModel,
+        SpeechT5ForTextToSpeech,
+        SpeechT5HifiGan,
+        SpeechT5Processor,
+    )
 
     # Model loading with error handling - following best practices pattern
     if 'speecht5' in model_id.lower():
@@ -1218,12 +1213,7 @@ def image_to_image(
     processed_image = image.convert('RGB')
 
     with torch.no_grad():
-        result = pipe(
-            prompt=prompt,
-            image=processed_image,
-            generator=generator,
-            **model_kwargs,
-        )
+        result = pipe(prompt=prompt, image=processed_image, generator=generator, **model_kwargs)
         return result.images[0]
 
 
@@ -1425,7 +1415,6 @@ def image_to_video(
     device = resolve_torch_device('auto', allow_mps=False)
     import numpy as np
     import torch
-
     from diffusers import StableVideoDiffusionPipeline
 
     if model_kwargs is None:
@@ -1471,12 +1460,7 @@ def image_to_video(
 
     # Generate video frames with proper error handling
     with torch.no_grad():
-        result = pipe(
-            image=processed_image,
-            num_frames=num_frames,
-            generator=generator,
-            **model_kwargs
-        )
+        result = pipe(image=processed_image, num_frames=num_frames, generator=generator, **model_kwargs)
         frames = result.frames[0]
 
     # Create output video file
