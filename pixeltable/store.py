@@ -11,7 +11,7 @@ import psycopg
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
-from pixeltable import catalog, exceptions as excs, index
+from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -198,6 +198,11 @@ class StoreBase:
         Env.get().conn.execute(stmt)
 
     def ensure_updated_schema(self) -> None:
+        from pixeltable.utils.dbms import PostgresqlDbms
+
+        # This should only be called during replica creation where the underlying DBMS is Postgres.
+        assert isinstance(Env.get().dbms, PostgresqlDbms)
+
         conn = Env.get().conn
         tv = self.tbl_version.get()
 

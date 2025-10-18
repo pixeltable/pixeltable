@@ -227,14 +227,16 @@ class TestPackager:
     def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
         with Env.get().begin_xact():
             store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
-            sql_text = f'SELECT column_name, data_type FROM information_schema.columns WHERE table_name = {store_tbl_name!r}'
+            sql_text = (
+                f'SELECT column_name, data_type FROM information_schema.columns WHERE table_name = {store_tbl_name!r}'
+            )
             result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
             return {(col_name, data_type) for col_name, data_type in result}
 
     def __extract_store_idx_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
         with Env.get().begin_xact():
             store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
-            sql_text = f"SELECT indexname, indexdef FROM pg_indexes WHERE tablename = {store_tbl_name!r}"
+            sql_text = f'SELECT indexname, indexdef FROM pg_indexes WHERE tablename = {store_tbl_name!r}'
             result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
             return {(indexname, indexdef) for indexname, indexdef in result}
 
