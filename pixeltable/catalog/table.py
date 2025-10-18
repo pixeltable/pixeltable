@@ -1328,7 +1328,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any,
-        )```
+        )
+        ```
 
         To insert just a single row, you can use the more concise syntax:
 
@@ -1338,7 +1339,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any
-        )```
+        )
+        ```
 
         Args:
             source: A data source from which data can be imported.
