@@ -241,7 +241,7 @@ class TestHuggingface:
         # Verify we got text completions
         assert len(results) == 2
         for result in results:
-            assert isinstance(result['completion'], str)
+            assert isinstance(result['completion'], str), result['completion']
             assert len(result['completion'].strip()) > 0
         assert 'Paris' in results[1]['completion']
 

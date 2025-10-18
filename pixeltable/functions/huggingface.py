@@ -507,13 +507,9 @@ def text_generation(text: str, *, model_id: str, model_kwargs: Optional[dict[str
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True)
         outputs = model.generate(**inputs.to(device), pad_token_id=tokenizer.eos_token_id, **model_kwargs)
 
-    results = []
-    for i, output in enumerate(outputs):
-        input_length = len(inputs['input_ids'][i])
-        generated_text = tokenizer.decode(output[input_length:], skip_special_tokens=True)
-        results.append(generated_text)
-
-    return results
+    input_length = len(inputs['input_ids'][0])
+    generated_text = tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True)
+    return generated_text
 
 
 @pxt.udf(batch_size=16)
