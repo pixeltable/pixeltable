@@ -459,8 +459,8 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
     return {'image': {'width': image.width, 'height': image.height}, 'annotations': annotations}
 
 
-@pxt.udf(batch_size=1)
-def text_generation(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> Batch[str]:
+@pxt.udf
+def text_generation(text: str, *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> str:
     """
     Generates text using a pretrained language model. `model_id` should be a reference to a pretrained
     [text generation model](https://huggingface.co/models?pipeline_tag=text-generation).
@@ -1106,7 +1106,6 @@ def text_to_speech(
         embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
         speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
-    # Process each text input - following pattern from other functions
     with torch.no_grad():
         # Generate speech based on model type
         if 'speecht5' in model_id.lower():
