@@ -51,6 +51,7 @@ help:
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
 	@echo '  docs-local    Build documentation for local preview (auto-updates doctools)'
+	@echo '  docs-dev      Deploy versioned docs to dev with errors visible (auto-updates doctools)'
 	@echo '  docs-stage    Deploy versioned documentation to staging (auto-updates doctools)'
 	@echo '  docs-prod     Deploy documentation from staging to production (auto-updates doctools)'
 	@echo ''
@@ -181,28 +182,33 @@ release-docs: install
 update-doctools:
 	@echo 'Updating pixeltable-doctools...'
 	@python -m pip uninstall -y -q pixeltable-doctools 2>/dev/null || true
-	@python -m pip install -q --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
+	@python -m pip install -q --upgrade --no-cache-dir --force-reinstall --no-deps git+https://github.com/pixeltable/pixeltable-doctools.git
 
 .PHONY: docs-local
 docs-local: install update-doctools
 	@echo 'Building documentation for local preview...'
-	@pxtdocs build
+	@python -m doctools.build.build_docs
 	@echo ''
 	@echo 'Documentation built successfully!'
 	@echo 'To preview, run: cd $(CURDIR)/docs/target && npx mintlify dev'
+
+.PHONY: docs-dev
+docs-dev: install update-doctools
+	@echo 'Building and deploying documentation to dev for pre-release validation (with errors visible)...'
+	@python -m doctools.deploy.deploy_docs_dev
 
 .PHONY: docs-stage
 docs-stage: install update-doctools
 	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=0.4.17" && exit 1)
 	@echo 'Building and deploying documentation for $(VERSION) to staging...'
-	@pxtdocs deploy-stage --version=$(VERSION)
+	@python -m doctools.deploy.deploy_docs_stage --version=$(VERSION)
 
 .PHONY: docs-prod
 docs-prod: install update-doctools
 	@echo 'Deploying documentation from stage to production...'
 	@echo 'This will completely replace production with staging content.'
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || (echo "Deployment cancelled." && exit 1)
-	@pxtdocs deploy-prod
+	@python -m doctools.deploy.deploy_docs_prod
 
 .PHONY: clean
 clean:
