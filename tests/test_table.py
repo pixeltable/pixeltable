@@ -260,21 +260,21 @@ class TestTable:
         pxt.create_table('tbl3', {'c1': pxt.Int})
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
-        with pytest.raises(pxt.Error, match="Path 'tbl3' already exists."):
+        with pytest.raises(pxt.Error, match=r"Path 'tbl3' already exists."):
             pxt.move('tbl2', 'tbl3')
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
         pxt.move('tbl2', 'tbl3', if_exists='ignore')
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
-        with pytest.raises(pxt.Error, match="Path 'tbl1' does not exist."):
+        with pytest.raises(pxt.Error, match=r"Path 'tbl1' does not exist."):
             pxt.move('tbl1', 'tbl4')
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
         pxt.move('tbl1', 'tbl4', if_not_exists='ignore')
         assert sorted(pxt.list_tables()) == ['tbl2', 'tbl3']
 
-        with pytest.raises(pxt.Error, match='move\(\): source and destination cannot be identical'):
+        with pytest.raises(pxt.Error, match=r'move\(\): source and destination cannot be identical'):
             pxt.move('tbl1', 'tbl1')
 
     def test_columns(self, reset_db: None) -> None:
