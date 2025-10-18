@@ -259,6 +259,12 @@ class View(Table):
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
+    def _is_named_pure_snapshot(self) -> bool:
+        """
+        Returns True if this is a named pure snapshot (i.e., a pure snapshot that is a separate schema object).
+        """
+        return self._id != self._tbl_version_path.tbl_id
+
     def _is_anonymous_snapshot(self) -> bool:
         """
         Returns True if this is an unnamed snapshot (i.e., a snapshot that is not a separate schema object).

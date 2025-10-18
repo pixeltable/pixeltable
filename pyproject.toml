@@ -90,7 +90,10 @@ source = "uv-dynamic-versioning"
 [tool.uv]
 required-version = ">=0.8"
 default-groups = ["dev", "test"]
-override-dependencies = ["sse-starlette>=2.0"]  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+override-dependencies = [
+    "numpy>=2.2",  # Required because 'whisperx' hard-codes 'numpy<2.1'
+    "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+]
 
 [tool.uv-dynamic-versioning]
 vcs = "git"
@@ -128,7 +131,7 @@ dev = [
     "pyiceberg>=0.6.0",
     "torch~=2.7",
     "torchaudio~=2.7",
-    "torchvision>=0.22,<0.23",
+    "torchvision>=0.22",
     "openai>=1.86.0",
     "anthropic>=0.53.0",
     "together>=1.5.26",
@@ -148,7 +151,7 @@ dev = [
     "datasets>=3.2.0",
     "openpyxl>=3.1",
     "openai-whisper>=20250625",
-    "whisperx>=3.3.4 ; python_version < '3.13' and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
+    "whisperx>=3.7",
     "label-studio-sdk>=1.0.18",
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.16 ; sys_platform == 'linux'",
