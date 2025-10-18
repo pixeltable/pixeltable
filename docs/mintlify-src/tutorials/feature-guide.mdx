@@ -1,0 +1,105 @@
+---
+title: 'Feature Guides'
+description: 'Deep dive into Pixeltable advanced capabilities and patterns'
+icon: 'book-open'
+---
+
+These feature guides demonstrate key Pixeltable capabilities through practical examples and detailed explanations. Each guide is available as an interactive Jupyter notebook.
+
+<Info>
+  These tutorials are available as interactive Jupyter notebooks on our [Github repository](https://github.com/pixeltable/pixeltable/tree/main/docs/notebooks/fundamentals).
+</Info>
+
+## Essential Features
+
+<CardGroup cols={2}>
+  <Card
+    title="Working with External Files"
+    icon="file-image"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/working-with-external-files.ipynb"
+  >
+    Learn how Pixeltable efficiently manages external media files (videos, images, audio) through references and automatic local caching of remote files from S3 and other sources
+  </Card>
+
+  <Card
+    title="User-Defined Functions"
+    icon="code"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb"
+  >
+    Master Pixeltable's UDF capabilities to extend functionality with custom Python logic in expressions and computed columns
+  </Card>
+</CardGroup>
+
+## Advanced Features
+
+<CardGroup cols={2}>
+  <Card
+    title="Embedding Indexes"
+    icon="database"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/embedding-indexes.ipynb"
+  >
+    Explore Pixeltable's declarative indexing system for similarity search across any data type, with automatic index maintenance and efficient lookups
+  </Card>
+
+  <Card
+    title="Time Zone Handling"
+    icon="clock"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/time-zones.ipynb"
+  >
+    Understand how Pixeltable ensures consistent timestamp handling across time zones through UTC storage and precise arithmetic
+  </Card>
+</CardGroup>
+
+## Key Capabilities
+
+<CardGroup cols={3}>
+  <Card
+    title="Declarative Design"
+    icon="wand-magic-sparkles"
+  >
+    Define what you want, not how to do it - Pixeltable handles the implementation details
+  </Card>
+
+  <Card
+    title="Automatic Caching"
+    icon="server"
+  >
+    Smart local caching of remote files for optimal performance
+  </Card>
+
+  <Card
+    title="UTC Consistency"
+    icon="globe"
+  >
+    Reliable timestamp handling across datasets and deployments
+  </Card>
+</CardGroup>
+
+## Implementation Patterns
+
+<CardGroup cols={3}>
+  <Card
+    title="Custom UDFs"
+    icon="function"
+  >
+    Extend Pixeltable with Python functions for any workflow
+  </Card>
+
+  <Card
+    title="Vector Search"
+    icon="magnifying-glass"
+  >
+    Build semantic search with automatic index maintenance
+  </Card>
+
+  <Card
+    title="Remote Storage"
+    icon="cloud"
+  >
+    Seamlessly work with files in S3 and other cloud storage
+  </Card>
+</CardGroup>
+
+<Note>
+  These guides assume basic familiarity with Pixeltable. New to Pixeltable? Start with our [Getting Started Guide](/docs/getting-started) or join our [Discord community](https://discord.com/invite/QPyqFYx2UN) for help.
+</Note>

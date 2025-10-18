@@ -1,0 +1,242 @@
+---
+title: 'Ecosystem'
+description: 'Explore Pixeltable ecosystem of built-in integrations for AI/ML workflows'
+icon: 'toolbox'
+---
+
+From language models to computer vision frameworks, Pixeltable integrates with the entire ecosystem. All integrations are available out-of-the-box with Pixeltable installation. No additional setup required unless specified.
+
+<Note>
+If you have a framework that you want us to integrate with, please reach out and you can also leverage Pixeltable's [UDFs](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb) to build your own.
+</Note>
+
+## Cloud LLM Providers
+
+<CardGroup cols={3}>
+  <Card
+    title="Anthropic Claude"
+    icon="brain"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-anthropic.ipynb"
+  >
+    Integrate Claude models for advanced language understanding and generation with multimodal capabilities
+  </Card>
+
+  <Card
+    title="Google Gemini"
+    icon="sparkles"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-gemini.ipynb"
+  >
+    Access Google's Gemini models for state-of-the-art multimodal AI capabilities
+  </Card>
+
+  <Card
+    title="OpenAI"
+    icon="square-code"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb"
+  >
+    Leverage GPT models for text generation, embeddings, and image analysis
+  </Card>
+
+  <Card
+    title="Mistral AI"
+    icon="wind"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-mistralai.ipynb"
+  >
+    Use Mistral's efficient language models for various NLP tasks
+  </Card>
+
+  <Card
+    title="Together AI"
+    icon="users"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-together.ipynb"
+  >
+    Access a variety of open-source models through Together AI's platform
+  </Card>
+
+  <Card
+    title="Fireworks"
+    icon="rocket"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fireworks.ipynb"
+  >
+    Use Fireworks.ai's optimized model inference infrastructure
+  </Card>
+
+   <Card
+    title="DeepSeek"
+    icon="robot"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-deepseek.ipynb"
+  >  
+    Leverage DeepSeek's powerful language and code models for text and code generation
+  </Card>
+
+   <Card
+    title="AWS Bedrock"
+    icon="aws"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-bedrock.ipynb"
+  >
+    Access a variety of AI models through AWS Bedrock's unified API
+  </Card>
+
+   <Card
+    title="Groq"
+    icon="microchip"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-groq.ipynb"
+  >
+    Access Groq's models for text generation
+  </Card>
+
+  <Card
+    title="OpenRouter"
+    icon="route"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openrouter.ipynb"
+  >
+    Unified access to 100+ LLMs from various providers through a single API
+  </Card>
+
+</CardGroup>
+
+## Local LLM Runtimes
+
+<CardGroup cols={2}>
+  <Card
+    title="Llama.cpp"
+    icon="microchip"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-llama-cpp.ipynb"
+  >
+    High-performance C++ implementation for running LLMs on CPU and GPU
+  </Card>
+
+  <Card
+    title="Ollama"
+    icon="box"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-ollama.ipynb"
+  >
+    Easy-to-use toolkit for running and managing open-source models locally
+  </Card>
+</CardGroup>
+
+## Computer Vision 
+
+<CardGroup cols={2}>
+  <Card
+    title="YOLOX"
+    icon="camera"
+    href="/docs/examples/vision/yolox"
+  >
+    State-of-the-art object detection with YOLOX models
+  </Card>
+
+  <Card
+    title="Voxel51"
+    icon="cube"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fiftyone.ipynb"
+  >
+    Advanced video and image dataset management with Voxel51
+  </Card>
+</CardGroup>
+
+## Annotation Tools
+
+<CardGroup cols={1}>
+  <Card
+    title="Label Studio"
+    icon="tags"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/using-label-studio-with-pixeltable.ipynb"
+  >
+    Comprehensive platform for data annotation and labeling workflows
+  </Card>
+
+</CardGroup>
+
+## Audio Processing
+
+<Card
+  title="Whisper/WhisperX"
+  icon="waveform"
+  href="http://localhost:3000/docs/examples/search/audio"
+>
+  High-quality speech recognition and transcription using OpenAI's Whisper models
+</Card>
+
+## Data Wrangling
+
+<Card
+  title="Pandas"
+  icon="table"
+  href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"
+>
+  Import and Export from and to Pandas DataFrames if needed
+</Card>
+
+## Usage Examples
+
+<AccordionGroup>
+  <Accordion title="LLM Integration">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+
+    # Create a table with computed column for OpenAI completion
+    table = pxt.create_table('responses', {'prompt': pxt.String})
+
+    table.add_computed_column(
+        response=openai.chat_completions(
+            messages=[{'role': 'user', 'content': table.prompt}],
+            model='gpt-4'
+        )
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Computer Vision">
+    ```python
+    from pixeltable.functions.yolox import yolox
+    
+    # Add object detection to video frames
+    frames_view.add_computed_column(
+        detections=yolox(
+            frames_view.frame,
+            model_id='yolox_l'
+        )
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Audio Processing">
+    ```python
+    from pixeltable.functions import openai
+    
+    # Transcribe audio files
+    audio_table.add_computed_column(
+        transcription=openai.transcriptions(
+            audio=audio_table.file,
+            model='whisper-1'
+        )
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Integration Features
+
+<Steps>
+  <Step title="Easy Setup">
+    Most integrations work out-of-the-box with simple API configuration
+  </Step>
+  
+  <Step title="Computed Columns">
+    Use integrations directly in computed columns for automated processing
+  </Step>
+  
+  <Step title="Batch Processing">
+    Efficient handling of batch operations with automatic optimization
+  </Step>
+</Steps>
+
+<Tip>
+  Check our [Github](https://github.com/pixeltable/pixeltable/tree/main/docs/notebooks/integrations) for detailed usage instructions for each integration.
+</Tip>
+
+<Note>
+Need help setting up integrations? Join our [Discord community](https://discord.com/invite/QPyqFYx2UN) for support.
+</Note>

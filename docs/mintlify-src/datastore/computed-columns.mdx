@@ -1,0 +1,163 @@
+---
+title: 'Computed Columns'
+description: 'Computed columns combines automatic calculations with smart incremental updates. Think of them as your data workflow automated.'
+icon: 'calculator'
+mode: 'wide'
+---
+
+<Info>
+Learn more about computed columns with our [in-depth guide](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/computed-columns.ipynb).
+</Info>
+
+## What are Computed Columns?
+
+Computed columns are permanent table columns that automatically calculate values based on expressions involving other columns. They maintain those calculations as your data changes, enabling seamless data transformations without manual updates.
+
+## Why use computed columns?
+
+You would use computed columns when you want to:
+
+- Compute a value based on the contents of other columns
+- Automatically update the computed value when the source data changes
+- Simplify queries by avoiding the need to write complex expressions
+- Create reproducible data transformation pipelines
+
+## How to create a computed column
+
+```python
+import pixeltable as pxt
+
+# Create a table with population data
+pop_t = pxt.io.import_csv(
+    'fundamentals.population',
+    'https://github.com/pixeltable/pixeltable/raw/main/docs/source/data/world-population-data.csv'
+)
+
+# Add a computed column for year-over-year change
+pop_t.add_computed_column(yoy_change=(pop_t.pop_2023 - pop_t.pop_2022))
+
+# Create a computed column to track population change year over year
+pop_t.add_computed_column(yoy_change=(pop_t.pop_2023 - pop_t.pop_2022))
+
+# Display the results
+pop_t.select(pop_t.country, pop_t.pop_2022, pop_t.pop_2023, pop_t.yoy_change).head(5)
+```
+As soon as the column is added, Pixeltable will (by default) automatically compute its value for all rows in the table, storing the results in the new column.
+
+<Note>
+In traditional data workflows, it is commonplace to recompute entire pipelines when the input dataset is changed or enlarged. In Pixeltable, by contrast, all updates are applied incrementally. When new data appear in a table or existing data are altered, Pixeltable will recompute only those rows that are dependent on the changed data.
+</Note>
+
+## Building workflows
+
+Let's explore another example that uses computed columns for image processing operations.
+
+```python
+# Create a table for image operations
+t = pxt.create_table('fundamentals.image_ops', {'source': pxt.Image})
+
+# Extract image metadata (dimensions, format, etc.)
+t.add_computed_column(metadata=t.source.get_metadata())
+
+# Create a rotated version of each image
+t.add_computed_column(rotated=t.source.rotate(10))
+
+# Create a version with transparency and rotation
+t.add_computed_column(rotated_transparent=t.source.convert('RGBA').rotate(10))
+```
+
+Once we insert data, it will automatically compute the values for the new columns.
+
+```python
+# Insert sample images from a GitHub repository
+url_prefix = 'https://github.com/pixeltable/pixeltable/raw/main/docs/source/data/images'
+images = ['000000000139.jpg', '000000000632.jpg', '000000000872.jpg']
+t.insert({'source': f'{url_prefix}/{image}'} for image in images)
+
+# Display the original and rotated images
+t.select(t.source, t.rotated).limit(2)
+```
+
+Pixeltable will automatically manage the dependencies between the columns, so that when the source image is updated, the rotated and rotated_transparent columns are automatically recomputed.
+
+You don't need to think about orchestration. Our DAG engine will take care of the dependencies for you.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Incremental Updates" icon="arrows-rotate">
+    Only recomputes values for rows affected by changes in source columns, saving processing time and resources.
+  </Card>
+  
+  <Card title="Automatic Dependencies" icon="diagram-project">
+    Tracks relationships between columns and handles the execution order of computations automatically.
+  </Card>
+
+  <Card title="Expression Support" icon="function">
+    Supports complex expressions combining multiple columns, Python functions, and built-in operations.
+  </Card>
+
+  <Card title="Type Safety" icon="shield-check">
+    Ensures type consistency across computations and validates expressions at creation time.
+  </Card>
+</CardGroup>
+
+## Advanced Usage
+
+### Using Python Functions
+
+You can use Python functions in computed columns using the `@pxt.udf` decorator:
+
+```python
+@pxt.udf
+def calculate_growth_rate(current: float, previous: float) -> float:
+    """Calculate percentage growth rate between two values"""
+    if previous == 0:
+        return 0  # Handle division by zero
+    return ((current - previous) / previous) * 100
+
+pop_t.add_computed_column(
+    growth_rate=calculate_growth_rate(pop_t.pop_2023, pop_t.pop_2022)
+)
+```
+
+### Chaining Computations
+
+Computed columns can depend on other computed columns:
+
+```python
+# First computed column: calculate total population change over 3 years
+pop_t.add_computed_column(total_change=pop_t.pop_2023 - pop_t.pop_2020)
+
+# Second computed column: calculate average yearly change using the first column
+pop_t.add_computed_column(
+    avg_yearly_change=pop_t.total_change / 3
+)
+```
+
+## Best Practices
+
+- **Break down complex operations**: Split complex operations into multiple columns for better readability and easier debugging
+- **Handle missing values**: Explicitly handle None/null values to prevent unexpected errors
+- **Consider performance**: For large tables, minimize the use of computationally expensive operations
+- **Document your transformations**: Add comments explaining the purpose and logic of your computed columns
+- **Reuse common calculations**: Create intermediate computed columns for values used in multiple places
+
+## Troubleshooting
+
+### Common Issues
+
+- **Type mismatches**: Ensure input and output types are compatible
+- **Missing dependencies**: A computed column will show as None if its inputs are None
+- **Performance issues**: Very complex computations on large tables might become slow
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete API reference
+  </Card>
+  <Card title="UDF Examples" icon="code" href="/docs/datastore/custom-functions">
+    Example implementations
+  </Card>
+</CardGroup>

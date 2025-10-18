@@ -1,0 +1,689 @@
+---
+title: 'Custom Functions (UDFs)'
+description: 'Create and use custom functions (UDFs) in Pixeltable'
+icon: 'function'
+---
+
+## What are User-Defined Functions?
+
+User-Defined Functions (UDFs) in Pixeltable allow you to extend the platform with custom Python code. They bridge the gap between Pixeltable's built-in operations and your specific data processing needs, enabling you to create reusable components for transformations, analysis, and AI workflows.
+
+Pixeltable UDFs offer several key advantages:
+- **Reusability**: Define a function once and use it across multiple tables and operations
+- **Type Safety**: Strong typing ensures data compatibility throughout your workflows
+- **Performance**: Batch processing and caching capabilities optimize execution
+- **Integration**: Seamlessly combine custom code with Pixeltable's query system
+- **Flexibility**: Process any data type including text, images, videos, and embeddings
+
+UDFs can be as simple as a basic transformation or as complex as a multi-stage ML workflow. Pixeltable offers three types of custom functions to handle different scenarios:
+
+```python
+import pixeltable as pxt
+
+# Basic UDF for text transformation
+@pxt.udf
+def clean_text(text: str) -> str:
+    """Clean and normalize text data."""
+    return text.lower().strip()
+
+# Use in a computed column
+documents = pxt.get_table('my_documents')
+documents.add_computed_column(
+    clean_content=clean_text(documents.content)
+)
+```
+
+# User-Defined Functions in Pixeltable
+
+<Info>
+Learn more about UDFs and UDAs with our [in-depth guide](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb).
+</Info>
+
+This guide covers four types of custom functions in Pixeltable:
+1. Basic User-Defined Functions (UDFs)
+2. Tables as UDFs
+3. User-Defined Aggregates (UDAs)
+4. MCP UDFs
+
+## 1. Basic User-Defined Functions (UDFs)
+
+### Overview
+UDFs allow you to:
+- Write custom Python functions for data processing
+- Integrate them into computed columns and queries
+- Optimize performance through batching
+- Create reusable components for your data workflow
+
+<Note>
+All UDFs require type hints for parameters and return values. This enables Pixeltable to validate and optimize your data workflow before execution.
+</Note>
+
+### Creating Basic UDFs
+
+<CodeGroup>
+```python Basic
+@pxt.udf
+def add_tax(price: float, rate: float) -> float:
+    return price * (1 + rate)
+
+# Use in computed column
+table.add_computed_column(
+    price_with_tax=add_tax(table.price)
+)
+```
+
+```python With Type Checking
+from typing import List
+
+@pxt.udf
+def process_tags(tags: List[str]) -> str:
+    return ", ".join(sorted(tags))
+
+# Use in computed column
+table.add_computed_column(
+    formatted_tags=process_tags(table.tags)
+)
+```
+</CodeGroup>
+
+### UDF Types
+
+<Tabs>
+  <Tab title="Local UDFs">
+    ```python
+    # Defined directly in your code
+    @pxt.udf
+    def extract_year(date_str: str) -> int:
+        return int(date_str.split('-')[0])
+        
+    # Used immediately
+    table.add_computed_column(
+        year=extract_year(table.date)
+    )
+    ```
+    <Note>
+    Local UDFs are serialized with their columns. Changes to the UDF only affect new columns.
+    </Note>
+  </Tab>
+
+  <Tab title="Module UDFs">
+    ```python
+    # In my_functions.py
+    @pxt.udf
+    def clean_text(text: str) -> str:
+        return text.strip().lower()
+        
+    # In your application
+    from my_functions import clean_text
+    table.add_computed_column(
+        clean_content=clean_text(table.content)
+    )
+    ```
+    <Note>
+    Module UDFs are referenced by path. Changes to the UDF affect all uses after reload.
+    </Note>
+  </Tab>
+
+  <Tab title="Batched UDFs">
+    ```python
+    from pixeltable.func import Batch
+    
+    @pxt.udf(batch_size=32)
+    def process_batch(items: Batch[str]) -> Batch[str]:
+        results = []
+        for item in items:
+            results.append(item.upper())
+        return results
+        
+    # Used like a regular UDF
+    table.add_computed_column(
+        processed=process_batch(table.text)
+    )
+    ```
+    <Note>
+    Batched UDFs process multiple rows at once for better performance.
+    </Note>
+  </Tab>
+</Tabs>
+
+### Supported Types
+
+<AccordionGroup>
+  <Accordion title="Basic Types" icon="code">
+    Native Python types supported in UDFs:
+    ```python
+    @pxt.udf
+    def process_data(
+        text: str,           # String data
+        count: int,          # Integer numbers
+        score: float,        # Floating point
+        active: bool,        # Boolean
+        items: list[str],    # Generic lists
+        meta: dict[str,any]  # Dictionaries
+    ) -> str:
+        return "Processed"
+    ```
+  </Accordion>
+
+  <Accordion title="Complex Types" icon="layer-group">
+    Pixeltable-specific types:
+    ```python
+    @pxt.udf
+    def process_media(
+        img: PIL.Image.Image,    # Images
+        embeddings: pxt.Array,   # Numerical arrays
+        config: pxt.Json,        # JSON data
+        doc: pxt.Document        # Documents
+    ) -> str:
+        return "Processed"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Performance Optimization
+
+<CardGroup cols={1}>
+  <Card title="Batching" icon="layer-group">
+    ```python
+    @pxt.udf(batch_size=16)
+    def embed_texts(
+        texts: Batch[str]
+    ) -> Batch[pxt.Array]:
+        # Process multiple texts at once
+        return model.encode(texts)
+    ```
+  </Card>
+  
+  <Card title="Caching" icon="database">
+    ```python
+    @pxt.udf
+    def expensive_operation(text: str) -> str:
+        # Cache model instance
+        if not hasattr(expensive_operation, 'model'):
+            expensive_operation.model = load_model()
+        return expensive_operation.model(text)
+    ```
+  </Card>
+  
+  <Card title="Async Support" icon="bolt">
+    ```python
+    from typing import Optional, Literal, Union, Any
+    import json
+    
+    @pxt.udf
+    async def chat_completions(
+        messages: list,
+        *,
+        model: str,
+        model_kwargs: Optional[dict] = None,
+    ) -> dict:
+
+        # Setup API request with proper context management
+        result = await openai_client.chat_completions(
+            messages=messages,
+            model=model,
+            model_kwargs=model_kwargs
+        )
+        
+        # Process response
+        return json.loads(result.text)
+    
+    # Example usage in a computed column
+    table.add_computed_column(
+        response=chat_completions(
+            [
+                {'role': 'system', 'content': 'You are a helpful assistant.'},
+                {'role': 'user', 'content': table.prompt}
+            ],
+            model='gpt-4o-mini'
+        )
+    )
+    ```
+    <Note>
+    Async UDFs are specifically designed for handling external API calls, such as LLM calls, database queries, or web service interactions. They should not be used for general computation or data processing. They keep your Pixeltable workflows responsive by allowing background execution of time-consuming operations.
+    </Note>
+  </Card>
+</CardGroup>
+
+### Best Practices for Basic UDFs
+
+<AccordionGroup>
+  <Accordion title="Type Safety" icon="shield-check">
+    - Always provide complete type hints
+    - Use specific types over generic ones
+    - Validate input ranges where appropriate
+    ```python
+    @pxt.udf
+    def validate_score(score: float) -> float:
+        if not 0 <= score <= 100:
+            raise ValueError("Score must be between 0 and 100")
+        return score
+    ```
+  </Accordion>
+
+  <Accordion title="Performance" icon="gauge-high">
+    - Use batching for GPU operations
+    - Cache expensive resources
+    - Process data in chunks when possible
+    ```python
+    @pxt.udf(batch_size=32)
+    def process_chunk(items: Batch[str]) -> Batch[str]:
+        if not hasattr(process_chunk, 'model'):
+            process_chunk.model = load_expensive_model()
+        return process_chunk.model.process_batch(items)
+    ```
+  </Accordion>
+
+  <Accordion title="Organization" icon="folder-tree">
+    - Keep related UDFs in modules
+    - Use clear, descriptive names
+    - Document complex operations
+    ```python
+    @pxt.udf
+    def normalize_text(
+        text: str,
+        lowercase: bool = True,
+        remove_punctuation: bool = True
+    ) -> str:
+        """Normalize text by optionally lowercasing and removing punctuation."""
+        if lowercase:
+            text = text.lower()
+        if remove_punctuation:
+            text = text.translate(str.maketrans("", "", string.punctuation))
+        return text
+    ```
+  </Accordion>
+  
+  <Accordion title="Table UDFs" icon="table">
+    - Define clear input and output columns for your table UDFs
+    - Implement cleanup routines for tables that grow large
+    - Balance between too many small tables and monolithic tables
+    - Use clear naming conventions for tables and their UDFs
+    - Document the purpose and expected inputs for each table UDF
+  </Accordion>
+</AccordionGroup>
+
+## 2. Tables as UDFs
+
+### Overview
+Tables as UDFs allow you to:
+- Convert entire tables into reusable functions
+- Create modular and complex data processing workflows
+- Encapsulate multi-step operations
+- Share workflows between different tables and applications
+
+<Info>
+Tables as UDFs are particularly powerful for building AI agents and complex automation workflows that require multiple processing steps.
+</Info>
+
+### Creating Table UDFs
+
+<Tabs>
+  <Tab title="Basic Workflow">
+    #### Step 1: Create a Specialized Table
+    ```python
+    # Create a table with your workflow
+    finance_agent = pxt.create_table('directory.financial_analyst', 
+                                    {'prompt': pxt.String})
+    # Add computed columns for processing
+    finance_agent.add_computed_column(/* ... */)
+    ```
+
+    #### Step 2: Convert to UDF
+    ```python
+    # Convert table to UDF by specifying return column
+    finance_agent_udf = pxt.udf(finance_agent, 
+                               return_value=finance_agent.answer)
+    ```
+
+    #### Step 3: Use the Table UDF
+    ```python
+    # Use like any other UDF
+    result_table.add_computed_column(
+        result=finance_agent_udf(result_table.prompt)
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Complete Example">
+    <AccordionGroup>
+      <Accordion title="Setup and Tools" icon="screwdriver-wrench">
+        ```python
+        import time
+        from typing import Optional
+        
+        import yfinance as yf
+        
+        import pixeltable as pxt
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+        
+        DIRECTORY = 'agent'
+        OPENAI_MODEL = 'gpt-4o-mini'
+        
+        # Create Fresh Directory
+        pxt.drop_dir(DIRECTORY, force=True)
+        pxt.create_dir(DIRECTORY, if_exists='ignore')
+        
+        
+        # yfinance tool for getting stock information
+        @pxt.udf
+        def stock_info(ticker: str) -> Optional[dict]:
+            """Get stock info for a given ticker symbol."""
+            stock = yf.Ticker(ticker)
+            return stock.info
+        
+        
+        # Helper UDF to create a prompt with tool outputs
+        @pxt.udf
+        def create_prompt(question: str, tool_outputs: list[dict]) -> str:
+            return f"""
+            QUESTION:
+        
+            {question}
+        
+            RESULTS:
+        
+            {tool_outputs}
+            """
+        ```
+      </Accordion>
+
+      <Accordion title="Step 1: Create Agent Table" icon="table">
+        ```python
+        # Create Financial Analyst Agent Table
+        finance_agent = pxt.create_table(
+            f'{DIRECTORY}.financial_analyst', 
+            {'prompt': pxt.String}, 
+            if_exists='ignore'
+        )
+        
+        # Prepare initial messages for LLM
+        messages = [{'role': 'user', 'content': finance_agent.prompt}]
+        
+        # Define available tools
+        tools = pxt.tools(stock_info)
+        
+        # Get initial response with tool calls
+        finance_agent.add_computed_column(
+            initial_response=chat_completions(
+                model=OPENAI_MODEL, 
+                messages=messages, 
+                tools=tools, 
+                tool_choice=tools.choice(required=True)
+            )
+        )
+        
+        # Execute the requested tools
+        finance_agent.add_computed_column(
+            tool_output=invoke_tools(tools, finance_agent.initial_response)
+        )
+        
+        # Create prompt with tool results
+        finance_agent.add_computed_column(
+            stock_response_prompt=create_prompt(
+                finance_agent.prompt, 
+                finance_agent.tool_output
+            )
+        )
+        
+        # Generate final response using tool results
+        final_messages = [
+            {'role': 'system', 'content': "Answer the user's question based on the results."},
+            {'role': 'user', 'content': finance_agent.stock_response_prompt},
+        ]
+        
+        finance_agent.add_computed_column(
+            final_response=chat_completions(
+                model=OPENAI_MODEL, 
+                messages=final_messages
+            )
+        )
+        
+        # Extract answer text
+        finance_agent.add_computed_column(
+            answer=finance_agent.final_response.choices[0].message.content
+        )
+        ```
+      </Accordion>
+
+      <Accordion title="Step 2: Convert to UDF" icon="function">
+        ```python
+        # Convert the finance_agent table to a UDF
+        finance_agent_udf = pxt.udf(
+            finance_agent, 
+            return_value=finance_agent.answer
+        )
+        ```
+      </Accordion>
+
+      <Accordion title="Step 3: Create Consumer Table" icon="table">
+        ```python
+        # Create a Portfolio Manager table that uses the finance agent
+        portfolio_manager = pxt.create_table(
+            f'{DIRECTORY}.portfolio_manager', 
+            {'prompt': pxt.String}, 
+            if_exists='ignore'
+        )
+        
+        # Add the finance agent UDF as a computed column
+        portfolio_manager.add_computed_column(
+            result=finance_agent_udf(portfolio_manager.prompt)
+        )
+        ```
+      </Accordion>
+
+      <Accordion title="Step 4: Test the Workflow" icon="vial">
+        ```python
+        # Get the portfolio manager table
+        portfolio_manager = pxt.get_table(f'{DIRECTORY}.portfolio_manager')
+        
+        # Insert a test query
+        portfolio_manager.insert([
+            {'prompt': 'What is the price of NVDIA?'}
+        ])
+        
+        # View results
+        result = portfolio_manager.select(portfolio_manager.result).collect()
+        print(result)
+        ```
+      </Accordion>
+    </AccordionGroup>
+  </Tab>
+</Tabs>
+
+### Flow Diagram
+
+<CardGroup cols={1}>
+  <Card title="Agent Table UDF Flow" icon="diagram-project">
+    ```mermaid
+graph TD
+    A[User Prompt] --> B[Financial Analyst Table]
+    B --> C[LLM Call with Tools]
+    C --> D[Invoke Stock Info API]
+    D --> E[LLM Call with Results]
+    E --> F[Final Answer]
+    F --> G[Portfolio Manager Table]
+    
+    classDef default fill:#f9f9f9,stroke:#666,stroke-width:1px,color:black;
+    classDef table fill:#b3e0ff,stroke:#0066cc,stroke-width:2px,color:black;
+    classDef llm fill:#ffcc99,stroke:#ff8000,stroke-width:2px,color:black;
+    classDef tool fill:#c2e0c2,stroke:#339933,stroke-width:2px,color:black;
+    classDef result fill:#ffffb3,stroke:#b3b300,stroke-width:2px,color:black;
+    
+    class B,G table;
+    class C,E llm;
+    class D tool;
+    class F result;
+    ```
+  </Card>
+</CardGroup>
+
+### Key Benefits of Table UDFs
+
+<CardGroup cols={3}>
+  <Card title="Modularity" icon="puzzle-piece">
+    Break complex workflows into reusable components that can be tested and maintained separately.
+  </Card>
+  <Card title="Encapsulation" icon="box">
+    Hide implementation details and expose only the necessary inputs and outputs through clean interfaces.
+  </Card>
+  <Card title="Composition" icon="layer-group">
+    Combine multiple specialized agents to build more powerful workflows through function composition.
+  </Card>
+</CardGroup>
+
+### Advanced Techniques
+
+<AccordionGroup>
+  <Accordion title="Chaining Multiple Table UDFs" icon="link">
+    You can create a workflow of table UDFs to handle complex multi-stage processing:
+    
+    ```python
+    # Create a chain of specialized agents
+    research_agent = pxt.udf(research_table, return_value=research_table.findings)
+    analysis_agent = pxt.udf(analysis_table, return_value=analysis_table.insights)
+    report_agent = pxt.udf(report_table, return_value=report_table.document)
+    
+    # Use them in sequence
+    workflow.add_computed_column(research=research_agent(workflow.query))
+    workflow.add_computed_column(analysis=analysis_agent(workflow.research))
+    workflow.add_computed_column(report=report_agent(workflow.analysis))
+    ```
+  </Accordion>
+
+  <Accordion title="Parallel Processing with Table UDFs" icon="arrows-split-up-and-left">
+    Execute multiple table UDFs in parallel and combine their results:
+    
+    ```python
+    # Define specialized agents for different tasks
+    stock_agent = pxt.udf(stock_table, return_value=stock_table.analysis)
+    news_agent = pxt.udf(news_table, return_value=news_table.summary)
+    sentiment_agent = pxt.udf(sentiment_table, return_value=sentiment_table.score)
+    
+    # Process in parallel
+    portfolio.add_computed_column(stock_data=stock_agent(portfolio.ticker))
+    portfolio.add_computed_column(news_data=news_agent(portfolio.ticker))
+    portfolio.add_computed_column(sentiment=sentiment_agent(portfolio.ticker))
+    
+    # Combine results
+    portfolio.add_computed_column(report=combine_insights(
+        portfolio.stock_data, 
+        portfolio.news_data, 
+        portfolio.sentiment
+    ))
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## 3. User-Defined Aggregates (UDAs)
+
+### Overview
+UDAs enable you to:
+- Create custom aggregation functions
+- Process multiple rows into a single result
+- Use them in group_by operations
+- Build reusable aggregation logic
+
+### Creating UDAs
+
+```python
+@pxt.uda
+class sum_of_squares(pxt.Aggregator):
+    def __init__(self):
+        self.cur_sum = 0
+        
+    def update(self, val: int) -> None:
+        self.cur_sum += val * val
+        
+    def value(self) -> int:
+        return self.cur_sum
+```
+
+### UDA Components
+
+1. **Initialization** (`__init__`)
+   - Sets up initial state
+   - Defines parameters
+   - Called once at start
+
+2. **Update Method** (`update`)
+   - Processes each input row
+   - Updates internal state
+   - Must handle all value types
+
+3. **Value Method** (`value`)
+   - Returns final result
+   - Called after all updates
+   - Performs final calculations
+
+### Using UDAs
+
+```python
+# Basic usage
+table.select(sum_of_squares(table.value)).collect()
+
+# With grouping
+table.group_by(table.category).select(
+    table.category,
+    sum_of_squares(table.value)
+).collect()
+```
+
+### Best Practices for UDAs
+- Manage state carefully
+- Handle edge cases and errors
+- Optimize for performance
+- Use appropriate type hints
+- Document expected behavior
+
+## 4. MCP UDFs
+
+### Overview
+MCP UDFs allow you to:
+- Connect to a running MCP server.
+- Use tools exposed by the MCP server as Pixeltable UDFs.
+- Integrate external services and custom logic into your Pixeltable workflows.
+
+### Example
+
+Here is a simple example of an MCP server running in a separate Python script:
+
+<CodeGroup>
+```python MCP Server (mcp_server.py)
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP('PixeltableDemo', stateless_http=True)
+
+@mcp.tool()
+def pixelmultiple(a: int, b: int) -> int:
+    """Computes the Pixelmultiple of two integers."""
+    return (a + 22) * b
+
+if __name__ == '__main__':
+    mcp.run(transport='streamable-http')
+```
+
+```python Pixeltable Client
+import pixeltable as pxt
+
+# Connect to the MCP server
+# This returns a list of UDFs, one for each tool.
+udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
+pixelmultiple_udf = udfs[0]
+
+# Use the UDF in a table
+t = pxt.create_table('test_mcp', {'a': pxt.Int, 'b': pxt.Int})
+t.add_computed_column(
+    pixelmultiple=pixelmultiple_udf(a=t.a, b=t.b)
+)
+t.insert([{'a': 3, 'b': 4}])
+# The 'pixelmultiple' column will contain (3 + 22) * 4 = 100
+t.collect()
+```
+</CodeGroup>
+
+## Additional Resources
+
+<Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+  Complete API reference
+</Card>

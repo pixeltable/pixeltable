@@ -1,0 +1,369 @@
+---
+title: 'FAQ'
+description: 'Frequently asked questions about Pixeltable'
+icon: 'circle-question'
+---
+
+## Core Concepts
+
+<AccordionGroup>
+  <Accordion title="What is Pixeltable?">
+    Pixeltable is open-source AI data infrastructure providing a declarative, incremental approach for multimodal workloads. It unifies data management, transformation, and AI model execution under a table-like interface. Key features:
+
+    - **Unified Interface**: Manages text, images, video, and audio in a single framework
+    - **Declarative Design**: Defines transformations and model inference as computed columns
+    - **Incremental Processing**: Automatically handles caching and selective recomputation
+    - **Type System**: Provides data validation for multimodal content types
+
+    ```python
+    import pixeltable as pxt
+    from pixeltable.iterators import DocumentSplitter
+    
+    # Create multimodal table for RAG
+    docs = pxt.create_table('chatbot.documents', {
+        'document': pxt.Document,  # PDF/Text files
+        'video': pxt.Video,        # MP4 videos  
+        'audio': pxt.Audio,        # Audio files
+        'timestamp': pxt.Timestamp
+    })
+    
+    # Create view for document chunking
+    chunks = pxt.create_view(
+        'chatbot.chunks',
+        docs,
+        iterator=DocumentSplitter.create(
+            document=docs.document,
+            separators='sentence',
+            metadata='title,heading'
+        )
+    )
+
+    # Add embedding index for search
+    chunks.add_embedding_index(
+        'text',
+        string_embed=sentence_transformer
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="How does Pixeltable handle data storage and processing?">
+    Pixeltable's data management approach includes:
+
+    - **Media Storage**: References external files (videos, images, documents) in their original locations
+    - **Incremental Computation**: Recomputes only affected parts of the workflow when inputs change
+    - **Type System**: Handles various data types including tensors, embeddings, and structured data
+    - **Computed Columns**: Defines transformations as functions of other columns
+    - **Built-in Functions**: Provides pre-implemented operations for common AI tasks
+
+    ```python
+    # Example video processing
+    frames = pxt.create_view(
+        'video_search.frames',
+        videos,
+        iterator=FrameIterator.create(
+            video=videos.video, 
+            fps=1  # Extract 1 frame per second
+        )
+    )
+    
+    # Add multimodal search 
+    frames.add_embedding_index(
+        'frame',
+        string_embed=clip_text,     # For text-to-image search
+        image_embed=clip_image      # For image-to-image search
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="What are Pixeltable views and computed columns?">
+    Pixeltable's architecture includes views and computed columns:
+
+    **Views**
+    - Virtual tables generated from base tables using iterators (e.g., DocumentSplitter, FrameIterator)
+    - Enable efficient chunking of documents or extraction of video frames
+    - Support embedding indexes for similarity search
+    
+    ```python
+    # Create document chunks view
+    chunks = pxt.create_view(
+        'docs.chunks',
+        docs,
+        iterator=DocumentSplitter.create(
+            document=docs.document,
+            separators='sentence'
+        )
+    )
+    ```
+
+    **Computed Columns**
+    - Columns defined as functions of other columns
+    - Update automatically when their dependencies change
+    - Can invoke external services (e.g., LLMs, embedding models)
+    - Implement custom logic via User-Defined Functions (UDFs)
+    
+    ```python
+    # Example computed column for generating embeddings
+    docs_table.add_computed_column(
+        embeddings=openai.embeddings(
+            docs_table.text,
+            model='text-embedding-3-small'
+        )
+    )
+
+    # Custom UDF example
+    @pxt.udf
+    def create_prompt(context: list[dict], question: str) -> str:
+        context_text = "\n".join(item['text'] for item in context)
+        return f"Context:\n{context_text}\n\nQuestion: {question}"
+        
+    # Using the UDF in a computed column
+    docs_table.add_computed_column(
+        prompt=create_prompt(docs_table.context, docs_table.question)
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Features & Capabilities
+
+<AccordionGroup>
+  <Accordion title="What are Pixeltable's capabilities for AI applications?">
+    **Data Management**
+    - Handles text, images, video, and audio in a unified framework
+    - Maintains data lineage and version history
+    - Provides caching mechanisms for efficiency
+
+    **RAG Implementation**
+    - Supports document chunking with configurable strategies
+    - Manages embedding generation and indexing
+    - Enables similarity search for context retrieval
+    - Integrates with various LLM providers
+
+    **Media Processing**
+    - Extracts and processes video frames
+    - Supports audio transcription and analysis
+    - Enables cross-modal search (e.g., searching videos with text)
+
+    **Development Features**
+    - Implements computations declaratively
+    - Processes updates incrementally
+    - Provides type validation for data integrity
+    - Supports SQL-like queries for data selection
+  </Accordion>
+
+  <Accordion title="How does Pixeltable support RAG applications?">
+    Pixeltable implements RAG workflows through:
+
+    ```python
+    # Create chunks view 
+    chunks = pxt.create_view(
+        'chatbot.chunks',
+        docs,
+        iterator=DocumentSplitter.create(
+            document=docs.document,
+            separators='sentence',
+            metadata='title,heading'
+        )
+    )
+    
+    # Add embedding index
+    chunks.add_embedding_index(
+        'text', 
+        string_embed=sentence_transformer
+    )
+    
+    # Define context retrieval query
+    @chunks.query
+    def get_context(query: str):
+        sim = chunks.text.similarity(query)
+        return chunks.order_by(sim, asc=False).limit(5)
+    
+    # Generate response with context
+    docs.add_computed_column(
+        context=get_context(docs.question)
+    )
+    
+    docs.add_computed_column(
+        response=openai.chat_completions(
+            messages=create_prompt(
+                docs.context,
+                docs.question
+            ),
+            model='gpt-4o'
+        )
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="What video and image processing capabilities does Pixeltable offer?">
+    Pixeltable supports video and image workflows:
+
+    ```python
+    # Frame extraction
+    frames = pxt.create_view(
+        'video_search.frames',
+        videos,
+        iterator=FrameIterator.create(
+            video=videos.video,
+            fps=1
+        )
+    )
+    
+    # Object detection 
+    frames.add_computed_column(
+        detections=yolox(
+            frames.frame,
+            model_id='yolox_tiny',
+            threshold=0.25
+        )
+    )
+    
+    # Cross-modal search
+    frames.add_embedding_index(
+        'frame',
+        string_embed=clip_text,    # For text-to-image search
+        image_embed=clip_image     # For image-to-image search
+    )
+    
+    # Text query for video frames
+    results = frames.frame.similarity("person walking on beach")
+                .order_by(sim, asc=False)
+                .limit(5)
+                .collect()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Integration & Deployment
+
+<AccordionGroup>
+  <Accordion title="What AI services can Pixeltable integrate with?">
+    Pixeltable provides integrations with:
+
+    ```python
+    from pixeltable.functions import openai, anthropic
+    from pixeltable.functions.huggingface import (
+        sentence_transformer,
+        clip_image,
+        clip_text
+    )
+    
+    # OpenAI integrations
+    table.add_computed_column(
+        embeddings=openai.embeddings(
+            table.text,
+            model='text-embedding-3-small'
+        )
+    )
+    
+    # Anthropic integrations
+    table.add_computed_column(
+        analysis=anthropic.messages(
+            model='claude-3-sonnet-20240229',
+            messages=table.prompt,
+            model_kwargs={'max_tokens': 200}
+        )
+    )
+    
+    # Hugging Face integrations
+    table.add_computed_column(
+        image_embeddings=clip_image(
+            table.image, 
+            model_id='openai/clip-vit-base-patch32'
+        )
+    )
+    ```
+
+    Pixeltable also supports local model inference via Ollama, LlamaCPP, and other integrations.
+  </Accordion>
+
+  <Accordion title="How can Pixeltable be used with web frameworks?">
+    Pixeltable integrates with web frameworks like FastAPI and Gradio:
+
+    ```python
+    # FastAPI + Pixeltable example
+    @app.post("/chat")
+    async def chat(message: ChatMessage):
+        # Insert question
+        chat_table.insert([{
+            'question': message.message,
+            'timestamp': datetime.now()
+        }])
+        
+        # Get answer (computed columns handle RAG pipeline)
+        result = chat_table.select(
+            chat_table.response
+        ).where(
+            chat_table.question == message.message
+        ).collect()
+        
+        return JSONResponse(
+            status_code=200,
+            content={"response": result['response'][0]}
+        )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Using Pixeltable
+
+<AccordionGroup>
+  <Accordion title="What are the typical use cases for Pixeltable?">
+    Pixeltable is designed for:
+
+    **Retrieval-Augmented Generation (RAG)**
+    - Document processing, chunking, and embedding
+    - Context retrieval and relevance ranking
+    - LLM integration for question answering
+    - Multimodal RAG with support for text, video, audio sources
+
+    **Video and Image Analysis**
+    - Frame extraction and processing
+    - Object detection and analysis
+    - Semantic search across video content
+    - Content transcription and analysis
+
+    **ML Workflow Management**
+    - Data preparation and transformation
+    - Feature extraction and engineering
+    - Model inference orchestration
+    - Data versioning and lineage tracking
+  </Accordion>
+
+  <Accordion title="What distinguishes Pixeltable from other tools?">
+    Key technical characteristics:
+
+    1. **Declarative Computation Model**
+    - Defines data transformations as computed columns
+    - Automatically manages dependency graphs
+    - Uses SQL-like operations for data manipulation
+    - Tracks data lineage at column level
+
+    2. **Multimodal Data Support**
+    - Handles diverse data types with a consistent interface
+    - Provides built-in transformations for different modalities
+    - Supports cross-modal operations (e.g., text-to-image search)
+    - Manages storage and processing efficiency
+
+    3. **Incremental Computation**
+    - Recomputes only what's necessary when data changes
+    - Caches intermediate results
+    - Versions data automatically
+    - Optimizes computational resource usage
+  </Accordion>
+
+  <Accordion title="What are the system requirements for Pixeltable?">
+    Pixeltable's technical specifications:
+
+    - **Python Version**: 3.9 or higher
+    - **Media Storage**: References external files in local, remote, or cloud storage
+    - **Memory Requirements**: Varies based on dataset size and transformations
+    - **GPU Support**: Optional, beneficial for computer vision tasks and local LLM inference
+    - **OS Support**: Linux, macOS, Windows
+    
+    Pixeltable can be installed via pip:
+    ```bash
+    pip install pixeltable
+    ```
+  </Accordion>
+</AccordionGroup>

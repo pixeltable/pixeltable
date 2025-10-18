@@ -625,7 +625,7 @@ class Table(SchemaObject):
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                     with errors will have a `None` value for the column, with information about the error stored in the
-                    corresponding `tbl.col_name.errormsg` tbl.col_name.errortype` fields.
+                    corresponding `tbl.col_name.errormsg` and `tbl.col_name.errortype` fields.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -1329,7 +1329,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any,
-        )```
+        )
+        ```
 
         To insert just a single row, you can use the more concise syntax:
 
@@ -1339,7 +1340,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any
-        )```
+        )
+        ```
 
         Args:
             source: A data source from which data can be imported.

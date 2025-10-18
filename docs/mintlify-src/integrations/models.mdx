@@ -1,0 +1,219 @@
+---
+title: 'Model Hub & Repositories'
+description: 'Explore pre-trained models and integrations available in Pixeltable'
+icon: 'cube'
+---
+
+## Model Hubs
+
+<CardGroup cols={2}>
+  <Card
+    title="Hugging Face Hub"
+    icon="face-smile"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-hugging-face.ipynb"
+  >
+    Access thousands of pre-trained models across vision, text, and audio domains
+  </Card>
+
+  <Card
+    title="Replicate"
+    icon="clone"
+    href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-replicate.ipynb"
+  >
+    Deploy and run ML models through Replicate's cloud infrastructure
+  </Card>
+</CardGroup>
+
+## Hugging Face Models
+
+Pixeltable provides seamless integration with Hugging Face's transformers library through built-in UDFs. These functions allow you to use state-of-the-art models directly in your data workflows.
+
+<Note>
+Requirements: Install required dependencies with `pip install transformers`. Some models may require additional packages like `sentence-transformers` or `torch`.
+</Note>
+
+### CLIP Models
+```python
+from pixeltable.functions.huggingface import clip
+
+# For text embedding
+t.add_computed_column(
+    text_embedding=clip(
+        t.text_column,
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+
+# For image embedding
+t.add_computed_column(
+    image_embedding=clip(
+        t.image_column,
+        model_id='openai/clip-vit-base-patch32'
+    )
+)
+```
+Perfect for multimodal applications combining text and image understanding.
+
+### Cross-Encoders
+```python
+from pixeltable.functions.huggingface import cross_encoder
+
+t.add_computed_column(
+    similarity_score=cross_encoder(
+        t.sentence1,
+        t.sentence2,
+        model_id='cross-encoder/ms-marco-MiniLM-L-4-v2'
+    )
+)
+```
+Ideal for semantic similarity tasks and sentence pair classification.
+
+### DETR Object Detection
+```python
+from pixeltable.functions.huggingface import detr_for_object_detection
+
+t.add_computed_column(
+    detections=detr_for_object_detection(
+        t.image,
+        model_id='facebook/detr-resnet-50',
+        threshold=0.8
+    )
+)
+
+# Convert to COCO format if needed
+t.add_computed_column(
+    coco_format=detr_to_coco(t.image, t.detections)
+)
+```
+Powerful object detection with end-to-end transformer architecture.
+
+### Sentence Transformers
+```python
+from pixeltable.functions.huggingface import sentence_transformer
+
+t.add_computed_column(
+    embeddings=sentence_transformer(
+        t.text,
+        model_id='sentence-transformers/all-mpnet-base-v2',
+        normalize_embeddings=True
+    )
+)
+```
+State-of-the-art sentence and document embeddings for semantic search and similarity.
+
+### Speech2Text Models
+```python
+from pixeltable.functions.huggingface import speech2text_for_conditional_generation
+
+# Basic transcription
+t.add_computed_column(
+    transcript=speech2text_for_conditional_generation(
+        t.audio,
+        model_id='facebook/s2t-small-librispeech-asr'
+    )
+)
+
+# Multilingual translation
+t.add_computed_column(
+    translation=speech2text_for_conditional_generation(
+        t.audio,
+        model_id='facebook/s2t-medium-mustc-multilingual-st',
+        language='fr'
+    )
+)
+```
+Support for both transcription and translation of audio content.
+
+### Vision Transformer (ViT)
+```python
+from pixeltable.functions.huggingface import vit_for_image_classification
+
+t.add_computed_column(
+    classifications=vit_for_image_classification(
+        t.image,
+        model_id='google/vit-base-patch16-224',
+        top_k=5
+    )
+)
+```
+Modern image classification using transformer architecture.
+
+## Integration Features
+
+<AccordionGroup>
+  <Accordion title="Computed Columns">
+    All models can be used directly in computed columns for automated processing:
+    ```python
+    # Example: Combine CLIP embeddings with ViT classification
+    t.add_computed_column(
+        image_features=clip(t.image, model_id='openai/clip-vit-base-patch32')
+    )
+    t.add_computed_column(
+        classifications=vit_for_image_classification(t.image, model_id='google/vit-base-patch16-224')
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Batch Processing">
+    Pixeltable automatically handles batch processing and optimization:
+    ```python
+    # Pixeltable efficiently processes large datasets
+    t.add_computed_column(
+        embeddings=sentence_transformer(
+            t.text,
+            model_id='all-mpnet-base-v2'
+        )
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Model Output Format">
+    ```python
+    # Object Detection Output
+    {
+        'scores': [0.99, 0.98],  # confidence scores
+        'labels': [25, 30],      # class labels
+        'label_text': ['cat', 'dog'], # human-readable labels
+        'boxes': [[x1, y1, x2, y2], ...] # bounding boxes
+    }
+
+    # Image Classification Output
+    {
+        'scores': [0.8, 0.15],   # class probabilities
+        'labels': [340, 353],    # class IDs
+        'label_text': ['zebra', 'gazelle'] # class names
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Model Selection Guide
+
+<Steps>
+  <Step title="Choose Task">
+    Select the appropriate model family based on your task:
+    - Text/Image Similarity → CLIP
+    - Object Detection → DETR
+    - Text Embeddings → Sentence Transformers
+    - Speech Processing → Speech2Text
+    - Image Classification → ViT
+  </Step>
+  
+  <Step title="Check Requirements">
+    Install necessary dependencies:
+    ```bash
+    pip install transformers torch sentence-transformers
+    ```
+  </Step>
+  
+  <Step title="Setup Integration">
+    Import and use the model in your Pixeltable workflow:
+    ```python
+    from pixeltable.functions.huggingface import clip, sentence_transformer
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Need help choosing the right model? Check our [example notebooks](https://github.com/pixeltable/pixeltable/tree/main/docs/notebooks/integrations) or join our [Discord community](https://discord.com/invite/QPyqFYx2UN).
+</Tip>
