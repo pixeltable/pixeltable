@@ -1039,7 +1039,7 @@ class DataFrame:
             >>> df = book.order_by(t.price, asc=False).order_by(t.pages)
         """
         if self.sample_clause is not None:
-            raise excs.Error('group_by() cannot be used with sample()')
+            raise excs.Error('order_by() cannot be used with sample()')
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
                 raise excs.Error(f'Invalid expression in order_by(): {e}')

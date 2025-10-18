@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import random
 from textwrap import dedent
 from typing import Any, Iterable, Literal, Optional, Sequence, cast
 from uuid import UUID
@@ -93,18 +94,13 @@ class SampleClause:
     seed: Optional[int]
     stratify_exprs: Optional[list[exprs.Expr]]
 
-    # This seed value is used if one is not supplied
-    DEFAULT_SEED = 0
-
     # The version of the hashing algorithm used for ordering and fractional sampling.
     CURRENT_VERSION = 1
 
     def __post_init__(self) -> None:
-        """If no version was provided, provide the default version"""
+        # If no version was provided, provide the default version
         if self.version is None:
             self.version = self.CURRENT_VERSION
-        if self.seed is None:
-            self.seed = self.DEFAULT_SEED
 
     @property
     def is_stratified(self) -> bool:
@@ -1006,6 +1002,7 @@ class Planner:
             analyzer.window_fn_calls
         )
         ctx = exec.ExecContext(row_builder)
+
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
 
@@ -1087,11 +1084,18 @@ class Planner:
             plan.set_order_by(analyzer.get_window_fn_ob_clause())
 
         if analyzer.sample_clause is not None:
+            resolved_sample_clause: SampleClause
+            if analyzer.sample_clause.seed is None:
+                # If no seed was specified, pick a random one now.
+                resolved_sample_clause = dataclasses.replace(analyzer.sample_clause, seed=random.randint(0, 1 << 31))
+            else:
+                resolved_sample_clause = analyzer.sample_clause
+            ctx.sample_clause = resolved_sample_clause
             plan = exec.SqlSampleNode(
                 row_builder,
                 input=plan,
                 select_list=tbl_scan_exprs,
-                sample_clause=analyzer.sample_clause,
+                sample_clause=resolved_sample_clause,
                 stratify_exprs=analyzer.stratify_exprs,
             )
 

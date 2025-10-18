@@ -648,7 +648,7 @@ class SqlSampleNode(SqlNode):
         )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause
-        assert isinstance(self.sample_clause.seed, int)
+        assert isinstance(self.sample_clause.seed, int)  # seed must be specified at this point
 
     @classmethod
     def key_sql_expr(cls, seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement:
