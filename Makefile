@@ -176,32 +176,32 @@ release: install
 release-docs: install
 	@mkdocs gh-deploy
 
-.PHONY: docs-local
-docs-local: install
+# Shared target to update doctools (with force-reinstall to bypass pip/git caches)
+.PHONY: update-doctools
+update-doctools:
 	@echo 'Updating pixeltable-doctools...'
-	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
+	@python -m pip install -q --upgrade --no-cache-dir --force-reinstall --no-deps git+https://github.com/pixeltable/pixeltable-doctools.git
+
+.PHONY: docs-local
+docs-local: install update-doctools
 	@echo 'Building documentation for local preview...'
-	@conda run -n pxt deploy-docs-local --target=local
+	@conda run -n pxt pxtdocs build
 	@echo ''
 	@echo 'Documentation built successfully!'
 	@echo 'To preview, run: cd $(CURDIR)/docs/target && npx mintlify dev'
 
 .PHONY: docs-stage
-docs-stage: install
-	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=v0.4.17" && exit 1)
-	@echo 'Updating pixeltable-doctools...'
-	@python -m pip install -q --upgrade --no-cache-dir --force-reinstall --no-deps git+https://github.com/pixeltable/pixeltable-doctools.git
+docs-stage: install update-doctools
+	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=0.4.17" && exit 1)
 	@echo 'Building and deploying documentation for $(VERSION) to staging...'
-	@conda run -n pxt deploy-docs-stage --version=$(VERSION)
+	@conda run -n pxt pxtdocs deploy-stage --version=$(VERSION)
 
 .PHONY: docs-prod
-docs-prod: install
-	@echo 'Updating pixeltable-doctools...'
-	@python -m pip install -q --upgrade --no-cache-dir git+https://github.com/pixeltable/pixeltable-doctools.git
+docs-prod: install update-doctools
 	@echo 'Deploying documentation from stage to production...'
 	@echo 'This will completely replace production with staging content.'
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || (echo "Deployment cancelled." && exit 1)
-	@conda run -n pxt deploy-docs-prod
+	@conda run -n pxt pxtdocs deploy-prod
 
 .PHONY: clean
 clean:
