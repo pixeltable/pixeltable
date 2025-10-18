@@ -1097,10 +1097,9 @@ class Table(SchemaObject):
             if idx_name is not None:
                 Table.validate_column_name(idx_name)
 
-            # create the EmbeddingIndex instance to verify args
-            idx = EmbeddingIndex(
-                col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed
-            )
+            # validate EmbeddingIndex args
+            idx = EmbeddingIndex(metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
+            _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()

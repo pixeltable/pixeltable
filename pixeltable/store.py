@@ -176,7 +176,7 @@ class StoreBase:
         """
         assert col.is_stored
         conn = Env.get().conn
-        col_type_str = col.get_sa_col_type().compile(dialect=conn.dialect)
+        col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
         s_txt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL'
         added_storage_cols = [col.store_name()]
         if col.stores_cellmd:

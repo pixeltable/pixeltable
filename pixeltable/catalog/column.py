@@ -58,9 +58,9 @@ class Column:
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
     schema_version_add: int | None
     schema_version_drop: int | None
-    _stores_cellmd: bool | None
+    stores_cellmd: bool | None
     sa_col: sql.schema.Column | None
-    sa_col_type: sql.sqltypes.TypeEngine | None
+    sa_col_type: sql.sqltypes.TypeEngine
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     value_expr_dict: dict[str, Any] | None
@@ -121,11 +121,11 @@ class Column:
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
-        self._stores_cellmd = stores_cellmd
+        self.stores_cellmd = stores_cellmd
 
         # column in the stored table for the values of this Column
         self.sa_col = None
-        self.sa_col_type = sa_col_type
+        self.sa_col_type = self.col_type.to_sa_type() if sa_col_type is None else sa_col_type
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
@@ -153,34 +153,6 @@ class Column:
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
         )
         return col_md, sch_md
-
-    @classmethod
-    def from_md(cls, col_md: schema.ColumnMd, tbl: TableVersion, schema_col_md: schema.SchemaColumn | None) -> Column:
-        """
-        Create a Column from ColumnMd/SchemaColumn. Anything that cannot be derived from the metadata needs to be set
-        by the caller.
-        """
-        assert col_md.id is not None
-        col_name = schema_col_md.name if schema_col_md is not None else None
-        media_val = (
-            MediaValidation[schema_col_md.media_validation.upper()]
-            if schema_col_md is not None and schema_col_md.media_validation is not None
-            else None
-        )
-        col = cls(
-            col_id=col_md.id,
-            name=col_name,
-            col_type=ts.ColumnType.from_dict(col_md.col_type),
-            is_pk=col_md.is_pk,
-            stored=col_md.stored,
-            media_validation=media_val,
-            schema_version_add=col_md.schema_version_add,
-            schema_version_drop=col_md.schema_version_drop,
-            value_expr_dict=col_md.value_expr,
-            tbl_handle=tbl.handle,
-            destination=col_md.destination,
-        )
-        return col
 
     def init_value_expr(self) -> None:
         from pixeltable import exprs
@@ -260,19 +232,6 @@ class Column:
         return self.stored
 
     @property
-    def stores_cellmd(self) -> bool:
-        """True if this column also stores error information."""
-        # default: record errors for computed and media columns
-        if self._stores_cellmd is not None:
-            return self._stores_cellmd
-        return self.is_stored and (
-            self.is_computed
-            or self.col_type.is_media_type()
-            or self.col_type.is_json_type()
-            or self.col_type.is_array_type()
-        )
-
-    @property
     def qualified_name(self) -> str:
         assert self.tbl() is not None
         return f'{self.tbl().name}.{self.name}'
@@ -301,17 +260,14 @@ class Column:
 
     def create_sa_cols(self) -> None:
         """
-        These need to be recreated for every new table schema version.
+        These need to be recreated for every sql.Table instance
         """
         assert self.is_stored
+        assert self.stores_cellmd is not None
         # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-        self.sa_col = sql.Column(self.store_name(), self.get_sa_col_type(), nullable=True)
+        self.sa_col = sql.Column(self.store_name(), self.sa_col_type, nullable=True)
         if self.stores_cellmd:
-            # JSON metadata for the cell, e.g. errortype, errormsg for media columns
             self.sa_cellmd_col = sql.Column(self.cellmd_store_name(), self.sa_cellmd_type(), nullable=True)
-
-    def get_sa_col_type(self) -> sql.sqltypes.TypeEngine:
-        return self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type
 
     @classmethod
     def cellmd_type(cls) -> ts.ColumnType:
