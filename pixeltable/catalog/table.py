@@ -986,22 +986,23 @@ class Table(SchemaObject):
         Only `String` and `Image` columns are currently supported. Here's an example that uses a
         [CLIP embedding][pixeltable.functions.huggingface.clip] to index an image column:
 
-        >>> from pixeltable.functions.huggingface import clip
-        ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-        ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+        Examples:
+            >>> from pixeltable.functions.huggingface import clip
+            ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+            ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
 
-        Once the index is created, similiarity lookups can be performed using the `similarity` pseudo-function.
+            Once the index is created, similiarity lookups can be performed using the `similarity` pseudo-function.
 
-        >>> reference_img = PIL.Image.open('my_image.jpg')
-        ... sim = tbl.img.similarity(reference_img)
-        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+            >>> reference_img = PIL.Image.open('my_image.jpg')
+            ... sim = tbl.img.similarity(reference_img)
+            ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
-        If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
-        performed using any of its supported types. In our example, CLIP supports both text and images, so we can
-        also search for images using a text description:
+            If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
+            performed using any of its supported types. In our example, CLIP supports both text and images, so we can
+            also search for images using a text description:
 
-        >>> sim = tbl.img.similarity('a picture of a train')
-        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+            >>> sim = tbl.img.similarity('a picture of a train')
+            ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
