@@ -290,7 +290,7 @@ def inf_array_iterator(
         if dtype is np.bool_:
             yield rng.integers(0, 2, size=size, dtype=bool)
         elif np.issubdtype(dtype, np.integer):
-            yield rng.integers(0, 100, size=size, dtype=dtype)  # type: ignore[arg-type]
+            yield rng.integers(0, 100, size=size, dtype=dtype)
         else:
             yield rng.random(size=size, dtype=dtype)  # type: ignore[arg-type]
 
