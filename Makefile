@@ -187,7 +187,7 @@ update-doctools:
 .PHONY: docs-local
 docs-local: install update-doctools
 	@echo 'Building documentation for local preview...'
-	@python -m doctools.build.build_docs
+	@python -m doctools.build_mintlify.build_mintlify
 	@echo ''
 	@echo 'Documentation built successfully!'
 	@echo 'To preview, run: cd $(CURDIR)/docs/target && npx mintlify dev'
