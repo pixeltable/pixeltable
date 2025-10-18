@@ -24,22 +24,36 @@
           <outline text="func|pixeltable.move" />
           <outline text="func|pixeltable.configure_logging" />
           <outline text="func|pixeltable.init" />
+          <outline text="func|pixeltable.publish" />
+          <outline text="func|pixeltable.replicate" />
           <outline text="udf|pixeltable.udf" />
           <outline text="func|pixeltable.query" />
           
           <!-- Core classes with ALL their methods -->
           <outline text="class|pixeltable.Table">
             <outline text="method|pixeltable.Table.add_column" />
+            <outline text="method|pixeltable.Table.add_columns" />
+            <outline text="method|pixeltable.Table.add_computed_column" />
             <outline text="method|pixeltable.Table.drop_column" />
             <outline text="method|pixeltable.Table.rename_column" />
             <outline text="method|pixeltable.Table.recompute_columns" />
             <outline text="method|pixeltable.Table.insert" />
             <outline text="method|pixeltable.Table.update" />
+            <outline text="method|pixeltable.Table.batch_update" />
             <outline text="method|pixeltable.Table.delete" />
             <outline text="method|pixeltable.Table.add_embedding_index" />
             <outline text="method|pixeltable.Table.drop_embedding_index" />
             <outline text="method|pixeltable.Table.drop_index" />
             <outline text="method|pixeltable.Table.revert" />
+            <outline text="method|pixeltable.Table.count" />
+            <outline text="method|pixeltable.Table.columns" />
+            <outline text="method|pixeltable.Table.describe" />
+            <outline text="method|pixeltable.Table.get_metadata" />
+            <outline text="method|pixeltable.Table.get_versions" />
+            <outline text="method|pixeltable.Table.history" />
+            <outline text="method|pixeltable.Table.list_views" />
+            <outline text="method|pixeltable.Table.sync" />
+            <outline text="method|pixeltable.Table.unlink_external_stores" />
           </outline>
           
           <outline text="class|pixeltable.DataFrame">
@@ -116,6 +130,7 @@
           <outline text="udf|pixeltable.functions.image.mode" />
         </outline>
         <outline text="module|pixeltable.functions.json">
+          <outline text="udf|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">
           <outline text="udf|pixeltable.functions.math.abs" />
@@ -128,6 +143,59 @@
           <outline text="udf|pixeltable.functions.math.bitwise_xor" />
         </outline>
         <outline text="module|pixeltable.functions.string">
+          <outline text="udf|pixeltable.functions.string.capitalize" />
+          <outline text="udf|pixeltable.functions.string.casefold" />
+          <outline text="udf|pixeltable.functions.string.center" />
+          <outline text="udf|pixeltable.functions.string.contains" />
+          <outline text="udf|pixeltable.functions.string.contains_re" />
+          <outline text="udf|pixeltable.functions.string.count" />
+          <outline text="udf|pixeltable.functions.string.endswith" />
+          <outline text="udf|pixeltable.functions.string.fill" />
+          <outline text="udf|pixeltable.functions.string.find" />
+          <outline text="udf|pixeltable.functions.string.findall" />
+          <outline text="udf|pixeltable.functions.string.format" />
+          <outline text="udf|pixeltable.functions.string.fullmatch" />
+          <outline text="udf|pixeltable.functions.string.index" />
+          <outline text="udf|pixeltable.functions.string.isalnum" />
+          <outline text="udf|pixeltable.functions.string.isalpha" />
+          <outline text="udf|pixeltable.functions.string.isascii" />
+          <outline text="udf|pixeltable.functions.string.isdecimal" />
+          <outline text="udf|pixeltable.functions.string.isdigit" />
+          <outline text="udf|pixeltable.functions.string.isidentifier" />
+          <outline text="udf|pixeltable.functions.string.islower" />
+          <outline text="udf|pixeltable.functions.string.isnumeric" />
+          <outline text="udf|pixeltable.functions.string.isspace" />
+          <outline text="udf|pixeltable.functions.string.istitle" />
+          <outline text="udf|pixeltable.functions.string.isupper" />
+          <outline text="udf|pixeltable.functions.string.join" />
+          <outline text="udf|pixeltable.functions.string.len" />
+          <outline text="udf|pixeltable.functions.string.ljust" />
+          <outline text="udf|pixeltable.functions.string.lower" />
+          <outline text="udf|pixeltable.functions.string.lstrip" />
+          <outline text="udf|pixeltable.functions.string.match" />
+          <outline text="udf|pixeltable.functions.string.normalize" />
+          <outline text="udf|pixeltable.functions.string.pad" />
+          <outline text="udf|pixeltable.functions.string.partition" />
+          <outline text="udf|pixeltable.functions.string.removeprefix" />
+          <outline text="udf|pixeltable.functions.string.removesuffix" />
+          <outline text="udf|pixeltable.functions.string.repeat" />
+          <outline text="udf|pixeltable.functions.string.replace" />
+          <outline text="udf|pixeltable.functions.string.replace_re" />
+          <outline text="udf|pixeltable.functions.string.reverse" />
+          <outline text="udf|pixeltable.functions.string.rfind" />
+          <outline text="udf|pixeltable.functions.string.rindex" />
+          <outline text="udf|pixeltable.functions.string.rjust" />
+          <outline text="udf|pixeltable.functions.string.rpartition" />
+          <outline text="udf|pixeltable.functions.string.rstrip" />
+          <outline text="udf|pixeltable.functions.string.slice" />
+          <outline text="udf|pixeltable.functions.string.slice_replace" />
+          <outline text="udf|pixeltable.functions.string.startswith" />
+          <outline text="udf|pixeltable.functions.string.strip" />
+          <outline text="udf|pixeltable.functions.string.swapcase" />
+          <outline text="udf|pixeltable.functions.string.title" />
+          <outline text="udf|pixeltable.functions.string.translate" />
+          <outline text="udf|pixeltable.functions.string.upper" />
+          <outline text="udf|pixeltable.functions.string.wrap" />
         </outline>
         <outline text="module|pixeltable.functions.timestamp">
           <outline text="udf|pixeltable.functions.timestamp.year" />
