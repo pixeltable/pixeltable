@@ -84,6 +84,7 @@ class Table(SchemaObject):
 
         @cat.register_undo_action
         def _() -> None:
+            # TODO: We should really be invalidating the Table instance and forcing a reload.
             self._name = old_name
             self._dir_id = old_dir_id
 

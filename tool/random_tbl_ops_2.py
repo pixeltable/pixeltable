@@ -112,16 +112,22 @@ class RandomTableOps:
 
     worker_id: int
 
-    def __init__(self, worker_id: int, read_only: bool, exclude_ops: list[str], config: RandomTableOpsConfig) -> None:
+    def __init__(self, worker_id: int, read_only: bool, include_only_ops: list[str], exclude_ops: list[str], config: RandomTableOpsConfig) -> None:
         self.worker_id = worker_id
         self.read_only = read_only
         self.config = config
         self.base_table_names = tuple(f'tbl_{i}' for i in range(config.num_base_tables))
 
+        selected_ops: set[str]
+        if include_only_ops:
+            selected_ops = set(include_only_ops)
+        else:
+            selected_ops = OP_NAMES - set(exclude_ops)
+
         op_weights = {
             (op_name, weight)
             for op_name, weight, is_read_op in TABLE_OPS
-            if op_name not in exclude_ops and (is_read_op or not read_only)
+            if op_name in selected_ops and (is_read_op or not read_only)
         }
 
         # Initialize random_ops.
@@ -246,6 +252,7 @@ class RandomTableOps:
         t = self.get_random_tbl(allow_view=False)
         p = random.choice(PRIMES)
         yield f'Update rows in {self.tbl_descr(t)} where bc_int % {p} == 0: '
+        # TODO: We should also do updates/deletes that can be carried out without a full table scan.
         us = t.where(t.bc_int % p == 0).update(
             {'bc_string': t.bc_string + '_u', 'bc_float': t.bc_float + 1.9, 'bc_bool': ~t.bc_bool}
         )
@@ -377,7 +384,7 @@ def init(config: RandomTableOpsConfig) -> None:
     pxt.init()
 
 
-def run(worker_id: int, read_only: bool, exclude_ops: list[str] | None, config_str: str) -> None:
+def run(worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str) -> None:
     """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
@@ -395,7 +402,7 @@ def run(worker_id: int, read_only: bool, exclude_ops: list[str] | None, config_s
         time.sleep(5)
 
     try:
-        RandomTableOps(worker_id, read_only, exclude_ops or [], config).run()
+        RandomTableOps(worker_id, read_only, include_only_ops or [], exclude_ops or [], config).run()
     except KeyboardInterrupt:
         # Suppress the stack trace, but abort.
         pass
@@ -408,12 +415,14 @@ def make_parser() -> ArgumentParser:
     parser.add_argument(
         '-r', '--read-only-workers', type=int, default=0, help='Number of read-only workers (default: 0)'
     )
+    parser.add_argument('--include-only', nargs='+', type=str, help='List of operations to include')
     parser.add_argument('--exclude', nargs='+', type=str, help='List of operations to exclude')
     parser.add_argument('-D', action='append', type=str, help='Override config parameter, e.g., -D random_img_freq=1.0')
     return parser
 
 
 def main() -> None:
+    # TODO: Also provide a way to adjust the relative weights via commandline.
     parser = make_parser()
     args = parser.parse_args()
 
@@ -425,10 +434,20 @@ def main() -> None:
         print('--read-only-workers must be between 0 and `workers`')
         sys.exit(1)
 
+    if args.include_only is not None and args.exclude is not None:
+        print('Cannot use both --include-only and --exclude')
+        sys.exit(1)
+
     if args.exclude is not None:
         for op_name in args.exclude:
             if op_name not in OP_NAMES:
                 print(f'--exclude: unrecognized op name: {op_name}')
+                sys.exit(1)
+
+    if args.include_only is not None:
+        for op_name in args.include_only:
+            if op_name not in OP_NAMES:
+                print(f'--include-only: unrecognized op name: {op_name}')
                 sys.exit(1)
 
     config = RandomTableOpsConfig()
@@ -458,7 +477,8 @@ def main() -> None:
         [
             '-c',
             'from tool.random_tbl_ops_2 import run; '
-            f'run({i}, {i >= args.workers - args.read_only_workers}, {args.exclude}, {config_str})',
+            f'run({i}, {i >= args.workers - args.read_only_workers}, '
+            f'{args.include_only}, {args.exclude}, {config_str})',
         ]
         for i in range(args.workers)
     ]
