@@ -112,7 +112,14 @@ class RandomTableOps:
 
     worker_id: int
 
-    def __init__(self, worker_id: int, read_only: bool, include_only_ops: list[str], exclude_ops: list[str], config: RandomTableOpsConfig) -> None:
+    def __init__(
+        self,
+        worker_id: int,
+        read_only: bool,
+        include_only_ops: list[str],
+        exclude_ops: list[str],
+        config: RandomTableOpsConfig,
+    ) -> None:
         self.worker_id = worker_id
         self.read_only = read_only
         self.config = config
@@ -384,7 +391,9 @@ def init(config: RandomTableOpsConfig) -> None:
     pxt.init()
 
 
-def run(worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str) -> None:
+def run(
+    worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
+) -> None:
     """Entrypoint for a worker process."""
     os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
