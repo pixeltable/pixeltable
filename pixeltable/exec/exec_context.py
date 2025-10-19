@@ -1,11 +1,9 @@
-from typing import TYPE_CHECKING, Optional
+import random
+from typing import Optional
 
 import sqlalchemy as sql
 
 from pixeltable import exprs
-
-if TYPE_CHECKING:
-    from pixeltable.plan import SampleClause
 
 
 class ExecContext:
@@ -20,7 +18,7 @@ class ExecContext:
     pk_clause: Optional[list[sql.ClauseElement]]
     num_computed_exprs: int
     ignore_errors: bool
-    sample_clause: Optional['SampleClause']
+    random_seed: int  # general-purpose source of randomness with execution scope
 
     def __init__(
         self,
@@ -42,4 +40,4 @@ class ExecContext:
         self.pk_clause = pk_clause
         self.num_computed_exprs = num_computed_exprs
         self.ignore_errors = ignore_errors
-        self.sample_clause = None
+        self.random_seed = random.randint(0, 1 << 63)
