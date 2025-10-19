@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester, rerun
+from .utils import SAMPLE_IMAGE_URL, ReloadTester
 
 
 class TestSample:
@@ -268,7 +268,6 @@ class TestSample:
         df = t.sample(n=20, seed=4171780)
         self.check_create_insert(t, df, 20)
 
-    @rerun(reruns=2)
     def test_randomized_sample(self, reset_db: None) -> None:
         """Test that subsequent calls to a non-seeded sample return different results."""
         t = self.create_sample_data(4, 6, False)
@@ -276,7 +275,8 @@ class TestSample:
         df = t.select().sample(n=10)
         r0 = df.collect().to_pandas().sort_values(by=['id'])
         r1 = df.collect().to_pandas().sort_values(by=['id'])
-        # This will fail with probability 2^-31. The rerun decorator makes it vanishingly unlikely.
+        # In theory this will fail with probability 2^-63. In practice, it is vanishingly less likely than other
+        # potential causes of test failure.
         assert not r0.equals(r1)
 
     def test_reproducible_sample(self, reset_db: None) -> None:
