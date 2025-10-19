@@ -121,7 +121,13 @@ class Column:
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
-        self.stores_cellmd = stores_cellmd
+        # self.stores_cellmd = stores_cellmd
+        self.stores_cellmd = stored and (
+            self.is_computed
+            or self.col_type.is_media_type()
+            or self.col_type.is_json_type()
+            or self.col_type.is_array_type()
+        )
 
         # column in the stored table for the values of this Column
         self.sa_col = None

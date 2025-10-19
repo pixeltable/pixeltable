@@ -152,6 +152,8 @@ class TableVersion:
         else:
             self_handle = TableVersionHandle(id, self.effective_version)
             if self.is_view:
+                if base_path is None:
+                    pass
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
 
@@ -471,12 +473,12 @@ class TableVersion:
                 if schema_col_md is not None and schema_col_md.media_validation is not None
                 else None
             )
-            stores_cellmd = col_md.stored and (
-                    col_md.value_expr is not None
-                    or col_type.is_media_type()
-                    or col_type.is_json_type()
-                    or col_type.is_array_type()
-            )
+            # stores_cellmd = col_md.stored and (
+            #         col_md.value_expr is not None
+            #         or col_type.is_media_type()
+            #         or col_type.is_json_type()
+            #         or col_type.is_array_type()
+            # )
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
@@ -488,7 +490,7 @@ class TableVersion:
                 sa_col_type=sa_col_types.get(col_md.id),
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
-                stores_cellmd=stores_cellmd,
+                # stores_cellmd=stores_cellmd,
                 value_expr_dict=col_md.value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
