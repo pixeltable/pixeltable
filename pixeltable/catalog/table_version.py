@@ -1580,6 +1580,7 @@ class TableVersion:
     @property
     def is_snapshot(self) -> bool:
         return self.effective_version is not None
+        # return self.view_md is not None and self.view_md.is_snapshot
 
     @property
     def is_mutable(self) -> bool:

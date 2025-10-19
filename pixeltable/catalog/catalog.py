@@ -613,7 +613,10 @@ class Catalog:
                     row = conn.execute(q).one_or_none()
                     if row is None:
                         return
-                    tbl_version = row.md.get('current_version')
+                    view_md = row.md.get('view_md')
+                    is_snapshot = False if view_md is None else view_md.get('is_snapshot')
+                    assert is_snapshot is not None
+                    tbl_version = row.md.get('current_version') if is_snapshot else None
                     op = schema.md_from_dict(TableOp, row.op)
                     delete_next_op_stmt = sql.delete(schema.PendingTableOp).where(
                         schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.op_sn == row.op_sn
@@ -626,13 +629,8 @@ class Catalog:
 
                     if op.needs_xact:
                         tv = self.get_tbl_version(
-                            tbl_id,
-                            None,
-                            check_pending_ops=False,
-                            validate_initialized=True,
-                            # tbl_id, tbl_version, check_pending_ops = False, validate_initialized = True
+                            tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True
                         )
-                        assert tbl_version == tv.version
                         tv.exec_op(op)
                         conn.execute(delete_next_op_stmt)
                         if op.op_sn == op.num_ops - 1:
@@ -640,9 +638,7 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
-                tv = self.get_tbl_version(tbl_id, None, check_pending_ops=False, validate_initialized=True)
-                # tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True)
-                assert tbl_version == tv.version
+                tv = self.get_tbl_version(tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True)
                 tv.exec_op(op)
                 with self.begin_xact(
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
