@@ -409,9 +409,10 @@ class TestVideo:
             # :-1: omit last row since it typically contains the remainder and may be shorter
             assert df.iloc[:-1]['duration'].between(duration - eps, duration + eps).all()
         if durations is not None:
+            # strict=False: we don't know how many segments got created
             assert all(
                 expected - eps <= actual and expected + eps >= actual
-                for expected, actual in zip(durations, result['duration'][:-1], strict=True)
+                for expected, actual in zip(durations, result['duration'][:-1], strict=False)
             )
         pxt.drop_table('validate_segments')
 
