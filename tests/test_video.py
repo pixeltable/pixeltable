@@ -409,10 +409,9 @@ class TestVideo:
             # :-1: omit last row since it typically contains the remainder and may be shorter
             assert df.iloc[:-1]['duration'].between(duration - eps, duration + eps).all()
         if durations is not None:
-            _ = zip(durations, result['duration'][:-1])
             assert all(
                 expected - eps <= actual and expected + eps >= actual
-                for expected, actual in zip(durations, result['duration'][:-1])
+                for expected, actual in zip(durations, result['duration'][:-1], strict=True)
             )
         pxt.drop_table('validate_segments')
 
@@ -580,7 +579,7 @@ class TestVideo:
         overlap: float | None,
         min_segment_duration: float,
         expected_durations: list[float] | None = None,
-        eps: float = 0.0,
+        eps: float = 0.0,  # epsilon used in pytest.approx()
     ) -> None:
         t = base
         s = segments_view
@@ -674,14 +673,13 @@ class TestVideo:
         eps = 0.1 if mode == 'fast' else 0.0
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
-        t.insert([{'video': p} for p in video_filepaths])
+        t.insert({'video': p} for p in video_filepaths)
         s = pxt.create_view(
             'segments', t, iterator=VideoSplitter.create(video=t.video, segment_times=segment_times, mode=mode)
         )
         start_times = [0.0, *segment_times]
         durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
         self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
-        pxt.drop_table('videos', force=True)
 
     def test_video_splitter_errors(self, reset_db: None) -> None:
         from pixeltable.iterators.video import VideoSplitter
