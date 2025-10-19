@@ -8,9 +8,11 @@ import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL.Image
 import sqlalchemy as sql
 
+import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
+import pixeltable.func as func
 import pixeltable.type_system as ts
-from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 
 from .base import IndexBase
@@ -125,11 +127,9 @@ class EmbeddingIndex(IndexBase):
     def records_value_errors(self) -> bool:
         return True
 
-    def get_index_sa_type(self, col_type: ts.ColumnType) -> sql.types.TypeEngine:
-        embed_fn = self.string_embed if col_type.is_string_type() else self.image_embed
-        return_type = embed_fn.signature.return_type
-        assert isinstance(return_type, ts.ArrayType) and return_type.shape is not None
-        vector_size = return_type.shape[0]
+    def get_index_sa_type(self, val_col_type: ts.ColumnType) -> sql.types.TypeEngine:
+        assert isinstance(val_col_type, ts.ArrayType) and val_col_type.shape is not None
+        vector_size = val_col_type.shape[0]
         assert vector_size is not None
         return pgvector.sqlalchemy.Vector(vector_size)
 

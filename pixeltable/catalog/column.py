@@ -8,16 +8,15 @@ from typing import TYPE_CHECKING, Any
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-from pixeltable import exprs
 from pixeltable.metadata import schema
 
-from .globals import MediaValidation, is_valid_identifier
+from .globals import MediaValidation, QColumnId, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
     from .table_version_handle import ColumnHandle, TableVersionHandle
-    from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 
@@ -195,6 +194,12 @@ class Column:
         return ColumnHandle(self.tbl_handle, self.id)
 
     @property
+    def qid(self) -> QColumnId:
+        assert self.tbl_handle is not None
+        assert self.id is not None
+        return QColumnId(self.tbl_handle.id, self.id)
+
+    @property
     def value_expr(self) -> exprs.Expr | None:
         assert self.value_expr_dict is None or self._value_expr is not None
         return self._value_expr
@@ -220,12 +225,6 @@ class Column:
             self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
         )
         return len(window_fn_calls) > 0
-
-    # TODO: This does not belong here.
-    def get_idx_info(self, reference_tbl: 'TableVersionPath' | None = None) -> dict[str, 'TableVersion.IndexInfo']:
-        assert self.tbl() is not None
-        tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl()
-        return {name: info for name, info in tbl.idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:

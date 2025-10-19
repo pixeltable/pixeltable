@@ -5,15 +5,15 @@ import sqlalchemy as sql
 # TODO: why does this import result in a circular import, but the one im embedding_index.py doesn't?
 # import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-from pixeltable import catalog, exprs
 from pixeltable.env import Env
 from pixeltable.func.udf import udf
 
 from .base import IndexBase
 
 if TYPE_CHECKING:
-    from pixeltable import catalog, exprs
+    import pixeltable.catalog as catalog
 
 
 class BtreeIndex(IndexBase):
@@ -50,9 +50,9 @@ class BtreeIndex(IndexBase):
     def records_value_errors(self) -> bool:
         return False
 
-    def get_index_sa_type(self, col_type: ts.ColumnType) -> sql.types.TypeEngine:
+    def get_index_sa_type(self, val_col_type: ts.ColumnType) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
-        return col_type.to_sa_type()
+        return val_col_type.to_sa_type()
 
     def create_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
         """Create the index on the index value column"""

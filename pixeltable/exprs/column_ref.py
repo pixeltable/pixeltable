@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import copy
-from typing import Any, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Any, Optional, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
 
-import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs, iterators as iters
+import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+import pixeltable.iterators as iters
 
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
@@ -15,6 +15,9 @@ from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
+
+if TYPE_CHECKING:
+    from pixeltable.dataframe import DataFrame, DataFrameResultSet
 
 
 class ColumnRef(Expr):
@@ -143,33 +146,6 @@ class ColumnRef(Expr):
 
         return super().__getattr__(name)
 
-    def find_embedding_index(
-        self, idx_name: Optional[str], method_name: str
-    ) -> dict[str, catalog.TableVersion.IndexInfo]:
-        """Return IndexInfo for a column, with an optional given name"""
-        from pixeltable import index
-
-        # determine index to use
-        idx_info_dict = self.col.get_idx_info(self.reference_tbl)
-
-        embedding_idx_info = {
-            info: value for info, value in idx_info_dict.items() if isinstance(value.idx, index.EmbeddingIndex)
-        }
-        if len(embedding_idx_info) == 0:
-            raise excs.Error(f'No indices found for {method_name!r} on column {self.col.name!r}')
-        if idx_name is not None and idx_name not in embedding_idx_info:
-            raise excs.Error(f'Index {idx_name!r} not found for {method_name!r} on column {self.col.name!r}')
-        if len(embedding_idx_info) > 1:
-            if idx_name is None:
-                raise excs.Error(
-                    f'Column {self.col.name!r} has multiple indices; use the index name to disambiguate: '
-                    f'`{method_name}(..., idx=<index_name>)`'
-                )
-            idx_info = {idx_name: embedding_idx_info[idx_name]}
-        else:
-            idx_info = embedding_idx_info
-        return idx_info
-
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = catalog.Catalog.get()
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
@@ -190,12 +166,14 @@ class ColumnRef(Expr):
         return SimilarityExpr(self, item, idx_name=idx)
 
     def embedding(self, *, idx: Optional[str] = None) -> ColumnRef:
-        idx_info = self.find_embedding_index(idx, 'embedding')
-        assert len(idx_info) == 1
-        col = copy.copy(next(iter(idx_info.values())).val_col)
-        col.name = f'{self.col.name}_embedding_{idx if idx is not None else ""}'
-        # col.create_sa_cols()
-        return ColumnRef(col)
+        from pixeltable.index import EmbeddingIndex
+
+        idx_info = self.tbl.get().get_idx(self.col, idx, EmbeddingIndex)
+        return ColumnRef(idx_info.val_col)
+
+    @property
+    def tbl(self) -> catalog.TableVersionHandle:
+        return self.reference_tbl.tbl_version if self.reference_tbl is not None else self.col.tbl_handle
 
     def default_column_name(self) -> Optional[str]:
         return self.col.name if self.col is not None else None
@@ -203,8 +181,9 @@ class ColumnRef(Expr):
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.perform_validation == other.perform_validation
 
-    def _df(self) -> 'pxt.dataframe.DataFrame':
-        from pixeltable import plan
+    def _df(self) -> 'DataFrame':
+        import pixeltable.plan as plan
+        from pixeltable.dataframe import DataFrame
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
@@ -212,21 +191,21 @@ class ColumnRef(Expr):
             return tbl.select(self)
         else:
             # Explicit reference table; construct a DataFrame directly from it
-            return pxt.DataFrame(plan.FromClause([self.reference_tbl])).select(self)
+            return DataFrame(plan.FromClause([self.reference_tbl])).select(self)
 
-    def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def show(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
         return self._df().show(*args, **kwargs)
 
-    def head(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def head(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
         return self._df().head(*args, **kwargs)
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def tail(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
         return self._df().tail(*args, **kwargs)
 
     def count(self) -> int:
         return self._df().count()
 
-    def distinct(self) -> 'pxt.dataframe.DataFrame':
+    def distinct(self) -> 'DataFrame':
         """Return distinct values in this column."""
         return self._df().distinct()
 

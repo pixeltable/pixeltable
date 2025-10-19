@@ -482,7 +482,8 @@ class Planner:
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated/recomputed column
-        idx_val_cols = target.get_idx_val_columns(set(updated_cols) | recomputed_cols)
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
@@ -652,7 +653,8 @@ class Planner:
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated column
-        idx_val_cols = target.get_idx_val_columns(updated_cols)
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}

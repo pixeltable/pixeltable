@@ -5,8 +5,9 @@ from typing import Any
 
 import sqlalchemy as sql
 
+import pixeltable.catalog as catalog
+import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-from pixeltable import catalog, exprs
 
 
 class IndexBase(abc.ABC):
