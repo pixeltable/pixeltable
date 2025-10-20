@@ -362,6 +362,8 @@ class StoreBase:
     def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
         conn = Env.get().conn
+        if 'col_109_cellmd' in store_col_names:
+            pass
         conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to

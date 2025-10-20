@@ -57,7 +57,7 @@ class Column:
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
     schema_version_add: int | None
     schema_version_drop: int | None
-    stores_cellmd: bool | None
+    stores_cellmd: bool
     sa_col: sql.schema.Column | None
     sa_col_type: sql.sqltypes.TypeEngine
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
@@ -120,13 +120,15 @@ class Column:
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
-        # self.stores_cellmd = stores_cellmd
-        self.stores_cellmd = stored and (
-            self.is_computed
-            or self.col_type.is_media_type()
-            or self.col_type.is_json_type()
-            or self.col_type.is_array_type()
-        )
+        if stores_cellmd is not None:
+            self.stores_cellmd = stores_cellmd
+        else:
+            self.stores_cellmd = stored and (
+                self.is_computed
+                or self.col_type.is_media_type()
+                or self.col_type.is_json_type()
+                or self.col_type.is_array_type()
+            )
 
         # column in the stored table for the values of this Column
         self.sa_col = None

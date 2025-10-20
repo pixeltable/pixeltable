@@ -447,16 +447,23 @@ class TableVersion:
 
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
-        sa_col_types: dict[int, sql.sqltypes.TypeEngine] = {}  # key: id of value/undo column
+        #sa_col_types: dict[int, sql.sqltypes.TypeEngine] = {}  # key: id of value/undo column
+        #idx_by_col_id: dict[int, index.IndexBase] = {}  # key: id of value/undo column
+        val_col_idxs: dict[int, index.IndexBase] = {}  # key: id of value column
+        undo_col_idxs: dict[int, index.IndexBase] = {}  # key: id of undo column
         for md in self.tbl_md.index_md.values():
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index, cls_name)
             idx = cls.from_dict(md.init_args)
             idxs[md.id] = idx
-            value_col_type = ts.ColumnType.from_dict(self.tbl_md.column_md[md.index_val_col_id].col_type)
-            sa_col_type = idx.get_index_sa_type(value_col_type)
-            sa_col_types[md.index_val_col_id] = sa_col_type
-            sa_col_types[md.index_val_undo_col_id] = sa_col_type
+            val_col_idxs[md.index_val_col_id] = idx
+            undo_col_idxs[md.index_val_undo_col_id] = idx
+            #value_col_type = ts.ColumnType.from_dict(self.tbl_md.column_md[md.index_val_col_id].col_type)
+            # sa_col_type = idx.get_index_sa_type(value_col_type)
+            # sa_col_types[md.index_val_col_id] = sa_col_type
+            # sa_col_types[md.index_val_undo_col_id] = sa_col_type
+            # idx_by_col_id[md.index_val_col_id] = idx
+            # idx_by_col_id[md.index_val_undo_col_id] = idx
 
         # initialize Columns
         self.cols = []
@@ -473,6 +480,20 @@ class TableVersion:
                 if schema_col_md is not None and schema_col_md.media_validation is not None
                 else None
             )
+
+            stores_cellmd: bool | None = None  # None: determined by the column properties (in the Column c'tor)
+            sa_col_type: sql.sqltypes.TypeEngine | None = None
+            if col_md.id in val_col_idxs:
+                idx = val_col_idxs[col_md.id]
+                # for index value columns, the index gets to override the default
+                stores_cellmd = idx.records_value_errors()
+                sa_col_type = idx.get_index_sa_type(col_type)
+            elif col_md.id in undo_col_idxs:
+                idx = undo_col_idxs[col_md.id]
+                # for index undo columns, we never store cellmd
+                stores_cellmd = False
+                sa_col_type = idx.get_index_sa_type(col_type)
+
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
@@ -481,10 +502,10 @@ class TableVersion:
                 is_iterator_col=self.is_component_view and col_md.id < self.num_iterator_cols + 1,
                 stored=col_md.stored,
                 media_validation=media_val,
-                sa_col_type=sa_col_types.get(col_md.id),
+                sa_col_type=sa_col_type,
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
-                # stores_cellmd=stores_cellmd,
+                stores_cellmd=stores_cellmd,
                 value_expr_dict=col_md.value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,

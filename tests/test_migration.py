@@ -31,7 +31,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class TestMigration:
-    @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
+    #@rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
     def test_db_migration(self, init_env: None) -> None:
