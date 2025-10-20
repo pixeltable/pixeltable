@@ -1,7 +1,6 @@
 import pytest
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
 
 from .utils import SAMPLE_IMAGE_URL, ReloadTester
 
@@ -136,7 +135,7 @@ class TestSample:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    def test_sample_basic_n(self, test_tbl: pxt.Table) -> None:
+    def test_sample_basic_n(self, reset_db: None) -> None:
         t = self.create_sample_data(4, 6, False)
 
         df = t.select().sample(n=20)
@@ -145,7 +144,7 @@ class TestSample:
         df = t.select().where(t.id < 200).sample(n=20)
         self._check_sample(df, 20)
 
-    def test_sample_basic_f(self, test_tbl: pxt.Table) -> None:
+    def test_sample_basic_f(self, reset_db: None) -> None:
         t = self.create_sample_data(4, 6, False)
         t_rows = t.count()
 
@@ -158,7 +157,7 @@ class TestSample:
         df = t.select().where(t.id < 200).sample(fraction=0.5)
         self._check_sample(df, 200 * 0.5)
 
-    def test_sample_snapshot_reload(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_sample_snapshot_reload(self, reset_db: None, reload_tester: ReloadTester) -> None:
         t = self.create_sample_data(4, 6, False)
 
         df = t.select(t.cat1).sample(fraction=0.3, seed=51, stratify_by=[t.cat1])
@@ -168,7 +167,7 @@ class TestSample:
         print(results)
         reload_tester.run_reload_test()
 
-    def test_sample_stratified_n(self, test_tbl: pxt.Table) -> None:
+    def test_sample_stratified_n(self, reset_db: None) -> None:
         t = self.create_sample_data(4, 6, True)
 
         df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
@@ -181,7 +180,7 @@ class TestSample:
         print(p)
         assert len(r) == 10
 
-    def test_sample_stratified_f(self, test_tbl: pxt.Table) -> None:
+    def test_sample_stratified_f(self, reset_db: None) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
 
@@ -190,42 +189,49 @@ class TestSample:
         self._check_sample_count(0.1 * t_rows, len(r))
         print(r)
 
-    def validate_snapshot(self, df: pxt.DataFrame, t_rows: int) -> None:
-        r = df.collect()
-        print(f'collected: {len(r)} of {t_rows} rows\n', r)
-        pr = r.to_pandas().sort_values(by=['id']).reset_index(drop=True)
+    def validate_snapshot(
+        self, df: pxt.DataFrame, t_rows: int, allow_mutable_view: bool = False, seeded: bool = False
+    ) -> None:
+        snap = pxt.create_snapshot('sampled_snap', df, if_exists='replace')
 
-        ss = pxt.create_snapshot('sampled', df, if_exists='replace_force')
-        assert ss.count() == len(r)
-        rs = ss.select(ss.id, ss.cat1, ss.cat2).collect()
-        print(f'snapshot: count: {ss.count()}, result: {len(rs)} of {t_rows} rows\n', rs)
-        prs = rs.to_pandas().sort_values(by=['id']).reset_index(drop=True)
-        assert pr.equals(prs)
-        rsum = (
-            ss.select(ss.cat1, ss.cat2, count1=pxtf.count(1))
-            .group_by(ss.cat1, ss.cat2)
-            .order_by(ss.cat1, ss.cat2)
-            .collect()
-        )
-        print('summary:\n', rsum)
+        # Subsequent calls to the same snapshot should return the same results.
+        snap_results_1 = snap.collect().to_pandas().sort_values(by=['id'])
+        snap_results_2 = snap.collect().to_pandas().sort_values(by=['id'])
+        assert snap_results_1.equals(snap_results_2)
 
-    def test_sample_snapshot(self, test_tbl: pxt.Table) -> None:
+        # If it's a seeded sample, the results should match a collect() on the df.
+        if seeded:
+            df_results = df.collect().to_pandas().sort_values(by=['id'])
+            df_results.equals(snap_results_1)
+
+        if allow_mutable_view:
+            # Try with a mutable view too.
+            view = pxt.create_view('sampled_view', df, if_exists='replace')
+            view_results_1 = view.collect().to_pandas().sort_values(by=['id'])
+            view_results_2 = view.collect().to_pandas().sort_values(by=['id'])
+            assert view_results_1.equals(view_results_2)
+            if seeded:
+                assert view_results_1.equals(snap_results_1)
+
+    @pytest.mark.parametrize('seed', [None, 4171780])
+    def test_sample_snapshot(self, reset_db: None, seed: int) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
-        df = t.select().sample(n=10)
-        self.validate_snapshot(df, t_rows)
+        df = t.select().sample(n=10, seed=seed)
+        self.validate_snapshot(df, t_rows, seeded=(seed is not None))
 
-        df = t.select().sample(fraction=0.1)
-        self.validate_snapshot(df, t_rows)
+        df = t.select().sample(fraction=0.1, seed=seed)
+        self.validate_snapshot(df, t_rows, allow_mutable_view=True, seeded=(seed is not None))
 
-    def test_sample_snapshot_stratified(self, test_tbl: pxt.Table) -> None:
+    @pytest.mark.parametrize('seed', [None, 4171780])
+    def test_sample_snapshot_stratified(self, reset_db: None, seed: int) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
-        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
-        self.validate_snapshot(df, t_rows)
+        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=seed)
+        self.validate_snapshot(df, t_rows, seeded=(seed is not None))
 
-        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
-        self.validate_snapshot(df, t_rows)
+        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=seed)
+        self.validate_snapshot(df, t_rows, seeded=(seed is not None))
 
     def check_create_insert(self, t: pxt.Table, df: pxt.DataFrame, n_sample: int) -> None:
         r = df.collect()
@@ -246,27 +252,37 @@ class TestSample:
     def test_sample_create_insert_table(self, test_tbl: pxt.Table) -> None:
         t = self.create_sample_data(4, 6, False)
 
-        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
+        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4171780)
         self.check_create_insert(t, df, 6 * 6)
 
-        df = t.select().sample(n=20)
+        df = t.select().sample(n=20, seed=4171780)
         self.check_create_insert(t, df, 20)
 
-        df = t.select().sample(fraction=0.1)
+        df = t.select().sample(fraction=0.1, seed=4171780)
         n_sample = len(df.collect())
         self.check_create_insert(t, df, n_sample)
 
         t = test_tbl
         df = t.sample(n=20)
         _ = df.collect()
-        df = t.sample(n=20)
+        df = t.sample(n=20, seed=4171780)
         self.check_create_insert(t, df, 20)
-        print(df.collect())
 
-    def test_reproducible_sample(self, test_tbl: pxt.Table) -> None:
+    def test_randomized_sample(self, reset_db: None) -> None:
+        """Test that subsequent calls to a non-seeded sample return different results."""
         t = self.create_sample_data(4, 6, False)
 
-        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
+        df = t.select().sample(n=10)
+        r0 = df.collect().to_pandas().sort_values(by=['id'])
+        r1 = df.collect().to_pandas().sort_values(by=['id'])
+        # In theory this will fail with probability 2^-63. In practice, it is vanishingly less likely than other
+        # potential causes of test failure.
+        assert not r0.equals(r1)
+
+    def test_reproducible_sample(self, reset_db: None) -> None:
+        t = self.create_sample_data(4, 6, False)
+
+        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4141480)
         r0 = df.collect()
         r1 = df.collect()
         assert r0 == r1
@@ -277,27 +293,27 @@ class TestSample:
         r4 = df.collect()
         assert r0 == r4
 
-    def test_sample_view(self, test_tbl: pxt.Table) -> None:
+    def test_sample_view(self, reset_db: None) -> None:
         t = self.create_sample_data(4, 6, False)
 
-        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
+        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
         with pytest.raises(pxt.Error, match='cannot be created with'):
             _ = pxt.create_view('v1', df)
 
-        df = t.select().sample(n=20)
+        df = t.select().sample(n=20, seed=0)
         with pytest.raises(pxt.Error, match='cannot be created with'):
             _ = pxt.create_view('v1', df)
 
-        df = t.select().sample(fraction=0.01)
+        df = t.select().sample(fraction=0.01, seed=0)
         n = len(df.collect())
         v = pxt.create_view('v1', df)
         assert v.count() == n
 
         t.insert(t.select())
-        n = len(t.select().sample(fraction=0.01).collect())
+        n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    def test_sample_iterator(self, test_tbl: pxt.Table) -> None:
+    def test_sample_iterator(self, reset_db: None) -> None:
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
         t = pxt.create_table('test_tile_tbl', {'image': pxt.Image})
 
@@ -305,7 +321,7 @@ class TestSample:
         t.insert(image=SAMPLE_IMAGE_URL)
 
         print('\n\nSAMPLE IMAGE FROM TABLE\n')
-        df = t.select().sample(fraction=0.001)
+        df = t.select().sample(fraction=0.001, seed=4171780)
         r = df.collect()
         print(f'total rows: {t.count()}, sample rows: {len(r)}')
         assert t.count() > len(r)
@@ -321,14 +337,14 @@ class TestSample:
         print(v._get_schema)
 
         print('\n\nSELECT SAMPLE OF ITERATOR VIEW\n')
-        df = v.select().sample(fraction=0.1)
+        df = v.select().sample(fraction=0.1, seed=4171780)
         r = df.collect()
         print(f'total rows: {v_rows}, sample rows: {len(r)}')
         assert v_rows > len(r)
         print(r)
 
         print('\n\nCREATE VIEW OF FRACTIONAL SAMPLE OF ITERATOR VIEW\n')
-        df = v.select().sample(fraction=0.1)
+        df = v.select().sample(fraction=0.1, seed=4171780)
         r = df.collect()
         vs = pxt.create_view('test_view_sample', df)
         vs_rows = vs.count()

@@ -306,7 +306,14 @@ def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
 
 @pxt.udf(is_method=True)
 def clip(
-    video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
+    video: pxt.Video,
+    *,
+    start_time: float,
+    end_time: float | None = None,
+    duration: float | None = None,
+    mode: Literal['fast', 'accurate'] = 'accurate',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video | None:
     """
     Extract a clip from a video, specified by `start_time` and either `end_time` or `duration` (in seconds).
@@ -323,6 +330,14 @@ def clip(
         start_time: Start time in seconds
         end_time: End time in seconds
         duration: Duration of the clip in seconds
+        mode:
+
+            - `'fast'`: avoids re-encoding but starts the clip at the nearest keyframes and as a result, the clip
+                duration will be slightly longer than requested
+            - `'accurate'`: extracts a frame-accurate clip, but requires re-encoding
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+            Only available for `mode='accurate'`.
+        video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
 
     Returns:
         New video containing only the specified time range or None if start_time is beyond the end of the video.
@@ -336,6 +351,11 @@ def clip(
         raise pxt.Error(f'duration must be positive, got {duration}')
     if end_time is not None and duration is not None:
         raise pxt.Error('end_time and duration cannot both be specified')
+    if mode == 'fast':
+        if video_encoder is not None:
+            raise pxt.Error("video_encoder is not supported for mode='fast'")
+        if video_encoder_args is not None:
+            raise pxt.Error("video_encoder_args is not supported for mode='fast'")
 
     video_duration = av_utils.get_video_duration(video)
     if video_duration is not None and start_time > video_duration:
@@ -345,7 +365,15 @@ def clip(
 
     if end_time is not None:
         duration = end_time - start_time
-    cmd = av_utils.ffmpeg_clip_cmd(str(video), output_path, start_time, duration)
+    cmd = av_utils.ffmpeg_clip_cmd(
+        str(video),
+        output_path,
+        start_time,
+        duration,
+        fast=(mode == 'fast'),
+        video_encoder=video_encoder,
+        video_encoder_args=video_encoder_args,
+    )
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -364,7 +392,7 @@ def segment_video(
     *,
     duration: float | None = None,
     segment_times: list[float] | None = None,
-    mode: Literal['fast', 'accurate'] = 'fast',
+    mode: Literal['fast', 'accurate'] = 'accurate',
     video_encoder: str | None = None,
     video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
@@ -400,15 +428,14 @@ def segment_video(
     Examples:
         Split a video at 1 minute intervals using fast mode:
 
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60)).collect()
+        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60, mode='fast')).collect()
 
-        Split video into exact 10-second segments with accurate mode, using the libx264 encoder with a CRF of 23 and
-        slow preset (for smaller output files):
+        Split video into exact 10-second segments with default accurate mode, using the libx264 encoder with a CRF of 23
+        and slow preset (for smaller output files):
 
         >>> tbl.select(
         ...     segment_paths=tbl.video.segment_video(
         ...         duration=10,
-        ...         mode='accurate',
         ...         video_encoder='libx264',
         ...         video_encoder_args={'crf': 23, 'preset': 'slow'}
         ...     )

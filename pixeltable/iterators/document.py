@@ -2,7 +2,7 @@ import dataclasses
 import enum
 import io
 import logging
-from typing import Any, ClassVar, Iterable, Iterator, Optional
+from typing import Any, ClassVar, Iterable, Iterator, Literal
 
 import fitz  # type: ignore[import-untyped]
 import ftfy
@@ -11,12 +11,17 @@ from bs4.element import NavigableString, Tag
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
-from pixeltable.type_system import BoolType, ColumnType, DocumentType, ImageType, IntType, JsonType, StringType
+from pixeltable.type_system import ColumnType, DocumentType, ImageType, IntType, JsonType, StringType
 from pixeltable.utils.documents import get_document_handle
 
 from .base import ComponentIterator
 
 _logger = logging.getLogger('pixeltable')
+
+
+class Element(enum.Enum):
+    TEXT = 1
+    IMAGE = 2
 
 
 class ChunkMetadata(enum.Enum):
@@ -41,28 +46,28 @@ class DocumentSectionMetadata:
     """Metadata for a subsection of a document (ie, a structural element like a heading or paragraph)"""
 
     # html and markdown metadata
-    sourceline: Optional[int] = None
+    sourceline: int | None = None
     # the stack of headings up to the most recently observed one;
     # eg, if the most recent one was an h2, 'headings' would contain keys 1 and 2, but nothing below that
-    heading: Optional[dict[str, str]] = None
+    heading: dict[str, str] | None = None
 
     # pdf-specific metadata
-    page: Optional[int] = None
+    page: int | None = None
     # bounding box as an {x1, y1, x2, y2} dictionary
-    bounding_box: Optional[dict[str, float]] = None
+    bounding_box: dict[str, float] | None = None
 
 
 @dataclasses.dataclass
 class DocumentSection:
     """A single document chunk, according to some of the splitting criteria"""
 
-    text: Optional[str]
-    metadata: Optional[DocumentSectionMetadata]
-    image: Optional[PIL.Image.Image] = None
+    text: str | None = None
+    image: PIL.Image.Image | None = None
+    metadata: DocumentSectionMetadata | None = None
 
 
 def _parse_separators(separators: str) -> list[Separator]:
-    ret = []
+    ret: list[Separator] = []
     for s in separators.split(','):
         clean_s = s.strip().upper()
         if not clean_s:
@@ -76,7 +81,7 @@ def _parse_separators(separators: str) -> list[Separator]:
 
 
 def _parse_metadata(metadata: str) -> list[ChunkMetadata]:
-    ret = []
+    ret: list[ChunkMetadata] = []
     for m in metadata.split(','):
         clean_m = m.strip().upper()
         if not clean_m:
@@ -87,6 +92,18 @@ def _parse_metadata(metadata: str) -> list[ChunkMetadata]:
             )
         ret.append(ChunkMetadata[clean_m])
     return ret
+
+
+def _parse_elements(elements: list[Literal['text', 'image']]) -> list[Element]:
+    result: list[Element] = []
+    for e in elements:
+        clean_e = e.strip().upper()
+        if clean_e not in Element.__members__:
+            raise Error(f'Invalid element: `{e}`. Valid elements are: {", ".join(Element.__members__).lower()}')
+        result.append(Element[clean_e])
+    if len(result) == 0:
+        raise Error('elements cannot be empty')
+    return result
 
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
@@ -106,11 +123,16 @@ class DocumentSplitter(ComponentIterator):
         separators: separators to use to chunk the document. Options are:
              `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
              This may be a comma-separated string, e.g., `'heading,token_limit'`.
+        elements: list of elements to extract from the document. Options are:
+            `'text'`, `'image'`. Defaults to `['text']` if not specified. The `'image'` element is only supported
+            for the `'page'` separator on PDF documents.
         limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
              or `'char_limit'` is specified.
         metadata: additional metadata fields to include in the output. Options are:
              `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
              (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+        image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
+        image_format: format to use when extracting images from PDFs. Defaults to 'png'.
     """
 
     METADATA_COLUMN_TYPES: ClassVar[dict[ChunkMetadata, ColumnType]] = {
@@ -121,34 +143,41 @@ class DocumentSplitter(ComponentIterator):
         ChunkMetadata.BOUNDING_BOX: JsonType(nullable=True),
     }
 
+    _doc_handle: Any
+    _separators: list[Separator]
+    _elements: list[Element]
+    _metadata_fields: list[ChunkMetadata]
+    _doc_title: str
+    _limit: int
+    _skip_tags: list[str]
+    _overlap: int
+    _tiktoken_encoding: str | None
+    _tiktoken_target_model: str | None
+    _image_dpi: int
+    _image_format: str
+
+    _sections: Iterator[DocumentSection]
+
     def __init__(
         self,
         document: str,
         *,
         separators: str,
-        limit: Optional[int] = None,
-        overlap: Optional[int] = None,
+        elements: list[Literal['text', 'image']] | None = None,
+        limit: int | None = None,
+        overlap: int | None = None,
         metadata: str = '',
-        html_skip_tags: Optional[list[str]] = None,
-        tiktoken_encoding: Optional[str] = 'cl100k_base',
-        tiktoken_target_model: Optional[str] = None,
-        # (PDF-processing-only)
-        include_page_image: bool = False,
-        page_image_dpi: int = 300,
-        page_image_format: str = 'png',
+        html_skip_tags: list[str] | None = None,
+        tiktoken_encoding: str | None = 'cl100k_base',
+        tiktoken_target_model: str | None = None,
+        image_dpi: int = 300,
+        image_format: str = 'png',
     ):
         if html_skip_tags is None:
             html_skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
+        self._elements = _parse_elements(elements.copy()) if elements is not None else [Element.TEXT]
         assert self._doc_handle is not None
-        # calling the output_schema method to validate the input arguments
-        self.output_schema(
-            separators=separators,
-            metadata=metadata,
-            limit=limit,
-            overlap=overlap,
-            include_page_image=include_page_image,
-        )
         self._separators = _parse_separators(separators)
         self._metadata_fields = _parse_metadata(metadata)
         if self._doc_handle.bs_doc is not None:
@@ -164,10 +193,8 @@ class DocumentSplitter(ComponentIterator):
         self._overlap = 0 if overlap is None else overlap
         self._tiktoken_encoding = tiktoken_encoding
         self._tiktoken_target_model = tiktoken_target_model
-
-        self._include_page_image = include_page_image
-        self._page_image_dpi = page_image_dpi
-        self._page_image_format = page_image_format
+        self._image_dpi = image_dpi
+        self._image_format = image_format
 
         # set up processing pipeline
         if self._doc_handle.format == DocumentType.DocumentFormat.HTML:
@@ -197,23 +224,28 @@ class DocumentSplitter(ComponentIterator):
         return {
             'document': DocumentType(nullable=False),
             'separators': StringType(nullable=False),
+            'elements': JsonType(nullable=False),
             'metadata': StringType(nullable=False),
             'limit': IntType(nullable=True),
             'overlap': IntType(nullable=True),
             'skip_tags': StringType(nullable=True),
             'tiktoken_encoding': StringType(nullable=True),
             'tiktoken_target_model': StringType(nullable=True),
-            # PDF options must be declared so validation accepts them:
-            'include_page_image': BoolType(nullable=True),
-            'page_image_dpi': IntType(nullable=True),
-            'page_image_format': StringType(nullable=True),
+            'image_dpi': IntType(nullable=True),
+            'image_format': StringType(nullable=True),
         }
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ColumnType], list[str]]:
-        schema: dict[str, ColumnType] = {'text': StringType()}
-        md_fields = _parse_metadata(kwargs['metadata']) if 'metadata' in kwargs else []
+        schema: dict[str, ColumnType] = {}
+        elements = _parse_elements(kwargs.get('elements', ['text']))
+        for element in elements:
+            if element == Element.TEXT:
+                schema['text'] = StringType(nullable=False)
+            elif element == Element.IMAGE:
+                schema['image'] = ImageType(nullable=False)
 
+        md_fields = _parse_metadata(kwargs.get('metadata', ''))
         for md_field in md_fields:
             schema[md_field.name.lower()] = cls.METADATA_COLUMN_TYPES[md_field]
 
@@ -223,6 +255,8 @@ class DocumentSplitter(ComponentIterator):
         limit = kwargs.get('limit')
         overlap = kwargs.get('overlap')
 
+        if Element.IMAGE in elements and separators != [Separator.PAGE]:
+            raise Error('Image elements are only supported for the "page" separator on PDF documents')
         if limit is not None or overlap is not None:
             if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
                 raise Error('limit/overlap requires the "token_limit" or "char_limit" separator')
@@ -236,23 +270,25 @@ class DocumentSplitter(ComponentIterator):
             if kwargs.get('limit') is None:
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
 
-        # check dependencies at the end
         if Separator.SENTENCE in separators:
             _ = Env.get().spacy_nlp
         if Separator.TOKEN_LIMIT in separators:
             Env.get().require_package('tiktoken')
-
-        if kwargs.get('include_page_image'):
-            schema['image'] = ImageType(nullable=True)
 
         return schema, []
 
     def __next__(self) -> dict[str, Any]:
         while True:
             section = next(self._sections)
-            if section.text is None:
+            if section.text is None and section.image is None:
                 continue
-            result: dict[str, Any] = {'text': section.text}
+            result: dict[str, Any] = {}
+            for element in self._elements:
+                if element == Element.TEXT:
+                    result['text'] = section.text
+                elif element == Element.IMAGE:
+                    result['image'] = section.image
+
             for md_field in self._metadata_fields:
                 if md_field == ChunkMetadata.TITLE:
                     result[md_field.name.lower()] = self._doc_title
@@ -264,10 +300,6 @@ class DocumentSplitter(ComponentIterator):
                     result[md_field.name.lower()] = section.metadata.page
                 elif md_field == ChunkMetadata.BOUNDING_BOX:
                     result[md_field.name.lower()] = section.metadata.bounding_box
-
-            # FIX: only include image if schema supports it
-            if self._include_page_image:
-                result['image'] = section.image
 
             return result
 
@@ -411,11 +443,10 @@ class DocumentSplitter(ComponentIterator):
             return txt
 
         for page_idx, page in enumerate(doc.pages()):
-            # render once per page if requested
-            page_image = None
-            if self._include_page_image:
-                pix = page.get_pixmap(dpi=self._page_image_dpi)  # ← single render
-                page_image = PIL.Image.open(io.BytesIO(pix.tobytes(self._page_image_format)))
+            img: PIL.Image.Image | None = None
+            if Element.IMAGE in self._elements:
+                pix = page.get_pixmap(dpi=self._image_dpi)
+                img = PIL.Image.open(io.BytesIO(pix.tobytes(self._image_format)))
 
             for block in page.get_text('blocks'):
                 x1, y1, x2, y2, text, *_ = block
@@ -423,14 +454,14 @@ class DocumentSplitter(ComponentIterator):
                 if accumulated_text and emit_on_paragraph:
                     bbox = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
                     md = DocumentSectionMetadata(page=page_idx, bounding_box=bbox)
-                    yield DocumentSection(text=_emit_text(), metadata=md, image=page_image)
+                    yield DocumentSection(text=_emit_text(), metadata=md)
 
             if accumulated_text and emit_on_page and not emit_on_paragraph:
                 md = DocumentSectionMetadata(page=page_idx)
-                yield DocumentSection(text=_emit_text(), metadata=md, image=page_image)
+                yield DocumentSection(text=_emit_text(), image=img, metadata=md)
 
         if accumulated_text and not emit_on_page:
-            yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata(), image=None)
+            yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata())
 
     def _txt_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections for text files.
