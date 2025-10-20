@@ -93,10 +93,10 @@ endif
 	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/pandoc $(CONDA_PREFIX)/bin/tools/aarch64/pandoc 2>/dev/null || true
-	@ln -sf $(CONDA_PREFIX)/share/quarto/editor/tools $(CONDA_PREFIX)/share/editor/tools 2>/dev/null || true
-	@ln -sf $(CONDA_PREFIX)/share/quarto/schema $(CONDA_PREFIX)/share/schema 2>/dev/null || true
-	@ln -sf $(CONDA_PREFIX)/share/quarto/extensions $(CONDA_PREFIX)/share/extensions 2>/dev/null || true
-	@ln -sf $(CONDA_PREFIX)/share/quarto/filters $(CONDA_PREFIX)/share/filters 2>/dev/null || true
+	@for dir in $(CONDA_PREFIX)/share/quarto/*/; do \
+		target=$$(basename $$dir); \
+		ln -sf $$dir $(CONDA_PREFIX)/share/$$target 2>/dev/null || true; \
+	done
 	@$(TOUCH) .make-install/uv
 
 .make-install/deps: pyproject.toml uv.lock
