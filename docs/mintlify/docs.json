@@ -16,40 +16,40 @@
           {
             "group": "Welcome to Pixeltable",
             "pages": [
-              "docs/overview/pixeltable",
-              "docs/overview/installation",
-              "docs/overview/configuration",
-              "docs/overview/quick-start",
-              "docs/overview/building-pixeltable-with-llms"
+              "overview/pixeltable",
+              "overview/installation",
+              "overview/configuration",
+              "overview/quick-start",
+              "overview/building-pixeltable-with-llms"
             ]
           },
           {
             "group": "Multimodal AI Datastore",
             "pages": [
-              "docs/datastore/tables-and-operations",
-              "docs/datastore/views",
-              "docs/datastore/iterators",
-              "docs/datastore/bringing-data",
-              "docs/datastore/filtering-and-selecting",
-              "docs/datastore/computed-columns",
-              "docs/datastore/vector-database",
-              "docs/datastore/custom-functions",
-              "docs/datastore/sampling"
+              "datastore/tables-and-operations",
+              "datastore/views",
+              "datastore/iterators",
+              "datastore/bringing-data",
+              "datastore/filtering-and-selecting",
+              "datastore/computed-columns",
+              "datastore/vector-database",
+              "datastore/custom-functions",
+              "datastore/sampling"
             ]
           },
           {
             "group": "Tutorials",
             "pages": [
-              "docs/tutorials/fundamentals",
-              "docs/tutorials/feature-guide"
+              "tutorials/fundamentals",
+              "tutorials/feature-guide"
             ]
           },
           {
             "group": "Libraries",
             "pages": [
-              "docs/libraries/pixelagent",
-              "docs/libraries/mcp",
-              "docs/libraries/yolox"
+              "libraries/pixelagent",
+              "libraries/mcp",
+              "libraries/yolox"
             ]
           }
         ]
@@ -60,36 +60,36 @@
           {
             "group": "Explore",
             "pages": [
-              "docs/examples/use-cases",
-              "docs/examples/interactive-demos",
-              "docs/examples/sample-apps"
+              "examples/use-cases",
+              "examples/interactive-demos",
+              "examples/sample-apps"
             ]
           },
           {
             "group": "Chatbot",
             "pages": [
-              "docs/examples/chat/multimodal",
-              "docs/examples/chat/memory",
-              "docs/examples/chat/tools",
-              "docs/examples/chat/evals"
+              "examples/chat/multimodal",
+              "examples/chat/memory",
+              "examples/chat/tools",
+              "examples/chat/evals"
             ]
           },
           {
             "group": "Computer Vision",
             "pages": [
-              "docs/examples/vision/label-studio",
-              "docs/examples/vision/voxel51",
-              "docs/examples/vision/yolox"
+              "examples/vision/label-studio",
+              "examples/vision/voxel51",
+              "examples/vision/yolox"
             ]
           },
           {
             "group": "Semantic Search",
             "pages": [
-              "docs/examples/search/audio",
-              "docs/examples/search/images",
-              "docs/examples/search/PDF",
-              "docs/examples/search/website",
-              "docs/examples/search/video"
+              "examples/search/audio",
+              "examples/search/images",
+              "examples/search/PDF",
+              "examples/search/website",
+              "examples/search/video"
             ]
           }
         ]
@@ -107,69 +107,69 @@
                   {
                     "group": "Core API",
                     "pages": [
-                      "docs/sdk/latest/pixeltable",
-                      "docs/sdk/latest/table",
-                      "docs/sdk/latest/dataframe",
-                      "docs/sdk/latest/columnmetadata",
-                      "docs/sdk/latest/dircontents",
-                      "docs/sdk/latest/indexmetadata",
-                      "docs/sdk/latest/tablemetadata",
-                      "docs/sdk/latest/updatestatus",
-                      "docs/sdk/latest/versionmetadata"
+                      "sdk/latest/pixeltable",
+                      "sdk/latest/table",
+                      "sdk/latest/dataframe",
+                      "sdk/latest/columnmetadata",
+                      "sdk/latest/dircontents",
+                      "sdk/latest/indexmetadata",
+                      "sdk/latest/tablemetadata",
+                      "sdk/latest/updatestatus",
+                      "sdk/latest/versionmetadata"
                     ]
                   },
                   {
                     "group": "Built-in Functions and Operators",
                     "pages": [
-                      "docs/sdk/latest/audio",
-                      "docs/sdk/latest/date",
-                      "docs/sdk/latest/image",
-                      "docs/sdk/latest/json",
-                      "docs/sdk/latest/math",
-                      "docs/sdk/latest/string",
-                      "docs/sdk/latest/timestamp",
-                      "docs/sdk/latest/video"
+                      "sdk/latest/audio",
+                      "sdk/latest/date",
+                      "sdk/latest/image",
+                      "sdk/latest/json",
+                      "sdk/latest/math",
+                      "sdk/latest/string",
+                      "sdk/latest/timestamp",
+                      "sdk/latest/video"
                     ]
                   },
                   {
                     "group": "AI Integrations",
                     "pages": [
-                      "docs/sdk/latest/openai",
-                      "docs/sdk/latest/anthropic",
-                      "docs/sdk/latest/huggingface",
-                      "docs/sdk/latest/gemini",
-                      "docs/sdk/latest/bedrock",
-                      "docs/sdk/latest/groq",
-                      "docs/sdk/latest/replicate",
-                      "docs/sdk/latest/together",
-                      "docs/sdk/latest/fireworks",
-                      "docs/sdk/latest/mistralai",
-                      "docs/sdk/latest/deepseek",
-                      "docs/sdk/latest/ollama",
-                      "docs/sdk/latest/llama_cpp",
-                      "docs/sdk/latest/whisper",
-                      "docs/sdk/latest/vision",
-                      "docs/sdk/latest/yolox",
-                      "docs/sdk/latest/whisperx"
+                      "sdk/latest/openai",
+                      "sdk/latest/anthropic",
+                      "sdk/latest/huggingface",
+                      "sdk/latest/gemini",
+                      "sdk/latest/bedrock",
+                      "sdk/latest/groq",
+                      "sdk/latest/replicate",
+                      "sdk/latest/together",
+                      "sdk/latest/fireworks",
+                      "sdk/latest/mistralai",
+                      "sdk/latest/deepseek",
+                      "sdk/latest/ollama",
+                      "sdk/latest/llama_cpp",
+                      "sdk/latest/whisper",
+                      "sdk/latest/vision",
+                      "sdk/latest/yolox",
+                      "sdk/latest/whisperx"
                     ]
                   },
                   {
                     "group": "Iterators",
                     "pages": [
-                      "docs/sdk/latest/iterators",
-                      "docs/sdk/latest/audiosplitter",
-                      "docs/sdk/latest/componentiterator",
-                      "docs/sdk/latest/documentsplitter",
-                      "docs/sdk/latest/frameiterator",
-                      "docs/sdk/latest/stringsplitter",
-                      "docs/sdk/latest/tileiterator",
-                      "docs/sdk/latest/videosplitter"
+                      "sdk/latest/iterators",
+                      "sdk/latest/audiosplitter",
+                      "sdk/latest/componentiterator",
+                      "sdk/latest/documentsplitter",
+                      "sdk/latest/frameiterator",
+                      "sdk/latest/stringsplitter",
+                      "sdk/latest/tileiterator",
+                      "sdk/latest/videosplitter"
                     ]
                   },
                   {
                     "group": "Import/Export",
                     "pages": [
-                      "docs/sdk/latest/io"
+                      "sdk/latest/io"
                     ]
                   }
                 ]
@@ -180,14 +180,14 @@
             "dropdown": "v0.4.9",
             "icon": "tag",
             "pages": [
-              "docs/sdk/v0.4.9/index"
+              "sdk/v0.4.9/index"
             ]
           },
           {
             "dropdown": "v0.4.8",
             "icon": "tag",
             "pages": [
-              "docs/sdk/v0.4.8/index"
+              "sdk/v0.4.8/index"
             ]
           }
         ]
@@ -198,14 +198,14 @@
           {
             "group": "Built-in Integrations",
             "pages": [
-              "docs/integrations/frameworks",
-              "docs/integrations/models"
+              "integrations/frameworks",
+              "integrations/models"
             ]
           },
           {
             "group": "Bring Your Own",
             "pages": [
-              "docs/integrations/embedding-model"
+              "integrations/embedding-model"
             ]
           }
         ]
@@ -216,7 +216,7 @@
           {
             "group": "Changelog",
             "pages": [
-              "docs/changelog/product-updates"
+              "changelog/product-updates"
             ]
           }
         ]
@@ -227,8 +227,8 @@
           {
             "group": "Support",
             "pages": [
-              "docs/support/getting-help",
-              "docs/support/faq"
+              "support/getting-help",
+              "support/faq"
             ]
           }
         ]
@@ -236,8 +236,8 @@
     ]
   },
   "logo": {
-    "light": "/logo/pxt-light.svg",
-    "dark": "/logo/pxt-dark.svg"
+    "light": "/_logo/pxt-light.svg",
+    "dark": "/_logo/pxt-dark.svg"
   },
   "background": {
     "color": {
