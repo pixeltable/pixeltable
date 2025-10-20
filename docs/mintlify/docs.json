@@ -38,6 +38,64 @@
             ]
           },
           {
+            "group": "Notebooks",
+            "pages": [
+              {
+                "group": "Getting Started",
+                "pages": [
+                  "notebooks/pixeltable-basics"
+                ]
+              },
+              {
+                "group": "Fundamentals",
+                "pages": [
+                  "notebooks/fundamentals/tables-and-data-operations",
+                  "notebooks/fundamentals/computed-columns",
+                  "notebooks/fundamentals/queries-and-expressions"
+                ]
+              },
+              {
+                "group": "Feature Guides",
+                "pages": [
+                  "notebooks/feature-guides/embedding-indexes",
+                  "notebooks/feature-guides/time-zones",
+                  "notebooks/feature-guides/udfs-in-pixeltable",
+                  "notebooks/feature-guides/working-with-external-files"
+                ]
+              },
+              {
+                "group": "Integrations",
+                "pages": [
+                  "notebooks/integrations/working-with-anthropic",
+                  "notebooks/integrations/working-with-bedrock",
+                  "notebooks/integrations/working-with-deepseek",
+                  "notebooks/integrations/working-with-fireworks",
+                  "notebooks/integrations/working-with-gemini",
+                  "notebooks/integrations/working-with-groq",
+                  "notebooks/integrations/working-with-hugging-face",
+                  "notebooks/integrations/working-with-llama-cpp",
+                  "notebooks/integrations/working-with-mistralai",
+                  "notebooks/integrations/working-with-ollama",
+                  "notebooks/integrations/working-with-openai",
+                  "notebooks/integrations/working-with-openrouter",
+                  "notebooks/integrations/working-with-replicate",
+                  "notebooks/integrations/working-with-together",
+                  "notebooks/integrations/using-label-studio-with-pixeltable",
+                  "notebooks/integrations/working-with-fiftyone"
+                ]
+              },
+              {
+                "group": "Use Cases",
+                "pages": [
+                  "notebooks/use-cases/audio-transcriptions",
+                  "notebooks/use-cases/object-detection-in-videos",
+                  "notebooks/use-cases/rag-demo",
+                  "notebooks/use-cases/rag-operations"
+                ]
+              }
+            ]
+          },
+          {
             "group": "Tutorials",
             "pages": [
               "tutorials/fundamentals",
