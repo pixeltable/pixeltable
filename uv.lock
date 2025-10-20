@@ -1229,11 +1229,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf57
 
 [[package]]
 name = "docstring-parser-fork"
-version = "0.0.14"
+version = "0.0.13"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/66/bf/27f9cab2f0cd1d17a4420572088bbc19f36d726fbcf165edf226a8926dbc/docstring_parser_fork-0.0.14.tar.gz", hash = "sha256:a2743a63d8d36c09650594f7b4ab5b2758fee8629dcf794d1b221b23179baa5c", size = 34551, upload-time = "2025-09-07T17:27:38.272Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/d7/b248fb8556f5180913c26c94d16a0f0ae999e419c027047e22c29e07b6ee/docstring_parser_fork-0.0.13.tar.gz", hash = "sha256:3635d3ef6438766882c25046cf2cc073c0a471e1d5cb36ee674f7de948d77749", size = 34512, upload-time = "2025-08-17T18:52:54.003Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/50/98b146aea0f1cd7531d25f12bea69fa9ce8d1662124f93fb30dc4511b65e/docstring_parser_fork-0.0.14-py3-none-any.whl", hash = "sha256:4c544f234ef2cc2749a3df32b70c437d77888b1099143a1ad5454452c574b9af", size = 43063, upload-time = "2025-09-07T17:27:37.012Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/a4/49da1e9655465d88ce82e355158f16f17526721b3630ccac25d41cb0c8e9/docstring_parser_fork-0.0.13-py3-none-any.whl", hash = "sha256:77219f949721de65916514dfcdfefc6651f92145a811927025e3f7df7cf222a8", size = 43012, upload-time = "2025-08-17T18:52:52.643Z" },
 ]
 
 [[package]]
@@ -4581,6 +4581,7 @@ dev = [
     { name = "boto3-stubs" },
     { name = "botocore" },
     { name = "datasets" },
+    { name = "docstring-parser-fork" },
     { name = "fiftyone" },
     { name = "fireworks-ai" },
     { name = "google-cloud-storage" },
@@ -4690,6 +4691,7 @@ dev = [
     { name = "boto3-stubs", specifier = "==1.36.23" },
     { name = "botocore", specifier = "==1.36.23" },
     { name = "datasets", specifier = ">=3.2.0" },
+    { name = "docstring-parser-fork", specifier = "<0.0.14" },
     { name = "fiftyone", specifier = ">=1.7" },
     { name = "fireworks-ai", specifier = ">=0.17.6" },
     { name = "google-cloud-storage", specifier = ">=2.18.0" },
