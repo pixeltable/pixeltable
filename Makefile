@@ -87,6 +87,8 @@ endif
 	@python -m pip install -q uv==0.8.2
 	@echo 'Installing ffmpeg ...'
 	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+	@echo 'Installing quarto ...'
+	@conda install -q -y -c conda-forge quarto
 	@$(TOUCH) .make-install/uv
 
 .make-install/deps: pyproject.toml uv.lock
