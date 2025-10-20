@@ -89,6 +89,9 @@ endif
 	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 	@echo 'Installing quarto ...'
 	@conda install -q -y -c conda-forge quarto
+	@echo 'Fixing quarto deno symlink ...'
+	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
+	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
 	@$(TOUCH) .make-install/uv
 
 .make-install/deps: pyproject.toml uv.lock
