@@ -522,10 +522,15 @@ class TableVersion:
 
         if self.supports_idxs:
             # create IndexInfo
+            #for md in (md for md in self.tbl_md.index_md.values() if md.schema_version_add <= self.schema_version and md.schema_version_drop is None):
             for md in (md for md in self.tbl_md.index_md.values() if md.schema_version_drop is None):
                 idx = idxs[md.id]
                 indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
                 idx_col = self._lookup_column(indexed_col_id)
+                if md.index_val_col_id not in self.cols_by_id:
+                    pass
+                if md.index_val_undo_col_id not in self.cols_by_id:
+                    pass
                 info = self.IndexInfo(
                     id=md.id,
                     name=md.name,
@@ -644,6 +649,7 @@ class TableVersion:
             computed_with=value_expr,
             sa_col_type=idx.get_index_sa_type(value_expr.col_type),
             stored=True,
+            stores_cellmd=idx.records_value_errors(),
             schema_version_add=schema_version,
             schema_version_drop=None,
         )
@@ -656,6 +662,7 @@ class TableVersion:
             col_type=val_col.col_type,
             sa_col_type=val_col.sa_col_type,
             stored=True,
+            stores_cellmd=False,
             schema_version_add=schema_version,
             schema_version_drop=None,
         )
