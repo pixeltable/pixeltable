@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple, Optional
 from uuid import UUID
 
 from pixeltable import env, exceptions as excs
@@ -360,7 +360,9 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None) -> ObjectStoreBase:
+    def get_store(
+        cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None
+    ) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
