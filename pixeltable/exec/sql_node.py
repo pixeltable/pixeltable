@@ -648,7 +648,6 @@ class SqlSampleNode(SqlNode):
         )
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause
-        assert isinstance(self.sample_clause.seed, int)
 
     @classmethod
     def key_sql_expr(cls, seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement:
@@ -667,7 +666,9 @@ class SqlSampleNode(SqlNode):
         """Create an expression for randomly ordering rows with a given seed"""
         rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
         assert len(rowid_cols) > 0
-        return self.key_sql_expr(sql.literal_column(str(self.sample_clause.seed)), rowid_cols)
+        # If seed is not set in the sample clause, use the random seed given by the execution context
+        seed = self.sample_clause.seed if self.sample_clause.seed is not None else self.ctx.random_seed
+        return self.key_sql_expr(sql.literal_column(str(seed)), rowid_cols)
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable.plan import SampleClause
