@@ -399,7 +399,7 @@ class ObjectOps:
         )
 
     @classmethod
-    def validate_destination(cls, dest: str | Path | None, col_name: Optional[str]) -> str:
+    def validate_destination(cls, dest: str | Path | None, col_name: str | None = None) -> str:
         """Convert a Column destination parameter to a URI, else raise errors.
         Args:
             dest: The requested destination
