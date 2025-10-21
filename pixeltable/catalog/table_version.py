@@ -196,6 +196,9 @@ class TableVersion:
         self.idxs = {}
         self.idxs_by_name = {}
         self.idxs_by_col = {}
+        # TODO: THIS IS A BUG: for a replica of a snapshot, effective_version == current_version, but if there were
+        # updates to the base table since the snapshot was created, then indices won't reflect the snapshot state.
+        # This is true even for indices created before the snapshot.
         self.supports_idxs = self.effective_version is None or (
             self.is_replica and self.effective_version == self.tbl_md.current_version
         )
@@ -447,8 +450,6 @@ class TableVersion:
 
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
-        #sa_col_types: dict[int, sql.sqltypes.TypeEngine] = {}  # key: id of value/undo column
-        #idx_by_col_id: dict[int, index.IndexBase] = {}  # key: id of value/undo column
         val_col_idxs: dict[int, index.IndexBase] = {}  # key: id of value column
         undo_col_idxs: dict[int, index.IndexBase] = {}  # key: id of undo column
         for md in self.tbl_md.index_md.values():
@@ -458,12 +459,6 @@ class TableVersion:
             idxs[md.id] = idx
             val_col_idxs[md.index_val_col_id] = idx
             undo_col_idxs[md.index_val_undo_col_id] = idx
-            #value_col_type = ts.ColumnType.from_dict(self.tbl_md.column_md[md.index_val_col_id].col_type)
-            # sa_col_type = idx.get_index_sa_type(value_col_type)
-            # sa_col_types[md.index_val_col_id] = sa_col_type
-            # sa_col_types[md.index_val_undo_col_id] = sa_col_type
-            # idx_by_col_id[md.index_val_col_id] = idx
-            # idx_by_col_id[md.index_val_undo_col_id] = idx
 
         # initialize Columns
         self.cols = []
@@ -522,8 +517,16 @@ class TableVersion:
 
         if self.supports_idxs:
             # create IndexInfo
-            #for md in (md for md in self.tbl_md.index_md.values() if md.schema_version_add <= self.schema_version and md.schema_version_drop is None):
-            for md in (md for md in self.tbl_md.index_md.values() if md.schema_version_drop is None):
+            # TODO: this logic is incorrect, because indices are not versioned; only indices that exist at the time
+            # the replica bundle is created are valid, and *only* for the then-current version of the table. The index
+            # is specifically not valid if the bundle was created for an earlier snapshot version.
+            for md in (
+                md
+                for md in self.tbl_md.index_md.values()
+                if md.schema_version_add <= self.schema_version
+                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
+            ):
+                # for md in (md for md in self.tbl_md.index_md.values() if md.schema_version_drop is None):
                 idx = idxs[md.id]
                 indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
                 idx_col = self._lookup_column(indexed_col_id)
