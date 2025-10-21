@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from typing import ClassVar, Optional
-from uuid import UUID
 
 import pytest
 
