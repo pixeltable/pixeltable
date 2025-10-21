@@ -83,7 +83,7 @@ endif
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.8.2
 	@echo 'Installing ffmpeg ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' google-cloud-sdk
 	@$(TOUCH) .make-install/uv
 
 .make-install/deps: pyproject.toml uv.lock

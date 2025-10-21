@@ -15,11 +15,8 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 class TestDestination:
     @staticmethod
     def validate_dest(dest: Optional[str]) -> bool:
-        try:
-            ObjectOps.validate_destination(dest, '')
-            return True
-        except Exception:
-            return False
+        ObjectOps.validate_destination(dest, '')
+        return True
 
     USE_LOCAL_DEST = 'file'
     USE_GS_DEST = 'gs'
@@ -40,15 +37,15 @@ class TestDestination:
             dest_path.mkdir(exist_ok=True)
             return dest_path.resolve().as_uri()
         if dest_id == 'gs':
-            return f'gs://pxt-test/ci_test/img_rot{n}'
+            return f'gs://pxt-gs-test/pytest/img_rot{n}'
         elif dest_id == 's3':
-            return f's3://pxt-test/ci_test/img_rot{n}'
+            return f's3://pxt-test/pytest/img_rot{n}'
         elif dest_id == 'r2':
-            return f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
+            return f'https://ae60fad96d33636287c3b2e76b88241f.r2.cloudflarestorage.com/pxt-test/pytest/img_rot{n}'
         elif dest_id == 'r2_bad':
-            return f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
+            return f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest/img_rot{n}'
         elif dest_id == 'b2':
-            return f'https://s3.us-east-005.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
+            return f'https://s3.us-east-005.backblazeb2.com/5f1d8127cd78c3509c9e0f17/pytest/img_rot{n}'
         raise AssertionError(f'Invalid dest_id: {dest_id}')
 
     @classmethod
