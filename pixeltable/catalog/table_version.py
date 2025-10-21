@@ -96,6 +96,8 @@ class TableVersion:
     cols_by_name: dict[str, Column]
     # contains only columns visible in this version, both system and user
     cols_by_id: dict[int, Column]
+    # all indices defined on this table
+    all_idxs: dict[str, TableVersion.IndexInfo]
     # contains only actively maintained indices
     idxs_by_name: dict[str, TableVersion.IndexInfo]
 
@@ -129,6 +131,12 @@ class TableVersion:
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
         base: Optional[TableVersionHandle] = None,
     ):
+        from pixeltable import exprs
+        from pixeltable.plan import SampleClause
+
+        from .table_version_handle import TableVersionHandle
+        from .table_version_path import TableVersionPath
+
         self.is_validated = True  # a freshly constructed instance is always valid
         self.is_initialized = False
         self.id = id
@@ -141,9 +149,6 @@ class TableVersion:
         self.store_tbl = None
 
         # mutable tables need their TableVersionPath for expr eval during updates
-        from .table_version_handle import TableVersionHandle
-        from .table_version_path import TableVersionPath
-
         if self.is_snapshot:
             self.path = None
         else:
@@ -153,9 +158,6 @@ class TableVersion:
             self.path = TableVersionPath(self_handle, base=base_path)
 
         # view-specific initialization
-        from pixeltable import exprs
-        from pixeltable.plan import SampleClause
-
         predicate_dict = None if self.view_md is None or self.view_md.predicate is None else self.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
         sample_dict = None if self.view_md is None or self.view_md.sample_clause is None else self.view_md.sample_clause
@@ -180,6 +182,7 @@ class TableVersion:
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
+        self.all_idxs = {}
         self.idxs_by_name = {}
         self.external_stores = {}
 
@@ -373,7 +376,7 @@ class TableVersion:
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
-        tbl_version.store_tbl.ensure_columns_exist(col for col in tbl_version.cols if col.is_stored)
+        tbl_version.store_tbl.ensure_updated_schema()
         return tbl_version
 
     def delete_media(self, tbl_version: Optional[int] = None) -> None:
@@ -463,13 +466,17 @@ class TableVersion:
             idx_col = self._lookup_column(QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id))
             assert idx_col is not None
             idx = cls.from_dict(idx_col, md.init_args)
+            assert isinstance(idx, index.IndexBase)
+
+            val_col = next(col for col in self.cols if col.id == md.index_val_col_id)
+            undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
+            idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
+            self.all_idxs[md.name] = idx_info
 
             # fix up the sa column type of the index value and undo columns
             # we need to do this for all indices, not just those that are active in this TableVersion, to ensure we get
             # the correct SA schema in the StoreTable.
-            val_col = next(col for col in self.cols if col.id == md.index_val_col_id)
             val_col.sa_col_type = idx.index_sa_type()
-            undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
             undo_col.sa_col_type = idx.index_sa_type()
             if not isinstance(idx, index.EmbeddingIndex):
                 # Historically, the intent has been not to store cellmd data, even for embedding indices. However,
@@ -501,9 +508,6 @@ class TableVersion:
                 assert md.indexed_col_id in self.cols_by_id
                 assert md.index_val_col_id in self.cols_by_id
                 assert md.index_val_undo_col_id in self.cols_by_id
-                idx_info = self.IndexInfo(
-                    id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col
-                )
                 self.idxs_by_name[md.name] = idx_info
 
     def _lookup_column(self, id: QColumnId) -> Column | None:
