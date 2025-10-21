@@ -280,7 +280,7 @@ class Catalog:
         - this needs to be done in a retry loop, because Postgres can decide to abort the transaction
           (SerializationFailure, LockNotAvailable)
         - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
-          to minimize the probability of loosing that work due to a forced abort
+          to minimize the probability of losing that work due to a forced abort
 
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors.
         """
