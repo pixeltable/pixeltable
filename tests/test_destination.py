@@ -31,42 +31,35 @@ class TestDestination:
     USE_AZURE_DEST = 'az'
 
     @staticmethod
-    def create_destination_by_number(n: int, dest_id: str) -> tuple[Path | str | None, str | None]:
-        """Return the destination directory for test images"""
+    def create_destination_uri(n: int, dest_id: str) -> str:
+        """
+        Return the destination directory for test images
+        """
         if dest_id == 'fs':
             base_path = Config.get().home / 'test_dest'
             base_path.mkdir(exist_ok=True)
             dest_path = base_path / f'img_rot{n}'
             dest_path.mkdir(exist_ok=True)
-            dest_uri = dest_path.resolve().as_uri()
-            return dest_path, dest_uri
+            return dest_path.resolve().as_uri()
         if dest_id == 'gcs_store':
-            gs_uri = f'gs://pxt-test/ci_test/img_rot{n}'
-            return gs_uri, gs_uri
+            return f'gs://pxt-test/ci_test/img_rot{n}'
         elif dest_id == 's3':
-            s3_uri = f's3://pxt-test/ci_test/img_rot{n}'
-            return s3_uri, s3_uri
+            return f's3://pxt-test/ci_test/img_rot{n}'
         elif dest_id == 'r2':
-            r2_uri = f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
-            return r2_uri, r2_uri
+            return f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
         elif dest_id == 'r2_bad':
-            r2_uri = f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
-            return r2_uri, r2_uri
+            return f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
         elif dest_id == 'b2':
-            b2_uri = f'https://s3.us-east-005.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
-            return b2_uri, b2_uri
-        elif dest_id == 'az':
-            return None, None
+            return f'https://s3.us-east-005.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
         raise AssertionError(f'Invalid dest_id: {dest_id}')
 
     @classmethod
     def get_valid_dest(cls, n: int, dest_id: str, backup_dest: str) -> str:
         """If the specified destination is not valid (no credentials), use the backup destination"""
         try:
-            _, dest = cls.create_destination_by_number(n, dest_id)
-            if ObjectOps.validate_destination(dest, ''):
-                return dest
-            return backup_dest
+            dest = cls.create_destination_uri(n, dest_id)
+            ObjectOps.validate_destination(dest, '')
+            return dest
         except Exception:
             return backup_dest
 
@@ -116,7 +109,7 @@ class TestDestination:
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
         # Test with a destination that is not reachable
-        r2_bad_dest = self.create_destination_by_number(1, 'r2_bad')[1]
+        r2_bad_dest = self.create_destination_uri(1, 'r2_bad')
         assert not self.validate_dest(r2_bad_dest)
 
     def parse_object_addr(self, s: str, consider_object: bool) -> bool:
@@ -168,18 +161,18 @@ class TestDestination:
     @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
     def test_dest_local_2(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two local destinations"""
-        if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
+        if not self.validate_dest(self.create_destination_uri(1, dest_id)):
             pytest.skip(f'Destination {dest_id} not installed or not reachable')
 
         # Create two valid local file Paths for images
-        valid_dest_1, dest1_uri = self.create_destination_by_number(1, dest_id)
-        valid_dest_2, create_destination_by_number_uri = self.create_destination_by_number(2, dest_id)
+        dest1_uri = self.create_destination_uri(1, dest_id)
+        dest2_uri = self.create_destination_uri(2, dest_id)
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
-        t.add_computed_column(img_rot2=t.img.rotate(180), destination=valid_dest_1)
-        t.add_computed_column(img_rot3=t.img.rotate(270), destination=valid_dest_2)
+        t.add_computed_column(img_rot2=t.img.rotate(180), destination=dest1_uri)
+        t.add_computed_column(img_rot3=t.img.rotate(270), destination=dest2_uri)
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -194,18 +187,18 @@ class TestDestination:
         assert n == 2
         assert n == self.count(None, t._id)
         assert n == self.count(dest1_uri, t._id)
-        assert n == self.count(create_destination_by_number_uri, t._id)
+        assert n == self.count(dest2_uri, t._id)
 
         n = 1
         assert n == self.count(None, t._id, 2)
         assert n == self.count(dest1_uri, t._id, 3)
-        assert n == self.count(create_destination_by_number_uri, t._id, 4)
+        assert n == self.count(dest2_uri, t._id, 4)
 
         version = 5
         n = 1
         assert n == self.count(None, t._id, version)
         assert n == self.count(dest1_uri, t._id, version)
-        assert n == self.count(create_destination_by_number_uri, t._id, version)
+        assert n == self.count(dest2_uri, t._id, version)
 
         # Test that we can list objects in the destination
         olist = ObjectOps.list_uris(dest1_uri, n_max=10)
@@ -220,24 +213,24 @@ class TestDestination:
 
         assert self.count(None, save_id) == 0
         assert self.count(dest1_uri, save_id) == 0
-        assert self.count(create_destination_by_number_uri, save_id) == 0
+        assert self.count(dest2_uri, save_id) == 0
 
     @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
     def test_dest_local_two_copy(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
-        if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
+        if not self.validate_dest(self.create_destination_uri(1, dest_id)):
             pytest.skip(f'Destination {dest_id} not installed or not reachable')
 
         # Create two valid local file Paths for images
-        valid_dest_1, dest1_uri = self.create_destination_by_number(1, dest_id)
-        valid_dest_2, dest2_uri = self.create_destination_by_number(2, dest_id)
+        dest1_uri = self.create_destination_uri(1, dest_id)
+        dest2_uri = self.create_destination_uri(2, dest_id)
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
-        t.add_computed_column(img_rot2=t.img.rotate(90), destination=valid_dest_1)
-        t.add_computed_column(img_rot3=t.img.rotate(90), destination=valid_dest_2)
-        t.add_computed_column(img_rot4=t.img.rotate(90), destination=valid_dest_2)  # Try to copy twice to the same dest
+        t.add_computed_column(img_rot2=t.img.rotate(90), destination=dest1_uri)
+        t.add_computed_column(img_rot3=t.img.rotate(90), destination=dest2_uri)
+        t.add_computed_column(img_rot4=t.img.rotate(90), destination=dest2_uri)  # Try to copy twice to the same dest
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -261,13 +254,13 @@ class TestDestination:
         """Test destination attempting to copy a local file to another destination"""
 
         # Create valid local file Paths and URIs for images
-        valid_dest_1, dest1_uri = self.create_destination_by_number(1, self.USE_LOCAL_DEST)
+        dest1_uri = self.create_destination_uri(1, 'fs')
 
         # The intent of this test is to copy the same image to two different destinations
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img, destination=None)
-        t.add_computed_column(img_rot2=t.img, destination=valid_dest_1)
+        t.add_computed_column(img_rot2=t.img, destination=dest1_uri)
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -287,7 +280,7 @@ class TestDestination:
     def test_dest_all(self, reset_db: None) -> None:
         """Test destination with all available storage targets"""
         n = 1
-        _, lc_uri = self.create_destination_by_number(n, self.USE_LOCAL_DEST)
+        lc_uri = self.create_destination_uri(n, self.USE_LOCAL_DEST)
         c2_uri = self.get_valid_dest(n, self.USE_GS_DEST, lc_uri)
         c3_uri = self.get_valid_dest(n, self.USE_S3_DEST, lc_uri)
         c4_uri = self.get_valid_dest(n, self.USE_R2_DEST, lc_uri)

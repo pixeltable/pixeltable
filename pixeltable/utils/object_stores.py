@@ -280,7 +280,7 @@ class ObjectPath:
 
 
 class ObjectStoreBase:
-    def validate(self, error_col_name: str) -> Optional[str]:
+    def validate(self, error_prefix: str) -> Optional[str]:
         """Check the store configuration. Returns base URI if store is accessible.
 
         Args:
@@ -360,7 +360,7 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None) -> Any:
+    def get_store(cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
@@ -407,19 +407,19 @@ class ObjectOps:
         Returns:
             URI of destination, or raises an error
         """
-        error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
+        error_prefix = f'Column {col_name!r}: ' if col_name is not None else ''
 
         # General checks on any destination
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_col_name}`destination` must be a string or path, got {dest!r}')
+            raise excs.Error(f'{error_prefix}`destination` must be a string or path; got {dest!r}')
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
-        dest2 = store.validate(error_col_name)
+        dest2 = store.validate(error_prefix)
         if dest2 is None:
-            raise excs.Error(f'{error_col_name}`destination` must be a supported destination, got {dest!r}')
+            raise excs.Error(f'{error_prefix}`destination` must be a supported destination; got {dest!r}')
         return dest2
 
     @classmethod
