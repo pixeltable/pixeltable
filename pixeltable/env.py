@@ -404,7 +404,7 @@ class Env:
 
         if not self._media_dir.exists():
             self._media_dir.mkdir()
-        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), may_contain_object_name=False)
+        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), allow_obj_name=False)
         if not self._file_cache_dir.exists():
             self._file_cache_dir.mkdir()
         if not self._dataset_cache_dir.exists():

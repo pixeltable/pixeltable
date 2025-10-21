@@ -253,7 +253,7 @@ class ObjectPath:
         return r
 
     @classmethod
-    def parse_object_storage_addr(cls, src_addr: str, may_contain_object_name: bool) -> StorageObjectAddress:
+    def parse_object_storage_addr(cls, src_addr: str, allow_obj_name: bool) -> StorageObjectAddress:
         """
         Parses a cloud storage URI into its scheme, bucket, prefix, and object name.
 
@@ -273,7 +273,7 @@ class ObjectPath:
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
         """
         soa = cls.parse_object_storage_addr1(src_addr)
-        prefix, object_name = cls.separate_prefix_object(soa.key, may_contain_object_name)
+        prefix, object_name = cls.separate_prefix_object(soa.key, allow_obj_name)
         assert not object_name.endswith('/')
         r = soa._replace(prefix=prefix, object_name=object_name)
         return r
@@ -367,7 +367,7 @@ class ObjectOps:
         soa = (
             Env.get().object_soa
             if dest is None
-            else ObjectPath.parse_object_storage_addr(dest, may_contain_object_name=may_contain_object_name)
+            else ObjectPath.parse_object_storage_addr(dest, allow_obj_name=may_contain_object_name)
         )
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
@@ -427,7 +427,7 @@ class ObjectOps:
         """Copy an object from a URL to a local Path. Thread safe.
         Raises an exception if the download fails or the scheme is not supported
         """
-        soa = ObjectPath.parse_object_storage_addr(src_uri, may_contain_object_name=True)
+        soa = ObjectPath.parse_object_storage_addr(src_uri, allow_obj_name=True)
         store = cls.get_store(src_uri, True)
         store.copy_object_to_local_file(soa.object_name, dest_path)
 

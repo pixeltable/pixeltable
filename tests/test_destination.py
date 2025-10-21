@@ -15,16 +15,14 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 class TestDestination:
     @staticmethod
     def validate_dest(dest: Optional[str]) -> bool:
-        if dest is None:
-            return False
         try:
             ObjectOps.validate_destination(dest, '')
             return True
         except Exception:
             return False
 
-    USE_LOCAL_DEST = 'fs'
-    USE_GS_DEST = 'gcs_store'
+    USE_LOCAL_DEST = 'file'
+    USE_GS_DEST = 'gs'
     USE_S3_DEST = 's3'
     USE_R2_DEST = 'r2'
     USE_B2_DEST = 'b2'
@@ -35,13 +33,13 @@ class TestDestination:
         """
         Return the destination directory for test images
         """
-        if dest_id == 'fs':
+        if dest_id == 'file':
             base_path = Config.get().home / 'test_dest'
             base_path.mkdir(exist_ok=True)
             dest_path = base_path / f'img_rot{n}'
             dest_path.mkdir(exist_ok=True)
             return dest_path.resolve().as_uri()
-        if dest_id == 'gcs_store':
+        if dest_id == 'gs':
             return f'gs://pxt-test/ci_test/img_rot{n}'
         elif dest_id == 's3':
             return f's3://pxt-test/ci_test/img_rot{n}'
@@ -112,26 +110,12 @@ class TestDestination:
         r2_bad_dest = self.create_destination_uri(1, 'r2_bad')
         assert not self.validate_dest(r2_bad_dest)
 
-    def parse_object_addr(self, s: str, consider_object: bool) -> bool:
-        print(f'Parsing: {s}')
-        try:
-            r = ObjectPath.parse_object_storage_addr(s, consider_object)
-            print(f'Success: {r!r}')
-            return True
-        except ValueError as e:
-            print(f'Error: {e!r}')
-            return False
-
-    def check_parse(self, s: str) -> None:
-        assert self.parse_object_addr(s, False)
-        assert self.parse_object_addr(s, True)
-
     def test_dest_parser(self, reset_db: None) -> None:
         a_name = 'acct-name'
         o_name = 'obj-name'
         p_name1 = 'path-name'
         p_name2 = 'path-name/path2-name'
-        for s in [
+        for s in (
             's3://container',
             f'wasb://container@{a_name}.blob.core.windows.net',
             f'https://{a_name}.blob.core.windows.net/container',
@@ -140,31 +124,31 @@ class TestDestination:
             'https://raw.github.com',
             'file://dir1/dir2/dir3',
             'dir1/dir2/dir3',
-        ]:
-            self.check_parse(s)
-            self.check_parse(s + '/')
-            self.check_parse(s + '/' + p_name1)
-            self.check_parse(s + '/' + p_name1 + '/')
-            self.check_parse(s + '/' + p_name2)
-            self.check_parse(s + '/' + p_name2 + '/')
-            self.check_parse(s + '/' + o_name)
-            self.check_parse(s + '/' + p_name2 + '/' + o_name)
+        ):
+            for allow_obj_name in (False, True):
+                ObjectPath.parse_object_storage_addr(s, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/', allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name1, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name1 + '/', allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name2, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name2 + '/', allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + o_name, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name2 + '/' + o_name, allow_obj_name)
 
-        assert self.parse_object_addr(
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg', True
+        ObjectPath.parse_object_storage_addr(
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg', allow_obj_name=True
         )
 
-        assert self.parse_object_addr('file://dir1/dir2/dir3', False)
-        assert self.parse_object_addr(f'file://dir1/dir2/dir3/{o_name}', True)
-        assert self.parse_object_addr(f'dir2/dir3/{o_name}', True)
+        ObjectPath.parse_object_storage_addr('file://dir1/dir2/dir3', allow_obj_name=False)
+        ObjectPath.parse_object_storage_addr(f'file://dir1/dir2/dir3/{o_name}', allow_obj_name=True)
+        ObjectPath.parse_object_storage_addr(f'dir2/dir3/{o_name}', allow_obj_name=True)
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
-    def test_dest_local_2(self, reset_db: None, dest_id: str) -> None:
-        """Test destination with two local destinations"""
+    @pytest.mark.parametrize('dest_id', ['file', 'gs', 's3', 'r2', 'b2'])
+    def test_destination(self, reset_db: None, dest_id: str) -> None:
+        """Test various media destinations."""
         if not self.validate_dest(self.create_destination_uri(1, dest_id)):
             pytest.skip(f'Destination {dest_id} not installed or not reachable')
 
-        # Create two valid local file Paths for images
         dest1_uri = self.create_destination_uri(1, dest_id)
         dest2_uri = self.create_destination_uri(2, dest_id)
 
@@ -215,8 +199,8 @@ class TestDestination:
         assert self.count(dest1_uri, save_id) == 0
         assert self.count(dest2_uri, save_id) == 0
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
-    def test_dest_local_two_copy(self, reset_db: None, dest_id: str) -> None:
+    @pytest.mark.parametrize('dest_id', ['file', 'gs', 's3', 'r2', 'b2'])
+    def test_dest_two_copies(self, reset_db: None, dest_id: str) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
         if not self.validate_dest(self.create_destination_uri(1, dest_id)):
             pytest.skip(f'Destination {dest_id} not installed or not reachable')
@@ -254,7 +238,7 @@ class TestDestination:
         """Test destination attempting to copy a local file to another destination"""
 
         # Create valid local file Paths and URIs for images
-        dest1_uri = self.create_destination_uri(1, 'fs')
+        dest1_uri = self.create_destination_uri(1, 'file')
 
         # The intent of this test is to copy the same image to two different destinations
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
