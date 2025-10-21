@@ -93,18 +93,13 @@ class SampleClause:
     seed: Optional[int]
     stratify_exprs: Optional[list[exprs.Expr]]
 
-    # This seed value is used if one is not supplied
-    DEFAULT_SEED = 0
-
     # The version of the hashing algorithm used for ordering and fractional sampling.
     CURRENT_VERSION = 1
 
     def __post_init__(self) -> None:
-        """If no version was provided, provide the default version"""
+        # If no version was provided, provide the default version
         if self.version is None:
             self.version = self.CURRENT_VERSION
-        if self.seed is None:
-            self.seed = self.DEFAULT_SEED
 
     @property
     def is_stratified(self) -> bool:
@@ -1008,6 +1003,7 @@ class Planner:
             analyzer.window_fn_calls
         )
         ctx = exec.ExecContext(row_builder)
+
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
 
