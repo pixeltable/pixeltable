@@ -41,9 +41,14 @@ class IndexBase(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
-        """Create the index on the index value column"""
+    def sa_index(self, index_name: str, index_value_col: catalog.Column) -> sql.Index:
+        """Return a sqlalchemy Index instance"""
         pass
+
+    # @abc.abstractmethod
+    # def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
+    #     """Create the index on the index value column"""
+    #     pass
 
     @abc.abstractmethod
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:

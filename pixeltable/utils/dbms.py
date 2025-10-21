@@ -29,9 +29,7 @@ class Dbms(abc.ABC):
     def default_system_db_url(self) -> str: ...
 
     @abc.abstractmethod
-    def create_vector_index(
-        self, index_name: str, index_value_sa_col: sql.schema.Column, conn: sql.Connection, metric: str
-    ) -> None: ...
+    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index: ...
 
 
 class PostgresqlDbms(Dbms):
@@ -52,17 +50,14 @@ class PostgresqlDbms(Dbms):
         a = self.db_url.set(database='postgres').render_as_string(hide_password=False)
         return a
 
-    def create_vector_index(
-        self, index_name: str, index_value_sa_col: sql.schema.Column, conn: sql.Connection, metric: str
-    ) -> None:
-        idx = sql.Index(
-            index_name,
-            index_value_sa_col,
+    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index:
+        return sql.Index(
+            store_index_name,
+            sa_value_col,
             postgresql_using='hnsw',
             postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={index_value_sa_col.name: metric},
+            postgresql_ops={sa_value_col.name: metric},
         )
-        idx.create(bind=conn)
 
 
 class CockroachDbms(Dbms):
@@ -82,11 +77,9 @@ class CockroachDbms(Dbms):
     def default_system_db_url(self) -> str:
         return self.db_url.set(database='defaultdb').render_as_string(hide_password=False)
 
-    def create_vector_index(
-        self, index_name: str, index_value_sa_col: sql.schema.Column, conn: sql.Connection, metric: str
-    ) -> None:
-        create_index_sql = sql.text(
-            f"""CREATE VECTOR INDEX {index_name} ON {index_value_sa_col.table.name}
-             ({index_value_sa_col.name} {metric})"""
-        )
-        conn.execute(create_index_sql)
+    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index:
+        return None
+        # create_index_sql = sql.text(
+        #     f"""CREATE VECTOR INDEX {store_index_name} ON {sa_value_col.table.name}
+        #      ({sa_value_col.name} {metric})"""
+        # )

@@ -133,13 +133,10 @@ class EmbeddingIndex(IndexBase):
         assert vector_size is not None
         return pgvector.sqlalchemy.Vector(vector_size)
 
-    def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
+    def sa_index(self, store_index_name: str, index_value_col: 'catalog.Column') -> sql.Index:
         """Create the index on the index value column"""
-        Env.get().dbms.create_vector_index(
-            index_name=index_name,
-            index_value_sa_col=index_value_col.sa_col,
-            conn=Env.get().conn,
-            metric=self.PGVECTOR_OPS[self.metric],
+        return Env.get().dbms.sa_vector_index(
+            store_index_name, index_value_col.sa_col, metric=self.PGVECTOR_OPS[self.metric]
         )
 
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:

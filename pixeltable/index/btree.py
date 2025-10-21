@@ -7,7 +7,6 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-from pixeltable.env import Env
 from pixeltable.func.udf import udf
 
 from .base import IndexBase
@@ -54,11 +53,14 @@ class BtreeIndex(IndexBase):
         """Return the sqlalchemy type of the index value column"""
         return val_col_type.to_sa_type()
 
-    def create_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
-        """Create the index on the index value column"""
-        idx = sql.Index(index_name, index_value_col.sa_col, postgresql_using='btree')
-        conn = Env.get().conn
-        idx.create(bind=conn)
+    def sa_index(self, store_index_name: str, index_value_col: 'catalog.Column') -> sql.Index:
+        return sql.Index(store_index_name, index_value_col.sa_col, postgresql_using='btree')
+
+    # def create_index(self, store_index_name: str, index_value_col: 'catalog.Column') -> None:
+    #     """Create the index on the index value column"""
+    #     idx = sql.Index(store_index_name, index_value_col.sa_col, postgresql_using='btree')
+    #     conn = Env.get().conn
+    #     idx.create(bind=conn)
 
     def drop_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
         """Drop the index on the index value column"""

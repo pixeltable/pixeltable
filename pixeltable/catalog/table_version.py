@@ -357,7 +357,7 @@ class TableVersion:
         elif op.create_index_op is not None:
             idx_info = self.idxs[op.create_index_op.idx_id]
             with Env.get().begin_xact():
-                idx_info.idx.create_index(self._store_idx_name(op.create_index_op.idx_id), idx_info.val_col)
+                self.store_tbl.create_index(idx_info.id)
 
         elif op.load_view_op is not None:
             from pixeltable.catalog import Catalog
@@ -703,7 +703,7 @@ class TableVersion:
         self.idxs[idx_id] = idx_info
         self.idxs_by_name[idx_name] = idx_info
         self.idxs_by_col.setdefault(col.qid, []).append(idx_info)
-        idx.create_index(self._store_idx_name(idx_id), val_col)
+        self.store_tbl.create_index(idx_id)
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
         val_col, undo_col = self._create_index_columns(

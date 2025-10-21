@@ -111,9 +111,9 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
-        for index_md in [md for md in tbl_version.tbl_md.index_md.values() if md.schema_version_drop is None]:
-            val_col = next(c for c in tbl_version.cols if c.id == index_md.index_val_col_id)
-            idx = sql.Index(index_md.name, val_col.sa_col, postgresql_using='btree')
+        # for index_md in [md for md in tbl_version.tbl_md.index_md.values() if md.schema_version_drop is None]:
+        for idx_info in tbl_version.idxs.values():
+            idx = idx_info.idx.sa_index(tbl_version._store_idx_name(idx_info.id), idx_info.val_col)
             idxs.append(idx)
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
@@ -140,13 +140,9 @@ class StoreBase:
         assert isinstance(result, int)
         return result
 
-    def create(self) -> None:
-        """Create If Not Exists for this table"""
+    def _exec_create_if_not_exists(self, create_stmt: str) -> None:
         conn = Env.get().conn
-        stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(conn)
-        create_stmt = str(stmt)
-
-        # Postgres seems not to handle concurrent Create Table If Not Exists correctly, we need to ignore the various
+        # Postgres seems not to handle concurrent Create ... If Not Exists correctly, we need to ignore the various
         # errors that can occur when two connections run the same Create Table statement.
         try:
             conn.execute(sql.text(create_stmt))
@@ -162,6 +158,30 @@ class StoreBase:
                 pass
             else:
                 raise
+
+    def create(self) -> None:
+        """Create If Not Exists for this table"""
+        conn = Env.get().conn
+        stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(conn)
+        create_stmt = str(stmt)
+        stmts = [create_stmt]
+
+        for index in self.sa_tbl.indexes:
+            stmt = sql.schema.CreateIndex(index, if_not_exists=True).compile(conn)
+            create_stmt = str(stmt)
+            stmts.append(create_stmt)
+
+        for stmt in stmts:
+            self._exec_create_if_not_exists(stmt)
+
+    def create_index(self, idx_id: int) -> None:
+        """Create If Not Exists for this index"""
+        idx_info = self.tbl_version.get().idxs[idx_id]
+        sa_idx = idx_info.idx.sa_index(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col)
+        conn = Env.get().conn
+        stmt = sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(conn)
+        create_stmt = str(stmt)
+        self._exec_create_if_not_exists(create_stmt)
 
     def drop(self) -> None:
         """Drop store table"""
