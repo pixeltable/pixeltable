@@ -21,7 +21,7 @@ class MatrixConfig(NamedTuple):
 
     @property
     def display_name(self) -> str:
-        return f'{self.display_name_prefix}-{self.os}-{self.python_version}'
+        return f'{self.display_name_prefix}, {self.os}, {self.python_version}'
 
 
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
