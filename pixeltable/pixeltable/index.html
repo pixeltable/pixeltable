@@ -261,7 +261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="https://docs.pixeltable.com/docs/overview/configuration" class="md-nav__link">
+      <a href="https://docs.pixeltable.com/overview/configuration" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1433,6 +1433,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/openrouter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openrouter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/replicate/" class="md-nav__link">
         
   
@@ -1831,6 +1852,8 @@ below.</p>
 
     <div class="doc doc-contents first">
 
+      <p>Core Pixeltable API for table operations, data processing, and UDF management.</p>
+
 
 
   <div class="doc doc-children">
@@ -1923,8 +1946,9 @@ below.</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span>
     <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-    <span class="n">parents</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">parents</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span><span class="p">]</span>
 </code></pre></div>
 
@@ -2900,7 +2924,9 @@ recursively.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_table</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_table</span><span class="p">(</span>
+    <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2918,13 +2944,28 @@ recursively.</p>
             <p>Path to the table.</p>
           </div>
         </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_not_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Directive regarding how to handle if the path does not exist.
+Must be one of the following:</p>
+<ul>
+<li><code>'error'</code>: raise an error</li>
+<li><code>'ignore'</code>: do nothing and return <code>None</code></li>
+</ul>
+          </div>
+        </li>
     </ul>
 
 
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a> | None</code>
           –
           <div class="doc-md-description">
             <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a>.</p>
@@ -3013,7 +3054,13 @@ instead.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">move</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">new_path</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">move</span><span class="p">(</span>
+    <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">new_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
+    <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3037,6 +3084,36 @@ instead.</p>
           –
           <div class="doc-md-description">
             <p>absolute new path for the schema object.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Directive regarding how to handle if a schema object already exists at the new path.
+Must be one of the following:</p>
+<ul>
+<li><code>'error'</code>: raise an error</li>
+<li><code>'ignore'</code>: do nothing and return</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_not_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Directive regarding how to handle if the source path does not exist.
+Must be one of the following:</p>
+<ul>
+<li><code>'error'</code>: raise an error</li>
+<li><code>'ignore'</code>: do nothing and return</li>
+</ul>
           </div>
         </li>
     </ul>

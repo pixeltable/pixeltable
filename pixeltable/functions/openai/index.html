@@ -14,7 +14,7 @@
         <link rel="prev" href="../ollama/">
       
       
-        <link rel="next" href="../replicate/">
+        <link rel="next" href="../openrouter/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -261,7 +261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="https://docs.pixeltable.com/docs/overview/configuration" class="md-nav__link">
+      <a href="https://docs.pixeltable.com/overview/configuration" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1375,6 +1375,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../openrouter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openrouter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../replicate/" class="md-nav__link">
         
   
@@ -1733,10 +1754,10 @@ parameters, see: <a href="https://platform.openai.com/docs/api-reference/chat/cr
     <p>Add a computed column that applies the model <code>gpt-4o-mini</code> to an existing Pixeltable column <code>tbl.prompt</code>
 of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">messages</span> <span class="o">=</span> <span class="p">[</span>
-<span class="go">        {&#39;role&#39;: &#39;system&#39;, &#39;content&#39;: &#39;You are a helpful assistant.&#39;},</span>
-<span class="go">        {&#39;role&#39;: &#39;user&#39;, &#39;content&#39;: tbl.prompt}</span>
-<span class="go">    ]</span>
-<span class="go">    tbl.add_computed_column(response=chat_completions(messages, model=&#39;gpt-4o-mini&#39;))</span>
+<span class="gp">... </span>    <span class="p">{</span><span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="s1">&#39;system&#39;</span><span class="p">,</span> <span class="s1">&#39;content&#39;</span><span class="p">:</span> <span class="s1">&#39;You are a helpful assistant.&#39;</span><span class="p">},</span>
+<span class="gp">... </span>    <span class="p">{</span><span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="s1">&#39;user&#39;</span><span class="p">,</span> <span class="s1">&#39;content&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">}</span>
+<span class="gp">... </span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">chat_completions</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;gpt-4o-mini&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>

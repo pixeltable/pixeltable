@@ -261,7 +261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="https://docs.pixeltable.com/docs/overview/configuration" class="md-nav__link">
+      <a href="https://docs.pixeltable.com/overview/configuration" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1290,6 +1290,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../functions/openrouter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openrouter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../functions/replicate/" class="md-nav__link">
         
   
@@ -1459,10 +1480,14 @@
 </h2>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">VideoSplitter</span><span class="p">(</span>
     <span class="n">video</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">segment_duration</span><span class="p">:</span> <span class="n">float</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">overlap</span><span class="p">:</span> <span class="n">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-    <span class="n">min_segment_duration</span><span class="p">:</span> <span class="n">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">duration</span><span class="p">:</span> <span class="n">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">overlap</span><span class="p">:</span> <span class="n">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">min_segment_duration</span><span class="p">:</span> <span class="n">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">segment_times</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">mode</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;accurate&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;accurate&quot;</span><span class="p">,</span>
+    <span class="n">video_encoder</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">video_encoder_args</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -1476,8 +1501,10 @@ seconds.</p>
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>segment_duration</code></b>
-              (<code>float</code>)
+          <b><code>duration</code></b>
+              (<code>float | None</code>, default:
+                  <code>None</code>
+)
           –
           <div class="doc-md-description">
             <p>Video segment duration in seconds</p>
@@ -1485,22 +1512,55 @@ seconds.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>overlap</code></b>
-              (<code>float</code>, default:
-                  <code>0.0</code>
+              (<code>float | None</code>, default:
+                  <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>Overlap between consecutive segments in seconds.</p>
+            <p>Overlap between consecutive segments in seconds. Only available for <code>mode='fast'</code>.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
           <b><code>min_segment_duration</code></b>
-              (<code>float</code>, default:
-                  <code>0.0</code>
+              (<code>float | None</code>, default:
+                  <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>Drop the last segment if it is smaller than min_segment_duration</p>
+            <p>Drop the last segment if it is smaller than min_segment_duration.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>mode</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;fast&#39;, &#39;accurate&#39;]</code>, default:
+                  <code>&#39;accurate&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Segmentation mode:
+- <code>'fast'</code>: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
+- <code>'accurate'</code>: Precise segmentation with re-encoding (exact durations, slower)</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>video_encoder</code></b>
+              (<code>str | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Video encoder to use. If not specified, uses the default encoder for the current platform.
+Only available for <code>mode='accurate'</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>video_encoder_args</code></b>
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional arguments to pass to the video encoder. Only available for <code>mode='accurate'</code>.</p>
           </div>
         </li>
     </ul>

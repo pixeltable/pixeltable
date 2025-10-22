@@ -261,7 +261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="https://docs.pixeltable.com/docs/overview/configuration" class="md-nav__link">
+      <a href="https://docs.pixeltable.com/overview/configuration" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1384,6 +1384,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/openrouter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openrouter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/replicate/" class="md-nav__link">
         
   
@@ -1853,24 +1874,25 @@ Studio SDK, as described in the
     <p>Create a Label Studio project whose tasks correspond to videos stored in the <code>video_col</code>
 column of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">config</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
-<span class="go">    &lt;View&gt;</span>
-<span class="go">        &lt;Video name=&quot;video_obj&quot; value=&quot;$video_col&quot;/&gt;</span>
-<span class="go">        &lt;Choices name=&quot;video-category&quot; toName=&quot;video&quot; showInLine=&quot;true&quot;&gt;</span>
-<span class="go">            &lt;Choice value=&quot;city&quot;/&gt;</span>
-<span class="go">            &lt;Choice value=&quot;food&quot;/&gt;</span>
-<span class="go">            &lt;Choice value=&quot;sports&quot;/&gt;</span>
-<span class="go">        &lt;/Choices&gt;</span>
-<span class="go">    &lt;/View&gt;&quot;&quot;&quot;</span>
-<span class="go">    create_label_studio_project(tbl, config)</span>
+<span class="gp">... </span><span class="s2">&lt;View&gt;</span>
+<span class="gp">... </span><span class="s2">    &lt;Video name=&quot;video_obj&quot; value=&quot;$video_col&quot;/&gt;</span>
+<span class="gp">... </span><span class="s2">    &lt;Choices name=&quot;video-category&quot; toName=&quot;video&quot; showInLine=&quot;true&quot;&gt;</span>
+<span class="gp">... </span><span class="s2">        &lt;Choice value=&quot;city&quot;/&gt;</span>
+<span class="gp">... </span><span class="s2">        &lt;Choice value=&quot;food&quot;/&gt;</span>
+<span class="gp">... </span><span class="s2">        &lt;Choice value=&quot;sports&quot;/&gt;</span>
+<span class="gp">... </span><span class="s2">    &lt;/Choices&gt;</span>
+<span class="gp">... </span><span class="s2">&lt;/View&gt;</span>
+<span class="gp">... </span><span class="s2">&quot;&quot;&quot;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">create_label_studio_project</span><span class="p">(</span><span class="n">tbl</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
 </code></pre></div>
     <p>Create a Label Studio project with the same configuration, using <code>media_import_method='url'</code>,
 whose media are stored in an S3 bucket:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">create_label_studio_project</span><span class="p">(</span>
-<span class="go">        tbl,</span>
-<span class="go">        config,</span>
-<span class="go">        media_import_method=&#39;url&#39;,</span>
-<span class="go">        s3_configuration={&#39;bucket&#39;: &#39;my-bucket&#39;, &#39;region_name&#39;: &#39;us-east-2&#39;}</span>
-<span class="go">    )</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">config</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">media_import_method</span><span class="o">=</span><span class="s1">&#39;url&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">s3_configuration</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;bucket&#39;</span><span class="p">:</span> <span class="s1">&#39;my-bucket&#39;</span><span class="p">,</span> <span class="s1">&#39;region_name&#39;</span><span class="p">:</span> <span class="s1">&#39;us-east-2&#39;</span><span class="p">}</span>
+<span class="gp">... </span><span class="p">)</span>
 </code></pre></div>
 
     </div>

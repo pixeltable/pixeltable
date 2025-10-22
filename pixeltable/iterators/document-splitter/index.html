@@ -261,7 +261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="https://docs.pixeltable.com/docs/overview/configuration" class="md-nav__link">
+      <a href="https://docs.pixeltable.com/overview/configuration" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1290,6 +1290,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../functions/openrouter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openrouter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../functions/replicate/" class="md-nav__link">
         
   
@@ -1461,12 +1482,15 @@
     <span class="n">document</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">separators</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">limit</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">overlap</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">elements</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;image&quot;</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">limit</span><span class="p">:</span> <span class="n">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">overlap</span><span class="p">:</span> <span class="n">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">metadata</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
-    <span class="n">html_skip_tags</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tiktoken_encoding</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;cl100k_base&quot;</span><span class="p">,</span>
-    <span class="n">tiktoken_target_model</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">html_skip_tags</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tiktoken_encoding</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">&quot;cl100k_base&quot;</span><span class="p">,</span>
+    <span class="n">tiktoken_target_model</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">image_dpi</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">300</span><span class="p">,</span>
+    <span class="n">image_format</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;png&quot;</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -1477,6 +1501,7 @@
 <p>The iterator yields a <code>text</code> field containing the text of the chunk, and it may also
 include additional metadata fields if specified in the <code>metadata</code> parameter, as explained below.</p>
 <p>Chunked text will be cleaned with <code>ftfy.fix_text</code> to fix up common problems with unicode sequences.</p>
+<p>How to init the <code>DocumentSplitter</code> class?</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -1492,8 +1517,20 @@ include additional metadata fields if specified in the <code>metadata</code> par
           </div>
         </li>
         <li class="doc-section-item field-body">
+          <b><code>elements</code></b>
+              (<code>list[<span title="typing.Literal">Literal</span>[&#39;text&#39;, &#39;image&#39;]] | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>list of elements to extract from the document. Options are:
+<code>'text'</code>, <code>'image'</code>. Defaults to <code>['text']</code> if not specified. The <code>'image'</code> element is only supported
+for the <code>'page'</code> separator on PDF documents.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
           <b><code>limit</code></b>
-              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+              (<code>int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1512,6 +1549,26 @@ include additional metadata fields if specified in the <code>metadata</code> par
             <p>additional metadata fields to include in the output. Options are:
  <code>'title'</code>, <code>'heading'</code> (HTML and Markdown), <code>'sourceline'</code> (HTML), <code>'page'</code> (PDF), <code>'bounding_box'</code>
  (PDF). The input may be a comma-separated string, e.g., <code>'title,heading,sourceline'</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>image_dpi</code></b>
+              (<code>int</code>, default:
+                  <code>300</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>DPI to use when extracting images from PDFs. Defaults to 300.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>image_format</code></b>
+              (<code>str</code>, default:
+                  <code>&#39;png&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>format to use when extracting images from PDFs. Defaults to 'png'.</p>
           </div>
         </li>
     </ul>
