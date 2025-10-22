@@ -1172,11 +1172,11 @@ class Catalog:
         # We need to do this at the end, since `existing_path` needs to first have a non-fragment table version in
         # order to be instantiated as a schema object.
         existing = self.get_table_by_id(tbl_id)
-        if existing is not None:
-            existing_path = Path.parse(existing._path(), allow_system_path=True)
-            if existing_path != path:
-                assert existing_path.is_system_path
-                self._move(existing_path, path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
+        assert existing is not None
+        existing_path = Path.parse(existing._path(), allow_system_path=True)
+        if existing_path != path:
+            assert existing_path.is_system_path
+            self._move(existing_path, path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
 
     def __ensure_system_dir_exists(self) -> Dir:
         system_path = Path.parse('_system', allow_system_path=True)
