@@ -11,6 +11,7 @@ EOF
 
 # Add profiles to AWS credentials
 if [ -n "${AWS_ACCESS_KEY_ID}" ]; then
+echo "Found AWS credentials."
 cat >> ~/.aws/credentials << EOF
 [default]
 aws_access_key_id = ${AWS_ACCESS_KEY_ID}
@@ -20,6 +21,7 @@ EOF
 fi
 
 if [ -n "${R2_ACCESS_KEY_ID}" ]; then
+echo "Found R2 credentials."
 cat >> ~/.aws/credentials << EOF
 [r2_profile]
 aws_access_key_id = ${R2_ACCESS_KEY_ID}
@@ -29,6 +31,7 @@ EOF
 fi
 
 if [ -n "${B2_ACCESS_KEY_ID}" ]; then
+echo "Found B2 credentials."
 cat >> ~/.aws/credentials << EOF
 [b2_profile]
 aws_access_key_id = ${B2_ACCESS_KEY_ID}
@@ -43,6 +46,9 @@ chmod a+r ~/.aws/credentials || true
 
 # Setup GCS if credentials are provided
 if [ -n "${GCS_SERVICE_ACCOUNT_KEY}" ]; then
+    echo "Found GCS service account key."
+    conda install -y -c conda-forge google-cloud-sdk
+    gcloud config set project pxt-test-475804
     echo "${GCS_SERVICE_ACCOUNT_KEY}" > /tmp/gcs-key.json
     chmod a+r /tmp/gcs-key.json
 fi
