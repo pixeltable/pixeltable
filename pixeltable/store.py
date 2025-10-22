@@ -111,6 +111,8 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
+        # TODO: Include indices to ensure a completely accurate SA table definition?
+
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 
@@ -195,14 +197,33 @@ class StoreBase:
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
 
-    def ensure_columns_exist(self, cols: Iterable[catalog.Column]) -> None:
+    def ensure_updated_schema(self) -> None:
+        from pixeltable.utils.dbms import PostgresqlDbms
+
+        # This should only be called during replica creation where the underlying DBMS is Postgres.
+        assert isinstance(Env.get().dbms, PostgresqlDbms)
+
         conn = Env.get().conn
+        tv = self.tbl_version.get()
+
+        # Ensure columns exist
         sql_text = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
         result = conn.execute(sql.text(sql_text))
         existing_cols = {row[0] for row in result}
-        for col in cols:
-            if col.store_name() not in existing_cols:
+        for col in tv.cols:
+            if col.is_stored and col.store_name() not in existing_cols:
+                _logger.debug(f'Adding missing column {col.store_name()!r} to store table {self._storage_name()!r}')
                 self.add_column(col)
+
+        # Ensure indices exist
+        sql_text = f'SELECT indexname FROM pg_indexes WHERE tablename = {self._storage_name()!r}'
+        result = conn.execute(sql.text(sql_text))
+        existing_idxs = {row[0] for row in result}
+        for idx_name, idx_info in tv.all_idxs.items():
+            store_name = tv._store_idx_name(idx_info.id)
+            if store_name not in existing_idxs:
+                _logger.debug(f'Creating missing index {idx_name!r} on store table {self._storage_name()!r}')
+                idx_info.idx.create_index(store_name, idx_info.val_col)
 
     def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Update store column of a computed column with values produced by an execution plan
