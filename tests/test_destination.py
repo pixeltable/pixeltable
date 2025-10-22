@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 import pytest
 
@@ -14,11 +14,6 @@ from .utils import skip_test_if_not_installed
 
 
 class TestDestination:
-    @staticmethod
-    def validate_dest(dest: Optional[str]) -> bool:
-        ObjectOps.validate_destination(dest, '')
-        return True
-
     TESTED_DESTINATIONS = (
         StorageTarget.GCS_STORE,
         StorageTarget.LOCAL_STORE,
