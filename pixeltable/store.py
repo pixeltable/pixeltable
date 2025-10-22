@@ -85,6 +85,7 @@ class StoreBase:
             tbl_version = self.tbl_version.get()
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
+        # we captured all columns, including dropped ones: they're still part of the physical table
         for col in [c for c in tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
@@ -111,7 +112,7 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
-        # for index_md in [md for md in tbl_version.tbl_md.index_md.values() if md.schema_version_drop is None]:
+        # we only capture indices visible in this version
         for idx_info in tbl_version.idxs.values():
             idx = idx_info.idx.sa_index(tbl_version._store_idx_name(idx_info.id), idx_info.val_col)
             idxs.append(idx)
@@ -160,11 +161,14 @@ class StoreBase:
                 raise
 
     def create(self) -> None:
-        """Create If Not Exists for this table"""
+        """Create or update store table to bring it in sync with self.sa_tbl"""
         conn = Env.get().conn
         stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(conn)
         create_stmt = str(stmt)
         stmts = [create_stmt]
+
+        for col in self.sa_tbl.columns:
+            stmts.append(self._add_column_stmt(col))
 
         for index in self.sa_tbl.indexes:
             stmt = sql.schema.CreateIndex(index, if_not_exists=True).compile(conn)
@@ -187,6 +191,14 @@ class StoreBase:
         """Drop store table"""
         conn = Env.get().conn
         self.sa_md.drop_all(bind=conn)
+
+    def _add_column_stmt(self, sa_col: sql.Column) -> str:
+        conn = Env.get().conn
+        col_type_str = sa_col.type.compile(dialect=conn.dialect)
+        return (
+            f'ALTER TABLE {self._storage_name()} ADD COLUMN IF NOT EXISTS '
+            f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
+        )
 
     def add_column(self, col: catalog.Column) -> None:
         """Add column(s) to the store-resident table based on a catalog column
@@ -218,15 +230,6 @@ class StoreBase:
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
-
-    def ensure_columns_exist(self, cols: Iterable[catalog.Column]) -> None:
-        conn = Env.get().conn
-        sql_text = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
-        result = conn.execute(sql.text(sql_text))
-        existing_cols = {row[0] for row in result}
-        for col in cols:
-            if col.store_name() not in existing_cols:
-                self.add_column(col)
 
     def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Update store column of a computed column with values produced by an execution plan

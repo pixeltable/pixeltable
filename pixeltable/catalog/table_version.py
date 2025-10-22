@@ -104,11 +104,15 @@ class TableVersion:
     # contains only columns visible in this version, both system and user
     cols_by_id: dict[int, Column]
 
-    # not populated for snapshot versions
+    # True if this TableVersion instance can have indices:
+    # - live version of a mutable table
+    # - the most recent version of a replica
+    supports_idxs: bool
+
+    # only populated with indices visible in this TableVersion instance
     idxs: dict[int, TableVersion.IndexInfo]  # key: index id
     idxs_by_name: dict[str, TableVersion.IndexInfo]
     idxs_by_col: dict[QColumnId, list[TableVersion.IndexInfo]]
-    supports_idxs: bool  # True if this TableVersion instance can have indices
 
     external_stores: dict[str, ExternalStore]
     store_tbl: Optional['store.StoreBase']
@@ -196,9 +200,6 @@ class TableVersion:
         self.idxs = {}
         self.idxs_by_name = {}
         self.idxs_by_col = {}
-        # TODO: THIS IS A BUG: for a replica of a snapshot, effective_version == current_version, but if there were
-        # updates to the base table since the snapshot was created, then indices won't reflect the snapshot state.
-        # This is true even for indices created before the snapshot.
         self.supports_idxs = self.effective_version is None or (
             self.is_replica and self.effective_version == self.tbl_md.current_version
         )
@@ -405,7 +406,6 @@ class TableVersion:
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
-        tbl_version.store_tbl.ensure_columns_exist(col for col in tbl_version.cols if col.is_stored)
         return tbl_version
 
     def delete_media(self, tbl_version: Optional[int] = None) -> None:
@@ -516,10 +516,7 @@ class TableVersion:
                 self.cols_by_id[col.id] = col
 
         if self.supports_idxs:
-            # create IndexInfo
-            # TODO: this logic is incorrect, because indices are not versioned; only indices that exist at the time
-            # the replica bundle is created are valid, and *only* for the then-current version of the table. The index
-            # is specifically not valid if the bundle was created for an earlier snapshot version.
+            # create IndexInfo for indices visible in current_version
             for md in (
                 md
                 for md in self.tbl_md.index_md.values()
