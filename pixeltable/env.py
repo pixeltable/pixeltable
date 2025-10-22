@@ -61,7 +61,7 @@ class Env:
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Optional[Path]
-    _object_soa: Optional[StorageObjectAddress]
+    _default_soa: Optional[StorageObjectAddress]
     _file_cache_dir: Optional[Path]  # cached object files with external URL
     _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
     _log_dir: Optional[Path]  # log files
@@ -125,7 +125,7 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
-        self._object_soa = None  # computed object files in StorageObjectAddress format
+        self._default_soa = None  # computed object files in StorageObjectAddress format
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -227,6 +227,10 @@ class Env:
             tz_name = tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
+
+    @property
+    def default_media_destination(self) -> Optional[str]:
+        return Config.get().get_string_value('media_destination')
 
     @property
     def verbosity(self) -> int:
@@ -396,23 +400,18 @@ class Env:
         config = Config.get()
 
         self._initialized = True
+
         self._media_dir = Config.get().home / 'media'
         self._file_cache_dir = Config.get().home / 'file_cache'
         self._dataset_cache_dir = Config.get().home / 'dataset_cache'
         self._log_dir = Config.get().home / 'logs'
         self._tmp_dir = Config.get().home / 'tmp'
 
-        if not self._media_dir.exists():
-            self._media_dir.mkdir()
-        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), allow_obj_name=False)
-        if not self._file_cache_dir.exists():
-            self._file_cache_dir.mkdir()
-        if not self._dataset_cache_dir.exists():
-            self._dataset_cache_dir.mkdir()
-        if not self._log_dir.exists():
-            self._log_dir.mkdir()
-        if not self._tmp_dir.exists():
-            self._tmp_dir.mkdir()
+        self._media_dir.mkdir(exist_ok=True)
+        self._file_cache_dir.mkdir(exist_ok=True)
+        self._dataset_cache_dir.mkdir(exist_ok=True)
+        self._log_dir.mkdir(exist_ok=True)
+        self._tmp_dir.mkdir(exist_ok=True)
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
@@ -421,6 +420,19 @@ class Env:
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
+
+        default_media_destination = config.get_string_value('media_destination')
+        if default_media_destination is None:
+            # Use local media_dir as default destination if none is specified
+            self._default_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), allow_obj_name=False)
+        else:
+            try:
+                self._default_soa = ObjectPath.parse_object_storage_addr(self._default_media_destination, False)
+            except Exception as e:
+                raise excs.Error(
+                    f'Invalid default media destination URI: {self._default_media_destination}'
+                ) from e
+
         self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings
@@ -874,10 +886,9 @@ class Env:
         return self._media_dir
 
     @property
-    def object_soa(self) -> StorageObjectAddress:
-        assert self._media_dir is not None
-        assert self._object_soa is not None
-        return self._object_soa
+    def default_soa(self) -> StorageObjectAddress:
+        assert self._default_soa is not None
+        return self._default_soa
 
     @property
     def file_cache_dir(self) -> Path:

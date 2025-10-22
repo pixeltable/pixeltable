@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple, Optional
 
 from pixeltable import exprs
+from pixeltable.env import Env
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 from .data_row_batch import DataRowBatch
@@ -209,6 +210,10 @@ class ObjectStoreSaveNode(ExecNode):
             assert col.col_type.is_media_type()
 
             destination = info.col.destination
+            if destination is None:
+                # No destination specified; use the default destination from the environment
+                destination = Env.get().default_media_destination
+
             soa = None if destination is None else ObjectPath.parse_object_storage_addr(destination, False)
             if (
                 soa is not None

@@ -367,7 +367,7 @@ class ObjectOps:
         from pixeltable.utils.local_store import LocalStore
 
         soa = (
-            Env.get().object_soa
+            Env.get().default_soa
             if dest is None
             else ObjectPath.parse_object_storage_addr(dest, allow_obj_name=may_contain_object_name)
         )
