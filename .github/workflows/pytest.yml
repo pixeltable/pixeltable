@@ -120,9 +120,6 @@ jobs:
         uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ env.GCS_SERVICE_ACCOUNT_KEY }}
-      - name: Set up Google cloud SDK
-        if: ${{ env.GCS_SERVICE_ACCOUNT_KEY != '' }}
-        uses: google-github-actions/setup-gcloud@v3
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
