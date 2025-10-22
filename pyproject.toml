@@ -163,6 +163,8 @@ dev = [
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.10",
+    "azure-storage-blob==12.19.0",  # Latest stable as of early 2024
+    "azure-identity==1.15.0",  # Latest stable as of early 2024
 ]
 test = [
     "pytest>=8.4",

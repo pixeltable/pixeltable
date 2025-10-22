@@ -112,6 +112,7 @@ class StorageObjectAddress(NamedTuple):
 
 class ObjectPath:
     PATTERN = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
+    AZURITE_SERVER_STRING = '127.0.0.1:10000'
 
     @classmethod
     def table_prefix(cls, tbl_id: UUID) -> str:
@@ -229,6 +230,19 @@ class ObjectPath:
                 storage_target = StorageTarget.B2_STORE
             elif 'windows' in parsed.netloc:
                 storage_target = StorageTarget.AZURE_STORE
+            elif cls.AZURITE_SERVER_STRING in parsed.netloc:
+                # Special treatment for local Azurite server
+                # az_uri = f"http://127.0.0.1:10000/devstoreaccount1/pxt-test/ci_test/img_rot{n}" -- specific to Azurite
+
+                storage_target = StorageTarget.AZURE_STORE
+                account_extension = f'{cls.AZURITE_SERVER_STRING}/devstoreaccount1'
+                path_parts = key.lstrip('/').split('/', 2)
+                container = path_parts[1] if path_parts else ''
+                key = path_parts[2] if len(path_parts) > 2 else ''
+                key = key.lstrip('/')
+                r = StorageObjectAddress(storage_target, scheme, account_name, account_extension, container, key)
+                assert r.has_valid_storage_target
+                return r
             else:
                 storage_target = StorageTarget.HTTP_STORE
             if storage_target in (
@@ -393,6 +407,11 @@ class ObjectOps:
             from pixeltable.utils.gcs_store import GCSStore
 
             return GCSStore(soa)
+        if soa.storage_target == StorageTarget.AZURE_STORE:
+            env.Env.get().require_package('azure.storage.blob')
+            from pixeltable.utils.azure_store import AzureBlobStore
+
+            return AzureBlobStore(soa)
         if soa.storage_target == StorageTarget.HTTP_STORE and soa.is_http_readable:
             return HTTPStore(soa)
         error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
