@@ -360,17 +360,12 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(
-        cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None
-    ) -> ObjectStoreBase:
+    def get_store(cls, dest: Optional[str], allow_obj_name: bool, col_name: Optional[str] = None) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
-        soa = (
-            Env.get().default_soa
-            if dest is None
-            else ObjectPath.parse_object_storage_addr(dest, allow_obj_name=may_contain_object_name)
-        )
+        dest = dest or Env.get().default_media_destination or str(Env.get().media_dir)
+        soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
         if soa.storage_target == StorageTarget.S3_STORE and soa.scheme == 's3':

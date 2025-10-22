@@ -61,7 +61,6 @@ class Env:
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Optional[Path]
-    _default_soa: Optional[StorageObjectAddress]
     _file_cache_dir: Optional[Path]  # cached object files with external URL
     _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
     _log_dir: Optional[Path]  # log files
@@ -125,7 +124,6 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
-        self._default_soa = None  # computed object files in StorageObjectAddress format
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -227,10 +225,6 @@ class Env:
             tz_name = tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
-
-    @property
-    def default_media_destination(self) -> Optional[str]:
-        return Config.get().get_string_value('media_destination')
 
     @property
     def verbosity(self) -> int:
@@ -421,17 +415,12 @@ class Env:
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
 
-        default_media_destination = config.get_string_value('media_destination')
-        if default_media_destination is None:
-            # Use local media_dir as default destination if none is specified
-            self._default_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), allow_obj_name=False)
-        else:
+        self._default_media_destination = config.get_string_value('media_destination')
+        if self._default_media_destination is not None:
             try:
-                self._default_soa = ObjectPath.parse_object_storage_addr(self._default_media_destination, False)
+                _ = ObjectPath.parse_object_storage_addr(self._default_media_destination, False)
             except Exception as e:
-                raise excs.Error(
-                    f'Invalid default media destination URI: {self._default_media_destination}'
-                ) from e
+                raise excs.Error(f'Invalid media destination URI: {self._default_media_destination}') from e
 
         self._pxt_api_key = config.get_string_value('api_key')
 
@@ -886,9 +875,8 @@ class Env:
         return self._media_dir
 
     @property
-    def default_soa(self) -> StorageObjectAddress:
-        assert self._default_soa is not None
-        return self._default_soa
+    def default_media_destination(self) -> Optional[str]:
+        return self._default_media_destination
 
     @property
     def file_cache_dir(self) -> Path:
