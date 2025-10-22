@@ -47,7 +47,6 @@ chmod a+r ~/.aws/credentials || true
 # Setup GCS if credentials are provided
 if [ -n "${GCS_SERVICE_ACCOUNT_KEY}" ]; then
     echo "Found GCS service account key."
-    gcloud config set project pxt-test-475804
     echo "${GCS_SERVICE_ACCOUNT_KEY}" > /tmp/gcs-key.json
     chmod a+r /tmp/gcs-key.json
 fi
