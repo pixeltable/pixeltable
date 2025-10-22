@@ -23,6 +23,17 @@ class MatrixConfig(NamedTuple):
     def display_name(self) -> str:
         return f'{self.display_name_prefix}, {self.os}, {self.python_version}'
 
+    @property
+    def matrix_entry(self) -> dict[str, str]:
+        return {
+            'display-name': self.display_name,
+            'test-category': self.test_category,
+            'os': self.os,
+            'python-version': self.python_version,
+            'uv-options': self.uv_options,
+            'extra-env': self.extra_env,
+        }
+
 
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
 EXPENSIVE_PLATFORMS = ('ubuntu-x64-t4',)
@@ -65,16 +76,28 @@ def generate_matrix(args: argparse.Namespace) -> None:
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
+        # Minimal tests with S3 media destination
+        configs.append(
+            MatrixConfig(
+                's3-dest',
+                'py',
+                'ubuntu-24.04',
+                '3.10',
+                uv_options='--no-dev --group storage-sdks',
+                extra_env='PIXELTABLE_MEDIA_DESTINATION=s3://pxt-test/media-dest',
+            )
+        )
+
     if force_all or trigger == 'schedule':
         # Expensive tests on special hardware on Python 3.10
         configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
     configs.sort(key=lambda cfg: cfg.display_name)
 
-    matrix = {'include': [cfg._asdict() | {'display_name': cfg.display_name} for cfg in configs]}
+    matrix = {'include': [cfg.matrix_entry for cfg in configs]}
 
-    print(json.dumps(matrix, indent=4).replace('_', '-'))
-    output = f'matrix={json.dumps(matrix).replace("_", "-")}\n'
+    print(json.dumps(matrix, indent=4))
+    output = f'matrix={json.dumps(matrix)}\n'
     with open(output_file, 'a', encoding='utf8') as fp:
         fp.write(output)
 
