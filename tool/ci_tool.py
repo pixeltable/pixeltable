@@ -17,6 +17,19 @@ class MatrixConfig(NamedTuple):
     os: str
     python_version: str
 
+    @property
+    def display_name(self) -> str:
+        match self.test_category:
+            case 'py':
+                headline = 'minimal' if self.uv_options == '--no-dev' else 'full'
+                return f'{headline}-{self.python_version}-{self.os}'
+            case 'ipynb':
+                return 'notebooks'
+            case 'lint':
+                return 'static-checks'
+            case 'random-ops':
+                return 'random-ops'
+
 
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
 EXPENSIVE_PLATFORMS = ('ubuntu-x64-t4',)
@@ -65,7 +78,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     configs.sort(key=str)
 
-    matrix = {'include': [cfg._asdict() for cfg in configs]}
+    matrix = {'include': [cfg._asdict() | {'display_name': cfg.display_name} for cfg in configs]}
 
     print(json.dumps(matrix, indent=4).replace('_', '-'))
     output = f'matrix={json.dumps(matrix).replace("_", "-")}\n'

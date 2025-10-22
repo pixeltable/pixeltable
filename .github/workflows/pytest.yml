@@ -88,15 +88,18 @@ jobs:
           python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
 
   tests:
+    name: ${{ matrix.display_name }}
     needs: generate-matrix
+    runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
 
-    runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash -el {0}  # Needed for conda to work
+        
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
