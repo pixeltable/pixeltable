@@ -62,9 +62,17 @@ def public_api(obj: T) -> T:
     # Mark object as public API
     obj.__public_api__ = True  # type: ignore
 
-    # Get qualified name for registry
-    module = getattr(obj, '__module__', None)
-    qualname = getattr(obj, '__qualname__', getattr(obj, '__name__', str(obj)))
+    # For CallableFunction (UDF) objects, use the underlying Python function's metadata
+    from .callable_function import CallableFunction
+    if isinstance(obj, CallableFunction):
+        # Use the original Python function for metadata extraction
+        underlying_fn = obj.py_fn
+        module = getattr(underlying_fn, '__module__', None)
+        qualname = getattr(underlying_fn, '__qualname__', getattr(underlying_fn, '__name__', str(underlying_fn)))
+    else:
+        # Get qualified name for registry from the object itself
+        module = getattr(obj, '__module__', None)
+        qualname = getattr(obj, '__qualname__', getattr(obj, '__name__', str(obj)))
 
     if module:
         full_qualname = f"{module}.{qualname}"
