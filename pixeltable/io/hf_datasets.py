@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.func import public_api
 
 if typing.TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -45,7 +46,7 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> Optional[ts.Column
         return ts.StringType(nullable=nullable)
     elif isinstance(feature_type, datasets.Value):
         # example: Value(dtype='int64', id=None)
-        pt = _hf_to_pxt.get(feature_type.dtype, None)
+        pt = _hf_to_pxt.get(feature_type.dtype)
         return pt.copy(nullable=nullable) if pt is not None else None
     elif isinstance(feature_type, datasets.Sequence):
         # example: cohere wiki. Sequence(feature=Value(dtype='float32', id=None), length=-1, id=None)
@@ -89,6 +90,7 @@ def huggingface_schema_to_pxt_schema(
     return pixeltable_schema
 
 
+@public_api
 def import_huggingface_dataset(
     table_path: str,
     dataset: datasets.Dataset | datasets.DatasetDict,

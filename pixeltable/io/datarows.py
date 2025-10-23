@@ -5,6 +5,7 @@ from typing import Any, Iterable, Optional
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
+from pixeltable.func import public_api
 
 
 def _infer_schema_from_rows(
@@ -56,6 +57,7 @@ def _infer_schema_from_rows(
     return schema
 
 
+@public_api
 def import_rows(
     tbl_path: str,
     rows: list[dict[str, Any]],
@@ -100,6 +102,7 @@ def import_rows(
     )
 
 
+@public_api
 def import_json(
     tbl_path: str,
     filepath_or_url: str,

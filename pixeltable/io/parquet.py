@@ -10,6 +10,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog import Catalog
 from pixeltable.utils.transactional_directory import transactional_directory
+from pixeltable.func import public_api
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
@@ -17,6 +18,7 @@ if typing.TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
+@public_api
 def export_parquet(
     table_or_df: pxt.Table | pxt.DataFrame,
     parquet_path: Path,
@@ -67,6 +69,7 @@ def export_parquet(
                 batch_num += 1
 
 
+@public_api
 def import_parquet(
     table: str,
     *,

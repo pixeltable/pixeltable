@@ -3,9 +3,9 @@ Public API decorator for Pixeltable.
 
 Marks functions/classes/methods as public API and automatically:
 - Extracts type information and signatures
-- Generates Pydantic models for FastAPI compatibility
 - Registers for documentation generation
 - Provides introspection capabilities
+- Enables external tools and integrations
 
 Usage:
     @public_api
@@ -17,12 +17,25 @@ Usage:
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Optional, TypeVar, get_type_hints
+from typing import Any, Optional, TypeVar, get_type_hints
 
 T = TypeVar('T')
 
 # Global registry of all public API elements
 _PUBLIC_API_REGISTRY: dict[str, dict[str, Any]] = {}
+
+
+def _get_return_type_name(return_type: Any) -> Optional[str]:
+    """
+    Get a simple string representation of the return type.
+
+    This is just for convenience - the actual type object is also stored
+    in the registry, so external tools can introspect it themselves.
+    """
+    if return_type is None:
+        return None
+
+    return getattr(return_type, '__name__', str(return_type))
 
 
 def public_api(obj: T) -> T:
@@ -64,9 +77,10 @@ def public_api(obj: T) -> T:
 
     # For CallableFunction (UDF) objects, use the underlying Python function's metadata
     from .callable_function import CallableFunction
+    underlying_fn = None
     if isinstance(obj, CallableFunction):
         # Use the original Python function for metadata extraction
-        underlying_fn = obj.py_fn
+        underlying_fn = obj.py_fns[0]  # Use first signature's function
         module = getattr(underlying_fn, '__module__', None)
         qualname = getattr(underlying_fn, '__qualname__', getattr(underlying_fn, '__name__', str(underlying_fn)))
     else:
@@ -80,11 +94,14 @@ def public_api(obj: T) -> T:
         full_qualname = qualname
 
     # Extract signature and type information
+    # For UDFs, use the underlying Python function
+    target_for_inspection = underlying_fn if underlying_fn else obj
+
     try:
-        signature = inspect.signature(obj)
-        type_hints = get_type_hints(obj)
+        signature = inspect.signature(target_for_inspection)
+        type_hints = get_type_hints(target_for_inspection)
     except (ValueError, TypeError, AttributeError, NameError):
-        # Some objects (like UDFs) may not have standard signatures
+        # Some objects may not have standard signatures
         # or get_type_hints may fail due to circular imports or undefined names
         signature = None
         type_hints = {}
@@ -107,6 +124,24 @@ def public_api(obj: T) -> T:
     if return_type == inspect.Signature.empty:
         return_type = None
 
+    # Extract source file information (for documentation links to GitHub)
+    source_file = None
+    source_line = None
+    try:
+        source_file = inspect.getfile(target_for_inspection)
+        _, source_line = inspect.getsourcelines(target_for_inspection)
+    except (TypeError, OSError):
+        # Some objects (like built-ins or dynamically created) don't have source files
+        pass
+
+    # Get simple return type name for convenience
+    return_type_name = _get_return_type_name(return_type)
+
+    # Determine type
+    is_class = inspect.isclass(obj)
+    is_method = inspect.ismethod(obj) or (not is_class and '.' in qualname and qualname.split('.')[-2][0].isupper())
+    is_function = inspect.isfunction(obj)
+
     # Register in global registry
     _PUBLIC_API_REGISTRY[full_qualname] = {
         'object': obj,
@@ -117,95 +152,58 @@ def public_api(obj: T) -> T:
         'signature': signature,
         'parameters': parameters,
         'return_type': return_type,
+        'return_type_name': return_type_name,
         'docstring': inspect.getdoc(obj),
-        'is_class': inspect.isclass(obj),
-        'is_function': inspect.isfunction(obj) or inspect.ismethod(obj),
+        'is_class': is_class,
+        'is_method': is_method,
+        'is_function': is_function,
+        'source_file': source_file,
+        'source_line': source_line,
     }
 
     return obj
 
 
+@public_api
 def get_public_api_registry() -> dict[str, dict[str, Any]]:
     """
     Get the complete public API registry.
 
+    This is the directory of all Pixeltable public APIs with their metadata.
+    Useful for building tools, documentation, LLM integrations, and more.
+
     Returns:
-        Dictionary mapping qualified names to API metadata
+        Dictionary mapping qualified names to API metadata, including:
+        - signature: Function signature
+        - parameters: Parameter names, types, defaults
+        - return_type: Return type annotation
+        - docstring: Full documentation
+        - module: Source module
+
+    Example:
+        >>> registry = get_public_api_registry()
+        >>> print(f"Total APIs: {len(registry)}")
+        >>> print(registry['pixeltable.globals.create_table']['signature'])
     """
     return _PUBLIC_API_REGISTRY.copy()
 
 
+@public_api
 def is_public_api(obj: Any) -> bool:
     """
     Check if an object is marked as public API.
 
     Args:
-        obj: Object to check
+        obj: Object to check (function, class, method)
 
     Returns:
         True if marked as public API, False otherwise
+
+    Example:
+        >>> import pixeltable as pxt
+        >>> is_public_api(pxt.create_table)
+        True
+        >>> is_public_api(some_internal_function)
+        False
     """
     return getattr(obj, '__public_api__', False)
-
-
-def get_pydantic_models(func: Callable) -> tuple[Optional[type], Optional[type]]:
-    """
-    Generate Pydantic models for a function's input and output.
-
-    This enables FastAPI integration by converting function signatures
-    to Pydantic models that can validate requests/responses.
-
-    Args:
-        func: Function to generate models for
-
-    Returns:
-        Tuple of (InputModel, OutputModel) or (None, None) if generation fails
-    """
-    try:
-        from pydantic import create_model
-    except ImportError:
-        return None, None
-
-    # Get metadata from registry
-    qualname = getattr(func, '__qualname__', getattr(func, '__name__', None))
-    if not qualname:
-        return None, None
-
-    full_qualname = f"{func.__module__}.{qualname}" if hasattr(func, '__module__') else qualname
-    metadata = _PUBLIC_API_REGISTRY.get(full_qualname)
-
-    if not metadata:
-        return None, None
-
-    # Create input model from parameters
-    input_fields = {}
-    for param_name, param_info in metadata['parameters'].items():
-        if param_name == 'self':
-            continue
-
-        annotation = param_info['annotation']
-        default = param_info['default']
-
-        # Handle missing annotations
-        if annotation == inspect.Parameter.empty:
-            annotation = Any
-
-        # Create field
-        if default is None:
-            input_fields[param_name] = (annotation, ...)  # Required field
-        else:
-            input_fields[param_name] = (annotation, default)
-
-    # Create Pydantic input model
-    input_model_name = f"{metadata['name']}_Input"
-    input_model = create_model(input_model_name, **input_fields) if input_fields else None
-
-    # Create output model from return type
-    return_type = metadata['return_type']
-    if return_type and return_type != inspect.Signature.empty:
-        output_model_name = f"{metadata['name']}_Output"
-        output_model = create_model(output_model_name, result=(return_type, ...))
-    else:
-        output_model = None
-
-    return input_model, output_model
