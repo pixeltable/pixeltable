@@ -205,7 +205,7 @@ class Column:
     def destination(self) -> Optional[str]:
         if self._destination is not None:
             return self._destination
-        if self.is_computed and self.col_type.is_media_type() and self.name is not None:
+        if self.is_computed and self.is_stored and self.col_type.is_media_type() and self.name is not None:
             return Env.get().default_media_destination
         return None
 

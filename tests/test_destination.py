@@ -232,8 +232,7 @@ class TestDestination:
             # Copying a local file to the LocalStore is not allowed
             assert 0 == ObjectOps.count(None, t._id)
         else:
-            # With default media destination set, just img_rot1 should be copied there
-            assert 1 == ObjectOps.count(Env.get().default_media_destination, t._id)
+            assert len(r) == ObjectOps.count(Env.get().default_media_destination, t._id)
 
         # Ensure that local file is copied to a specified destination
         assert len(r) == ObjectOps.count(dest1_uri, t._id)
