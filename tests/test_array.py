@@ -32,10 +32,7 @@ class TestArray:
         row = t.head(1)[0]
         assert set(row.keys()) == {'audio_array', 'audio_file'}
         encoded_path = row['audio_file']
-        if format == 'mp4':
-            assert encoded_path.endswith('.m4a')
-        else:
-            assert encoded_path.endswith(f'.{format}')
+        assert encoded_path.endswith('.m4a' if format == 'mp4' else f'.{format}')
         print(f'Encoded audio file: {row["audio_file"]}')
 
         # Read back, decode, and validate the encoded file
