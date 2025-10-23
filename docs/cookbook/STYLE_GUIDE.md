@@ -655,6 +655,37 @@ t.add_computed_column(grayscale=t.image.convert('L'))
 t.collect()  # No helpful comment
 ```
 
+**Separate table operations into distinct cells:**
+
+Keep `create_table` and `insert` in separate cells for clarity and better notebook flow. This applies to all data operations - each operation should have its own cell to show its individual output.
+
+✓ Good:
+```python
+# Cell 1: Create table
+t = pxt.create_table('demo.images', {'image': pxt.Image})
+```
+
+```python
+# Cell 2: Insert data
+t.insert([
+    {'image': 'url1.jpg'},
+    {'image': 'url2.jpg'},
+])
+```
+
+✗ Bad:
+```python
+# Everything in one cell
+t = pxt.create_table('demo.images', {'image': pxt.Image})
+t.insert([{'image': 'url1.jpg'}])
+```
+
+**Why separate cells:**
+- Each operation has its own output (creation confirmation, insertion stats, column addition stats, query results)
+- Easier to re-run individual operations during development
+- Clearer narrative flow in notebooks
+- Better cell-level comments explaining each step
+
 **Explain **why**, not just what:
 
 ```python
