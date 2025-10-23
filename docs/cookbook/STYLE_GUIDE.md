@@ -25,7 +25,6 @@ Write clear, practical how-to guides that help users solve problems with Pixelta
 2. **What's in this recipe:** (2-3 bullets)
 3. **## Problem** (user's situation)
 4. **## Solution**
-   - Optional intro: "Without Pixeltable... With Pixeltable..."
    - **### Setup** (pip + imports + API keys)
    - **### Task subsections**
 5. **## Explanation** (optional)
@@ -195,11 +194,28 @@ Users arrive with a problem, not a desire to learn Pixeltable. Show them the sol
 - ✓ "You need API keys. Your Python runtime needs to find them."
 - ✗ "You need to use API keys to access AI services, but hardcoding them is a security disaster that could cost thousands."
 
-**No "we" or "let's":**
-- ✓ "Examine the response structure"
+**No "we" or "let's", always use active voice:**
+- ✓ "You examine the response structure"
+- ✓ "The function extracts the response"
 - ✗ "Let's check out the response"
-- ✓ "The response contains nested JSON"
-- ✗ "As we'll see, the response has nested JSON"
+- ✗ "We extract the response"
+- ✗ "The response is extracted" (passive - "by monkeys" passes)
+
+**Always use active voice:**
+
+Use the "by monkeys" test from [Sketchplanations](https://sketchplanations.com/by-monkeys): add "by monkeys" to the end of a sentence. If it still makes sense, it's passive—fix it.
+
+✓ Active (good):
+- "The function converts the image to RGBA"
+- "The UDF extracts the alpha channel"
+- "You define a custom function"
+
+✗ Passive (bad):
+- "The image is converted to RGBA" → "...by monkeys" ✓ = passive
+- "The overlay is created..." → "...by monkeys" ✓ = passive
+
+**Acceptable passive for emphasis:**
+- "Nothing is stored in your table" - emphasizes safety/state
 
 **Speak directly:**
 - Use "you" to address the reader
@@ -228,6 +244,31 @@ Here are 3 ways to configure API keys:
 
 Choose the one that works for you.
 ```
+
+---
+
+## Language and readability
+
+Follow [plain language guidelines](https://digital.gov/guides/plain-language) to make content clear and accessible.
+
+**Target reading level:** Grade 8-10
+
+**Principles:**
+- Use short, simple sentences
+- Limit use of "and", "or", and commas in a sentence
+- Avoid adverbs where possible
+- Use conversational, natural writing style
+- Avoid unnecessary jargon or complex terms
+
+**Spell out acronyms on first use:**
+- ✓ "User-Defined Function (UDF)" then later "Define a UDF..."
+- ✓ "Python Imaging Library (PIL)" then later "PIL operations"
+- ✗ "Use a UDF to..." (without defining it first)
+
+**Use gender-neutral pronouns:**
+- ✓ "The developer defines their function"
+- ✓ "Users can customize their workflow"
+- ✗ "The developer defines his function"
 
 ---
 
@@ -282,14 +323,40 @@ You have multiple images that need the same analysis—like "Is this product dam
 
 ### Solution section
 
-**Optional intro** contrasts with non-Pixeltable approaches:
+**Voice and audience:**
+
+Always address the reader using second person ("you") in active voice. Use the "by monkeys" test to catch passive constructions. Never use imperative without subject, third-person passive, or "we"/"let's".
+
+✓ Good:
+- "You apply filters using custom UDFs"
+- "This gives you control over parameters"
+- "You can iterate on transformations"
+
+✗ Bad:
+- "Apply filters" (imperative, no subject)
+- "Filters are applied" (passive - "by monkeys" passes)
+- "Uses custom UDFs" (no subject)
+- "We define" (first person plural)
+
+Match Problem statement style:
+- Problem: "You need to..." 
+- Solution: "You apply... This gives you..."
+
+**Structure:**
 
 ```markdown
 ## Solution
 
-**Without Pixeltable:** Loop through images, call API for each, collect responses.
+**What's in this recipe:**
+- [Capability 1]
+- [Capability 2]
+- [Capability 3]
 
-**With Pixeltable:** Store images in a table. Add a computed column with your prompt. All images processed automatically.
+You [verb] [object] using [approach]. [Dependency if needed]. This gives you [benefit].
+
+You can iterate on transformations before adding them to your table. Use `.select()` to preview results on sample images—nothing is stored. Once you're satisfied, use `.add_computed_column()` to apply [transformation] to all images in your table.
+
+For more on this workflow, see [Get fast feedback on transformations](./dev-iterative-workflow.ipynb).
 ```
 
 **Then Setup subsection:**
@@ -298,39 +365,67 @@ You have multiple images that need the same analysis—like "Is this product dam
 ### Setup
 ```
 
-Contains ALL prerequisites in code cells:
+Contains ONLY environment prerequisites in code cells:
 - Package installation (`%pip install -qU pixeltable ...`)
 - All imports
 - API key configuration (if needed)
-- Directory setup (`pxt.drop_dir()` / `pxt.create_dir()`)
 
 ✓ Good:
 ```python
 # Cell 1: Install
 %pip install -qU pixeltable
 
-# Cell 2: Setup
+# Cell 2: Import
 import pixeltable as pxt
 from PIL import Image
-
-# Create a fresh directory (drop existing if present)
-pxt.drop_dir('demo', force=True)
-pxt.create_dir('demo')
 ```
 
 ✗ Bad:
 ```python
-# Cell 1: Everything including table creation
+# Cell 1: Everything mixed together
 import pixeltable as pxt
-pxt.drop_dir('demo', force=True)
-pxt.create_dir('demo')
+pxt.drop_dir('demo', force=True)  # ❌ Not setup—this is data loading
+pxt.create_dir('demo')  # ❌ Not setup—this is data loading
 t = pxt.create_table('demo.images', {'image': pxt.Image})  # ❌ Not setup
 t.insert([...])
 ```
 
-**Separate table creation from setup:**
+**Separate data operations from setup:**
 
-Table creation (`create_table` + `insert`) goes in its own section after Setup (e.g., "### Load images")
+Directory creation, table creation, and data insertion go in their own section after Setup (e.g., "### Load images" or "### Create sample data"). 
+
+Always structure data loading sections in this order:
+1. `pxt.drop_dir()` (if needed for fresh start)
+2. `pxt.create_dir()`
+3. `pxt.create_table()`
+4. `t.insert()`
+
+✓ Good:
+```markdown
+### Setup
+```
+```python
+%pip install -qU pixeltable
+```
+```python
+import pixeltable as pxt
+```
+
+```markdown
+### Load images
+```
+```python
+# Create a fresh directory (drop existing if present)
+pxt.drop_dir('image_demo', force=True)
+pxt.create_dir('image_demo')
+```
+```python
+t = pxt.create_table('image_demo.photos', {'image': pxt.Image})
+t.insert([
+    {'image': 'https://example.com/photo1.jpg'},
+    {'image': 'https://example.com/photo2.jpg'},
+])
+```
 
 **Then task subsections:**
 
@@ -470,6 +565,23 @@ Only include if you need to explain:
 
 Most cookbooks skip this.
 
+**Voice in Explanation sections:**
+
+Use active voice when describing code behavior. Apply the "by monkeys" test.
+
+✓ Active:
+- "The UDF **converts** the image to RGBA"
+- "The function **extracts** the alpha channel"
+
+✗ Passive:
+- "The image is converted" → "by monkeys" ✓ = passive
+- "We extract the alpha channel" (first person plural)
+
+When addressing the reader:
+- ✓ "You can customize..."
+- ✓ "Whether you're processing..."
+- ✗ "One can customize" (too formal)
+
 **Keep it brief:**
 ```markdown
 ## Explanation
@@ -518,9 +630,32 @@ Maximum 3 bullets total.
 **Numbered lists** when order matters (steps in a process)
 **Bulleted lists** when order doesn't matter (features, benefits)
 
-### Code comments
+### Code cells and comments
 
-Explain **why**, not just what:
+**Separate `.collect()` and `.show()` calls:**
+
+Always put `.collect()` or `.show()` in its own code cell with a helpful comment describing what you're viewing.
+
+✓ Good:
+```python
+# Cell 1: Add computed column
+t.add_computed_column(grayscale=t.image.convert('L'))
+```
+
+```python
+# Cell 2: View results
+# Compare original and grayscale images
+t.collect()
+```
+
+✗ Bad:
+```python
+# Combined in one cell
+t.add_computed_column(grayscale=t.image.convert('L'))
+t.collect()  # No helpful comment
+```
+
+**Explain **why**, not just what:
 
 ```python
 # Good: explains reasoning
@@ -630,13 +765,18 @@ t.add_column(response=anthropic.messages(...))
 
 ## Solution
 
-**Without Pixeltable:** [Alternative approach]
+**What's in this recipe:**
+- [Capability 1]
+- [Capability 2]
+- [Capability 3]
 
-**With Pixeltable:** [Pixeltable approach]
+You [verb] [object] using [approach]. [Dependency if needed]. This gives you [benefit].
+
+You can iterate on transformations before adding them to your table. Use `.select()` to preview results on sample images—nothing is stored. Once you're satisfied, use `.add_computed_column()` to apply [transformation] to all images in your table.
+
+For more on this workflow, see [Get fast feedback on transformations](./dev-iterative-workflow.ipynb).
 
 ### Setup
-
-### Install required packages
 
 ```python
 %pip install -qU pixeltable
@@ -644,6 +784,22 @@ t.add_column(response=anthropic.messages(...))
 
 ```python
 import pixeltable as pxt
+```
+
+### Load images
+
+```python
+# Create a fresh directory (drop existing if present)
+pxt.drop_dir('image_demo', force=True)
+pxt.create_dir('image_demo')
+```
+
+```python
+t = pxt.create_table('image_demo.photos', {'image': pxt.Image})
+t.insert([
+    {'image': 'https://example.com/photo1.jpg'},
+    {'image': 'https://example.com/photo2.jpg'},
+])
 ```
 
 ### [First task subsection]
