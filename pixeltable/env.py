@@ -355,6 +355,8 @@ class Env:
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
             path_parts = list(Path(record.pathname).parts)
             path_parts.reverse()
+            if 'pixeltable' not in path_parts:
+                return False
             max_idx = path_parts.index('pixeltable')
             for module_name in path_parts[:max_idx]:
                 if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
@@ -758,10 +760,12 @@ class Env:
 
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
+        self.__register_package('accelerate')
         self.__register_package('anthropic')
         self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
         self.__register_package('boto3')
         self.__register_package('datasets')
+        self.__register_package('diffusers')
         self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
@@ -769,6 +773,7 @@ class Env:
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
         self.__register_package('mcp')
         self.__register_package('mistralai')
@@ -781,6 +786,7 @@ class Env:
         self.__register_package('replicate')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
         self.__register_package('together')

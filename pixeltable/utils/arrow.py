@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
     pa.large_string(): ts.StringType(nullable=True),
-    pa.timestamp('us', tz=datetime.timezone.utc): ts.TimestampType(nullable=True),
+    pa.timestamp('us', tz='UTC'): ts.TimestampType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
     pa.int8(): ts.IntType(nullable=True),
     pa.int16(): ts.IntType(nullable=True),
@@ -35,7 +35,7 @@ PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
 
 PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
     ts.StringType: pa.string(),
-    ts.TimestampType: pa.timestamp('us', tz=datetime.timezone.utc),  # postgres timestamp is microseconds
+    ts.TimestampType: pa.timestamp('us', tz='UTC'),  # postgres timestamp is microseconds
     ts.DateType: pa.date32(),  # This could be date64
     ts.BoolType: pa.bool_(),
     ts.IntType: pa.int64(),
@@ -61,7 +61,7 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> Optional[ts.C
         dtype = to_pixeltable_type(arrow_type.value_type, nullable)
         if dtype is None:
             return None
-        return ts.ArrayType(shape=arrow_type.shape, dtype=dtype, nullable=nullable)
+        return ts.ArrayType(shape=tuple(arrow_type.shape), dtype=dtype, nullable=nullable)
     else:
         return None
 
@@ -92,7 +92,7 @@ def to_pxt_schema(
 
 
 def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
-    return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())  # type: ignore[misc]
+    return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())
 
 
 def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa.RecordBatch:
@@ -106,7 +106,7 @@ def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
-    return pa.RecordBatch.from_arrays(pa_arrays, schema=schema)  # type: ignore
+    return pa.RecordBatch.from_arrays(pa_arrays, schema=schema)
 
 
 def to_record_batches(df: 'pxt.DataFrame', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
@@ -192,7 +192,7 @@ def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
             # treat array columns as numpy arrays to easily preserve numpy type
-            out[name] = col.to_numpy(zero_copy_only=False)  # type: ignore[call-arg]
+            out[name] = col.to_numpy(zero_copy_only=False)
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()

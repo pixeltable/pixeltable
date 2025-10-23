@@ -77,6 +77,17 @@ class Table(SchemaObject):
         self._tbl_version = None
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        old_name = self._name
+        old_dir_id = self._dir_id
+
+        cat = catalog.Catalog.get()
+
+        @cat.register_undo_action
+        def _() -> None:
+            # TODO: We should really be invalidating the Table instance and forcing a reload.
+            self._name = old_name
+            self._dir_id = old_dir_id
+
         super()._move(new_name, new_dir_id)
         conn = env.Env.get().conn
         stmt = sql.text(
@@ -625,7 +636,7 @@ class Table(SchemaObject):
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                     with errors will have a `None` value for the column, with information about the error stored in the
-                    corresponding `tbl.col_name.errormsg` tbl.col_name.errortype` fields.
+                    corresponding `tbl.col_name.errormsg` and `tbl.col_name.errortype` fields.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -986,22 +997,28 @@ class Table(SchemaObject):
         Only `String` and `Image` columns are currently supported. Here's an example that uses a
         [CLIP embedding][pixeltable.functions.huggingface.clip] to index an image column:
 
+        ```
         >>> from pixeltable.functions.huggingface import clip
-        ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-        ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+        >>> embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+        >>> tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+        ```
 
-        Once the index is created, similiarity lookups can be performed using the `similarity` pseudo-function.
+        Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
 
+        ```
         >>> reference_img = PIL.Image.open('my_image.jpg')
-        ... sim = tbl.img.similarity(reference_img)
-        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+        >>> sim = tbl.img.similarity(reference_img)
+        >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+        ```
 
         If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
         performed using any of its supported types. In our example, CLIP supports both text and images, so we can
         also search for images using a text description:
 
+        ```
         >>> sim = tbl.img.similarity('a picture of a train')
-        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+        >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+        ```
 
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
@@ -1032,9 +1049,9 @@ class Table(SchemaObject):
             Add an index to the `img` column of the table `my_table`:
 
             >>> from pixeltable.functions.huggingface import clip
-            ... tbl = pxt.get_table('my_table')
-            ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-            ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+            >>> tbl = pxt.get_table('my_table')
+            >>> embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+            >>> tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
 
             Alternatively, the `img` column may be specified by name:
 
@@ -1328,7 +1345,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any,
-        )```
+        )
+        ```
 
         To insert just a single row, you can use the more concise syntax:
 
@@ -1338,7 +1356,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any
-        )```
+        )
+        ```
 
         Args:
             source: A data source from which data can be imported.
@@ -1459,8 +1478,8 @@ class Table(SchemaObject):
             the row with new `id` 3 (assuming this key does not exist):
 
             >>> tbl.update(
-                [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
-                if_not_exists='insert')
+            ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
+            ...     if_not_exists='insert')
         """
         from pixeltable.catalog import Catalog
 

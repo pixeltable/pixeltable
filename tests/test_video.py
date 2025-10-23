@@ -296,14 +296,15 @@ class TestVideo:
         base_t, view_t = pxt.get_table(base_t._name), pxt.get_table(view_t._name)
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
-    def test_clip(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('mode', ['fast', 'accurate'])
+    def test_clip(self, mode: str, reset_db: None) -> None:
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
         video_filepaths = get_video_files()
         t.insert({'video': p} for p in video_filepaths)
 
-        clip_5_10 = t.video.clip(start_time=5.0, end_time=10.0)
-        clip_0_5 = t.video.clip(start_time=0.0, duration=5.0)
-        clip_10_end = t.video.clip(start_time=10.0)
+        clip_5_10 = t.video.clip(start_time=5.0, end_time=10.0, mode=mode)
+        clip_0_5 = t.video.clip(start_time=0.0, duration=5.0, mode=mode)
+        clip_10_end = t.video.clip(start_time=10.0, mode=mode)
         result = t.select(
             clip_5_10=clip_5_10,
             clip_5_10_duration=clip_5_10.get_metadata().streams[0].duration_seconds,
@@ -326,7 +327,9 @@ class TestVideo:
 
         # requesting a time range past the end of the video returns None
         duration = t.video.get_metadata().streams[0].duration_seconds
-        result_df = t.where(duration != None).select(clip=t.video.clip(start_time=1000.0)).collect().to_pandas()
+        result_df = (
+            t.where(duration != None).select(clip=t.video.clip(start_time=1000.0, mode=mode)).collect().to_pandas()
+        )
         assert result_df['clip'].isnull().all(), result_df['clip']
 
         with pytest.raises(pxt.Error, match='start_time must be non-negative'):
@@ -386,35 +389,104 @@ class TestVideo:
         with pytest.raises(pxt.Error):
             t.add_computed_column(invalid3=t.video.extract_frame(timestamp=-1.0))
 
-    def _validate_segments(self, segments: list[str], max_duration: float | None = None) -> None:
+    def _validate_segments(
+        self,
+        segments: list[str],
+        total_duration: float,
+        duration: float | None = None,
+        durations: list[float] | None = None,
+        eps: float | None = None,
+    ) -> None:
+        assert duration is None or durations is None
         t = pxt.create_table('validate_segments', {'segment': pxt.Video}, media_validation='on_write')
         t.insert({'segment': s} for s in segments)
-        duration = t.segment.get_metadata().streams[0].duration_seconds
-        result = t.select(duration=duration).collect()
+        duration_expr = t.segment.get_metadata().streams[0].duration_seconds
+        result = t.select(duration=duration_expr).head(n=len(segments))  # make sure output is ordered chronologically
         assert len(result) == len(segments)
-        if max_duration is not None:
-            # +1 to account for inevitable inaccuracy of clip extraction
-            assert result.to_pandas()['duration'].between(0.0, max_duration + 1).all()
+        assert sum(result['duration']) == pytest.approx(total_duration, abs=0.01)
+        if duration is not None:
+            df = result.to_pandas()
+            # :-1: omit last row since it typically contains the remainder and may be shorter
+            assert df.iloc[:-1]['duration'].between(duration - eps, duration + eps).all()
+        if durations is not None:
+            # strict=False: we don't know how many segments got created
+            assert all(
+                expected - eps <= actual and expected + eps >= actual
+                for expected, actual in zip(durations, result['duration'][:-1], strict=False)
+            )
         pxt.drop_table('validate_segments')
 
-    def test_segment_video(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('mode', ['fast', 'accurate'])
+    def test_segment_video_duration(self, mode: str, reset_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         t.insert([{'video': f} for f in get_video_files()])
 
-        duration = t.video.get_metadata().streams[0].duration_seconds / 2
-        result = t.where(duration != None).select(segments=t.video.segment_video(duration=3.0)).collect()
-        segments = result['segments'][0]
-        assert len(segments) >= 1
-        self._validate_segments(segments, max_duration=3.0)
+        duration = t.video.get_metadata().streams[0].duration_seconds
+        result = (
+            t.where(duration != None)
+            .select(duration=duration, segments=t.video.segment_video(duration=3.0, mode=mode))
+            .collect()
+        )
+        eps = 1.0 if mode == 'fast' else 0.0
+        for row in result:
+            total_duration = row['duration']
+            segments = row['segments']
+            assert len(segments) >= 1
+            self._validate_segments(segments, total_duration, duration=3.0, eps=eps)
 
         # split at midpoint
-        result = t.where(duration != None).select(segments=t.video.segment_video(duration=duration + 1)).collect()
-        segments = result['segments'][0]
-        assert len(segments) == 2
-        self._validate_segments(segments)
+        result = (
+            t.where(duration != None)
+            .select(duration=duration, segments=t.video.segment_video(duration=duration / 2 + 0.1, mode=mode))
+            .collect()
+        )
+        for row in result:
+            total_duration = row['duration']
+            segments = row['segments']
+            assert len(segments) >= 1
+            self._validate_segments(segments, total_duration)
+
+    @pytest.mark.parametrize('mode', ['fast', 'accurate'])
+    def test_segment_video_segment_times(self, mode: str, reset_db: None) -> None:
+        t = pxt.create_table('test_segments', {'video': pxt.Video})
+        t.insert([{'video': f} for f in get_video_files()])
+
+        duration = t.video.get_metadata().streams[0].duration_seconds
+        segment_times = [6.0, 11.0, 16.0]
+        result = (
+            t.where(duration != None)
+            .select(duration=duration, segments=t.video.segment_video(segment_times=segment_times, mode=mode))
+            .collect()
+        )
+        start_times = [0.0, *segment_times]
+        durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
+        for row in result:
+            total_duration = row['duration']
+            segments = row['segments']
+            assert len(segments) >= 1
+            eps = 1.0 if mode == 'fast' else 0.0
+            self._validate_segments(segments, total_duration, durations=durations, eps=eps)
+
+    def test_segment_video_errors(self, reset_db: None) -> None:
+        t = pxt.create_table('test_segments', {'video': pxt.Video})
+        t.insert([{'video': f} for f in get_video_files()])
 
         with pytest.raises(pxt.Error, match='duration must be positive'):
-            t.select(invalid=t.video.segment_video(duration=0.0)).collect()
+            _ = t.select(invalid=t.video.segment_video(duration=0.0)).collect()
+
+        with pytest.raises(pxt.Error, match='video_encoder is not supported'):
+            _ = t.select(invalid=t.video.segment_video(duration=5.0, mode='fast', video_encoder='libx264')).collect()
+
+        with pytest.raises(pxt.Error, match='video_encoder_args is not supported'):
+            _ = t.select(
+                invalid=t.video.segment_video(duration=5.0, mode='fast', video_encoder_args={'crf': 18})
+            ).collect()
+
+        with pytest.raises(pxt.Error, match='segment_times cannot be empty'):
+            _ = t.select(invalid=t.video.segment_video(segment_times=[])).collect()
+
+        with pytest.raises(pxt.Error, match='duration and segment_times cannot both be specified'):
+            _ = t.select(invalid=t.video.segment_video(duration=1.0, segment_times=[1.0, 2.0])).collect()
 
     def test_concat_videos(self, reset_db: None) -> None:
         video_filepaths = get_video_files()[:3]  # Use first 3 videos
@@ -502,10 +574,18 @@ class TestVideo:
             )
 
     def _validate_splitter_segments(
-        self, base: pxt.Table, segments_view: pxt.Table, overlap: float, min_segment_duration: float
+        self,
+        base: pxt.Table,
+        segments_view: pxt.Table,
+        overlap: float | None,
+        min_segment_duration: float,
+        expected_durations: list[float] | None = None,
+        eps: float = 0.0,  # epsilon used in pytest.approx()
     ) -> None:
         t = base
         s = segments_view
+        if overlap is None:
+            overlap = 0.0
 
         # we cannot directly verify the number of segments, because they can diverge from the target duration;
         res = t.select(t.video, time_base=t.video.get_metadata().streams[0].time_base).collect()
@@ -517,25 +597,39 @@ class TestVideo:
             .order_by(s.video, s.pos)
             .collect()
         )
+        last_pos: dict[str, int] = {}
+        for row in segments_md:
+            last_pos[row['video']] = row['pos']
+
         for i in range(len(segments_md)):
             assert segments_md[i]['segment_end'] >= segments_md[i]['segment_start']
             assert segments_md[i]['segment_end_pts'] >= segments_md[i]['segment_start_pts']
             if segments_md[i]['pos'] > 0:
                 # verify segment_end/start are consecutive, minus overlap
                 assert segments_md[i]['segment_start'] == pytest.approx(
-                    segments_md[i - 1]['segment_end'] - overlap, abs=0.1
+                    segments_md[i - 1]['segment_end'] - overlap, abs=eps
                 )
                 assert segments_md[i]['segment_start_pts'] == pytest.approx(
                     segments_md[i - 1]['segment_end_pts'] - round(overlap / time_bases[segments_md[i]['video']]), abs=1
                 )
                 assert segments_md[i]['segment_end'] - segments_md[i]['segment_start'] >= min_segment_duration
 
+            # compare segment lengths, except for the last one, which can be shorter
+            if expected_durations is not None and segments_md[i]['pos'] < last_pos[segments_md[i]['video']]:
+                pos = segments_md[i]['pos']
+                # abs=eps + 0.01: we're seeing some deviation even for accurate segmentation
+                assert segments_md[i]['segment_end'] - segments_md[i]['segment_start'] == pytest.approx(
+                    expected_durations[pos], abs=eps + 0.01
+                )
+
             if min_segment_duration == 0.0 and i > 0 and segments_md[i]['pos'] == 0:
                 # verify that the last segment's segment_end matches video duration
+                # abs=0.1: for some reason, even accurate segmentation doesn't quite match the final length
                 assert segments_md[i - 1]['segment_end'] == pytest.approx(
                     video_durations[segments_md[i - 1]['video']], abs=0.1
                 )
         if min_segment_duration == 0.0:
+            # abs=0.1: for some reason, even accurate segmentation doesn't quite match the final length
             assert segments_md[-1]['segment_end'] == pytest.approx(video_durations[segments_md[-1]['video']], abs=0.1)
 
         # Verify segments are valid videos by inserting them into a table with validation
@@ -545,42 +639,89 @@ class TestVideo:
             validation_t.insert([{'segment': row['url']} for row in segments], on_error='abort')
             pxt.drop_table('segment_validation')
 
-    @pytest.mark.parametrize('segment_duration', [5.0, 10.0, 100.0])
-    def test_video_splitter(self, segment_duration: float, reset_db: None) -> None:
+    @pytest.mark.parametrize(
+        'segment_duration,mode',
+        [(5.0, 'fast'), (5.0, 'accurate'), (10.0, 'fast'), (10.0, 'accurate'), (100.0, 'fast'), (100.0, 'accurate')],
+    )
+    def test_video_splitter_duration(self, segment_duration: float, mode: str, reset_db: None) -> None:
         from pixeltable.iterators import VideoSplitter
 
         video_filepaths = get_video_files()
+        overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
+        eps = 0.1 if mode == 'fast' else 0.0
         for min_segment_duration in [0.0, segment_duration]:
-            for overlap in [0.0, 1.0, 4.0]:
+            for overlap in overlaps:
                 t = pxt.create_table('videos', {'video': pxt.Video})
                 t.insert([{'video': p} for p in video_filepaths])
                 s = pxt.create_view(
-                    'segments_5s',
+                    'segments',
                     t,
                     iterator=VideoSplitter.create(
                         video=t.video,
-                        segment_duration=segment_duration,
+                        duration=segment_duration,
+                        mode=mode,
                         overlap=overlap,
                         min_segment_duration=min_segment_duration,
                     ),
                 )
-                self._validate_splitter_segments(t, s, overlap, min_segment_duration)
+                self._validate_splitter_segments(t, s, overlap, min_segment_duration, eps=eps)
                 pxt.drop_table('videos', force=True)
+
+    @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
+    def test_video_splitter_segment_times(self, segment_times: list[float], mode: str, reset_db: None) -> None:
+        from pixeltable.iterators import VideoSplitter
+
+        eps = 0.1 if mode == 'fast' else 0.0
+        video_filepaths = get_video_files()
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        t.insert({'video': p} for p in video_filepaths)
+        s = pxt.create_view(
+            'segments', t, iterator=VideoSplitter.create(video=t.video, segment_times=segment_times, mode=mode)
+        )
+        start_times = [0.0, *segment_times]
+        durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
+        self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
 
     def test_video_splitter_errors(self, reset_db: None) -> None:
         from pixeltable.iterators.video import VideoSplitter
 
         t = pxt.create_table('videos', {'video': pxt.Video})
-        with pytest.raises(pxt.Error, match='segment_duration must be a positive number'):
-            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_duration=-1))
-
-        with pytest.raises(pxt.Error, match='overlap must be less than segment_duration'):
-            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_duration=1, overlap=1))
-
-        with pytest.raises(pxt.Error, match='segment_duration must be at least min_segment_duration'):
+        with pytest.raises(pxt.Error, match='Must specify either duration or segment_times'):
+            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video))
+        with pytest.raises(pxt.Error, match='duration must be a positive number'):
+            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, duration=-1))
+        with pytest.raises(pxt.Error, match='overlap must be less than duration'):
+            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, duration=1, overlap=1))
+        with pytest.raises(pxt.Error, match='duration must be at least min_segment_duration'):
             _ = pxt.create_view(
-                's', t, iterator=VideoSplitter.create(video=t.video, segment_duration=1, min_segment_duration=2)
+                's', t, iterator=VideoSplitter.create(video=t.video, duration=1, min_segment_duration=2)
             )
+        with pytest.raises(pxt.Error, match='Cannot specify overlap'):
+            _ = pxt.create_view(
+                's', t, iterator=VideoSplitter.create(video=t.video, duration=10, mode='accurate', overlap=5)
+            )
+        with pytest.raises(pxt.Error, match='Cannot specify video_encoder'):
+            _ = pxt.create_view(
+                's', t, iterator=VideoSplitter.create(video=t.video, duration=10, mode='fast', video_encoder='libx264')
+            )
+        with pytest.raises(pxt.Error, match='Cannot specify video_encoder_args'):
+            _ = pxt.create_view(
+                's',
+                t,
+                iterator=VideoSplitter.create(video=t.video, duration=10, mode='fast', video_encoder_args={'crf': 18}),
+            )
+        with pytest.raises(pxt.Error, match='duration and segment_times cannot both be specified'):
+            _ = pxt.create_view(
+                's', t, iterator=VideoSplitter.create(video=t.video, duration=10, segment_times=[1, 2], mode='fast')
+            )
+        with pytest.raises(pxt.Error, match='Cannot specify overlap'):
+            _ = pxt.create_view(
+                's', t, iterator=VideoSplitter.create(video=t.video, mode='accurate', duration=3, overlap=1)
+            )
+        with pytest.raises(pxt.Error, match='segment_times cannot be empty'):
+            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_times=[]))
+        with pytest.raises(pxt.Error, match='overlap cannot be specified with segment_times'):
+            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_times=[1, 2], overlap=1))
 
     @pytest.mark.skipif(
         os.environ.get('PXTTEST_CI_OS') == 'ubuntu-x64-t4', reason='Fonts not available on t4 CI instances'

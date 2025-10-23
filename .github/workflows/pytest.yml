@@ -1,5 +1,27 @@
 name: tests
 
+# On PR updates, the basic test configurations are run:
+#   - Python 3.10 on ubuntu-24.04, macos-15, and windows-2022 runners.
+#   - A minimal installation of Pixeltable (--no-dev) with Python 3.10 on ubuntu-24.04.
+#   - Notebook tests.
+#   - Linting, type-checking, docstring validation, etc.
+#   - Random ops (for 30 minutes).
+#
+# In merge queue, all of the above configurations are run, and additionally:
+#   - Python 3.13 on ubuntu-24.04, macos-15, and windows-2022 runners.
+#   - Python 3.11 and 3.12 on ubuntu-24.04.
+#   - Minimal Pixeltable with Python 3.13 on ubuntu-24.04.
+#   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
+#
+# On a weekly schedule, all of the above configurations are run (against branch 'main'), and additionally:
+#   - Python 3.10 on ubuntu-x64-t4 (equipped with an NVIDIA T4 GPU).
+#
+# A workflow_dispatch trigger will emulate the merge queue tests by default, but can be optionally
+#     selected to run all configurations including ubuntu-x64-t4.
+#
+# Github Actions secrets are unavailable on PRs; hence any tests that require API keys will be skipped.
+# Secrets are available on all other triggers.
+
 on:
   pull_request:
     branches: [main]
@@ -23,7 +45,7 @@ on:
 env:
   PXTTEST_IN_CI: 1
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
-  UV_VERSION: 0.8.2
+  UV_VERSION: 0.9.3
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
   # We also disable Metal (GPU) support on MacOS, which doesn't seem to work properly in CI.
@@ -48,54 +70,28 @@ env:
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
 
 jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Install python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate test matrix
+        id: set-matrix
+        run: |
+          ARGS=${{ github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms && '--force-all' || '' }}
+          python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
+
   tests:
+    needs: generate-matrix
     strategy:
       fail-fast: false
-      matrix:
-        # Test with Python 3.10 and 3.13 (minimum and maximum supported versions) on every platform.
-        # In most cases, test only the basic (free) platforms: ubuntu-22.04, macos-15, windows-2022.
-        # On a scheduled run, also test ubuntu-x64-t4 (which costs money). ubuntu-arm64 is disabled
-        # for now; it just has too many problems.
-        # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
-        test-category: ["py"]
-        uv-options: [""]
-        os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
-                && fromJSON('["ubuntu-22.04", "macos-15", "windows-2022", "ubuntu-x64-t4"]')
-                || fromJSON('["ubuntu-22.04", "macos-15", "windows-2022"]') }}
-        python-version: ["3.10", "3.13"]
-        # Add some additional matrix configurations that are run only on linux, to test
-        # additional scenarios/compatibilities that are unlikely to be platform-sensitive.
-        include:
-          # Python 3.11
-          - test-category: "py"
-            uv-options: ""
-            os: ubuntu-22.04
-            python-version: "3.11"
-          # Python 3.12
-          - test-category: "py"
-            uv-options: ""
-            os: ubuntu-22.04
-            python-version: "3.12"
-          # Minimal installation of pixeltable
-          - test-category: "py"
-            uv-options: "--no-dev"
-            os: ubuntu-22.04
-            python-version: "3.10"
-          # Notebook tests
-          - test-category: "ipynb"
-            uv-options: ""
-            os: ubuntu-22.04
-            python-version: "3.10"
-          # Linting, type-checking, docstrings validation, etc.
-          - test-category: "lint"
-            uv-options: ""
-            os: ubuntu-22.04
-            python-version: "3.10"
-          # Random table ops
-          - test-category: "random-tbl-ops"
-            uv-options: "--no-dev"
-            os: ubuntu-22.04
-            python-version: "3.10"
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -131,7 +127,7 @@ jobs:
         # libiconv and ffmpeg are needed by WhisperX.
         run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Install ollama
-        if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-22.04' }}
+        if: ${{ matrix.uv-options == '' && matrix.os == 'ubuntu-24.04' }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
@@ -163,11 +159,11 @@ jobs:
         if: ${{ matrix.test-category == 'py' }}
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.10. The other tests
+        # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.10. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         run: |
-          PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-22.04' || matrix.python-version != '3.10') && 'not expensive' || '' }}"
+          PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-24.04' || matrix.python-version != '3.10') && 'not expensive' || '' }}"
           echo "Running tests with markers: $PYTEST_MARKERS"
           coverage run -m --source=pixeltable pytest -v -m "$PYTEST_MARKERS" --strict-markers
           coverage report -m
@@ -182,7 +178,7 @@ jobs:
             exit 1
           fi
       - name: Run random table ops
-        if: ${{ matrix.test-category == 'random-tbl-ops' }}
+        if: ${{ matrix.test-category == 'random-ops' }}
         run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
@@ -215,8 +211,16 @@ jobs:
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
           df -h
-          du -h -d3 /home/runner
-          du -h -d3 /home/runner/.cache
+          du -h -d3 /home/runner || true
+          du -h -d3 /home/runner/.cache || true
       - name: Print utilization info
         if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         run: df -h
+
+  validate:
+    needs: tests
+    runs-on: ubuntu-latest
+    if: failure()
+    steps:
+      - name: Fail on error
+        run: exit 1
