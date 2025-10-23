@@ -1053,7 +1053,7 @@ class TestTable:
         n_sample_rows = 20
         schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String, 'img_literal': pxt.Image}
         tbl = pxt.create_table('test', schema)
-        assert ObjectOps.count(None, tbl._id) == 0
+        assert ObjectOps.count('default-input-media-dest', tbl._id) == 0
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -1064,7 +1064,7 @@ class TestTable:
                 r['img_literal'] = f.read()
 
         tbl.insert(sample_rows)
-        assert ObjectOps.count(None, tbl._id) == n_sample_rows
+        assert ObjectOps.count('default-input-media-dest', tbl._id) == n_sample_rows
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -1075,15 +1075,16 @@ class TestTable:
 
         # Test adding stored image transformation
         tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
-        assert ObjectOps.count(None, tbl._id) == 2 * n_sample_rows
+        if Env.get().default_input_media_dest == Env.get().default_output_media_dest:
+            assert ObjectOps.count('default-input-media-dest', tbl._id) == 2 * n_sample_rows
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert ObjectOps.count(None, tbl._id) == n_sample_rows
+        assert ObjectOps.count('default-input-media-dest', tbl._id) == n_sample_rows
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table('test')
-        assert ObjectOps.count(None, tbl._id) == 0
+        assert ObjectOps.count('default-input-media-dest', tbl._id) == 0
 
     def test_schema_spec(self, reset_db: None) -> None:
         with pytest.raises(pxt.Error) as exc_info:
@@ -1291,6 +1292,10 @@ class TestTable:
         res = reload_tester.run_query(t.select(t.img, path=t.img.localpath))
         assert res[1]['path'] == str(Path('tests/data/images/#_strange_file name!@$.jpg').absolute())
 
+    @pytest.mark.skipif(
+        Env.get().default_input_media_dest is not None or Env.get().default_output_media_dest is not None,
+        reason='Specifying a default media destination disrupts the file cache counts',
+    )
     def test_create_s3_image_table(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': pxt.Image})
