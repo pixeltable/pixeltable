@@ -40,6 +40,7 @@ def to_audio(
         raise pxt.Error(f'Only the following formats are supported: {audio_formats.keys}')
     if output_sample_rate is None:
         output_sample_rate = input_sample_rate
+    assert len(audio_data.shape) == 2, f'Input audio array must be 2-dimensional. Actual shape: {audio_data.shape}'
 
     codec, ext = audio_formats[format]
     output_path = str(TempStore.create_path(extension=f'.{ext}'))
