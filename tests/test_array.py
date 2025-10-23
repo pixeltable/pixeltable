@@ -25,7 +25,7 @@ class TestArray:
         assert audio_data.shape[0] == 1  # Mono
 
         # Use to_audio to encode it to an audio file
-        t = pxt.create_table('test_mp3_to_array_and_back', {'audio_array': pxt.Array[pxt.Float]})
+        t = pxt.create_table('test_mp3_to_array_and_back', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
         output_sample_rate = sample_rate // 2 if downsample else sample_rate
         t.add_computed_column(
             audio_file=to_audio(
@@ -87,4 +87,4 @@ class TestArray:
         assert update_status.num_excs == 0
         for row in t.head(10):
             assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
-            print(f'output audio file: {row["audio_file"]}')
+            print(f'Encoded audio file: {row["audio_file"]}')

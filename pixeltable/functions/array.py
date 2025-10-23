@@ -60,7 +60,7 @@ def to_audio(
 
     with av.open(output_path, mode='w') as output_container:
         stream = output_container.add_stream(codec, rate=output_sample_rate)
-        stream.layout = layout
+        assert isinstance(stream, av.AudioStream)
 
         frame = av.AudioFrame.from_ndarray(audio_data_transformed, format='flt', layout=layout)
         frame.sample_rate = input_sample_rate
