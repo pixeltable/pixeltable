@@ -17,12 +17,12 @@ class TestArray:
     @pytest.mark.parametrize(
         'format,downsample', [('wav', False), ('mp3', False), ('mp3', True), ('flac', False), ('mp4', False)]
     )
-    def test_sample_mp3_to_array(self, format: str, downsample: bool, reset_db: None) -> None:
+    def test_to_audio(self, format: str, downsample: bool, reset_db: None) -> None:
         # Load a sample mp3 file to an array
         audio_data, sample_rate = self._load_sample_audio('./docs/resources/10-minute tour of Pixeltable.mp3')
         assert audio_data.dtype == np.float32
         assert audio_data.ndim == 2
-        assert audio_data.shape[0] == 1  # Mono
+        assert audio_data.shape[0] == 1  # That sample is in mono
 
         # Use to_audio to encode it to an audio file
         t = pxt.create_table('test_mp3_to_array_and_back', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
@@ -45,7 +45,7 @@ class TestArray:
             assert encoded_path.endswith(f'.{format}')
         print(f'Encoded audio file: {row["audio_file"]}')
 
-        # Read back and validate the encoded file
+        # Read back, decode, and validate the encoded file
         with av.open(encoded_path) as container:
             audio_stream = container.streams.audio[0]
             duration_seconds = float(audio_stream.duration * audio_stream.time_base)
@@ -82,6 +82,7 @@ class TestArray:
         assert set(row['audio'].keys()) == {'array', 'path', 'sampling_rate'}
         assert isinstance(row['audio']['array'], np.ndarray)
         assert isinstance(row['audio']['sampling_rate'], int)
+
         update_status = t.add_computed_column(
             audio_file=to_audio(
                 t.audio.array.astype(pxt.Array), input_sample_rate=t.audio.sampling_rate.astype(pxt.Int), format='flac'
