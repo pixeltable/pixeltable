@@ -141,7 +141,10 @@ class StoreBase:
         assert isinstance(result, int)
         return result
 
-    def _exec_create_if_not_exists(self, create_stmt: str) -> None:
+    def _exec_if_not_exists(self, create_stmt: str) -> None:
+        """
+        Execute a statement containing 'IF NOT EXISTS' and ignore any related errors.
+        """
         conn = Env.get().conn
         # Postgres seems not to handle concurrent Create ... If Not Exists correctly, we need to ignore the various
         # errors that can occur when two connections run the same Create Table statement.
@@ -151,7 +154,7 @@ class StoreBase:
             Env.get().console_logger.info(f'StoreBase.create() failed with: {e}')
             if (
                 isinstance(e.orig, psycopg.errors.UniqueViolation)
-                and 'duplicate key value violates unique constraint "pg_type_typname_nsp_index"' in str(e.orig)
+                and 'duplicate key value violates unique constraint' in str(e.orig)
             ) or (
                 isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
                 and 'already exists' in str(e.orig)
@@ -161,9 +164,13 @@ class StoreBase:
                 raise
 
     def create(self) -> None:
-        """Create or update store table to bring it in sync with self.sa_tbl"""
-        conn = Env.get().conn
-        stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(conn)
+        """
+        Create or update store table to bring it in sync with self.sa_tbl.
+
+        If this is run outside of a transaction, runs each DDL statement in its own transaction.
+        """
+        postgres_dialect = sql.dialects.postgresql.dialect()
+        stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(dialect=postgres_dialect)
         create_stmt = str(stmt)
         stmts = [create_stmt]
 
@@ -171,12 +178,19 @@ class StoreBase:
             stmts.append(self._add_column_stmt(col))
 
         for index in self.sa_tbl.indexes:
-            stmt = sql.schema.CreateIndex(index, if_not_exists=True).compile(conn)
+            stmt = sql.schema.CreateIndex(index, if_not_exists=True).compile(dialect=postgres_dialect)
             create_stmt = str(stmt)
             stmts.append(create_stmt)
 
+        env = Env.get()
         for stmt in stmts:
-            self._exec_create_if_not_exists(stmt)
+            if env.in_xact:
+                env.conn.execute(sql.text(stmt))
+            else:
+                # each of these statements need to be run as separate transactions; if one fails, we still want to run
+                # the rest
+                with env.begin_xact(for_write=True):
+                    self._exec_if_not_exists(stmt)
 
     def create_index(self, idx_id: int) -> None:
         """Create If Not Exists for this index"""
@@ -185,7 +199,7 @@ class StoreBase:
         conn = Env.get().conn
         stmt = sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(conn)
         create_stmt = str(stmt)
-        self._exec_create_if_not_exists(create_stmt)
+        self._exec_if_not_exists(create_stmt)
 
     def drop(self) -> None:
         """Drop store table"""
@@ -193,8 +207,7 @@ class StoreBase:
         self.sa_md.drop_all(bind=conn)
 
     def _add_column_stmt(self, sa_col: sql.Column) -> str:
-        conn = Env.get().conn
-        col_type_str = sa_col.type.compile(dialect=conn.dialect)
+        col_type_str = sa_col.type.compile(dialect=sql.dialects.postgresql.dialect())
         return (
             f'ALTER TABLE {self._storage_name()} ADD COLUMN IF NOT EXISTS '
             f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'

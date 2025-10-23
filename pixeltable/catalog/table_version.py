@@ -351,9 +351,8 @@ class TableVersion:
 
     def exec_op(self, op: TableOp) -> None:
         if op.create_store_table_op is not None:
-            # don't use Catalog.begin_xact() here, to avoid accidental recursive calls to exec_op()
-            with Env.get().begin_xact():
-                self.store_tbl.create()
+            # this needs to be called outside of a transaction
+            self.store_tbl.create()
 
         elif op.create_index_op is not None:
             idx_info = self.idxs[op.create_index_op.idx_id]
