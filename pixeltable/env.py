@@ -415,12 +415,14 @@ class Env:
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
 
-        self._default_media_destination = config.get_string_value('media_destination')
-        if self._default_media_destination is not None:
-            try:
-                _ = ObjectPath.parse_object_storage_addr(self._default_media_destination, False)
-            except Exception as e:
-                raise excs.Error(f'Invalid media destination URI: {self._default_media_destination}') from e
+        self._default_input_media_dest = config.get_string_value('input_media_dest')
+        self._default_output_media_dest = config.get_string_value('output_media_dest')
+        for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
+            if uri is not None:
+                try:
+                    _ = ObjectPath.parse_object_storage_addr(uri, False)
+                except Exception as e:
+                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
 
         self._pxt_api_key = config.get_string_value('api_key')
 
@@ -875,8 +877,12 @@ class Env:
         return self._media_dir
 
     @property
-    def default_media_destination(self) -> Optional[str]:
-        return self._default_media_destination
+    def default_input_media_dest(self) -> Optional[str]:
+        return self._default_input_media_dest
+
+    @property
+    def default_output_media_dest(self) -> Optional[str]:
+        return self._default_output_media_dest
 
     @property
     def file_cache_dir(self) -> Path:

@@ -143,18 +143,18 @@ class TestDestination:
 
         n = len(r)
         assert n == 2
-        assert n == ObjectOps.count(Env.get().default_media_destination, t._id)
+        assert n == ObjectOps.count(Env.get().default_output_media_dest, t._id)
         assert n == ObjectOps.count(dest1_uri, t._id)
         assert n == ObjectOps.count(dest2_uri, t._id)
 
         n = 1
-        assert n == ObjectOps.count(Env.get().default_media_destination, t._id, 2)
+        assert n == ObjectOps.count(Env.get().default_output_media_dest, t._id, 2)
         assert n == ObjectOps.count(dest1_uri, t._id, 3)
         assert n == ObjectOps.count(dest2_uri, t._id, 4)
 
         version = 5
         n = 1
-        assert n == ObjectOps.count(Env.get().default_media_destination, t._id, version)
+        assert n == ObjectOps.count(Env.get().default_output_media_dest, t._id, version)
         assert n == ObjectOps.count(dest1_uri, t._id, version)
         assert n == ObjectOps.count(dest2_uri, t._id, version)
 
@@ -169,7 +169,7 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        assert ObjectOps.count(Env.get().default_media_destination, save_id) == 0
+        assert ObjectOps.count(Env.get().default_output_media_dest, save_id) == 0
         assert ObjectOps.count(dest1_uri, save_id) == 0
         assert ObjectOps.count(dest2_uri, save_id) == 0
 
@@ -196,7 +196,7 @@ class TestDestination:
         print(r_dest)
 
         assert len(r) == 2
-        assert len(r) == ObjectOps.count(Env.get().default_media_destination, t._id)
+        assert len(r) == ObjectOps.count(Env.get().default_output_media_dest, t._id)
         assert len(r) == ObjectOps.count(dest1_uri, t._id)
 
         # The outcome of this test is unusual:
@@ -228,11 +228,11 @@ class TestDestination:
 
         assert len(r) == 2
 
-        if Env.get().default_media_destination is None:
+        if Env.get().default_output_media_dest is None:
             # Copying a local file to the LocalStore is not allowed
             assert 0 == ObjectOps.count(None, t._id)
         else:
-            assert len(r) == ObjectOps.count(Env.get().default_media_destination, t._id)
+            assert len(r) == ObjectOps.count(Env.get().default_output_media_dest, t._id)
 
         # Ensure that local file is copied to a specified destination
         assert len(r) == ObjectOps.count(dest1_uri, t._id)

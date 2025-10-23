@@ -205,8 +205,14 @@ class Column:
     def destination(self) -> Optional[str]:
         if self._destination is not None:
             return self._destination
-        if self.is_computed and self.is_stored and self.col_type.is_media_type() and self.name is not None:
-            return Env.get().default_media_destination
+        # TODO: The `self.name is not None` clause is necessary because index columns currently follow the type of
+        #     the underlying media column. We should move to using pxt.String as the col_type of index columns; this
+        #     would be a more robust solution, and then `self.name is not None` could be removed.
+        if self.is_stored and self.col_type.is_media_type() and self.name is not None:
+            if self.is_computed:
+                return Env.get().default_output_media_dest
+            else:
+                return Env.get().default_input_media_dest
         return None
 
     @property
