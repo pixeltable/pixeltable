@@ -23,8 +23,8 @@ Before you submit, make sure your recipe includes:
 - [ ] Problem comes before Solution
 - [ ] Setup includes pip, imports, and `drop_dir`/`create_dir`
 - [ ] Table creation is separate from setup (in its own "Load images" or similar section)
-- [ ] **Query-and-Commit pattern**: Every transformation uses `.select()` to preview, then `add_computed_column()` to save (same expression)
-- [ ] For UDF recipes: define → query with `.select().head()` → commit with `add_computed_column()`
+- [ ] **Query-and-Commit pattern**: Every transformation uses `.select()` with `.collect()` (or `.head(n)` to collect only first n rows) to preview, then `add_computed_column()` to save (same expression)
+- [ ] For UDF recipes: define → query with `.select().collect()` (or `.head(n)`) → commit with `add_computed_column()`
 - [ ] Action-focused subsection headings ("Load images" not "Create a table")
 - [ ] Direct, respectful tone (no "we", no "let's")
 - [ ] See also has ≤ 3 bullets

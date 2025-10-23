@@ -354,7 +354,7 @@ Match Problem statement style:
 
 You [verb] [object] using [approach]. [Dependency if needed]. This gives you [benefit].
 
-You can iterate on transformations before adding them to your table. Use `.select()` to preview results on sample images—nothing is stored. Once you're satisfied, use `.add_computed_column()` to apply [transformation] to all images in your table.
+You can iterate on transformations before adding them to your table. Use `.select()` with `.collect()` to preview results on sample images—nothing is stored in your table. If you want to collect only the first few rows, use `.head(n)` instead of `.collect()`. Once you're satisfied, use `.add_computed_column()` to apply [transformation] to all images in your table.
 
 For more on this workflow, see [Get fast feedback on transformations](./dev-iterative-workflow.ipynb).
 ```
@@ -448,7 +448,7 @@ Use `###` for all subsections under Solution.
 All recipes follow this workflow:
 
 1. **DEFINE** - List functions (built-in PIL methods OR custom UDFs)
-2. **QUERY** - Use `.select()` to preview results (optionally with `.head()`)
+2. **QUERY** - Use `.select()` with `.collect()` to preview results. Use `.head(n)` to collect only the first n rows.
 3. **COMMIT** - Use `.add_computed_column()` to save results (same expression)
 
 This pattern applies to:
@@ -468,7 +468,7 @@ This pattern applies to:
 
 ### Test resize with a query
 
-Use `.select()` with `.head()` to preview results. Using `.head()` is optional but recommended for expensive operations.
+Use `.select()` with `.collect()` to preview results. If you want to collect only the first few rows, use `.head(n)` instead of `.collect()`.
 ```
 
 Code cells:
@@ -507,7 +507,7 @@ def add_watermark(img: Image.Image, text: str) -> Image.Image:
 ```markdown
 ### Test watermarks with a query
 
-Use `.select()` with `.head()` to preview results. Using `.head()` is optional but recommended for expensive operations.
+Use `.select()` with `.collect()` to preview results. If you want to collect only the first few rows, use `.head(n)` instead of `.collect()`.
 ```
 
 ```python
@@ -538,16 +538,18 @@ For custom UDFs:
 For query and commit steps (both built-in and UDF):
 - `### Test [operation] with a query` - describe the operation being tested
 - `### Commit changes with a computed column` - always the same heading
-- Include the standard note: "Use `.select()` with `.head()` to preview results. Using `.head()` is optional but recommended for expensive operations."
+- Include the standard note: "Use `.select()` with `.collect()` to preview results. If you want to collect only the first few rows, use `.head(n)` instead of `.collect()`."
 
-**When to use `.head()`:**
+**When to use `.head(n)` vs `.collect()`:**
 
-`.head()` is optional but encouraged for:
-- API calls (avoid unnecessary charges)
-- Expensive operations (long processing time)
-- Testing new transformations
+You must use `.collect()` to execute the query and return results. `.head(n)` is a convenience method that collects only the first n rows.
 
-For fast operations (resize, rotate, convert), `.head()` is still recommended to reinforce the pattern. Use `.head(1)` to see one result.
+Use `.head(n)` to collect a limited number of rows when:
+- Testing expensive operations (API calls, model inference)
+- Previewing transformations before processing full dataset
+- Working with large result sets
+
+For fast operations (resize, rotate, convert), `.head(1)` helps you preview one result quickly before committing.
 
 **Key points:**
 - Same expression in query and commit steps
@@ -803,7 +805,7 @@ t.add_column(response=anthropic.messages(...))
 
 You [verb] [object] using [approach]. [Dependency if needed]. This gives you [benefit].
 
-You can iterate on transformations before adding them to your table. Use `.select()` to preview results on sample images—nothing is stored. Once you're satisfied, use `.add_computed_column()` to apply [transformation] to all images in your table.
+You can iterate on transformations before adding them to your table. Use `.select()` with `.collect()` to preview results on sample images—nothing is stored in your table. If you want to collect only the first few rows, use `.head(n)` instead of `.collect()`. Once you're satisfied, use `.add_computed_column()` to apply [transformation] to all images in your table.
 
 For more on this workflow, see [Get fast feedback on transformations](./dev-iterative-workflow.ipynb).
 
