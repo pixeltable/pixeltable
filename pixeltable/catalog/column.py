@@ -205,7 +205,7 @@ class Column:
     def destination(self) -> Optional[str]:
         if self._destination is not None:
             return self._destination
-        if self.is_computed:
+        if self.is_computed and self.col_type.is_media_type() and self.name is not None:
             return Env.get().default_media_destination
         return None
 
@@ -236,10 +236,10 @@ class Column:
             )
 
     def has_window_fn_call(self) -> bool:
-        if self.value_expr is None:
-            return False
         from pixeltable import exprs
 
+        if self.value_expr is None:
+            return False
         window_fn_calls = list(
             self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
         )

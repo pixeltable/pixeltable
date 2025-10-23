@@ -464,6 +464,7 @@ class ObjectOps:
     @classmethod
     def count(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
         """Return the count of objects in the destination for a given table ID"""
+        dest = dest or env.Env.get().default_media_destination
         store = cls.get_store(dest, False)
         return store.count(tbl_id, tbl_version)
 
