@@ -5,7 +5,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.array import to_audio
 
-from .utils import IN_CI, rerun, skip_test_if_not_installed
+from .utils import IN_CI, rerun, skip_test_if_not_installed, validate_update_status
 
 
 class TestArray:
@@ -27,9 +27,7 @@ class TestArray:
                 t.audio_array, input_sample_rate=sample_rate, format=format, output_sample_rate=output_sample_rate
             )
         )
-        update_status = t.insert(audio_array=audio_data)
-        assert update_status.num_rows == 1
-        assert update_status.num_excs == 0
+        validate_update_status(t.insert(audio_array=audio_data), 1)
 
         row = t.head(1)[0]
         assert set(row.keys()) == {'audio_array', 'audio_file'}
@@ -83,8 +81,8 @@ class TestArray:
                 t.audio.array.astype(pxt.Array), input_sample_rate=t.audio.sampling_rate.astype(pxt.Int), format='flac'
             )
         )
+        validate_update_status(update_status)
         assert update_status.num_computed_values > 6000
-        assert update_status.num_excs == 0
         for row in t.head(10):
             assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
             print(f'Encoded audio file: {row["audio_file"]}')
