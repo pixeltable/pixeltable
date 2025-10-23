@@ -172,7 +172,7 @@ class Column:
             message = (
                 dedent(
                     f"""
-                    The computed column {self.name!r} in table {self.tbl().name!r} is no longer valid.
+                    The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
                     {{validation_error}}
                     You can continue to query existing data from this column, but evaluating it on new data will raise an error.
                     """  # noqa: E501
@@ -182,7 +182,7 @@ class Column:
             )
             warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 
-    def tbl(self) -> TableVersion:
+    def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
         return tv
 
@@ -240,15 +240,15 @@ class Column:
 
     @property
     def qualified_name(self) -> str:
-        assert self.tbl() is not None
-        return f'{self.tbl().name}.{self.name}'
+        assert self.get_tbl() is not None
+        return f'{self.get_tbl().name}.{self.name}'
 
     @property
     def media_validation(self) -> MediaValidation:
         if self._media_validation is not None:
             return self._media_validation
-        assert self.tbl() is not None
-        return self.tbl().media_validation
+        assert self.get_tbl() is not None
+        return self.get_tbl().media_validation
 
     @property
     def is_required_for_insert(self) -> bool:
@@ -296,7 +296,7 @@ class Column:
         return f'{self.name}: {self.col_type}'
 
     def __repr__(self) -> str:
-        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl().name!r})'
+        return f'Column({self.id!r}, {self.name!r}, tbl={self.get_tbl().name!r})'
 
     def __hash__(self) -> int:
         # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column

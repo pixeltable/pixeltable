@@ -237,10 +237,10 @@ class ColumnRef(Expr):
         if not self.is_unstored_iter_col:
             return
         col = self.col_handle.get()
-        self.base_rowid_len = col.tbl().base.get().num_rowid_columns()
+        self.base_rowid_len = col.get_tbl().base.get().num_rowid_columns()
         self.base_rowid = [None] * self.base_rowid_len
-        assert isinstance(col.tbl().store_tbl, store.StoreComponentView)
-        self.pos_idx = cast(store.StoreComponentView, col.tbl().store_tbl).pos_col_idx
+        assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
+        self.pos_idx = cast(store.StoreComponentView, col.get_tbl().store_tbl).pos_col_idx
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if self.perform_validation:
@@ -287,7 +287,7 @@ class ColumnRef(Expr):
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.tbl().iterator_cls(**iterator_args)
+            self.iterator = self.col.get_tbl().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)

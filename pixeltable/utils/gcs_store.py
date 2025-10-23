@@ -111,8 +111,8 @@ class GCSStore(ObjectStoreBase):
         """
         Construct a new, unique URI for a persisted media file.
         """
-        assert col.tbl() is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.tbl().id, col.id, col.tbl().version, ext=ext)
+        assert col.get_tbl() is not None, 'Column must be associated with a table'
+        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
 
     def copy_local_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""

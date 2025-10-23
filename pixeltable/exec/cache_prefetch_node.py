@@ -149,7 +149,7 @@ class CachePrefetchNode(ExecNode):
                 # register the file with the cache for the first column in which it's missing
                 assert url in self.in_flight_urls
                 _, info = self.in_flight_urls[url][0]
-                local_path = file_cache.add(info.col.tbl().id, info.col.id, url, tmp_path)
+                local_path = file_cache.add(info.col.get_tbl().id, info.col.id, url, tmp_path)
                 _logger.debug(f'cached {url} as {local_path}')
 
             # add the local path/exception to the slots that reference the url

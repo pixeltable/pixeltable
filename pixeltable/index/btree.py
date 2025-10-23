@@ -56,12 +56,6 @@ class BtreeIndex(IndexBase):
     def sa_index(self, store_index_name: str, index_value_col: 'catalog.Column') -> sql.Index:
         return sql.Index(store_index_name, index_value_col.sa_col, postgresql_using='btree')
 
-    # def create_index(self, store_index_name: str, index_value_col: 'catalog.Column') -> None:
-    #     """Create the index on the index value column"""
-    #     idx = sql.Index(store_index_name, index_value_col.sa_col, postgresql_using='btree')
-    #     conn = Env.get().conn
-    #     idx.create(bind=conn)
-
     def drop_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
         """Drop the index on the index value column"""
         # TODO: implement

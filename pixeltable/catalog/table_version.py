@@ -3,10 +3,11 @@ from __future__ import annotations
 import copy
 import dataclasses
 import importlib
+import itertools
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, Optional
 from uuid import UUID
 
 import jsonschema.exceptions
@@ -22,14 +23,11 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
-
-from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
 from .tbl_ops import TableOp
 from .update_status import RowCountStats, UpdateStatus
-
-# from .catalog import Catalog
+from ..func.globals import resolve_symbol
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
@@ -252,15 +250,8 @@ class TableVersion:
         tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
         tbl_handle = TableVersionHandle(tbl_id, None)
-
-        def id_gen() -> Iterator[int]:
-            id_ = 0
-            while True:
-                yield id_
-                id_ += 1
-
-        column_ids = id_gen()
-        index_ids = id_gen()
+        column_ids = itertools.count(0)
+        index_ids = itertools.count(0)
 
         # assign ids, create metadata
         column_md: dict[int, schema.ColumnMd] = {}
@@ -634,7 +625,7 @@ class TableVersion:
         schema_version: int,
         tbl_handle: TableVersionHandle,
         id_cb: Callable[[], int],
-    ) -> Tuple[Column, Column]:
+    ) -> tuple[Column, Column]:
         """Create value and undo columns for the given index.
         Args:
             idx:  index for which columns will be created.
@@ -686,7 +677,7 @@ class TableVersion:
             id=idx_id,
             name=idx_name,
             indexed_col_id=col.id,
-            indexed_col_tbl_id=str(col.tbl().id),
+            indexed_col_tbl_id=str(col.get_tbl().id),
             index_val_col_id=val_col.id,
             index_val_undo_col_id=undo_col.id,
             schema_version_add=self.schema_version,
@@ -800,7 +791,7 @@ class TableVersion:
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
-            assert col.id is not None, 'Column id must be set before adding the column'
+            assert col.id is not None
             excs_per_col = 0
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
@@ -854,7 +845,7 @@ class TableVersion:
             upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
         )  # add_columns
         return UpdateStatus(
-            cols_with_excs=[f'{col.tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
+            cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
 
@@ -921,7 +912,7 @@ class TableVersion:
         col = self.path.get_column(old_name)
         if col is None:
             raise excs.Error(f'Unknown column: {old_name}')
-        if col.tbl().id != self.id:
+        if col.get_tbl().id != self.id:
             raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
             raise excs.Error(f"Invalid column name: '{new_name}'")
@@ -1114,7 +1105,7 @@ class TableVersion:
             col = self.path.get_column(col_name)
             if col is None:
                 raise excs.Error(f'Column {col_name} unknown')
-            if col.tbl().id != self.id:
+            if col.get_tbl().id != self.id:
                 raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
@@ -1220,7 +1211,7 @@ class TableVersion:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
-                recomputed_cols = [col for col in recomputed_view_cols if col.tbl().id == view.id]
+                recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
                 plan = None
                 if len(recomputed_cols) > 0:
                     plan = Planner.create_view_update_plan(view.get().path, recompute_targets=recomputed_cols)
@@ -1625,7 +1616,7 @@ class TableVersion:
 
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
         # assumes that the indexed columns are all in this table
-        assert all(col.tbl().id == self.id for col in cols)
+        assert all(col.get_tbl().id == self.id for col in cols)
         col_ids = {col.id for col in cols}
         return {info.val_col for info in self.idxs.values() if info.col.id in col_ids}
 
@@ -1652,7 +1643,7 @@ class TableVersion:
         from pixeltable.catalog import Catalog
 
         cat = Catalog.get()
-        result = set().union(*[cat.get_column_dependents(col.tbl().id, col.id) for col in cols])
+        result = set().union(*[cat.get_column_dependents(col.get_tbl().id, col.id) for col in cols])
         if len(result) > 0:
             result.update(self.get_dependent_columns(result))
         return result

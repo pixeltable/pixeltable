@@ -126,8 +126,8 @@ class LocalStore(ObjectStoreBase):
         Construct a new, unique Path name in the __base_dir for a persisted file.
         Create the parent directory for the new Path if it does not already exist.
         """
-        assert col.tbl() is not None, 'Column must be associated with a table'
-        return self._prepare_path_raw(col.tbl().id, col.id, col.tbl().version, ext)
+        assert col.get_tbl() is not None, 'Column must be associated with a table'
+        return self._prepare_path_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext)
 
     def contains_path(self, file_path: Path) -> bool:
         """Return True if the given path refers to a file managed by this LocalStore, else False."""
