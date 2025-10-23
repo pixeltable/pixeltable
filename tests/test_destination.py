@@ -7,6 +7,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
@@ -142,18 +143,18 @@ class TestDestination:
 
         n = len(r)
         assert n == 2
-        assert n == ObjectOps.count(None, t._id)
+        assert n == ObjectOps.count(Env.get().default_media_destination, t._id)
         assert n == ObjectOps.count(dest1_uri, t._id)
         assert n == ObjectOps.count(dest2_uri, t._id)
 
         n = 1
-        assert n == ObjectOps.count(None, t._id, 2)
+        assert n == ObjectOps.count(Env.get().default_media_destination, t._id, 2)
         assert n == ObjectOps.count(dest1_uri, t._id, 3)
         assert n == ObjectOps.count(dest2_uri, t._id, 4)
 
         version = 5
         n = 1
-        assert n == ObjectOps.count(None, t._id, version)
+        assert n == ObjectOps.count(Env.get().default_media_destination, t._id, version)
         assert n == ObjectOps.count(dest1_uri, t._id, version)
         assert n == ObjectOps.count(dest2_uri, t._id, version)
 
@@ -168,7 +169,7 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        assert ObjectOps.count(None, save_id) == 0
+        assert ObjectOps.count(Env.get().default_media_destination, save_id) == 0
         assert ObjectOps.count(dest1_uri, save_id) == 0
         assert ObjectOps.count(dest2_uri, save_id) == 0
 
@@ -195,7 +196,7 @@ class TestDestination:
         print(r_dest)
 
         assert len(r) == 2
-        assert len(r) == ObjectOps.count(None, t._id)
+        assert len(r) == ObjectOps.count(Env.get().default_media_destination, t._id)
         assert len(r) == ObjectOps.count(dest1_uri, t._id)
 
         # The outcome of this test is unusual:
@@ -227,8 +228,12 @@ class TestDestination:
 
         assert len(r) == 2
 
-        # Copying a local file to the LocalStore is not allowed
-        assert ObjectOps.count(None, t._id) == 0
+        if Env.get().default_media_destination is None:
+            # Copying a local file to the LocalStore is not allowed
+            assert 0 == ObjectOps.count(None, t._id)
+        else:
+            # With default media destination set, just img_rot1 should be copied there
+            assert 1 == ObjectOps.count(Env.get().default_media_destination, t._id)
 
         # Ensure that local file is copied to a specified destination
         assert len(r) == ObjectOps.count(dest1_uri, t._id)
