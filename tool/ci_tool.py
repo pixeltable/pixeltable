@@ -6,9 +6,11 @@ Command-line utility for CI/CD operations.
 """
 
 import argparse
+from datetime import datetime, timezone
 import json
 import sys
 from typing import Literal, NamedTuple, NoReturn
+import uuid
 
 
 class MatrixConfig(NamedTuple):
@@ -38,6 +40,12 @@ class MatrixConfig(NamedTuple):
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
 EXPENSIVE_PLATFORMS = ('ubuntu-x64-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
+
+
+def new_bucket_addr() -> str:
+    date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+    bucket_uuid = uuid.uuid4().hex
+    return f's3://pxt-test/pytest-media-dest/{date_str}/{bucket_uuid}'
 
 
 def generate_matrix(args: argparse.Namespace) -> None:
@@ -76,15 +84,16 @@ def generate_matrix(args: argparse.Namespace) -> None:
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
-        # Minimal tests with S3 media destination
+        # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
+        # different test runs don't interfere with each other and any stale data is easy to clean up.
         configs.append(
             MatrixConfig(
-                's3-dest',
+                's3-output-dest',
                 'py',
                 'ubuntu-24.04',
                 '3.10',
                 uv_options='--no-dev --group storage-sdks',
-                extra_env='PIXELTABLE_MEDIA_DESTINATION=s3://pxt-test/media-dest',
+                extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}'
             )
         )
 
