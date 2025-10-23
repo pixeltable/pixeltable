@@ -41,8 +41,7 @@ def to_audio(
     if output_sample_rate is None:
         output_sample_rate = input_sample_rate
 
-    codec = audio_formats[format][0]
-    ext = audio_formats[format][1]
+    codec, ext = audio_formats[format]
     output_path = str(TempStore.create_path(extension=f'.{ext}'))
 
     match audio_data.shape[0]:
