@@ -15,6 +15,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable.func import public_api
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -101,6 +102,7 @@ class Table(SchemaObject):
         conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     # this is duplicated from SchemaObject so that our API docs show the docstring for Table
+    @public_api
     def get_metadata(self) -> 'TableMetadata':
         """
         Retrieves metadata associated with this table.
@@ -185,6 +187,7 @@ class Table(SchemaObject):
         """Return a ColumnRef for the given name."""
         return getattr(self, name)
 
+    @public_api
     def list_views(self, *, recursive: bool = True) -> list[str]:
         """
         Returns a list of all views and snapshots of this `Table`.
@@ -314,10 +317,12 @@ class Table(SchemaObject):
         """Return the last n rows inserted into this table."""
         return self._df().tail(*args, **kwargs)
 
+    @public_api
     def count(self) -> int:
         """Return the number of rows in this table."""
         return self._df().count()
 
+    @public_api
     def columns(self) -> list[str]:
         """Return the names of the columns in this table."""
         cols = self._tbl_version_path.columns()
@@ -423,6 +428,7 @@ class Table(SchemaObject):
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
+    @public_api
     def describe(self) -> None:
         """
         Print the table schema.
@@ -494,6 +500,7 @@ class Table(SchemaObject):
                     assert new_col_name not in self._tbl_version.get().cols_by_name
         return cols_to_ignore
 
+    @public_api
     def add_columns(
         self,
         schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
@@ -565,6 +572,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @public_api
     def add_column(
         self,
         *,
@@ -612,6 +620,7 @@ class Table(SchemaObject):
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
+    @public_api
     def add_computed_column(
         self,
         *,
@@ -829,6 +838,7 @@ class Table(SchemaObject):
         for col in schema:
             cls._verify_column(col)
 
+    @public_api
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
 
@@ -944,6 +954,7 @@ class Table(SchemaObject):
 
             self._tbl_version.get().drop_column(col)
 
+    @public_api
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
 
@@ -978,6 +989,7 @@ class Table(SchemaObject):
             index_info.append({'_id': idx.id, '_name': idx_name, '_column': idx.col.name})
         return index_info
 
+    @public_api
     def add_embedding_index(
         self,
         column: str | ColumnRef,
@@ -1110,6 +1122,7 @@ class Table(SchemaObject):
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
 
+    @public_api
     def drop_embedding_index(
         self,
         *,
@@ -1189,6 +1202,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Invalid column parameter type: {type(column)}')
         return col
 
+    @public_api
     def drop_index(
         self,
         *,
@@ -1303,6 +1317,7 @@ class Table(SchemaObject):
             )
         self._tbl_version.get().drop_index(idx_info.id)
 
+    @public_api
     @overload
     def insert(
         self,
@@ -1316,6 +1331,7 @@ class Table(SchemaObject):
         **kwargs: Any,
     ) -> UpdateStatus: ...
 
+    @public_api
     @overload
     def insert(
         self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
@@ -1412,6 +1428,7 @@ class Table(SchemaObject):
         """
         raise NotImplementedError
 
+    @public_api
     def update(
         self, value_spec: dict[str, Any], where: Optional['exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
@@ -1450,6 +1467,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @public_api
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
@@ -1521,6 +1539,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @public_api
     def recompute_columns(
         self,
         *columns: str | ColumnRef,
@@ -1597,6 +1616,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @public_api
     def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
@@ -1614,6 +1634,7 @@ class Table(SchemaObject):
         """
         raise NotImplementedError
 
+    @public_api
     def revert(self) -> None:
         """Reverts the table to the previous version.
 
@@ -1647,6 +1668,7 @@ class Table(SchemaObject):
             self._tbl_version.get().link_external_store(store)
             env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
+    @public_api
     def unlink_external_stores(
         self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
     ) -> None:
@@ -1689,6 +1711,7 @@ class Table(SchemaObject):
                     store.delete()
                 env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store_str}')
 
+    @public_api
     def sync(
         self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
     ) -> UpdateStatus:
@@ -1734,6 +1757,7 @@ class Table(SchemaObject):
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._get_schema().keys())
 
+    @public_api
     def get_versions(self, n: Optional[int] = None) -> list[VersionMetadata]:
         """
         Returns information about versions of this table, most recent first.
@@ -1806,6 +1830,7 @@ class Table(SchemaObject):
 
         return metadata_dicts
 
+    @public_api
     def history(self, n: Optional[int] = None) -> pd.DataFrame:
         """
         Returns a human-readable report about versions of this table.

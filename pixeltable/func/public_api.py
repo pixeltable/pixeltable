@@ -75,8 +75,9 @@ def public_api(obj: T) -> T:
     try:
         signature = inspect.signature(obj)
         type_hints = get_type_hints(obj)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError, NameError):
         # Some objects (like UDFs) may not have standard signatures
+        # or get_type_hints may fail due to circular imports or undefined names
         signature = None
         type_hints = {}
 
@@ -88,7 +89,8 @@ def public_api(obj: T) -> T:
                 'name': param_name,
                 'annotation': type_hints.get(param_name, param.annotation),
                 'default': param.default if param.default != inspect.Parameter.empty else None,
-                'kind': param.kind.name,  # POSITIONAL_ONLY, POSITIONAL_OR_KEYWORD, VAR_POSITIONAL, KEYWORD_ONLY, VAR_KEYWORD
+                # Kind: POSITIONAL_ONLY, POSITIONAL_OR_KEYWORD, VAR_POSITIONAL, KEYWORD_ONLY, VAR_KEYWORD
+                'kind': param.kind.name,
             }
             parameters[param_name] = param_info
 
@@ -152,7 +154,7 @@ def get_pydantic_models(func: Callable) -> tuple[Optional[type], Optional[type]]
         Tuple of (InputModel, OutputModel) or (None, None) if generation fails
     """
     try:
-        from pydantic import BaseModel, create_model
+        from pydantic import create_model
     except ImportError:
         return None, None
 
