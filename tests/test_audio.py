@@ -417,7 +417,6 @@ class TestAudio:
         assert len(audio_data) > 0
         return audio_data, sample_rate
 
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, reset_db: None) -> None:
         """
