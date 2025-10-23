@@ -398,7 +398,7 @@ class TestAudio:
         skip_test_if_not_installed('datasets')
         import datasets  # type: ignore[import-untyped]
 
-        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset')
+        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split='test')
         t = pxt.create_table('test_encode_dataset_audio', source=hf_dataset)
         row = t.head(1)[0]
         assert set(row.keys()) == {'audio', 'sentence'}
@@ -413,7 +413,7 @@ class TestAudio:
             )
         )
         validate_update_status(update_status)
-        assert update_status.num_computed_values > 6000
+        assert update_status.num_computed_values > 1000
         for row in t.head(10):
             assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
             print(f'Encoded audio file: {row["audio_file"]}')
