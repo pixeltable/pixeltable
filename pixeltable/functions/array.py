@@ -22,10 +22,12 @@ def to_audio(
     Encodes an audio clip represented as an array into a specified audio format.
 
     Parameters:
-        audio_data: An array representing the audio data. The shape should be (1, N) for mono audio or (2, N) for stereo.
+        audio_data: An array representing the audio data. The shape should be (1, N) for mono audio or (2, N) for
+        stereo.
         input_sample_rate: The sample rate of the input audio data.
         format: The desired output audio format. The supported formats are "wav", "mp3", "flac", and "mp4".
-        output_sample_rate: The desired sample rate for the output audio. Defaults to the input sample rate if unspecified.
+        output_sample_rate: The desired sample rate for the output audio. Defaults to the input sample rate if
+        unspecified.
 
     Example:
         update_status = t.add_computed_column(
@@ -49,7 +51,8 @@ def to_audio(
             layout = 'mono'
             audio_data_transformed = audio_data.reshape(-1, 1).transpose()
         case 2:
-            # Stereo audio. Input layout: [[L0, L1, L2, ...],[R0, R1, R2, ...]], pyav expects: [L0, R0, L1, R1, L2, R2, ...]
+            # Stereo audio. Input layout: [[L0, L1, L2, ...],[R0, R1, R2, ...]],
+            # pyav expects: [L0, R0, L1, R1, L2, R2, ...]
             layout = 'stereo'
             audio_data_transformed = np.empty(audio_data.shape[1] * 2, dtype=audio_data.dtype)
             audio_data_transformed[0::2] = audio_data[0]

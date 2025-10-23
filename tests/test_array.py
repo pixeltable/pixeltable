@@ -1,5 +1,3 @@
-from typing import TYPE_CHECKING
-
 import av
 import numpy as np
 import pytest
@@ -8,9 +6,6 @@ import pixeltable as pxt
 from pixeltable.functions.array import to_audio
 
 from .utils import IN_CI, rerun, skip_test_if_not_installed
-
-if TYPE_CHECKING:
-    import datasets  # type: ignore[import-untyped]
 
 
 class TestArray:
@@ -72,7 +67,7 @@ class TestArray:
         As an added bonus, it exercises the stereo codepath which the test above doesn't.
         """
         skip_test_if_not_installed('datasets')
-        import datasets
+        import datasets  # type: ignore[import-untyped]
 
         hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset')
         t = pxt.create_table('hfds', source=hf_dataset)
