@@ -90,7 +90,10 @@ source = "uv-dynamic-versioning"
 [tool.uv]
 required-version = ">=0.8"
 default-groups = ["dev", "test"]
-override-dependencies = ["sse-starlette>=2.0"]  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+override-dependencies = [
+    "numpy>=2.2",  # Required because 'whisperx' hard-codes 'numpy<2.1'
+    "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+]
 
 [tool.uv-dynamic-versioning]
 vcs = "git"
@@ -120,6 +123,7 @@ dev = [
     "mkdocstrings-python>=1.10.2,<2",
     "black>=24.4",
     "pydoclint>=0.7",
+    "docstring-parser-fork<0.0.14",  # pin to avoid breaking changes in 0.0.14
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
@@ -159,6 +163,8 @@ dev = [
     "google-cloud-storage>=2.18.0",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.10",
+    "diffusers>=0.34",
+    "accelerate>=1.10",
 ]
 test = [
     "pytest>=8.4",
