@@ -23,11 +23,12 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
+
+from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
 from .tbl_ops import TableOp
 from .update_status import RowCountStats, UpdateStatus
-from ..func.globals import resolve_symbol
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
