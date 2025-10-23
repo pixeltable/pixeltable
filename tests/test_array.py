@@ -66,7 +66,11 @@ class TestArray:
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, reset_db: None) -> None:
-        """The point of this test case is to validate to_audio UDF on a real-world dataset."""
+        """
+        The point of this test case is to validate to_audio UDF on a real-world dataset.
+
+        As an added bonus, it exercises the stereo codepath which the test above doesn't.
+        """
         skip_test_if_not_installed('datasets')
         import datasets
 
