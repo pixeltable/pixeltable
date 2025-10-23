@@ -4,6 +4,7 @@ from typing import Counter, Optional
 import av
 import numpy as np
 import pytest
+import pixeltable.utils.av as av_utils
 
 import pixeltable as pxt
 from pixeltable.functions.audio import encode_audio
@@ -27,7 +28,10 @@ class TestAudio:
     def check_audio_params(self, path: str, format: Optional[str] = None, codec: Optional[str] = None) -> None:
         with av.open(path) as container:
             audio_stream = container.streams.audio[0]
-            if format is not None:
+            if format == 'mp4':
+                # mov, the demuxer for mp4, happens to return a string such as 'mov,mp4,m4a,3gp,3g2,mj2'
+                assert 'mp4' in container.format.name
+            elif format is not None:
                 assert format == container.format.name
             if codec is not None:
                 assert codec == audio_stream.codec_context.codec.name
@@ -68,7 +72,7 @@ class TestAudio:
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s32le')
 
-        for format in ['mp3', 'flac']:
+        for format in av_utils.audio_format_defaults.keys() - 'wav':
             paths = video_t.select(output=video_t.video.extract_audio(format=format)).collect()['output']
             for path in [p for p in paths if p is not None]:
                 self.check_audio_params(path, format=format)

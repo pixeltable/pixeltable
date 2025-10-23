@@ -55,16 +55,6 @@ def get_metadata(audio: pxt.Audio) -> dict:
     return av_utils.get_metadata(audio)
 
 
-# format -> (codec, file extension)
-# TODO same as in video.py, extract to av.utils
-audio_formats: dict[str, tuple[str, str]] = {
-    'wav': ('pcm_s16le', 'wav'),
-    'mp3': ('libmp3lame', 'mp3'),
-    'flac': ('flac', 'flac'),
-    'mp4': ('aac', 'm4a'),
-}
-
-
 @pxt.udf()
 def encode_audio(
     audio_data: pxt.Array, *, input_sample_rate: int, format: str, output_sample_rate: int | None = None
@@ -83,13 +73,13 @@ def encode_audio(
     Example:
         TODO
     """
-    if format not in audio_formats:
-        raise pxt.Error(f'Only the following formats are supported: {audio_formats.keys}')
+    if format not in av_utils.audio_format_defaults:
+        raise pxt.Error(f'Only the following formats are supported: {av_utils.audio_format_defaults.keys()}')
     if output_sample_rate is None:
         output_sample_rate = input_sample_rate
     assert len(audio_data.shape) == 2, f'Input audio array must be 2-dimensional. Actual shape: {audio_data.shape}'
 
-    codec, ext = audio_formats[format]
+    codec, ext = av_utils.audio_format_defaults[format]
     output_path = str(TempStore.create_path(extension=f'.{ext}'))
 
     match audio_data.shape[0]:
