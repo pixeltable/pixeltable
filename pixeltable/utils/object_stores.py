@@ -202,7 +202,7 @@ class ObjectPath:
             container = parsed.netloc
             key = parsed.path.lstrip('/')
 
-        elif scheme in ['wasb', 'wasbs', 'abfs', 'abfss']:
+        elif scheme in ('wasb', 'wasbs', 'abfs', 'abfss'):
             # Azure-specific URI schemes
             # wasb[s]://container@account.blob.core.windows.net/<optional prefix>/<optional object>
             # abfs[s]://container@account.dfs.core.windows.net/<optional prefix>/<optional object>
@@ -216,7 +216,7 @@ class ObjectPath:
                 raise ValueError(f'Invalid Azure URI format: {src_addr}')
             key = parsed.path.lstrip('/')
 
-        elif scheme in ['http', 'https']:
+        elif scheme in ('http', 'https'):
             # Standard HTTP(S) URL format
             # https://account.blob.core.windows.net/container/<optional path>/<optional object>
             # https://account.r2.cloudflarestorage.com/container/<optional path>/<optional object>
@@ -368,17 +368,7 @@ class ObjectOps:
         soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
-        if soa.storage_target == StorageTarget.S3_STORE and soa.scheme == 's3':
-            env.Env.get().require_package('boto3')
-            from pixeltable.utils.s3_store import S3Store
-
-            return S3Store(soa)
-        if soa.storage_target == StorageTarget.R2_STORE:
-            env.Env.get().require_package('boto3')
-            from pixeltable.utils.s3_store import S3Store
-
-            return S3Store(soa)
-        if soa.storage_target == StorageTarget.B2_STORE:
+        if soa.storage_target in (StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE):
             env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 
