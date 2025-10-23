@@ -163,8 +163,6 @@ class TableVersion:
         else:
             self_handle = TableVersionHandle(id, self.effective_version)
             if self.is_view:
-                if base_path is None:
-                    pass
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
 
@@ -518,10 +516,6 @@ class TableVersion:
                 idx = idxs[md.id]
                 indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
                 idx_col = self._lookup_column(indexed_col_id)
-                if md.index_val_col_id not in self.cols_by_id:
-                    pass
-                if md.index_val_undo_col_id not in self.cols_by_id:
-                    pass
                 info = self.IndexInfo(
                     id=md.id,
                     name=md.name,
@@ -1559,7 +1553,6 @@ class TableVersion:
     @property
     def is_snapshot(self) -> bool:
         return self.effective_version is not None
-        # return self.view_md is not None and self.view_md.is_snapshot
 
     @property
     def is_mutable(self) -> bool:

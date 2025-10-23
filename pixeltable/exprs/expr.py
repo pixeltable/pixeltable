@@ -505,7 +505,7 @@ class Expr(abc.ABC):
             c.prepare()
 
     @classmethod
-    def prepare_list(cls, expr_list: list[Expr]) -> None:
+    def prepare_list(cls, expr_list: Iterable[Expr]) -> None:
         for e in expr_list:
             e.prepare()
 
@@ -517,7 +517,7 @@ class Expr(abc.ABC):
             c.release()
 
     @classmethod
-    def release_list(cls, expr_list: list[Expr]) -> None:
+    def release_list(cls, expr_list: Iterable[Expr]) -> None:
         for e in expr_list:
             e.release()
 
