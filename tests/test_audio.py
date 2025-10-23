@@ -4,9 +4,9 @@ from typing import Counter, Optional
 import av
 import numpy as np
 import pytest
-import pixeltable.utils.av as av_utils
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
 from pixeltable.functions.audio import encode_audio
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.local_store import TempStore
@@ -344,17 +344,29 @@ class TestAudio:
         assert 'overlap_sec must be less than chunk_duration_sec' in str(excinfo.value)
 
     @pytest.mark.parametrize(
-        'format,downsample', [('wav', False), ('mp3', False), ('mp3', True), ('flac', False), ('mp4', False)]
+        'format,downsample,as_1d_array',
+        [
+            ('wav', False, False),  # wav
+            ('mp3', False, False),  # mp3
+            ('mp3', True, False),  # mp3_downsample
+            ('flac', False, False),  # flac
+            ('mp4', False, False),  # mp4
+            ('mp4', False, True),  # mp4_1d_array
+        ],
+        ids=['wav', 'mp3', 'mp3_downsample', 'flac', 'mp4', 'mp4_1d_array'],
     )
-    def test_encode_array_to_audio(self, format: str, downsample: bool, reset_db: None) -> None:
+    def test_encode_array_to_audio_mono(self, format: str, downsample: bool, as_1d_array: bool, reset_db: None) -> None:
         # Load a sample mp3 file to an array
         audio_data, sample_rate = self._load_sample_audio('./docs/resources/10-minute tour of Pixeltable.mp3')
         assert audio_data.dtype == np.float32
         assert audio_data.ndim == 2
-        assert audio_data.shape[0] == 1  # That sample is in mono
+        assert audio_data.shape[0] == 1  # We are working with a mono sample, so there is only one channel
+        if as_1d_array:
+            # Validate the scenario in which the input is a 1D array as opposed to a (1, N)-shaped array
+            audio_data = audio_data.flatten()
 
         # Use encode_audio to encode it to an audio file
-        t = pxt.create_table('test_mp3_to_array_and_back', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        t = pxt.create_table('test_encode_array_to_audio_mono', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
         output_sample_rate = sample_rate // 2 if downsample else sample_rate
         t.add_computed_column(
             audio_file=encode_audio(

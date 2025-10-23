@@ -63,8 +63,8 @@ def encode_audio(
     Encodes an audio clip represented as an array into a specified audio format.
 
     Parameters:
-        audio_data: An array of sampled amplitudes. The shape should be (1, N) for mono audio or (2, N) for
-            stereo.
+        audio_data: An array of sampled amplitudes. The accepted array shapes are (N) or (1, N) for mono audio or (2, N)
+            for stereo.
         input_sample_rate: The sample rate of the input audio data.
         format: The desired output audio format. The supported formats are 'wav', 'mp3', 'flac', and 'mp4'.
         output_sample_rate: The desired sample rate for the output audio. Defaults to the input sample rate if
@@ -77,17 +77,20 @@ def encode_audio(
         raise pxt.Error(f'Only the following formats are supported: {av_utils.audio_format_defaults.keys()}')
     if output_sample_rate is None:
         output_sample_rate = input_sample_rate
-    assert len(audio_data.shape) == 2, f'Input audio array must be 2-dimensional. Actual shape: {audio_data.shape}'
 
     codec, ext = av_utils.audio_format_defaults[format]
     output_path = str(TempStore.create_path(extension=f'.{ext}'))
 
-    match audio_data.shape[0]:
-        case 1:
-            # Mono audio, simply reshape and transpose the input for pyav
+    match audio_data.shape:
+        case (_,):
+            # Mono audio as 1D array, reshape for pyav
+            layout = 'mono'
+            audio_data_transformed = audio_data[None, :]
+        case (1, _):
+            # Mono audio as 2D array, simply reshape and transpose the input for pyav
             layout = 'mono'
             audio_data_transformed = audio_data.reshape(-1, 1).transpose()
-        case 2:
+        case (2, _):
             # Stereo audio. Input layout: [[L0, L1, L2, ...],[R0, R1, R2, ...]],
             # pyav expects: [L0, R0, L1, R1, L2, R2, ...]
             layout = 'stereo'
@@ -97,7 +100,7 @@ def encode_audio(
             audio_data_transformed = audio_data_transformed.reshape(1, -1)
         case _:
             raise pxt.Error(
-                f'Supported input array shapes are (1, N) for mono and (2, N) for stereo, got {audio_data.shape}'
+                f'Supported input array shapes are (N), (1, N) for mono and (2, N) for stereo, got {audio_data.shape}'
             )
 
     with av.open(output_path, mode='w') as output_container:
