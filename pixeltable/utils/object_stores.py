@@ -364,7 +364,7 @@ class ObjectOps:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
-        dest = dest or Env.get().default_media_destination or str(Env.get().media_dir)
+        dest = dest or str(Env.get().media_dir)  # Use local media dir as fallback
         soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sql
 
+from pixeltable.env import Env
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
@@ -53,7 +54,7 @@ class Column:
     col_type: ts.ColumnType
     stored: bool
     is_pk: bool
-    destination: Optional[str]  # An object store reference for computed files
+    _destination: Optional[str]  # An object store reference for computed files
     _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
@@ -127,7 +128,7 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
-        self.destination = destination
+        self._destination = destination
 
     def to_md(self, pos: Optional[int] = None) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -140,7 +141,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
-            destination=self.destination,
+            destination=self._destination,
         )
         if pos is None:
             return col_md, None
@@ -199,6 +200,14 @@ class Column:
                 .format(validation_error=self._value_expr.validation_error)
             )
             warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+
+    @property
+    def destination(self) -> Optional[str]:
+        if self._destination is not None:
+            return self._destination
+        if self.is_computed:
+            return Env.get().default_media_destination
+        return None
 
     @property
     def handle(self) -> 'ColumnHandle':
