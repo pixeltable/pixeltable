@@ -344,29 +344,48 @@ class TestAudio:
         assert 'overlap_sec must be less than chunk_duration_sec' in str(excinfo.value)
 
     @pytest.mark.parametrize(
-        'format,downsample,as_1d_array',
+        'format,stereo,downsample,as_1d_array',
         [
-            ('wav', False, False),  # wav
-            ('mp3', False, False),  # mp3
-            ('mp3', True, False),  # mp3_downsample
-            ('flac', False, False),  # flac
-            ('mp4', False, False),  # mp4
-            ('mp4', False, True),  # mp4_1d_array
+            ('wav', False, False, False),  # wav_mono
+            ('mp3', True, False, False),  # mp3_stereo
+            ('mp3', False, False, False),  # mp3_mono
+            ('mp3', True, True, False),  # mp3_downsample_stereo
+            ('flac', True, False, False),  # flac_stereo
+            ('mp4', True, False, False),  # mp4_stereo
+            ('mp4', False, False, True),  # mp4_1d_array_mono
         ],
-        ids=['wav', 'mp3', 'mp3_downsample', 'flac', 'mp4', 'mp4_1d_array'],
+        ids=[
+            'wav_mono',
+            'mp3_stereo',
+            'mp3_mono',
+            'mp3_downsample_stereo',
+            'flac_stereo',
+            'mp4_stereo',
+            'mp4_1d_array_mono',
+        ],
     )
-    def test_encode_array_to_audio_mono(self, format: str, downsample: bool, as_1d_array: bool, reset_db: None) -> None:
+    def test_encode_array_to_audio(
+        self, format: str, stereo: bool, downsample: bool, as_1d_array: bool, reset_db: None
+    ) -> None:
         # Load a sample mp3 file to an array
-        audio_data, sample_rate = self._load_sample_audio('./docs/resources/10-minute tour of Pixeltable.mp3')
+        if stereo:
+            sample_path = './tests/data/audio/sample.mp3'
+            duration = 15
+        else:
+            sample_path = './docs/resources/10-minute tour of Pixeltable.mp3'
+            duration = 301  # the "10 minute tour" is actually about 5 minutes long
+
+        audio_data, sample_rate = self._load_sample_audio(sample_path)
         assert audio_data.dtype == np.float32
         assert audio_data.ndim == 2
-        assert audio_data.shape[0] == 1  # We are working with a mono sample, so there is only one channel
+        assert audio_data.shape[0] == 2 if stereo else 1
         if as_1d_array:
-            # Validate the scenario in which the input is a 1D array as opposed to a (1, N)-shaped array
+            # Validate the scenario in which the input is a mono clip as an (N)-shaped array, as opposed to (1, N)
+            assert not stereo
             audio_data = audio_data.flatten()
 
         # Use encode_audio to encode it to an audio file
-        t = pxt.create_table('test_encode_array_to_audio_mono', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        t = pxt.create_table('test_encode_array_to_audio', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
         output_sample_rate = sample_rate // 2 if downsample else sample_rate
         t.add_computed_column(
             audio_file=encode_audio(
@@ -385,8 +404,7 @@ class TestAudio:
         with av.open(encoded_path) as container:
             audio_stream = container.streams.audio[0]
             duration_seconds = float(audio_stream.duration * audio_stream.time_base)
-            # the "10 minute tour" is actually about 5 minutes long
-            assert abs(duration_seconds - 300) < 10
+            assert abs(duration_seconds - duration) < 1
 
     def _load_sample_audio(self, file_path: str) -> tuple[np.ndarray, int]:
         with av.open(file_path) as container:
@@ -404,8 +422,6 @@ class TestAudio:
     def test_encode_dataset_audio(self, reset_db: None) -> None:
         """
         The point of this test case is to validate encode_audio UDF on a real-world dataset.
-
-        As an added bonus, it exercises the stereo codepath which the test above doesn't.
         """
         skip_test_if_not_installed('datasets')
         import datasets  # type: ignore[import-untyped]
