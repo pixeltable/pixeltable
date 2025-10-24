@@ -431,7 +431,9 @@ class TestAudio:
 
         update_status = t.add_computed_column(
             audio_file=encode_audio(
-                t.audio.array.astype(pxt.Array), input_sample_rate=t.audio.sampling_rate.astype(pxt.Int), format='flac'
+                t.audio.array.astype(pxt.Array[pxt.Float]),  # type: ignore[misc]
+                input_sample_rate=t.audio.sampling_rate.astype(pxt.Int),
+                format='flac',
             )
         )
         validate_update_status(update_status)

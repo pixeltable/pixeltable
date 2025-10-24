@@ -57,7 +57,7 @@ def get_metadata(audio: pxt.Audio) -> dict:
 
 @pxt.udf()
 def encode_audio(
-    audio_data: pxt.Array, *, input_sample_rate: int, format: str, output_sample_rate: int | None = None
+    audio_data: pxt.Array[pxt.Float], *, input_sample_rate: int, format: str, output_sample_rate: int | None = None
 ) -> pxt.Audio:
     """
     Encodes an audio clip represented as an array into a specified audio format.
