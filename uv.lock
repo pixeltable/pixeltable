@@ -4821,6 +4821,7 @@ wheels = [
 name = "pixeltable"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "av", version = "15.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '4'" },
     { name = "av", version = "16.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '4'" },
     { name = "beautifulsoup4" },
