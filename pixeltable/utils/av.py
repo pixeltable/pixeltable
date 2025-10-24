@@ -5,6 +5,14 @@ import av.stream
 
 from pixeltable.env import Env
 
+# format -> (codec, extension)
+audio_format_defaults: dict[str, tuple[str, str]] = {
+    'wav': ('pcm_s16le', 'wav'),
+    'mp3': ('libmp3lame', 'mp3'),
+    'flac': ('flac', 'flac'),
+    'mp4': ('aac', 'm4a'),
+}
+
 
 def get_metadata(path: str) -> dict:
     with av.open(path) as container:

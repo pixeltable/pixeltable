@@ -20,28 +20,6 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger('pixeltable')
-_format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
-    'wav': ('pcm_s16le', 'wav'),
-    'mp3': ('libmp3lame', 'mp3'),
-    'flac': ('flac', 'flac'),
-    # 'mp4': ('aac', 'm4a'),
-}
-
-# for mp4:
-# - extract_audio() fails with
-#   "Application provided invalid, non monotonically increasing dts to muxer in stream 0: 1146 >= 290"
-# - chatgpt suggests this can be fixed in the following manner
-#     for packet in container.demux(audio_stream):
-#         packet.pts = None  # Reset the PTS and DTS to allow FFmpeg to set them automatically
-#         packet.dts = None
-#         for frame in packet.decode():
-#             frame.pts = None
-#             for packet in output_stream.encode(frame):
-#                 output_container.mux(packet)
-#
-#     # Flush remaining packets
-#     for packet in output_stream.encode():
-#         output_container.mux(packet)
 
 
 @pxt.uda(requires_order_by=True)
@@ -150,9 +128,9 @@ def extract_audio(
         ...     extracted_audio=tbl.video_col.extract_audio(format='flac')
         ... )
     """
-    if format not in _format_defaults:
+    if format not in av_utils.audio_format_defaults:
         raise ValueError(f'extract_audio(): unsupported audio format: {format}')
-    default_codec, ext = _format_defaults[format]
+    default_codec, ext = av_utils.audio_format_defaults[format]
 
     with av.open(video_path) as container:
         if len(container.streams.audio) <= stream_idx:
