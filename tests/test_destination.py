@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 import pytest
 
@@ -14,12 +14,8 @@ from .utils import skip_test_if_not_installed
 
 
 class TestDestination:
-    @staticmethod
-    def validate_dest(dest: Optional[str]) -> bool:
-        ObjectOps.validate_destination(dest, '')
-        return True
-
     TESTED_DESTINATIONS = (
+        StorageTarget.B2_STORE,
         StorageTarget.GCS_STORE,
         StorageTarget.LOCAL_STORE,
         StorageTarget.R2_STORE,
@@ -32,7 +28,7 @@ class TestDestination:
         uri: str
         match dest_id:
             case StorageTarget.B2_STORE:
-                uri = 'https://s3.us-east-005.backblazeb2.com/5f1d8127cd78c3509c9e0f17/pytest'
+                uri = 'https://s3.us-east-005.backblazeb2.com/pixeltable/pytest'
             case StorageTarget.GCS_STORE:
                 if 'GOOGLE_APPLICATION_CREDENTIALS' not in os.environ:
                     pytest.skip('GOOGLE_APPLICATION_CREDENTIALS is not set')
