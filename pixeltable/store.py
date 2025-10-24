@@ -201,6 +201,10 @@ class StoreBase:
         create_stmt = str(stmt)
         self._exec_if_not_exists(create_stmt)
 
+    def validate(self) -> None:
+        """Validate store table against self.sa_tbl"""
+        pass
+
     def drop(self) -> None:
         """Drop store table"""
         conn = Env.get().conn
