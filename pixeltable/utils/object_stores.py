@@ -56,7 +56,7 @@ class StorageObjectAddress(NamedTuple):
 
     @property
     def is_azure_scheme(self) -> bool:
-        return self.scheme in ['wasb', 'wasbs', 'abfs', 'abfss']
+        return self.scheme in ('wasb', 'wasbs', 'abfs', 'abfss')
 
     @property
     def has_valid_storage_target(self) -> bool:
@@ -394,19 +394,19 @@ class ObjectOps:
         Returns:
             URI of destination, or raises an error
         """
-        error_prefix = f'Column {col_name!r}: ' if col_name is not None else ''
+        error_col_str = f'column {col_name!r}' if col_name is not None else ''
 
         # General checks on any destination
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_prefix}`destination` must be a string or path; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a string or path; got {dest!r}')
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
-        dest2 = store.validate(error_prefix)
+        dest2 = store.validate(error_col_str)
         if dest2 is None:
-            raise excs.Error(f'{error_prefix}`destination` must be a supported destination; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a supported destination; got {dest!r}')
         return dest2
 
     @classmethod

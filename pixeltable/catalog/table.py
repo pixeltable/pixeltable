@@ -780,8 +780,7 @@ class Table(SchemaObject):
                 media_validation = (
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
-                if 'destination' in spec:
-                    destination = ObjectOps.validate_destination(spec['destination'], name)
+                destination = spec.get('destination')
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -794,7 +793,11 @@ class Table(SchemaObject):
                 media_validation=media_validation,
                 destination=destination,
             )
+            # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
+            # media destination, it gets validated at this time.
+            ObjectOps.validate_destination(column.resolved_destination, column.name)
             columns.append(column)
+
         return columns
 
     @classmethod

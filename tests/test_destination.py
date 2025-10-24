@@ -78,10 +78,26 @@ class TestDestination:
         with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
-        # Test with a destination that is not reachable
-        with pytest.raises(Exception):  # noqa: B017
-            ObjectOps.validate_destination(
-                'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest'
+    def test_invalid_bucket(self, reset_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        t = pxt.create_table('test_invalid_dest', schema={'img': pxt.Image})
+
+        with pytest.raises(
+            pxt.Error,
+            match="Client error while validating destination for column 'img_rot': "
+            "Bucket 'pxt-test-not-a-bucket' not found",
+        ):
+            t.add_computed_column(img_rot=t.img.rotate(90), destination='s3://pxt-test-not-a-bucket/pytest')
+
+        with pytest.raises(
+            pxt.Error,
+            match=r'Connection error while validating destination '
+            r"'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest/' "
+            r"for column 'img_rot': SSL validation failed",
+        ):
+            t.add_computed_column(
+                img_rot=t.img.rotate(90),
+                destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',
             )
 
     def test_dest_parser(self, reset_db: None) -> None:
