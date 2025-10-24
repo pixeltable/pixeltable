@@ -382,22 +382,23 @@ wheels = [
 
 [[package]]
 name = "azure-identity"
-version = "1.15.0"
+version = "1.25.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "azure-core" },
     { name = "cryptography" },
     { name = "msal" },
     { name = "msal-extensions" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/02/a0545eaa3fb83a6b6c413de4a65e06a02ce887f874a2e74a1240b2169140/azure-identity-1.15.0.tar.gz", hash = "sha256:4c28fc246b7f9265610eb5261d65931183d019a23d4b0e99357facb2e6c227c8", size = 229694, upload-time = "2023-10-26T15:24:57.071Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/8d/1a6c41c28a37eab26dc85ab6c86992c700cd3f4a597d9ed174b0e9c69489/azure_identity-1.25.1.tar.gz", hash = "sha256:87ca8328883de6036443e1c37b40e8dc8fb74898240f61071e09d2e369361456", size = 279826, upload-time = "2025-10-06T20:30:02.194Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/30/10/5dbf755b368d10a28d55b06ac1f12512a13e88874a23db82defdea9a8cd9/azure_identity-1.15.0-py3-none-any.whl", hash = "sha256:a14b1f01c7036f11f148f22cd8c16e05035293d714458d6b44ddf534d93eb912", size = 164667, upload-time = "2023-10-26T15:24:59.503Z" },
+    { url = "https://files.pythonhosted.org/packages/83/7b/5652771e24fff12da9dde4c20ecf4682e606b104f26419d139758cc935a6/azure_identity-1.25.1-py3-none-any.whl", hash = "sha256:e9edd720af03dff020223cd269fa3a61e8f345ea75443858273bcb44844ab651", size = 191317, upload-time = "2025-10-06T20:30:04.251Z" },
 ]
 
 [[package]]
 name = "azure-storage-blob"
-version = "12.19.0"
+version = "12.27.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "azure-core" },
@@ -405,9 +406,9 @@ dependencies = [
     { name = "isodate" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fd/f8/59c209132b3b2993402df6b7e79728726927b53168624e917cd9daaffea8/azure-storage-blob-12.19.0.tar.gz", hash = "sha256:26c0a4320a34a3c2a1b74528ba6812ebcb632a04cd67b1c7377232c4b01a5897", size = 551109, upload-time = "2023-11-07T23:50:44.103Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/32/0476f18ac82ef1def115dfabaa53170c5a71605c00b4e66c740b07abae71/azure_storage_blob-12.27.0.tar.gz", hash = "sha256:99e8e2cd2a6a723930c364ea0a0539d28e465bc77cf94ef12813c465dc09cb9a", size = 597402, upload-time = "2025-10-15T13:26:15.718Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f6/82/24b0d7cf67ea63af86f11092756b8fe2adc1d55323241dc4107f5f5748e2/azure_storage_blob-12.19.0-py3-none-any.whl", hash = "sha256:7bbc2c9c16678f7a420367fef6b172ba8730a7e66df7f4d7a55d5b3c8216615b", size = 394221, upload-time = "2023-11-07T23:50:46.706Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/55/5c8aec0544007ec8f9ddd0e3b69939a3a41eb6c3897e2454797021753478/azure_storage_blob-12.27.0-py3-none-any.whl", hash = "sha256:b7bef8acb79825f96f2fa24c7535e2924fb3dbc4840a2eebb5f117175bde3657", size = 428916, upload-time = "2025-10-15T13:26:17.607Z" },
 ]
 
 [[package]]
@@ -4866,8 +4867,8 @@ requires-dist = [
 dev = [
     { name = "accelerate", specifier = ">=1.10" },
     { name = "anthropic", specifier = ">=0.53.0" },
-    { name = "azure-identity", specifier = "==1.15.0" },
-    { name = "azure-storage-blob", specifier = "==12.19.0" },
+    { name = "azure-identity", specifier = ">=1.16.0" },
+    { name = "azure-storage-blob", specifier = ">=12.20.0" },
     { name = "black", specifier = ">=24.4" },
     { name = "boto3", specifier = "==1.36.23" },
     { name = "boto3-stubs", specifier = "==1.36.23" },
