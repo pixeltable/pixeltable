@@ -428,7 +428,7 @@ class ObjectOps:
         if relocate_or_delete:
             # File is temporary, used only once, so we can delete it after copy if it can't be moved
             assert TempStore.contains_path(src_path)
-        dest = col.destination
+        dest = col.resolved_destination
         store = cls.get_store(dest, False, col.name)
         # Attempt to move
         if relocate_or_delete:
@@ -443,13 +443,13 @@ class ObjectOps:
     @classmethod
     def move_local_file(cls, col: Column, src_path: Path) -> str:
         """Move a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
+        store = cls.get_store(col.resolved_destination, False, col.name)
         return store.move_local_file(col, src_path)
 
     @classmethod
     def copy_local_file(cls, col: Column, src_path: Path) -> str:
         """Copy a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
+        store = cls.get_store(col.resolved_destination, False, col.name)
         return store.copy_local_file(col, src_path)
 
     @classmethod

@@ -208,7 +208,7 @@ class ObjectStoreSaveNode(ExecNode):
             assert row.excs[index] is None
             assert col.col_type.is_media_type()
 
-            destination = info.col.destination
+            destination = info.col.resolved_destination
             if destination is not None:
                 soa = ObjectPath.parse_object_storage_addr(destination, False)
                 if soa.storage_target == StorageTarget.LOCAL_STORE and LocalStore(soa).resolve_url(url) is not None:
@@ -284,7 +284,7 @@ class ObjectStoreSaveNode(ExecNode):
         """Move data from the TempStore to another location"""
         src_path = work_item.src_path
         col = work_item.info.col
-        assert col.destination == work_item.destination
+        assert col.resolved_destination == work_item.destination
         try:
             new_file_url = ObjectOps.put_file(col, src_path, work_item.destination_count == 1)
             return new_file_url, None

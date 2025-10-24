@@ -54,7 +54,7 @@ class Column:
     col_type: ts.ColumnType
     stored: bool
     is_pk: bool
-    _destination: Optional[str]  # An object store reference for computed files
+    destination: Optional[str]  # An object store reference for computed files
     _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
@@ -128,7 +128,7 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
-        self._destination = destination
+        self.destination = destination
 
     def to_md(self, pos: Optional[int] = None) -> tuple[schema.ColumnMd, Optional[schema.SchemaColumn]]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -141,7 +141,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
-            destination=self._destination,
+            destination=self.destination,
         )
         if pos is None:
             return col_md, None
@@ -202,9 +202,9 @@ class Column:
             warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 
     @property
-    def destination(self) -> Optional[str]:
-        if self._destination is not None:
-            return self._destination
+    def resolved_destination(self) -> Optional[str]:
+        if self.destination is not None:
+            return self.destination
         # TODO: The `self.name is not None` clause is necessary because index columns currently follow the type of
         #     the underlying media column. We should move to using pxt.String as the col_type of index columns; this
         #     would be a more robust solution, and then `self.name is not None` could be removed.
