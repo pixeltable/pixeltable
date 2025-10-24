@@ -41,12 +41,10 @@ class EmbeddingIndex(IndexBase):
     }
 
     metric: Metric
-    # value_expr: exprs.FunctionCall
     string_embed: Optional[func.Function]
     image_embed: Optional[func.Function]
     string_embed_signature_idx: int
     image_embed_signature_idx: int
-    # index_col_type: pgvector.sqlalchemy.Vector
 
     def __init__(
         self,

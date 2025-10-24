@@ -192,6 +192,7 @@ def create_table(
         create_default_idxs=create_default_idxs,
     )
 
+    # TODO: combine data loading with table creation into a single transaction
     if was_created:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         if isinstance(data_source, DFTableDataConduit):

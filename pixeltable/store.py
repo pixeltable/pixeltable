@@ -202,8 +202,21 @@ class StoreBase:
         self._exec_if_not_exists(create_stmt)
 
     def validate(self) -> None:
-        """Validate store table against self.sa_tbl"""
-        pass
+        """Validate store table against self.table_version"""
+        with Env.get().begin_xact() as conn:
+            # check that all columns are present
+            q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
+            store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
+            tbl_col_info = {col.store_name() for col in self.tbl_version.get().cols if col.is_stored}
+            assert tbl_col_info.issubset(store_col_info)
+
+            # check that all visible indices are present
+            q = f'SELECT indexname FROM pg_indexes WHERE tablename = {self._storage_name()!r}'
+            store_idx_names = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
+            tbl_index_names = {
+                self.tbl_version.get()._store_idx_name(info.id) for info in self.tbl_version.get().idxs.values()
+            }
+            assert tbl_index_names.issubset(store_idx_names)
 
     def drop(self) -> None:
         """Drop store table"""

@@ -78,8 +78,11 @@ class CockroachDbms(Dbms):
         return self.db_url.set(database='defaultdb').render_as_string(hide_password=False)
 
     def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index:
-        return None
+        # TODO: can the Create Index statement be generated via sqlalchemy?
+        # if not, change this method to create_vector_index_stmt(...) -> str
+        # original code:
         # create_index_sql = sql.text(
         #     f"""CREATE VECTOR INDEX {store_index_name} ON {sa_value_col.table.name}
         #      ({sa_value_col.name} {metric})"""
         # )
+        return None

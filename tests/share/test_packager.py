@@ -222,7 +222,7 @@ class TestPackager:
         # Table before the bundle was created.
         # TODO: find a better way to validate the physical schema
         assert bundle_info.store_col_schema.issubset(self.__extract_store_col_schema(t))
-        # assert bundle_info.store_idx_schema.issubset(self.__extract_store_idx_schema(t))
+        t._tbl_version_path.tbl_version.get().store_tbl.validate()
 
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
