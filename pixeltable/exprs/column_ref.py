@@ -65,7 +65,6 @@ class ColumnRef(Expr):
         perform_validation: Optional[bool] = None,
     ):
         super().__init__(col.col_type)
-        # assert col.tbl is not None
         self.col = col
         self.reference_tbl = reference_tbl
         self.col_handle = col.handle
