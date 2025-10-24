@@ -38,7 +38,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
-from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
+from pixeltable.utils.object_stores import ObjectPath
 
 if TYPE_CHECKING:
     import spacy

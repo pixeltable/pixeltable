@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sql
 
-from pixeltable.env import Env
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
+from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from .globals import MediaValidation, is_valid_identifier

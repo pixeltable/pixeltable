@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple, Optional
 
 from pixeltable import exprs
-from pixeltable.env import Env
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 from .data_row_batch import DataRowBatch

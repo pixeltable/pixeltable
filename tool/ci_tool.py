@@ -6,11 +6,11 @@ Command-line utility for CI/CD operations.
 """
 
 import argparse
-from datetime import datetime, timezone
 import json
 import sys
-from typing import Literal, NamedTuple, NoReturn
 import uuid
+from datetime import datetime, timezone
+from typing import Literal, NamedTuple, NoReturn
 
 
 class MatrixConfig(NamedTuple):
@@ -93,7 +93,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
                 'ubuntu-24.04',
                 '3.10',
                 uv_options='--no-dev --group storage-sdks',
-                extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}'
+                extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
             )
         )
 

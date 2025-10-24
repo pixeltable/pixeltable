@@ -60,7 +60,7 @@ class StorageObjectAddress(NamedTuple):
 
     @property
     def has_valid_storage_target(self) -> bool:
-        return self.storage_target in [
+        return self.storage_target in (
             StorageTarget.LOCAL_STORE,
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
@@ -68,7 +68,7 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
-        ]
+        )
 
     @property
     def prefix_free_uri(self) -> str:
@@ -462,11 +462,18 @@ class ObjectOps:
         return store.delete(tbl_id, tbl_version)
 
     @classmethod
+    def count_default_input_dest(cls, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+        """Return the count of objects in the default input destination for a given table ID"""
+        return cls.count(env.Env.get().default_input_media_dest, tbl_id, tbl_version)
+
+    @classmethod
+    def count_default_output_dest(cls, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+        """Return the count of objects in the default output destination for a given table ID"""
+        return cls.count(env.Env.get().default_output_media_dest, tbl_id, tbl_version)
+
+    @classmethod
     def count(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
         """Return the count of objects in the destination for a given table ID"""
-        dest = dest or env.Env.get().default_output_media_dest
-        if dest == 'default-input-media-dest':
-            dest = env.Env.get().default_input_media_dest
         store = cls.get_store(dest, False)
         return store.count(tbl_id, tbl_version)
 
