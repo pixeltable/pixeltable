@@ -89,12 +89,17 @@ class TestDestination:
         ):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='s3://pxt-test-not-a-bucket/pytest')
 
-        with pytest.raises(
-            pxt.Error,
-            match=r'Connection error while validating destination '
+        # The error message on this next one appears to vary by environment.
+        msg1 = (
+            r'Connection error while validating destination '
             r"'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest/' "
-            r"for column 'img_rot': SSL validation failed",
-        ):
+            r"for column 'img_rot': SSL validation failed"
+        )
+        msg2 = (
+            r"Client error while validating destination for column 'img_rot': "
+            r"Access denied to bucket 'pxt-test': Forbidden"
+        )
+        with pytest.raises(pxt.Error, match=f'{msg1}|{msg2}'):
             t.add_computed_column(
                 img_rot=t.img.rotate(90),
                 destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',
