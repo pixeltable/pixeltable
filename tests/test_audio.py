@@ -13,7 +13,6 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
-    IN_CI,
     ReloadTester,
     get_audio_file,
     get_audio_files,
@@ -368,14 +367,8 @@ class TestAudio:
         self, format: str, stereo: bool, downsample: bool, as_1d_array: bool, reset_db: None
     ) -> None:
         # Load a sample mp3 file to an array
-        if stereo:
-            sample_path = './tests/data/audio/sample.mp3'
-            duration = 15
-        else:
-            sample_path = './docs/resources/10-minute tour of Pixeltable.mp3'
-            duration = 301  # the "10 minute tour" is actually about 5 minutes long
-
-        audio_data, sample_rate = self._load_sample_audio(sample_path)
+        sample_path = './tests/data/audio/sample.mp3' if stereo else './docs/resources/10-minute tour of Pixeltable.mp3'
+        audio_data, sample_duration_sec, sample_rate = self._decode_audio_file(sample_path)
         assert audio_data.dtype == np.float32
         assert audio_data.ndim == 2
         assert audio_data.shape[0] == 2 if stereo else 1
@@ -401,21 +394,21 @@ class TestAudio:
         print(f'Encoded audio file: {row["audio_file"]}')
 
         # Read back, decode, and validate the encoded file
-        with av.open(encoded_path) as container:
-            audio_stream = container.streams.audio[0]
-            duration_seconds = float(audio_stream.duration * audio_stream.time_base)
-            assert abs(duration_seconds - duration) < 1
+        _, encoded_duration_sec, encoded_sample_rate = self._decode_audio_file(encoded_path)
+        assert abs(encoded_duration_sec - sample_duration_sec) < 1
+        assert encoded_sample_rate == output_sample_rate
 
-    def _load_sample_audio(self, file_path: str) -> tuple[np.ndarray, int]:
+    def _decode_audio_file(self, file_path: str) -> tuple[np.ndarray, float, int]:
         with av.open(file_path) as container:
             assert len(container.streams.audio) == 1
             audio_stream = container.streams.audio[0]
+            duration_seconds = float(audio_stream.duration * audio_stream.time_base)
             sample_rate = audio_stream.rate
             audio_frames = [frame.to_ndarray() for frame in container.decode(audio_stream)]
 
         audio_data = np.concatenate(audio_frames, axis=1)
         assert len(audio_data) > 0
-        return audio_data, sample_rate
+        return audio_data, duration_seconds, sample_rate
 
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, reset_db: None) -> None:
