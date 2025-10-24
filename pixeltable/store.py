@@ -172,7 +172,11 @@ class StoreBase:
         postgres_dialect = sql.dialects.postgresql.dialect()
         stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(dialect=postgres_dialect)
         create_stmt = str(stmt)
-        stmts = [create_stmt]
+        # 'lock table': force an update of the metadata cache in order to avoid
+        # psycopg.errors.UndefinedTable) relation "..." does not exist
+        # errors
+        lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
+        stmts = [create_stmt, lock_stmt]
 
         for col in self.sa_tbl.columns:
             stmts.append(self._add_column_stmt(col))
