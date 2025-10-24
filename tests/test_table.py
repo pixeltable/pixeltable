@@ -1293,7 +1293,7 @@ class TestTable:
         assert res[1]['path'] == str(Path('tests/data/images/#_strange_file name!@$.jpg').absolute())
 
     @pytest.mark.skipif(
-        Env.get().default_input_media_dest is not None or Env.get().default_output_media_dest is not None,
+        'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
         reason='Specifying a default media destination disrupts the file cache counts',
     )
     def test_create_s3_image_table(self, reset_db: None) -> None:
