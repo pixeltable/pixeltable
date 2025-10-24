@@ -82,12 +82,12 @@ def encode_audio(
         )
         ```
     """
-    if format not in av_utils.audio_format_defaults:
-        raise pxt.Error(f'Only the following formats are supported: {av_utils.audio_format_defaults.keys()}')
+    if format not in av_utils.AUDIO_FORMAT_DEFAULTS:
+        raise pxt.Error(f'Only the following formats are supported: {av_utils.AUDIO_FORMAT_DEFAULTS.keys()}')
     if output_sample_rate is None:
         output_sample_rate = input_sample_rate
 
-    codec, ext = av_utils.audio_format_defaults[format]
+    codec, ext = av_utils.AUDIO_FORMAT_DEFAULTS[format]
     output_path = str(TempStore.create_path(extension=f'.{ext}'))
 
     match audio_data.shape:
