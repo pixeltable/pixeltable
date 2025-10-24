@@ -513,7 +513,6 @@ class TableVersion:
                 and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
             ]
             for md in visible_idxs:
-                # for md in (md for md in self.tbl_md.index_md.values() if md.schema_version_drop is None):
                 idx = idxs[md.id]
                 indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
                 idx_col = self._lookup_column(indexed_col_id)

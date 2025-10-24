@@ -217,10 +217,9 @@ class TestPackager:
 
         # Verify that the postgres schema subsumes the original.
         # (There may be additional columns in the restored table depending on the order in which different versions are
-        # restored. But everything present in the original table must be present and identical in the restored table.)
-        # Note: This is actually not the case: the restored table doesn't contain indices that were dropped on the
-        # Table before the bundle was created.
-        # TODO: find a better way to validate the physical schema
+        # restored. But the columns present in the original table must be present and identical in the restored table.
+        # Regarding indices: the restored table omits indices that were dropped on the Table before the bundle was
+        # created.)
         assert bundle_info.store_col_schema.issubset(self.__extract_store_col_schema(t))
         t._tbl_version_path.tbl_version.get().store_tbl.validate()
 

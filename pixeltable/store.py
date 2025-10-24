@@ -175,6 +175,7 @@ class StoreBase:
         # 'lock table': force an update of the metadata cache in order to avoid
         # psycopg.errors.UndefinedTable) relation "..." does not exist
         # errors
+        # TODO: This is Postgres-specific. Adapt for Cockroachdb.
         lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
         stmts = [create_stmt, lock_stmt]
 
