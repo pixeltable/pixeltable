@@ -128,9 +128,9 @@ def extract_audio(
         ...     extracted_audio=tbl.video_col.extract_audio(format='flac')
         ... )
     """
-    if format not in av_utils.AUDIO_FORMAT_DEFAULTS:
+    if format not in av_utils.AUDIO_FORMATS:
         raise ValueError(f'extract_audio(): unsupported audio format: {format}')
-    default_codec, ext = av_utils.AUDIO_FORMAT_DEFAULTS[format]
+    default_codec, ext = av_utils.AUDIO_FORMATS[format]
 
     with av.open(video_path) as container:
         if len(container.streams.audio) <= stream_idx:

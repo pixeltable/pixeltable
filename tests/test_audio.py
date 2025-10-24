@@ -72,7 +72,7 @@ class TestAudio:
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s32le')
 
-        for format in av_utils.AUDIO_FORMAT_DEFAULTS.keys() - 'wav':
+        for format in av_utils.AUDIO_FORMATS.keys() - 'wav':
             paths = video_t.select(output=video_t.video.extract_audio(format=format)).collect()['output']
             for path in [p for p in paths if p is not None]:
                 self.check_audio_params(path, format=format)
