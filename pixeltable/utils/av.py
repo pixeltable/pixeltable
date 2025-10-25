@@ -6,7 +6,7 @@ import av.stream
 from pixeltable.env import Env
 
 # format -> (codec, extension)
-audio_format_defaults: dict[str, tuple[str, str]] = {
+AUDIO_FORMATS: dict[str, tuple[str, str]] = {
     'wav': ('pcm_s16le', 'wav'),
     'mp3': ('libmp3lame', 'mp3'),
     'flac': ('flac', 'flac'),
