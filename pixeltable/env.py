@@ -767,6 +767,7 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('diffusers')
         self.__register_package('fiftyone')
+        self.__register_package('twelvelabs')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')

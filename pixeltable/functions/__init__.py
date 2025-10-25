@@ -24,6 +24,7 @@ from . import (
     string,
     timestamp,
     together,
+    twelvelabs,
     video,
     vision,
     whisper,
