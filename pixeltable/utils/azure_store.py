@@ -12,8 +12,9 @@ from pixeltable.config import Config
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress
 
 if TYPE_CHECKING:
+    from azure.storage.blob import BlobProperties, BlobServiceClient
+
     from pixeltable.catalog import Column
-    from azure.storage.blob import BlobServiceClient
 
 
 _logger = logging.getLogger('pixeltable')
@@ -29,6 +30,7 @@ def _() -> dict[str, 'BlobServiceClient']:
 
 class AzureBlobStore(ObjectStoreBase):
     """Class to handle Azure Blob Storage operations."""
+
     # TODO: This needs to be redesigned to use asyncio.
 
     # URI of the Azure Blob Storage container
@@ -72,7 +74,9 @@ class AzureBlobStore(ObjectStoreBase):
                 storage_account_name = Config.get().get_string_value('storage_account_name', section='azure')
                 storage_account_key = Config.get().get_string_value('storage_account_key', section='azure')
                 if (storage_account_name is None) != (storage_account_key is None):
-                    raise excs.Error("Azure 'storage_account_name' and 'storage_account_key' must be specified together.")
+                    raise excs.Error(
+                        "Azure 'storage_account_name' and 'storage_account_key' must be specified together."
+                    )
                 if storage_account_name is None or storage_account_name != self.__account_name:
                     # Attempt a connection to a public resource, with no account key
                     client_dict[uri] = self.create_client(endpoint_url=uri)
@@ -162,6 +166,7 @@ class AzureBlobStore(ObjectStoreBase):
         try:
             container_client = self.client().get_container_client(self.container_name)
 
+            blob_iterator: Iterator['BlobProperties']
             if tbl_version is None:
                 # Return all blobs with the table prefix
                 blob_iterator = container_client.list_blobs(name_starts_with=prefix)
@@ -269,7 +274,9 @@ class AzureBlobStore(ObjectStoreBase):
             raise excs.Error(f'Error during {operation} in container {container_name}: {str(e)!r}')
 
     @classmethod
-    def create_client(cls, endpoint_url: str, account_name: str | None = None, account_key: str | None = None) -> 'BlobServiceClient':
+    def create_client(
+        cls, endpoint_url: str, account_name: str | None = None, account_key: str | None = None
+    ) -> 'BlobServiceClient':
         from azure.core.credentials import AzureNamedKeyCredential
         from azure.storage.blob import BlobServiceClient  # TODO: Use azure.storage.blob.aio instead
 
