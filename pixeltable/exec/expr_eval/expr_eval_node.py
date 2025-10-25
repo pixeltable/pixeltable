@@ -220,6 +220,7 @@ class ExprEvalNode(ExecNode):
         input_batch_aw: Optional[asyncio.Task] = None
         completed_aw: Optional[asyncio.Task] = None
         closed_evaluators = False  # True after calling Evaluator.close()
+        exprs.Expr.prepare_list(self.exec_ctx.all_exprs)
 
         try:
             while True:

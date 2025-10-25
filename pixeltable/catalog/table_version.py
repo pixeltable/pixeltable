@@ -3,19 +3,21 @@ from __future__ import annotations
 import copy
 import dataclasses
 import importlib
+import itertools
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, Optional
 from uuid import UUID
 
 import jsonschema.exceptions
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
 
-import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable import exprs, index
+import pixeltable.exprs as exprs
+import pixeltable.index as index
+import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -31,7 +33,11 @@ from .update_status import RowCountStats, UpdateStatus
 if TYPE_CHECKING:
     from pixeltable import exec, store
     from pixeltable.catalog.table_version_handle import TableVersionHandle
+    from pixeltable.dataframe import DataFrame
+    from pixeltable.io import ExternalStore
     from pixeltable.plan import SampleClause
+
+    from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 
@@ -78,7 +84,7 @@ class TableVersion:
     _schema_version_md: schema.TableSchemaVersionMd
 
     effective_version: Optional[int]
-    path: Optional[pxt.catalog.TableVersionPath]  # only set for live tables; needed to resolve computed cols
+    path: Optional['TableVersionPath']  # only set for live tables; needed to resolve computed cols
     base: Optional[TableVersionHandle]  # only set for views
     predicate: Optional[exprs.Expr]
     sample_clause: Optional['SampleClause']
@@ -96,12 +102,18 @@ class TableVersion:
     cols_by_name: dict[str, Column]
     # contains only columns visible in this version, both system and user
     cols_by_id: dict[int, Column]
-    # all indices defined on this table
-    all_idxs: dict[str, TableVersion.IndexInfo]
-    # contains only actively maintained indices
-    idxs_by_name: dict[str, TableVersion.IndexInfo]
 
-    external_stores: dict[str, pxt.io.ExternalStore]
+    # True if this TableVersion instance can have indices:
+    # - live version of a mutable table
+    # - the most recent version of a replica
+    supports_idxs: bool
+
+    # only populated with indices visible in this TableVersion instance
+    idxs: dict[int, TableVersion.IndexInfo]  # key: index id
+    idxs_by_name: dict[str, TableVersion.IndexInfo]
+    idxs_by_col: dict[QColumnId, list[TableVersion.IndexInfo]]
+
+    external_stores: dict[str, ExternalStore]
     store_tbl: Optional['store.StoreBase']
 
     is_initialized: bool  # True if init() has been called
@@ -128,15 +140,9 @@ class TableVersion:
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
-        base_path: Optional[pxt.catalog.TableVersionPath] = None,
+        base_path: Optional['TableVersionPath'] = None,
         base: Optional[TableVersionHandle] = None,
     ):
-        from pixeltable import exprs
-        from pixeltable.plan import SampleClause
-
-        from .table_version_handle import TableVersionHandle
-        from .table_version_path import TableVersionPath
-
         self.is_validated = True  # a freshly constructed instance is always valid
         self.is_initialized = False
         self.id = id
@@ -149,6 +155,9 @@ class TableVersion:
         self.store_tbl = None
 
         # mutable tables need their TableVersionPath for expr eval during updates
+        from .table_version_handle import TableVersionHandle
+        from .table_version_path import TableVersionPath
+
         if self.is_snapshot:
             self.path = None
         else:
@@ -158,6 +167,9 @@ class TableVersion:
             self.path = TableVersionPath(self_handle, base=base_path)
 
         # view-specific initialization
+        from pixeltable import exprs
+        from pixeltable.plan import SampleClause
+
         predicate_dict = None if self.view_md is None or self.view_md.predicate is None else self.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
         sample_dict = None if self.view_md is None or self.view_md.sample_clause is None else self.view_md.sample_clause
@@ -182,8 +194,12 @@ class TableVersion:
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
-        self.all_idxs = {}
+        self.idxs = {}
         self.idxs_by_name = {}
+        self.idxs_by_col = {}
+        self.supports_idxs = self.effective_version is None or (
+            self.is_replica and self.effective_version == self.tbl_md.current_version
+        )
         self.external_stores = {}
 
     def __hash__(self) -> int:
@@ -222,19 +238,27 @@ class TableVersion:
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
+        create_default_idxs: bool,
         view_md: Optional[schema.ViewMd] = None,
     ) -> TableVersionMd:
+        from .table_version_handle import TableVersionHandle
+
         user = Env.get().user
         timestamp = time.time()
 
+        tbl_id = uuid.uuid4()
+        tbl_id_str = str(tbl_id)
+        tbl_handle = TableVersionHandle(tbl_id, None)
+        column_ids = itertools.count(0)
+        index_ids = itertools.count(0)
+
         # assign ids, create metadata
-        cols_by_name: dict[str, Column] = {}
         column_md: dict[int, schema.ColumnMd] = {}
         schema_col_md: dict[int, schema.SchemaColumn] = {}
         for pos, col in enumerate(cols):
-            col.id = pos
+            col.tbl_handle = tbl_handle
+            col.id = next(column_ids)
             col.schema_version_add = 0
-            cols_by_name[col.name] = col
             if col.is_computed:
                 col.check_value_expr()
             col_md, sch_md = col.to_md(pos)
@@ -242,8 +266,39 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = sch_md
 
-        tbl_id = uuid.uuid4()
-        tbl_id_str = str(tbl_id)
+        index_md: dict[int, schema.IndexMd] = {}
+        if create_default_idxs and (view_md is None or not view_md.is_snapshot):
+            index_cols: list[Column] = []
+            for col in (c for c in cols if cls._is_btree_indexable(c)):
+                idx = index.BtreeIndex()
+                val_col, undo_col = cls._create_index_columns(col, idx, 0, tbl_handle, id_cb=lambda: next(column_ids))
+                index_cols.extend([val_col, undo_col])
+
+                idx_id = next(index_ids)
+                idx_cls = type(idx)
+                md = schema.IndexMd(
+                    id=idx_id,
+                    name=f'idx{idx_id}',
+                    indexed_col_id=col.id,
+                    indexed_col_tbl_id=tbl_id_str,
+                    index_val_col_id=val_col.id,
+                    index_val_undo_col_id=undo_col.id,
+                    schema_version_add=0,
+                    schema_version_drop=None,
+                    class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
+                    init_args=idx.as_dict(),
+                )
+                index_md[idx_id] = md
+
+            for col in index_cols:
+                col_md, _ = col.to_md()
+                column_md[col.id] = col_md
+
+            assert all(column_md[id].id == id for id in column_md)
+            assert all(index_md[id].id == id for id in index_md)
+
+            cols.extend(index_cols)
+
         tbl_md = schema.TableMd(
             tbl_id=tbl_id_str,
             name=name,
@@ -251,12 +306,12 @@ class TableVersion:
             is_replica=False,
             current_version=0,
             current_schema_version=0,
-            next_col_id=len(cols),
-            next_idx_id=0,
+            next_col_id=next(column_ids),
+            next_idx_id=next(index_ids),
             next_row_id=0,
             view_sn=0,
             column_md=column_md,
-            index_md={},
+            index_md=index_md,
             external_stores=[],
             view_md=view_md,
             additional_md={},
@@ -284,51 +339,15 @@ class TableVersion:
         )
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
-    @classmethod
-    def create(
-        cls,
-        dir_id: UUID,
-        name: str,
-        cols: list[Column],
-        num_retained_versions: int,
-        comment: str,
-        media_validation: MediaValidation,
-    ) -> tuple[UUID, Optional[TableVersion]]:
-        initial_md = cls.create_initial_md(name, cols, num_retained_versions, comment, media_validation, view_md=None)
-        cat = pxt.catalog.Catalog.get()
-
-        tbl_id = UUID(hex=initial_md.tbl_md.tbl_id)
-        assert (tbl_id, None) not in cat._tbl_versions
-        tbl_version = cls(tbl_id, initial_md.tbl_md, initial_md.version_md, None, initial_md.schema_version_md, [])
-
-        @cat.register_undo_action
-        def _() -> None:
-            if (tbl_id, None) in cat._tbl_versions:
-                del cat._tbl_versions[tbl_id, None]
-
-        # TODO: break this up, so that Catalog.create_table() registers tbl_version
-        cat._tbl_versions[tbl_id, None] = tbl_version
-        tbl_version.init()
-        tbl_version.store_tbl.create()
-        # add default indices, after creating the store table
-        for col in tbl_version.cols_by_name.values():
-            status = tbl_version._add_default_index(col)
-            assert status is None or status.num_excs == 0
-
-        cat.store_tbl_md(
-            tbl_id=tbl_id,
-            dir_id=dir_id,
-            tbl_md=tbl_version.tbl_md,
-            version_md=initial_md.version_md,
-            schema_version_md=initial_md.schema_version_md,
-        )
-        return tbl_id, tbl_version
-
     def exec_op(self, op: TableOp) -> None:
         if op.create_store_table_op is not None:
-            # don't use Catalog.begin_xact() here, to avoid accidental recursive calls to exec_op()
+            # this needs to be called outside of a transaction
+            self.store_tbl.create()
+
+        elif op.create_index_op is not None:
+            idx_info = self.idxs[op.create_index_op.idx_id]
             with Env.get().begin_xact():
-                self.store_tbl.create()
+                self.store_tbl.create_index(idx_info.id)
 
         elif op.load_view_op is not None:
             from pixeltable.catalog import Catalog
@@ -347,7 +366,7 @@ class TableVersion:
 
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
-        from .catalog import TableVersionPath
+        from .catalog import Catalog, TableVersionPath
 
         assert Env.get().in_xact
         assert md.tbl_md.is_replica
@@ -366,7 +385,7 @@ class TableVersion:
             base_path=base_path,
             base=base,
         )
-        cat = pxt.catalog.Catalog.get()
+        cat = Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
         # TableVersion instance before.
         # Actually this isn't true, because we might be re-creating a dropped replica.
@@ -376,7 +395,6 @@ class TableVersion:
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
-        tbl_version.store_tbl.ensure_updated_schema()
         return tbl_version
 
     def delete_media(self, tbl_version: Optional[int] = None) -> None:
@@ -417,19 +435,21 @@ class TableVersion:
         self.is_initialized = True
 
     def _init_schema(self) -> None:
-        # create columns first, so the indices can reference them
-        self._init_cols()
-        self._init_idxs()
+        from pixeltable.store import StoreComponentView, StoreTable, StoreView
 
-        # create the sa schema only after creating the columns and indices
-        self._init_sa_schema()
+        # initialize IndexBase instances and collect sa_col_types
+        idxs: dict[int, index.IndexBase] = {}
+        val_col_idxs: dict[int, index.IndexBase] = {}  # key: id of value column
+        undo_col_idxs: dict[int, index.IndexBase] = {}  # key: id of undo column
+        for md in self.tbl_md.index_md.values():
+            cls_name = md.class_fqn.rsplit('.', 1)[-1]
+            cls = getattr(index, cls_name)
+            idx = cls.from_dict(md.init_args)
+            idxs[md.id] = idx
+            val_col_idxs[md.index_val_col_id] = idx
+            undo_col_idxs[md.index_val_undo_col_id] = idx
 
-        # created value_exprs after everything else has been initialized
-        for col in self.cols_by_id.values():
-            col.init_value_expr()
-
-    def _init_cols(self) -> None:
-        """Initialize self.cols with the columns visible in our effective version"""
+        # initialize Columns
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
@@ -437,78 +457,88 @@ class TableVersion:
         # point backward.
         sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
         for col_md in sorted_column_md:
+            col_type = ts.ColumnType.from_dict(col_md.col_type)
             schema_col_md = self.schema_version_md.columns.get(col_md.id)
-            col = Column.from_md(col_md, self, schema_col_md)
-            self.cols.append(col)
-
-            # populate the lookup structures before Expr.from_dict()
-            if col_md.schema_version_add > self.schema_version:
-                # column was added after this version
-                continue
-            if col_md.schema_version_drop is not None and col_md.schema_version_drop <= self.schema_version:
-                # column was dropped
-                continue
-            if col.name is not None:
-                self.cols_by_name[col.name] = col
-            self.cols_by_id[col.id] = col
-
-            # # make sure to traverse columns ordered by position = order in which cols were created;
-            # # this guarantees that references always point backwards
-            # if not self.is_snapshot and col_md.value_expr is not None:
-            #     self._record_refd_columns(col)
-
-    def _init_idxs(self) -> None:
-        for md in self.tbl_md.index_md.values():
-            # Instantiate index object. This needs to be done for all indices, even those that are not active in this
-            # TableVersion, so that we can make appropriate adjustments to the SA schema.
-            cls_name = md.class_fqn.rsplit('.', 1)[-1]
-            cls = getattr(index, cls_name)
-            idx_col = self._lookup_column(QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id))
-            assert idx_col is not None
-            idx = cls.from_dict(idx_col, md.init_args)
-            assert isinstance(idx, index.IndexBase)
-
-            val_col = next(col for col in self.cols if col.id == md.index_val_col_id)
-            undo_col = next(col for col in self.cols if col.id == md.index_val_undo_col_id)
-            idx_info = self.IndexInfo(id=md.id, name=md.name, idx=idx, col=idx_col, val_col=val_col, undo_col=undo_col)
-            self.all_idxs[md.name] = idx_info
-
-            # fix up the sa column type of the index value and undo columns
-            # we need to do this for all indices, not just those that are active in this TableVersion, to ensure we get
-            # the correct SA schema in the StoreTable.
-            val_col.sa_col_type = idx.index_sa_type()
-            undo_col.sa_col_type = idx.index_sa_type()
-            if not isinstance(idx, index.EmbeddingIndex):
-                # Historically, the intent has been not to store cellmd data, even for embedding indices. However,
-                # the cellmd columns get created anyway, even if stores_cellmd is set to `False` here, due to the
-                # timing of index column creation. In order to ensure that SA schemas align with what is actually in
-                # the physical tables, we keep this `True` for embedding indices.
-                # TODO: Decide whether index columns should store cellmd data.
-                #     - If not, set to `False`, fix the column creation timing issue, and add a migration script to
-                #       remedy existing cellmd columns.
-                #     - If so, remove this TODO.
-                val_col._stores_cellmd = False
-            undo_col._stores_cellmd = False
-
-            # The index is active in this TableVersion provided that:
-            # (i) the TableVersion supports indices (either it's not a snapshot, or it's a replica at
-            #     the head version); and
-            # (ii) the index was created on or before the schema version of this TableVersion; and
-            # (iii) the index was not dropped on or before the schema version of this TableVersion.
-            supports_idxs = self.effective_version is None or (
-                self.tbl_md.is_replica and self.effective_version == self.tbl_md.current_version
+            media_val = (
+                MediaValidation[schema_col_md.media_validation.upper()]
+                if schema_col_md is not None and schema_col_md.media_validation is not None
+                else None
             )
-            if (
-                supports_idxs
-                and md.schema_version_add <= self.schema_version
-                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
+
+            stores_cellmd: bool | None = None  # None: determined by the column properties (in the Column c'tor)
+            sa_col_type: sql.sqltypes.TypeEngine | None = None
+            if col_md.id in val_col_idxs:
+                idx = val_col_idxs[col_md.id]
+                # for index value columns, the index gets to override the default
+                stores_cellmd = idx.records_value_errors()
+                sa_col_type = idx.get_index_sa_type(col_type)
+            elif col_md.id in undo_col_idxs:
+                idx = undo_col_idxs[col_md.id]
+                # for index undo columns, we never store cellmd
+                stores_cellmd = False
+                sa_col_type = idx.get_index_sa_type(col_type)
+
+            col = Column(
+                col_id=col_md.id,
+                name=schema_col_md.name if schema_col_md is not None else None,
+                col_type=col_type,
+                is_pk=col_md.is_pk,
+                is_iterator_col=self.is_component_view and col_md.id < self.num_iterator_cols + 1,
+                stored=col_md.stored,
+                media_validation=media_val,
+                sa_col_type=sa_col_type,
+                schema_version_add=col_md.schema_version_add,
+                schema_version_drop=col_md.schema_version_drop,
+                stores_cellmd=stores_cellmd,
+                value_expr_dict=col_md.value_expr,
+                tbl_handle=self.handle,
+                destination=col_md.destination,
+            )
+
+            self.cols.append(col)
+            # populate lookup structures before Expr.from_dict()
+            if col_md.schema_version_add <= self.schema_version and (
+                col_md.schema_version_drop is None or col_md.schema_version_drop > self.schema_version
             ):
-                # Since the index is present in this TableVersion, its associated columns must be as well.
-                # Sanity-check this.
-                assert md.indexed_col_id in self.cols_by_id
-                assert md.index_val_col_id in self.cols_by_id
-                assert md.index_val_undo_col_id in self.cols_by_id
-                self.idxs_by_name[md.name] = idx_info
+                if col.name is not None:
+                    self.cols_by_name[col.name] = col
+                self.cols_by_id[col.id] = col
+
+        if self.supports_idxs:
+            # create IndexInfo for indices visible in current_version
+            visible_idxs = [
+                md
+                for md in self.tbl_md.index_md.values()
+                if md.schema_version_add <= self.schema_version
+                and (md.schema_version_drop is None or md.schema_version_drop > self.schema_version)
+            ]
+            for md in visible_idxs:
+                idx = idxs[md.id]
+                indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
+                idx_col = self._lookup_column(indexed_col_id)
+                info = self.IndexInfo(
+                    id=md.id,
+                    name=md.name,
+                    idx=idx,
+                    col=idx_col,
+                    val_col=self.cols_by_id[md.index_val_col_id],
+                    undo_col=self.cols_by_id[md.index_val_undo_col_id],
+                )
+                self.idxs[md.id] = info
+                self.idxs_by_name[md.name] = info
+                self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
+
+        # create value exprs, now that we have all lookup structures in place
+        for col in self.cols_by_id.values():
+            col.init_value_expr()
+
+        # create the sqlalchemy schema, after instantiating all Columns
+        if self.is_component_view:
+            self.store_tbl = StoreComponentView(self)
+        elif self.is_view:
+            self.store_tbl = StoreView(self)
+        else:
+            self.store_tbl = StoreTable(self)
 
     def _lookup_column(self, id: QColumnId) -> Column | None:
         """
@@ -559,12 +589,13 @@ class TableVersion:
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
 
-    def _is_btree_indexable(self, col: Column) -> bool:
+    @classmethod
+    def _is_btree_indexable(cls, col: Column) -> bool:
         if not col.stored:
             # if the column is intentionally not stored, we want to avoid the overhead of an index
             return False
         # Skip index for stored media columns produced by an iterator
-        if col.col_type.is_media_type() and self.is_iterator_column(col):
+        if col.col_type.is_media_type() and col.is_iterator_col:
             return False
         if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
             # wrong type for a B-tree
@@ -578,45 +609,50 @@ class TableVersion:
         """Add a B-tree index on this column if it has a compatible type"""
         if not self._is_btree_indexable(col):
             return None
-        status = self._add_index(col, idx_name=None, idx=index.BtreeIndex(col))
+        status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
         return status
 
-    def _create_index_columns(self, idx: index.IndexBase) -> Tuple[Column, Column]:
+    @classmethod
+    def _create_index_columns(
+        cls,
+        col: Column,
+        idx: index.IndexBase,
+        schema_version: int,
+        tbl_handle: TableVersionHandle,
+        id_cb: Callable[[], int],
+    ) -> tuple[Column, Column]:
         """Create value and undo columns for the given index.
         Args:
             idx:  index for which columns will be created.
         Returns:
-            A tuple containing the value column and the undo column.
+            A tuple containing the value column and the undo column, both of which are nullable.
         """
-        assert not self.is_snapshot
-        # add the index value and undo columns (which need to be nullable)
+        value_expr = idx.create_value_expr(col)
         val_col = Column(
-            col_id=self.next_col_id,
+            col_id=id_cb(),
             name=None,
-            computed_with=idx.index_value_expr(),
-            sa_col_type=idx.index_sa_type(),
+            computed_with=value_expr,
+            sa_col_type=idx.get_index_sa_type(value_expr.col_type),
             stored=True,
-            schema_version_add=self.schema_version,
-            schema_version_drop=None,
             stores_cellmd=idx.records_value_errors(),
+            schema_version_add=schema_version,
+            schema_version_drop=None,
         )
-        val_col.tbl = self
         val_col.col_type = val_col.col_type.copy(nullable=True)
-        self.next_col_id += 1
+        val_col.tbl_handle = tbl_handle
 
         undo_col = Column(
-            col_id=self.next_col_id,
+            col_id=id_cb(),
             name=None,
             col_type=val_col.col_type,
             sa_col_type=val_col.sa_col_type,
             stored=True,
-            schema_version_add=self.schema_version,
-            schema_version_drop=None,
             stores_cellmd=False,
+            schema_version_add=schema_version,
+            schema_version_drop=None,
         )
-        undo_col.tbl = self
         undo_col.col_type = undo_col.col_type.copy(nullable=True)
-        self.next_col_id += 1
+        undo_col.tbl_handle = tbl_handle
         return val_col, undo_col
 
     def _create_index(
@@ -636,7 +672,7 @@ class TableVersion:
             id=idx_id,
             name=idx_name,
             indexed_col_id=col.id,
-            indexed_col_tbl_id=str(col.tbl.id),
+            indexed_col_tbl_id=str(col.get_tbl().id),
             index_val_col_id=val_col.id,
             index_val_undo_col_id=undo_col.id,
             schema_version_add=self.schema_version,
@@ -646,17 +682,21 @@ class TableVersion:
         )
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self._tbl_md.index_md[idx_id] = idx_md
+        self.idxs[idx_id] = idx_info
         self.idxs_by_name[idx_name] = idx_info
-        idx.create_index(self._store_idx_name(idx_id), val_col)
+        self.idxs_by_col.setdefault(col.qid, []).append(idx_info)
+        self.store_tbl.create_index(idx_id)
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
-        val_col, undo_vol = self._create_index_columns(idx)
+        val_col, undo_col = self._create_index_columns(
+            col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+        )
         # add the columns and update the metadata
         # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
         # with the database operations
-        status = self._add_columns([val_col, undo_vol], print_stats=False, on_error='ignore')
+        status = self._add_columns([val_col, undo_col], print_stats=False, on_error='ignore')
         # now create the index structure
-        self._create_index(col, val_col, undo_vol, idx_name, idx)
+        self._create_index(col, val_col, undo_col, idx_name, idx)
         return status
 
     def drop_index(self, idx_id: int) -> None:
@@ -672,7 +712,10 @@ class TableVersion:
         # remove this index entry from the active indexes (in memory)
         # and the index metadata (in persistent table metadata)
         # TODO: this is wrong, it breaks revert()
+        del self.idxs[idx_id]
         del self.idxs_by_name[idx_md.name]
+        if idx_info.col.qid in self.idxs_by_col:
+            self.idxs_by_col[idx_info.col.qid].remove(idx_info)
         del self._tbl_md.index_md[idx_id]
 
         self._drop_columns([idx_info.val_col, idx_info.undo_col])
@@ -688,9 +731,8 @@ class TableVersion:
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
         for col in cols:
-            col.tbl = self
-            col.id = self.next_col_id
-            self.next_col_id += 1
+            col.tbl_handle = self.handle
+            col.id = self.next_col_id()
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -699,8 +741,10 @@ class TableVersion:
         for col in cols:
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
-                idx = index.BtreeIndex(col)
-                val_col, undo_col = self._create_index_columns(idx)
+                idx = index.BtreeIndex()
+                val_col, undo_col = self._create_index_columns(
+                    col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+                )
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)
                 all_cols.append(undo_col)
@@ -732,7 +776,7 @@ class TableVersion:
 
         row_count = self.store_tbl.count()
         for col in cols_to_add:
-            assert col.tbl is self
+            assert col.tbl_handle.id == self.id
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
@@ -742,7 +786,7 @@ class TableVersion:
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
-            assert col.id is not None, 'Column id must be set before adding the column'
+            assert col.id is not None
             excs_per_col = 0
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
@@ -796,7 +840,7 @@ class TableVersion:
             upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
         )  # add_columns
         return UpdateStatus(
-            cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
+            cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
 
@@ -810,7 +854,7 @@ class TableVersion:
 
         # drop this column and all dependent index columns and indices
         dropped_cols = [col]
-        dropped_idx_names: list[str] = []
+        dropped_idx_info: list[TableVersion.IndexInfo] = []
         for idx_info in self.idxs_by_name.values():
             if idx_info.col != col:
                 continue
@@ -818,11 +862,14 @@ class TableVersion:
             idx_md = self._tbl_md.index_md[idx_info.id]
             idx_md.schema_version_drop = self.schema_version
             assert idx_md.name in self.idxs_by_name
-            dropped_idx_names.append(idx_md.name)
+            dropped_idx_info.append(idx_info)
 
-        # update idxs_by_name
-        for idx_name in dropped_idx_names:
-            del self.idxs_by_name[idx_name]
+        # update index lookup structures
+        for info in dropped_idx_info:
+            del self.idxs[info.id]
+            del self.idxs_by_name[info.name]
+        if col.qid in self.idxs_by_col:
+            del self.idxs_by_col[col.qid]
 
         self._drop_columns(dropped_cols)
         self._write_md(new_version=True, new_schema_version=True)
@@ -830,6 +877,8 @@ class TableVersion:
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
         """Mark columns as dropped"""
+        from pixeltable.catalog import Catalog
+
         assert self.is_mutable
 
         for col in cols:
@@ -849,7 +898,7 @@ class TableVersion:
             schema_col.pos = pos
 
         self.store_tbl.create_sa_tbl()
-        pxt.catalog.Catalog.get().record_column_dependencies(self)
+        Catalog.get().record_column_dependencies(self)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
@@ -858,7 +907,7 @@ class TableVersion:
         col = self.path.get_column(old_name)
         if col is None:
             raise excs.Error(f'Unknown column: {old_name}')
-        if col.tbl.id != self.id:
+        if col.get_tbl().id != self.id:
             raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
             raise excs.Error(f"Invalid column name: '{new_name}'")
@@ -897,7 +946,7 @@ class TableVersion:
     def insert(
         self,
         rows: Optional[list[dict[str, Any]]],
-        df: Optional[pxt.DataFrame],
+        df: Optional[DataFrame],
         print_stats: bool = False,
         fail_on_exception: bool = True,
     ) -> UpdateStatus:
@@ -1051,7 +1100,7 @@ class TableVersion:
             col = self.path.get_column(col_name)
             if col is None:
                 raise excs.Error(f'Column {col_name} unknown')
-            if col.tbl.id != self.id:
+            if col.get_tbl().id != self.id:
                 raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
@@ -1157,7 +1206,7 @@ class TableVersion:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
-                recomputed_cols = [col for col in recomputed_view_cols if col.tbl.id == view.id]
+                recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
                 plan = None
                 if len(recomputed_cols) > 0:
                     plan = Planner.create_view_update_plan(view.get().path, recompute_targets=recomputed_cols)
@@ -1265,7 +1314,7 @@ class TableVersion:
 
         # revert new deletions
         set_clause: dict[sql.Column, Any] = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
-        for index_info in self.idxs_by_name.values():
+        for index_info in self.idxs.values():
             # copy the index value back from the undo column and reset the undo column to NULL
             set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col
             set_clause[index_info.undo_col.sa_col] = None
@@ -1342,13 +1391,15 @@ class TableVersion:
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     def _init_external_stores(self) -> None:
+        from pixeltable.io.external_store import ExternalStore
+
         for store_md in self.tbl_md.external_stores:
             store_cls = resolve_symbol(store_md['class'])
-            assert isinstance(store_cls, type) and issubclass(store_cls, pxt.io.ExternalStore)
+            assert isinstance(store_cls, type) and issubclass(store_cls, ExternalStore)
             store = store_cls.from_dict(store_md['md'])
             self.external_stores[store.name] = store
 
-    def link_external_store(self, store: pxt.io.ExternalStore) -> None:
+    def link_external_store(self, store: ExternalStore) -> None:
         self.bump_version(bump_schema_version=True)
 
         self.external_stores[store.name] = store
@@ -1357,7 +1408,7 @@ class TableVersion:
         )
         self._write_md(new_version=True, new_schema_version=True)
 
-    def unlink_external_store(self, store: pxt.io.ExternalStore) -> None:
+    def unlink_external_store(self, store: ExternalStore) -> None:
         del self.external_stores[store.name]
         self.bump_version(bump_schema_version=True)
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
@@ -1476,14 +1527,10 @@ class TableVersion:
     def media_validation(self) -> MediaValidation:
         return MediaValidation[self._schema_version_md.media_validation.upper()]
 
-    @property
     def next_col_id(self) -> int:
-        return self._tbl_md.next_col_id
-
-    @next_col_id.setter
-    def next_col_id(self, id: int) -> None:
-        assert self.effective_version is None
-        self._tbl_md.next_col_id = id
+        val = self._tbl_md.next_col_id
+        self._tbl_md.next_col_id += 1
+        return val
 
     @property
     def next_idx_id(self) -> int:
@@ -1562,15 +1609,35 @@ class TableVersion:
         return names
 
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
-        result = {info.val_col for col in cols for info in col.get_idx_info().values()}
-        return result
+        # assumes that the indexed columns are all in this table
+        assert all(col.get_tbl().id == self.id for col in cols)
+        col_ids = {col.id for col in cols}
+        return {info.val_col for info in self.idxs.values() if info.col.id in col_ids}
+
+    def get_idx(self, col: Column, idx_name: str | None, idx_cls: type[index.IndexBase]) -> TableVersion.IndexInfo:
+        if not self.supports_idxs:
+            raise excs.Error('Snapshot does not support indices')
+        if col.qid not in self.idxs_by_col:
+            raise excs.Error(f'Column {col.name!r} does not have a {idx_cls.display_name()} index')
+        candidates = [info for info in self.idxs_by_col[col.qid] if isinstance(info.idx, idx_cls)]
+        if len(candidates) == 0:
+            raise excs.Error(f'No {idx_cls.display_name()} index found for column {col.name!r}')
+        if len(candidates) > 1 and idx_name is None:
+            raise excs.Error(
+                f'Column {col.name!r} has multiple {idx_cls.display_name()} indices; specify `idx_name` instead'
+            )
+        if idx_name is not None and idx_name not in [info.name for info in candidates]:
+            raise excs.Error(f'Index {idx_name!r} not found for column {col.name!r}')
+        return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
 
     def get_dependent_columns(self, cols: Iterable[Column]) -> set[Column]:
         """
         Return the set of columns that transitively depend on any of the given ones.
         """
-        cat = pxt.catalog.Catalog.get()
-        result = set().union(*[cat.get_column_dependents(col.tbl.id, col.id) for col in cols])
+        from pixeltable.catalog import Catalog
+
+        cat = Catalog.get()
+        result = set().union(*[cat.get_column_dependents(col.get_tbl().id, col.id) for col in cols])
         if len(result) > 0:
             result.update(self.get_dependent_columns(result))
         return result
@@ -1582,7 +1649,7 @@ class TableVersion:
         return 1
 
     @classmethod
-    def _create_stores_md(cls, stores: Iterable[pxt.io.ExternalStore]) -> list[dict[str, Any]]:
+    def _create_stores_md(cls, stores: Iterable[ExternalStore]) -> list[dict[str, Any]]:
         return [
             {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()} for store in stores
         ]

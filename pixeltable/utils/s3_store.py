@@ -176,8 +176,8 @@ class S3Store(ObjectStoreBase):
         """
         Construct a new, unique URI for a persisted media file.
         """
-        assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
+        assert col.get_tbl() is not None, 'Column must be associated with a table'
+        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""

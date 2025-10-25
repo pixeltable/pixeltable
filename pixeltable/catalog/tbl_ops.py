@@ -5,12 +5,17 @@
 #   TableVersion
 
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclasses.dataclass
 class CreateStoreTableOp:
     pass
+
+
+@dataclasses.dataclass
+class CreateIndexOp:
+    idx_id: int
 
 
 @dataclasses.dataclass
@@ -40,5 +45,6 @@ class TableOp:
     num_ops: int  # total number of ops forming the update operation
     needs_xact: bool  # if True, op must be run as part of a transaction
 
-    create_store_table_op: Optional[CreateStoreTableOp] = None
-    load_view_op: Optional[LoadViewOp] = None
+    create_store_table_op: CreateStoreTableOp | None = None
+    create_index_op: CreateIndexOp | None = None
+    load_view_op: LoadViewOp | None = None
