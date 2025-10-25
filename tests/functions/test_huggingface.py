@@ -402,7 +402,7 @@ class TestHuggingface:
         assert len(result['transcript'].strip()) > 0
 
     def test_text_to_speech(self, reset_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
         from pixeltable.functions.huggingface import text_to_speech
 
         t = pxt.create_table('test_tbl', {'text': pxt.String})

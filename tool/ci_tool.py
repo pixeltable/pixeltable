@@ -12,10 +12,16 @@ from typing import Literal, NamedTuple, NoReturn
 
 
 class MatrixConfig(NamedTuple):
+    display_name_prefix: str
     test_category: Literal['py', 'ipynb', 'lint', 'random-ops']
-    uv_options: str
     os: str
     python_version: str
+    uv_options: str = ''
+    extra_env: str = ''
+
+    @property
+    def display_name(self) -> str:
+        return f'{self.display_name_prefix}, {self.os}, {self.python_version}'
 
 
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
@@ -36,36 +42,36 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     # Special configs that are always run
     configs = [
-        MatrixConfig('py', '--no-dev', 'ubuntu-24.04', '3.10'),  # Minimal test (no dev deps)
-        MatrixConfig('ipynb', '', 'ubuntu-24.04', '3.10'),  # Notebook tests
-        MatrixConfig('lint', '', 'ubuntu-24.04', '3.10'),  # Linting, type checking, etc.
-        MatrixConfig('random-ops', '', 'ubuntu-24.04', '3.10'),  # Random operations tests
+        MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
+        MatrixConfig('notebooks', 'ipynb', 'ubuntu-24.04', '3.10'),  # Notebook tests
+        MatrixConfig('static-checks', 'lint', 'ubuntu-24.04', '3.10'),  # Linting, type checking, etc.
+        MatrixConfig('random-ops', 'random-ops', 'ubuntu-24.04', '3.10'),  # Random operations tests
     ]
 
     # Full test suite on basic platforms on Python 3.10
-    configs.extend(MatrixConfig('py', '', os, '3.10') for os in BASIC_PLATFORMS)
+    configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in BASIC_PLATFORMS)
 
     if force_all or trigger != 'pull_request':
         # Full test suite on basic platforms on Python 3.13
-        configs.extend(MatrixConfig('py', '', os, '3.13') for os in BASIC_PLATFORMS)
+        configs.extend(MatrixConfig('full', 'py', os, '3.13') for os in BASIC_PLATFORMS)
 
         # Full test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('py', '', 'ubuntu-24.04', py) for py in ('3.11', '3.12'))
+        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12'))
 
         # Minimal test on Python 3.13
-        configs.append(MatrixConfig('py', '--no-dev', 'ubuntu-24.04', '3.13'))
+        configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.13', uv_options='--no-dev'))
 
         # Minimal tests on alternative platforms (we don't run the full suite on these, since dev dependencies
         # can be hit-or-miss)
-        configs.extend(MatrixConfig('py', '--no-dev', os, '3.10') for os in ALTERNATIVE_PLATFORMS)
+        configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
     if force_all or trigger == 'schedule':
         # Expensive tests on special hardware on Python 3.10
-        configs.extend(MatrixConfig('py', '', os, '3.10') for os in EXPENSIVE_PLATFORMS)
+        configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
-    configs.sort(key=str)
+    configs.sort(key=lambda cfg: cfg.display_name)
 
-    matrix = {'include': [cfg._asdict() for cfg in configs]}
+    matrix = {'include': [cfg._asdict() | {'display_name': cfg.display_name} for cfg in configs]}
 
     print(json.dumps(matrix, indent=4).replace('_', '-'))
     output = f'matrix={json.dumps(matrix).replace("_", "-")}\n'
