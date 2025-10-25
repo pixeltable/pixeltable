@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 import threading
 import uuid
@@ -278,38 +277,21 @@ class AzureBlobStore(ObjectStoreBase):
         from azure.core.credentials import AzureNamedKeyCredential
         from azure.storage.blob import BlobServiceClient
 
-        is_azurite = ObjectPath.AZURITE_SERVER_STRING in endpoint_url
-
-        client_config = {
-            'max_single_get_size': 32 * 1024 * 1024,  # 32MB chunks
-            'max_chunk_get_size': 4 * 1024 * 1024,  # 4MB chunks
-            'connection_timeout': 1 if is_azurite else 15,
-            'read_timeout': 1 if is_azurite else 30,
-            'retry_total': 3,
-            'retry_backoff_factor': 0.5,
-        }
-
         try:
             #  e.g. endpoint_url: str = f'https://{account_name}.blob.core.windows.net'
             assert endpoint_url is not None, 'No Azure Storage account information provided'
 
             # Use empty SAS token for anonymous authentication
             credential = None
-            if is_azurite:
-                # Use Azurite standard published development storage account key
-                credential = AzureNamedKeyCredential(
-                    name='devstoreaccount1',
-                    key='Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==',
-                )
-            elif account_name is not None and account_key is not None:
+            if account_name is not None and account_key is not None:
                 credential = AzureNamedKeyCredential(name=account_name, key=account_key)
             return BlobServiceClient(
                 account_url=endpoint_url,
                 credential=credential,
-                max_single_get_size=client_config.get('max_single_get_size', 32 * 1024 * 1024),
-                max_chunk_get_size=client_config.get('max_chunk_get_size', 4 * 1024 * 1024),
-                connection_timeout=client_config.get('connection_timeout', 15),
-                read_timeout=client_config.get('read_timeout', 30),
+                max_single_get_size=(32 * 2**20),
+                max_chunk_get_size=(4 * 2**20),
+                connection_timeout=15,
+                read_timeout=30,
             )
         except Exception as e:
             raise excs.Error(f'Failed to create Azure Blob Storage client: {str(e)!r}') from e
