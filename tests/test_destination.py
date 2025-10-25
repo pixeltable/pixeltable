@@ -7,6 +7,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
@@ -77,10 +78,31 @@ class TestDestination:
         with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
-        # Test with a destination that is not reachable
-        with pytest.raises(Exception):  # noqa: B017
-            ObjectOps.validate_destination(
-                'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest'
+    def test_invalid_bucket(self, reset_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        t = pxt.create_table('test_invalid_dest', schema={'img': pxt.Image})
+
+        with pytest.raises(
+            pxt.Error,
+            match="Client error while validating destination for column 'img_rot': "
+            "Bucket 'pxt-test-not-a-bucket' not found",
+        ):
+            t.add_computed_column(img_rot=t.img.rotate(90), destination='s3://pxt-test-not-a-bucket/pytest')
+
+        # The error message on this next one appears to vary by environment.
+        msg1 = (
+            r'Connection error while validating destination '
+            r"'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest/' "
+            r"for column 'img_rot': SSL validation failed"
+        )
+        msg2 = (
+            r"Client error while validating destination for column 'img_rot': "
+            r"Access denied to bucket 'pxt-test': Forbidden"
+        )
+        with pytest.raises(pxt.Error, match=f'{msg1}|{msg2}'):
+            t.add_computed_column(
+                img_rot=t.img.rotate(90),
+                destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',
             )
 
     def test_dest_parser(self, reset_db: None) -> None:
@@ -142,18 +164,18 @@ class TestDestination:
 
         n = len(r)
         assert n == 2
-        assert n == ObjectOps.count(None, t._id)
+        assert n == ObjectOps.count_default_output_dest(t._id)
         assert n == ObjectOps.count(dest1_uri, t._id)
         assert n == ObjectOps.count(dest2_uri, t._id)
 
         n = 1
-        assert n == ObjectOps.count(None, t._id, 2)
+        assert n == ObjectOps.count_default_output_dest(t._id, 2)
         assert n == ObjectOps.count(dest1_uri, t._id, 3)
         assert n == ObjectOps.count(dest2_uri, t._id, 4)
 
         version = 5
         n = 1
-        assert n == ObjectOps.count(None, t._id, version)
+        assert n == ObjectOps.count_default_output_dest(t._id, version)
         assert n == ObjectOps.count(dest1_uri, t._id, version)
         assert n == ObjectOps.count(dest2_uri, t._id, version)
 
@@ -168,7 +190,7 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        assert ObjectOps.count(None, save_id) == 0
+        assert ObjectOps.count_default_output_dest(save_id) == 0
         assert ObjectOps.count(dest1_uri, save_id) == 0
         assert ObjectOps.count(dest2_uri, save_id) == 0
 
@@ -195,7 +217,7 @@ class TestDestination:
         print(r_dest)
 
         assert len(r) == 2
-        assert len(r) == ObjectOps.count(None, t._id)
+        assert len(r) == ObjectOps.count_default_output_dest(t._id)
         assert len(r) == ObjectOps.count(dest1_uri, t._id)
 
         # The outcome of this test is unusual:
@@ -227,11 +249,14 @@ class TestDestination:
 
         assert len(r) == 2
 
-        # Copying a local file to the LocalStore is not allowed
-        assert ObjectOps.count(None, t._id) == 0
+        if Env.get().default_output_media_dest is None:
+            # Copying a local file to the LocalStore is not allowed
+            assert ObjectOps.count_default_output_dest(t._id) == 0
+        else:
+            assert ObjectOps.count_default_output_dest(t._id) == len(r)
 
         # Ensure that local file is copied to a specified destination
-        assert len(r) == ObjectOps.count(dest1_uri, t._id)
+        assert ObjectOps.count(dest1_uri, t._id) == len(r)
 
     def test_dest_all(self, reset_db: None) -> None:
         """Test destination with all available storage targets"""

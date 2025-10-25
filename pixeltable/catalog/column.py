@@ -10,6 +10,7 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
+from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from .globals import MediaValidation, is_valid_identifier
@@ -201,6 +202,20 @@ class Column:
             warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 
     @property
+    def resolved_destination(self) -> Optional[str]:
+        if self.destination is not None:
+            return self.destination
+        # TODO: The `self.name is not None` clause is necessary because index columns currently follow the type of
+        #     the underlying media column. We should move to using pxt.String as the col_type of index columns; this
+        #     would be a more robust solution, and then `self.name is not None` could be removed.
+        if self.is_stored and self.col_type.is_media_type() and self.name is not None:
+            if self.is_computed:
+                return Env.get().default_output_media_dest
+            else:
+                return Env.get().default_input_media_dest
+        return None
+
+    @property
     def handle(self) -> 'ColumnHandle':
         """Returns a ColumnHandle for this Column."""
         from .table_version_handle import ColumnHandle
@@ -227,10 +242,10 @@ class Column:
             )
 
     def has_window_fn_call(self) -> bool:
-        if self.value_expr is None:
-            return False
         from pixeltable import exprs
 
+        if self.value_expr is None:
+            return False
         window_fn_calls = list(
             self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
         )

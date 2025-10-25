@@ -8,6 +8,8 @@ Command-line utility for CI/CD operations.
 import argparse
 import json
 import sys
+import uuid
+from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
 
@@ -23,10 +25,27 @@ class MatrixConfig(NamedTuple):
     def display_name(self) -> str:
         return f'{self.display_name_prefix}, {self.os}, {self.python_version}'
 
+    @property
+    def matrix_entry(self) -> dict[str, str]:
+        return {
+            'display-name': self.display_name,
+            'test-category': self.test_category,
+            'os': self.os,
+            'python-version': self.python_version,
+            'uv-options': self.uv_options,
+            'extra-env': self.extra_env,
+        }
+
 
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
 EXPENSIVE_PLATFORMS = ('ubuntu-x64-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
+
+
+def new_bucket_addr() -> str:
+    date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+    bucket_uuid = uuid.uuid4().hex
+    return f's3://pxt-test/pytest-media-dest/{date_str}/{bucket_uuid}'
 
 
 def generate_matrix(args: argparse.Namespace) -> None:
@@ -65,16 +84,29 @@ def generate_matrix(args: argparse.Namespace) -> None:
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
+        # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
+        # different test runs don't interfere with each other and any stale data is easy to clean up.
+        configs.append(
+            MatrixConfig(
+                's3-output-dest',
+                'py',
+                'ubuntu-24.04',
+                '3.10',
+                uv_options='--no-dev --group storage-sdks',
+                extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
+            )
+        )
+
     if force_all or trigger == 'schedule':
         # Expensive tests on special hardware on Python 3.10
         configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
     configs.sort(key=lambda cfg: cfg.display_name)
 
-    matrix = {'include': [cfg._asdict() | {'display_name': cfg.display_name} for cfg in configs]}
+    matrix = {'include': [cfg.matrix_entry for cfg in configs]}
 
-    print(json.dumps(matrix, indent=4).replace('_', '-'))
-    output = f'matrix={json.dumps(matrix).replace("_", "-")}\n'
+    print(json.dumps(matrix, indent=4))
+    output = f'matrix={json.dumps(matrix)}\n'
     with open(output_file, 'a', encoding='utf8') as fp:
         fp.write(output)
 

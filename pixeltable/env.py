@@ -38,7 +38,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
-from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
+from pixeltable.utils.object_stores import ObjectPath
 
 if TYPE_CHECKING:
     import spacy
@@ -61,7 +61,6 @@ class Env:
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Optional[Path]
-    _object_soa: Optional[StorageObjectAddress]
     _file_cache_dir: Optional[Path]  # cached object files with external URL
     _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
     _log_dir: Optional[Path]  # log files
@@ -125,7 +124,6 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
-        self._object_soa = None  # computed object files in StorageObjectAddress format
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -396,23 +394,18 @@ class Env:
         config = Config.get()
 
         self._initialized = True
+
         self._media_dir = Config.get().home / 'media'
         self._file_cache_dir = Config.get().home / 'file_cache'
         self._dataset_cache_dir = Config.get().home / 'dataset_cache'
         self._log_dir = Config.get().home / 'logs'
         self._tmp_dir = Config.get().home / 'tmp'
 
-        if not self._media_dir.exists():
-            self._media_dir.mkdir()
-        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), allow_obj_name=False)
-        if not self._file_cache_dir.exists():
-            self._file_cache_dir.mkdir()
-        if not self._dataset_cache_dir.exists():
-            self._dataset_cache_dir.mkdir()
-        if not self._log_dir.exists():
-            self._log_dir.mkdir()
-        if not self._tmp_dir.exists():
-            self._tmp_dir.mkdir()
+        self._media_dir.mkdir(exist_ok=True)
+        self._file_cache_dir.mkdir(exist_ok=True)
+        self._dataset_cache_dir.mkdir(exist_ok=True)
+        self._log_dir.mkdir(exist_ok=True)
+        self._tmp_dir.mkdir(exist_ok=True)
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
@@ -421,6 +414,16 @@ class Env:
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
+
+        self._default_input_media_dest = config.get_string_value('input_media_dest')
+        self._default_output_media_dest = config.get_string_value('output_media_dest')
+        for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
+            if uri is not None:
+                try:
+                    _ = ObjectPath.parse_object_storage_addr(uri, False)
+                except Exception as e:
+                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
+
         self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings
@@ -874,10 +877,12 @@ class Env:
         return self._media_dir
 
     @property
-    def object_soa(self) -> StorageObjectAddress:
-        assert self._media_dir is not None
-        assert self._object_soa is not None
-        return self._object_soa
+    def default_input_media_dest(self) -> Optional[str]:
+        return self._default_input_media_dest
+
+    @property
+    def default_output_media_dest(self) -> Optional[str]:
+        return self._default_output_media_dest
 
     @property
     def file_cache_dir(self) -> Path:

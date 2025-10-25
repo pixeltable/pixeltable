@@ -44,11 +44,11 @@ class ObjectStoreSaveNode(ExecNode):
         """Specify the source and destination for a WorkItem"""
 
         src_path: str  # source of the file to be processed
-        destination: Optional[str]  # destination URI for the file to be processed
+        destination: str  # destination URI for the file to be processed
 
     class WorkItem(NamedTuple):
         src_path: Path
-        destination: Optional[str]
+        destination: str
         info: exprs.ColumnSlotIdx  # column info for the file being processed
         destination_count: int = 1  # number of unique destinations for this file
 
@@ -208,15 +208,12 @@ class ObjectStoreSaveNode(ExecNode):
             assert row.excs[index] is None
             assert col.col_type.is_media_type()
 
-            destination = info.col.destination
-            soa = None if destination is None else ObjectPath.parse_object_storage_addr(destination, False)
-            if (
-                soa is not None
-                and soa.storage_target == StorageTarget.LOCAL_STORE
-                and LocalStore(soa).resolve_url(url) is not None
-            ):
-                # A local non-default destination was specified, and the url already points there
-                continue
+            destination = info.col.resolved_destination
+            if destination is not None:
+                soa = ObjectPath.parse_object_storage_addr(destination, False)
+                if soa.storage_target == StorageTarget.LOCAL_STORE and LocalStore(soa).resolve_url(url) is not None:
+                    # A local non-default destination was specified, and the url already points there
+                    continue
 
             src_path = LocalStore.file_url_to_path(url)
             if src_path is None:
@@ -287,7 +284,7 @@ class ObjectStoreSaveNode(ExecNode):
         """Move data from the TempStore to another location"""
         src_path = work_item.src_path
         col = work_item.info.col
-        assert col.destination == work_item.destination
+        assert col.resolved_destination == work_item.destination
         try:
             new_file_url = ObjectOps.put_file(col, src_path, work_item.destination_count == 1)
             return new_file_url, None

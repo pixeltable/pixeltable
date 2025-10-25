@@ -56,11 +56,11 @@ class StorageObjectAddress(NamedTuple):
 
     @property
     def is_azure_scheme(self) -> bool:
-        return self.scheme in ['wasb', 'wasbs', 'abfs', 'abfss']
+        return self.scheme in ('wasb', 'wasbs', 'abfs', 'abfss')
 
     @property
     def has_valid_storage_target(self) -> bool:
-        return self.storage_target in [
+        return self.storage_target in (
             StorageTarget.LOCAL_STORE,
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
@@ -68,7 +68,7 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
-        ]
+        )
 
     @property
     def prefix_free_uri(self) -> str:
@@ -202,7 +202,7 @@ class ObjectPath:
             container = parsed.netloc
             key = parsed.path.lstrip('/')
 
-        elif scheme in ['wasb', 'wasbs', 'abfs', 'abfss']:
+        elif scheme in ('wasb', 'wasbs', 'abfs', 'abfss'):
             # Azure-specific URI schemes
             # wasb[s]://container@account.blob.core.windows.net/<optional prefix>/<optional object>
             # abfs[s]://container@account.dfs.core.windows.net/<optional prefix>/<optional object>
@@ -216,7 +216,7 @@ class ObjectPath:
                 raise ValueError(f'Invalid Azure URI format: {src_addr}')
             key = parsed.path.lstrip('/')
 
-        elif scheme in ['http', 'https']:
+        elif scheme in ('http', 'https'):
             # Standard HTTP(S) URL format
             # https://account.blob.core.windows.net/container/<optional path>/<optional object>
             # https://account.r2.cloudflarestorage.com/container/<optional path>/<optional object>
@@ -360,30 +360,15 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(
-        cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None
-    ) -> ObjectStoreBase:
+    def get_store(cls, dest: Optional[str], allow_obj_name: bool, col_name: Optional[str] = None) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
-        soa = (
-            Env.get().object_soa
-            if dest is None
-            else ObjectPath.parse_object_storage_addr(dest, allow_obj_name=may_contain_object_name)
-        )
+        dest = dest or str(Env.get().media_dir)  # Use local media dir as fallback
+        soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
-        if soa.storage_target == StorageTarget.S3_STORE and soa.scheme == 's3':
-            env.Env.get().require_package('boto3')
-            from pixeltable.utils.s3_store import S3Store
-
-            return S3Store(soa)
-        if soa.storage_target == StorageTarget.R2_STORE:
-            env.Env.get().require_package('boto3')
-            from pixeltable.utils.s3_store import S3Store
-
-            return S3Store(soa)
-        if soa.storage_target == StorageTarget.B2_STORE:
+        if soa.storage_target in (StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE):
             env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 
@@ -409,19 +394,19 @@ class ObjectOps:
         Returns:
             URI of destination, or raises an error
         """
-        error_prefix = f'Column {col_name!r}: ' if col_name is not None else ''
+        error_col_str = f'column {col_name!r}' if col_name is not None else ''
 
         # General checks on any destination
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_prefix}`destination` must be a string or path; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a string or path; got {dest!r}')
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
-        dest2 = store.validate(error_prefix)
+        dest2 = store.validate(error_col_str)
         if dest2 is None:
-            raise excs.Error(f'{error_prefix}`destination` must be a supported destination; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a supported destination; got {dest!r}')
         return dest2
 
     @classmethod
@@ -443,7 +428,7 @@ class ObjectOps:
         if relocate_or_delete:
             # File is temporary, used only once, so we can delete it after copy if it can't be moved
             assert TempStore.contains_path(src_path)
-        dest = col.destination
+        dest = col.resolved_destination
         store = cls.get_store(dest, False, col.name)
         # Attempt to move
         if relocate_or_delete:
@@ -458,13 +443,13 @@ class ObjectOps:
     @classmethod
     def move_local_file(cls, col: Column, src_path: Path) -> str:
         """Move a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
+        store = cls.get_store(col.resolved_destination, False, col.name)
         return store.move_local_file(col, src_path)
 
     @classmethod
     def copy_local_file(cls, col: Column, src_path: Path) -> str:
         """Copy a file to the destination specified by the Column, returning the file's URL within the destination."""
-        store = cls.get_store(col.destination, False, col.name)
+        store = cls.get_store(col.resolved_destination, False, col.name)
         return store.copy_local_file(col, src_path)
 
     @classmethod
@@ -475,6 +460,16 @@ class ObjectOps:
         """
         store = cls.get_store(dest, False)
         return store.delete(tbl_id, tbl_version)
+
+    @classmethod
+    def count_default_input_dest(cls, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+        """Return the count of objects in the default input destination for a given table ID"""
+        return cls.count(env.Env.get().default_input_media_dest, tbl_id, tbl_version)
+
+    @classmethod
+    def count_default_output_dest(cls, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+        """Return the count of objects in the default output destination for a given table ID"""
+        return cls.count(env.Env.get().default_output_media_dest, tbl_id, tbl_version)
 
     @classmethod
     def count(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:

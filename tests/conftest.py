@@ -127,15 +127,14 @@ def _free_disk_space() -> None:
     # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
     # tests.
 
-    # Clear the temp store and media store
-    # If the LocalStore is actually an object store, this will NOT clear the object store.
+    # Clear the temp store and media dir
     try:
         TempStore.clear()
-        LocalStore(Env.get().object_soa).clear()
-        _logger.info('Cleared TempStore and LocalStore.')
+        LocalStore(Env.get().media_dir).clear()
+        _logger.info('Cleared TempStore and media dir.')
     except PermissionError:
         # Sometimes this happens on Windows if a file is held open by a concurrent process.
-        _logger.info('PermissionError trying to clear TempStore and LocalStore.')
+        _logger.info('PermissionError trying to clear TempStore and media dir.')
 
     try:
         _clear_hf_caches()

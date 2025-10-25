@@ -86,9 +86,7 @@ endif
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
 	@echo 'Installing ffmpeg ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' awscli google-cloud-sdk
-	@echo 'Installing quarto ...'
-	@conda install -q -y -c conda-forge quarto
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto
 	@echo 'Fixing quarto conda packaging bugs ...'
 	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
