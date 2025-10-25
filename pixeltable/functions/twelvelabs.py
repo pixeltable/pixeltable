@@ -5,7 +5,7 @@ first `pip install twelvelabs` and configure your TwelveLabs credentials, as des
 the [Working with TwelveLabs](https://pixeltable.readme.io/docs/working-with-twelvelabs) tutorial.
 """
 
-from typing import TYPE_CHECKING, Literal, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
