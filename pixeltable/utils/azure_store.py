@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Optional
 from azure.core.exceptions import AzureError
 
 from pixeltable import env, exceptions as excs
+from pixeltable.config import Config
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress
 
 if TYPE_CHECKING:
@@ -71,20 +72,20 @@ class AzureBlobStore(ObjectStoreBase):
 
     def client(self) -> Any:
         """Return the Azure Blob Storage client."""
-        cd = env.Env.get().get_client('azure_blob')
+        client_dict = env.Env.get().get_client('azure_blob')
         with client_lock:
             uri = self.soa.container_free_uri
-            if uri not in cd.clients:
-                account_name_os = os.environ.get('AZURE_STORAGE_ACCOUNT_NAME')
-                if account_name_os is None or account_name_os != self.__account_name:
+            if uri not in client_dict.clients:
+                storage_account_name = Config.get().get_string_value('storage_account_name', section='azure')
+                if storage_account_name is None or storage_account_name != self.__account_name:
                     # Attempt a connection to a public resource, with no account key
-                    cd.clients[uri] = self.create_az_raw(endpoint_url=uri)
+                    client_dict.clients[uri] = self.create_az_raw(endpoint_url=uri)
                 else:
-                    account_key = os.environ.get('AZURE_STORAGE_ACCOUNT_KEY')
-                    cd.clients[uri] = self.create_az_raw(
-                        endpoint_url=uri, account_name=self.__account_name, account_key=account_key
+                    storage_account_key = Config.get().get_string_value('storage_account_key', section='azure')
+                    client_dict.clients[uri] = self.create_az_raw(
+                        endpoint_url=uri, account_name=self.__account_name, account_key=storage_account_key
                     )
-            return cd.clients[uri]
+            return client_dict.clients[uri]
 
     @property
     def account_name(self) -> str:
