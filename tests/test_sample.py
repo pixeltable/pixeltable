@@ -28,7 +28,7 @@ class TestSample:
         t = test_tbl
 
         # ------- Test that sample is not preceded by anything unexpected
-        with pytest.raises(pxt.Error, match='cannot be used with'):
+        with pytest.raises(pxt.Error, match=r'Multiple sample\(\) clauses not allowed'):
             _ = t.select().sample(n=10).sample(n=10)
         with pytest.raises(pxt.Error, match='cannot be used with'):
             _ = t.select().group_by(t.c1).sample(n=10)
@@ -60,21 +60,21 @@ class TestSample:
             _ = t.select().sample(n=10).join(t, on=t.c1)
 
         # ------- Test sample parameter correctness
-        with pytest.raises(pxt.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type `Int`; got `Float`'):
             _ = t.select().sample(n=0.01)  # type: ignore[arg-type]
         with pytest.raises(pxt.Error, match='must be >'):
             _ = t.select().sample(n=-1)
-        with pytest.raises(pxt.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type `Int`; got `String`'):
             _ = t.select().sample(n_per_stratum='abc', stratify_by=t.c1)  # type: ignore[arg-type]
         with pytest.raises(pxt.Error, match='must be >'):
             _ = t.select().sample(n_per_stratum=0, stratify_by=t.c1)
-        with pytest.raises(pxt.Error, match='must be of type Float'):
+        with pytest.raises(pxt.Error, match='must be of type `Float`; got `Int`'):
             _ = t.select().sample(fraction=24)
         with pytest.raises(pxt.Error, match='parameter must be >'):
             _ = t.select().sample(fraction=-0.5)
         with pytest.raises(pxt.Error, match='parameter must be <'):
             _ = t.select().sample(fraction=12.9)
-        with pytest.raises(pxt.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type `Int`; got `Float`'):
             _ = t.select().sample(n=10, seed=-123.456)  # type: ignore[arg-type]
 
         # Test invalid sample parameter combinations
