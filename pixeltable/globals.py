@@ -10,6 +10,7 @@ import pydantic
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share, type_system as ts
+from pixeltable.func import public_api
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
+@public_api
 def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
     """Initializes the Pixeltable environment."""
     if config_overrides is None:
@@ -44,6 +46,7 @@ def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
     _ = Catalog.get()
 
 
+@public_api
 def create_table(
     path: str,
     schema: Optional[dict[str, Any]] = None,
@@ -196,6 +199,7 @@ def create_table(
     return table
 
 
+@public_api
 def create_view(
     path: str,
     base: catalog.Table | DataFrame,
@@ -316,6 +320,7 @@ def create_view(
     )
 
 
+@public_api
 def create_snapshot(
     path_str: str,
     base: catalog.Table | DataFrame,
@@ -397,6 +402,7 @@ def create_snapshot(
     )
 
 
+@public_api
 def publish(
     source: str | catalog.Table,
     destination_uri: str,
@@ -427,6 +433,7 @@ def publish(
     share.push_replica(destination_uri, source, bucket_name, access)
 
 
+@public_api
 def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     """
     Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of the replica in a
@@ -447,6 +454,7 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     return share.pull_replica(local_path, remote_uri)
 
 
+@public_api
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
     """Get a handle to an existing table, view, or snapshot.
 
@@ -487,6 +495,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     return tbl
 
 
+@public_api
 def move(
     path: str,
     new_path: str,
@@ -534,6 +543,7 @@ def move(
     Catalog.get().move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
+@public_api
 def drop_table(
     table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
@@ -595,6 +605,7 @@ def drop_table(
         Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
+@public_api
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
     """Get the contents of a Pixeltable directory.
 
@@ -646,6 +657,7 @@ def _assemble_dir_contents(
             tables.append(path)
 
 
+@public_api
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     """List the [`Table`][pixeltable.Table]s in a directory.
 
@@ -678,6 +690,7 @@ def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths:
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
+@public_api
 def create_dir(
     path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> Optional[catalog.Dir]:
@@ -730,6 +743,7 @@ def create_dir(
     return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
+@public_api
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
@@ -772,6 +786,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
+@public_api
 def ls(path: str = '') -> pd.DataFrame:
     """
     List the contents of a Pixeltable directory.
@@ -858,6 +873,7 @@ def _extract_paths(
     return result
 
 
+@public_api
 def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
     """List the directories in a directory.
 
@@ -881,6 +897,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
 
 
+@public_api
 def list_functions() -> Styler:
     """Returns information about all registered functions.
 
@@ -910,6 +927,7 @@ def list_functions() -> Styler:
     return pd_df.hide(axis='index')
 
 
+@public_api
 def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     """
     Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as an input into an
@@ -947,6 +965,7 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     return func.tools.Tools(tools=[arg if isinstance(arg, func.tools.Tool) else tool(arg) for arg in args])
 
 
+@public_api
 def tool(fn: func.Function, name: Optional[str] = None, description: Optional[str] = None) -> func.tools.Tool:
     """
     Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the documentation for
@@ -967,6 +986,7 @@ def tool(fn: func.Function, name: Optional[str] = None, description: Optional[st
     return func.tools.Tool(fn=fn, name=name, description=description)
 
 
+@public_api
 def configure_logging(
     *,
     to_stdout: Optional[bool] = None,
@@ -985,6 +1005,7 @@ def configure_logging(
     return Env.get().configure_logging(to_stdout=to_stdout, level=level, add=add, remove=remove)
 
 
+@public_api
 def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
 

@@ -7,11 +7,13 @@ import pixeltable.exceptions as excs
 from pixeltable import Table, exprs
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
+from pixeltable.func import public_api
 
 if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
 
 
+@public_api
 def create_label_studio_project(
     t: Table,
     label_config: str,
@@ -140,6 +142,7 @@ def create_label_studio_project(
         return UpdateStatus()
 
 
+@public_api
 def export_images_as_fo_dataset(
     tbl: pxt.Table,
     images: exprs.Expr,
