@@ -3,7 +3,7 @@ import re
 import threading
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Optional
+from typing import TYPE_CHECKING, Iterator, Optional
 
 from azure.core.exceptions import AzureError
 
@@ -13,6 +13,8 @@ from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageO
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
+    from azure.storage.blob import BlobServiceClient
+
 
 _logger = logging.getLogger('pixeltable')
 
@@ -20,21 +22,14 @@ _logger = logging.getLogger('pixeltable')
 client_lock = threading.Lock()
 
 
-class AzureClientDict(NamedTuple):
-    """Container for actual Azure access objects (clients, resources)
-    Thread-safe, protected by the module lock 'client_lock'"""
-
-    profile: Optional[str]  # profile used to find credentials
-    clients: dict[str, Any]  # Dictionary of URI to client object attached to the URI
-
-
 @env.register_client('azure_blob')
-def _() -> Any:
-    return AzureClientDict(profile=None, clients={})
+def _() -> dict[str, 'BlobServiceClient']:
+    return {}
 
 
 class AzureBlobStore(ObjectStoreBase):
     """Class to handle Azure Blob Storage operations."""
+    # TODO: This needs to be redesigned to use asyncio.
 
     # URI of the Azure Blob Storage container
     # Always ends with a slash
@@ -63,28 +58,29 @@ class AzureBlobStore(ObjectStoreBase):
 
         # Reconstruct base URI in normalized format
         self.__base_uri = self.soa.prefix_free_uri + self.__prefix_name
-        if 0:
-            print(
-                f'Initialized AzureBlobStore with base URI: {self.__base_uri},',
-                f'account: {self.__account_name}, container: {self.__container_name}, prefix: {self.__prefix_name}',
-            )
+        _logger.info(
+            f'Initialized AzureBlobStore with base URI: {self.__base_uri},',
+            f'account: {self.__account_name}, container: {self.__container_name}, prefix: {self.__prefix_name}',
+        )
 
-    def client(self) -> Any:
+    def client(self) -> 'BlobServiceClient':
         """Return the Azure Blob Storage client."""
-        client_dict = env.Env.get().get_client('azure_blob')
+        client_dict: dict[str, 'BlobServiceClient'] = env.Env.get().get_client('azure_blob')
         with client_lock:
             uri = self.soa.container_free_uri
-            if uri not in client_dict.clients:
+            if uri not in client_dict:
                 storage_account_name = Config.get().get_string_value('storage_account_name', section='azure')
+                storage_account_key = Config.get().get_string_value('storage_account_key', section='azure')
+                if (storage_account_name is None) != (storage_account_key is None):
+                    raise excs.Error("Azure 'storage_account_name' and 'storage_account_key' must be specified together.")
                 if storage_account_name is None or storage_account_name != self.__account_name:
                     # Attempt a connection to a public resource, with no account key
-                    client_dict.clients[uri] = self.create_az_raw(endpoint_url=uri)
+                    client_dict[uri] = self.create_client(endpoint_url=uri)
                 else:
-                    storage_account_key = Config.get().get_string_value('storage_account_key', section='azure')
-                    client_dict.clients[uri] = self.create_az_raw(
+                    client_dict[uri] = self.create_client(
                         endpoint_url=uri, account_name=self.__account_name, account_key=storage_account_key
                     )
-            return client_dict.clients[uri]
+            return client_dict[uri]
 
     @property
     def account_name(self) -> str:
@@ -128,6 +124,7 @@ class AzureBlobStore(ObjectStoreBase):
             self.handle_azure_error(e, self.container_name, f'download file {src_path}')
             raise
 
+    # TODO: utils package should not include back-references to `Column`
     def copy_local_file(self, col: 'Column', src_path: Path) -> str:
         """Copy a local file to Azure Blob Storage, and return its new URL"""
         prefix, filename = ObjectPath.create_prefix_raw(col.tbl.id, col.id, col.tbl.version, ext=src_path.suffix)
@@ -272,18 +269,18 @@ class AzureBlobStore(ObjectStoreBase):
             raise excs.Error(f'Error during {operation} in container {container_name}: {str(e)!r}')
 
     @classmethod
-    def create_az_raw(cls, endpoint_url: str, account_name: str | None = None, account_key: str | None = None) -> Any:
-        """Get a raw client without any locking"""
+    def create_client(cls, endpoint_url: str, account_name: str | None = None, account_key: str | None = None) -> 'BlobServiceClient':
         from azure.core.credentials import AzureNamedKeyCredential
-        from azure.storage.blob import BlobServiceClient
+        from azure.storage.blob import BlobServiceClient  # TODO: Use azure.storage.blob.aio instead
 
+        assert (account_name is None) == (account_key is None)
         try:
             #  e.g. endpoint_url: str = f'https://{account_name}.blob.core.windows.net'
             assert endpoint_url is not None, 'No Azure Storage account information provided'
 
             # Use empty SAS token for anonymous authentication
             credential = None
-            if account_name is not None and account_key is not None:
+            if account_name is not None:
                 credential = AzureNamedKeyCredential(name=account_name, key=account_key)
             return BlobServiceClient(
                 account_url=endpoint_url,
