@@ -272,7 +272,7 @@
         "tab": "Changelog",
         "groups": [
           {
-            "group": "Changelog",
+            "group": "Release History",
             "pages": [
               "changelog/changelog"
             ]

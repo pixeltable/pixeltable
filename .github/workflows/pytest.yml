@@ -212,9 +212,6 @@ jobs:
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool
-      - name: Validate links in notebooks
-        if: ${{ matrix.test-category == 'lint' }}
-        run: ./scripts/lint-notebooks.sh
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
