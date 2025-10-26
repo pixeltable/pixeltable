@@ -180,7 +180,7 @@ extra-dev = [
 
 [tool.hatch.build.hooks.version]
 path = "pixeltable/_version.py"
-template = "__version__ = '{version}'\n"
+template = "__version__: str = '{version}'\n"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
