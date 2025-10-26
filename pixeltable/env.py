@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -55,6 +55,8 @@ class Env:
     For a local environment, Pixeltable uses an embedded PostgreSQL server that runs locally in a separate process.
     For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
+
+    SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
 
     _instance: Optional[Env] = None
     __initializing: bool = False
@@ -94,7 +96,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[orm.Session]
-    _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
+    _current_isolation_level: str | None
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
 
@@ -274,7 +276,7 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE'
+                self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -289,7 +291,7 @@ class Env:
                 self._current_isolation_level = None
         else:
             assert self._current_session is not None
-            assert for_write == (self._current_isolation_level == 'serializable')
+            assert self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
             yield self._current_conn
 
     def configure_logging(
