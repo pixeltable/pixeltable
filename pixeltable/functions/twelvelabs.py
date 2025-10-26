@@ -30,12 +30,13 @@ def _twelvelabs_client() -> 'AsyncTwelveLabs':
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
 async def embed(
-    model_name: Literal['Marengo-retrieval-2.7'],
+    model_name: str,
     *,
     text: str | None = None,
     text_truncate: Literal['none', 'start', 'end'] | None = None,
     audio: pxt.Audio | None = None,
-    image: pxt.Image | None = None,
+    # TODO: support images
+    # image: pxt.Image | None = None,
     **kwargs: Any,
 ) -> pxt.Array[(1024,), pxt.Float]:
     """
@@ -54,11 +55,12 @@ async def embed(
     - `pip install twelvelabs`
 
     Args:
-        model_name: The name of the model to use. Must be `'Marengo-retrieval-2.7'`.
+        model_name: The name of the model to use. Check
+            [the TwelveLabs documentation](https://docs.twelvelabs.io/v1.3/sdk-reference/python/create-text-image-and-audio-embeddings)
+            for available models.
         text: The text to embed.
         text_truncate: Truncation mode for the text.
         audio: The audio to embed.
-        image: The image to embed.
 
     Returns:
         The embedding.
@@ -75,7 +77,8 @@ async def embed(
         model_name=model_name, text=text, text_truncate=text_truncate, audio_file=audio, **kwargs
     )
     if text is not None:
-        assert res.text_embedding is not None
+        if res.text_embedding is None:
+            raise pxt.Error(f"Didn't receive embedding for text: {text}")
         vector = res.text_embedding.segments[0].float_
         return np.array(vector, dtype=np.float64)
     # TODO: handle audio and image, once we know how to get a non-error response

@@ -15,7 +15,7 @@ class TestTwelveLabs:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(embed=embed(model_name='Marengo-retrieval-2.7', text=t.input))
-        validate_update_status(t.insert(input='Twelve Labs provides a variety of embeddings models.'), 1)
+        validate_update_status(t.insert(input='Twelve Labs provides multi-modal embeddings models.'), 1)
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (1024,)
 
