@@ -183,9 +183,7 @@ def _(model: str) -> ts.ArrayType:
 
 
 @pxt.udf(resource_pool='request-rate:together:images')
-async def image_generations(
-    prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None
-) -> PIL.Image.Image:
+async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> PIL.Image.Image:
     """
     Generate images based on a given prompt using a specified model.
 

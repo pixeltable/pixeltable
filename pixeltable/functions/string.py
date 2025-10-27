@@ -78,9 +78,7 @@ def contains(self: str, substr: str, case: bool = True) -> bool:
 
 
 @contains.to_sql
-def _(
-    self: sql.ColumnElement, substr: sql.ColumnElement, case: sql.ColumnElement | None = None
-) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, substr: sql.ColumnElement, case: sql.ColumnElement | None = None) -> sql.ColumnElement:
     # Replace all occurrences of `%`, `_`, and `\` with escaped versions
     escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
     if case is None:
@@ -169,10 +167,7 @@ def find(self: str, substr: str, start: int = 0, end: int | None = None) -> int:
 
 @find.to_sql
 def _(
-    self: sql.ColumnElement,
-    substr: sql.ColumnElement,
-    start: sql.ColumnElement,
-    end: sql.ColumnElement | None = None,
+    self: sql.ColumnElement, substr: sql.ColumnElement, start: sql.ColumnElement, end: sql.ColumnElement | None = None
 ) -> sql.ColumnElement:
     sl = pxt.functions.string.slice._to_sql(self, start, end)
     if sl is None:
@@ -709,9 +704,7 @@ def _(
 
 
 @pxt.udf(is_method=True)
-def slice_replace(
-    self: str, start: int | None = None, stop: int | None = None, repl: str | None = None
-) -> str:
+def slice_replace(self: str, start: int | None = None, stop: int | None = None, repl: str | None = None) -> str:
     """
     Replace a positional slice with another value.
 

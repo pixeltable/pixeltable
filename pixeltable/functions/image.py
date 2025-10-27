@@ -345,9 +345,7 @@ def getprojection(self: PIL.Image.Image) -> tuple[int]:
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.histogram, is_method=True)
-def histogram(
-    self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None
-) -> list[int]:
+def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> list[int]:
     """
     Return a histogram for the image.
 

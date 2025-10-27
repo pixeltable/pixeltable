@@ -1011,9 +1011,7 @@ class TableVersion:
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
-    def update(
-        self, value_spec: dict[str, Any], where: exprs.Expr | None = None, cascade: bool = True
-    ) -> UpdateStatus:
+    def update(self, value_spec: dict[str, Any], where: exprs.Expr | None = None, cascade: bool = True) -> UpdateStatus:
         """Update rows in this TableVersionPath.
         Args:
             value_spec: a list of (column, value) pairs specifying the columns to update and their new values.

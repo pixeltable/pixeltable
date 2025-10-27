@@ -224,9 +224,7 @@ class Formatter:
         """
 
     @classmethod
-    def make_document_thumbnail(
-        cls, file_path: str, max_width: int = 320, max_height: int = 320
-    ) -> Image.Image | None:
+    def make_document_thumbnail(cls, file_path: str, max_width: int = 320, max_height: int = 320) -> Image.Image | None:
         """
         Returns a thumbnail image of a document.
         """

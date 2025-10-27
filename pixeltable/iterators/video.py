@@ -74,12 +74,7 @@ class FrameIterator(ComponentIterator):
     next_pos: int
 
     def __init__(
-        self,
-        video: str,
-        *,
-        fps: float | None = None,
-        num_frames: int | None = None,
-        all_frame_attrs: bool = False,
+        self, video: str, *, fps: float | None = None, num_frames: int | None = None, all_frame_attrs: bool = False
     ):
         if fps is not None and num_frames is not None:
             raise excs.Error('At most one of `fps` or `num_frames` may be specified')

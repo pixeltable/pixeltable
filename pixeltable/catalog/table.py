@@ -243,11 +243,7 @@ class Table(SchemaObject):
             return self._df().where(pred)
 
     def join(
-        self,
-        other: 'Table',
-        *,
-        on: 'exprs.Expr' | None = None,
-        how: 'pixeltable.plan.JoinType.LiteralType' = 'inner',
+        self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.DataFrame':
         """Join this table with another table."""
         from pixeltable.catalog import Catalog

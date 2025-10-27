@@ -120,9 +120,7 @@ class ObjectPath:
         return tbl_id.hex
 
     @classmethod
-    def create_prefix_raw(
-        cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None
-    ) -> tuple[str, str]:
+    def create_prefix_raw(cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None) -> tuple[str, str]:
         """Construct a unique unix-style prefix and filename for a persisted file.
         The results are derived from table, col, and version specs.
         Returns:
@@ -360,9 +358,7 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(
-        cls, dest: str | None, may_contain_object_name: bool, col_name: str | None = None
-    ) -> ObjectStoreBase:
+    def get_store(cls, dest: str | None, may_contain_object_name: bool, col_name: str | None = None) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 

@@ -380,8 +380,6 @@ class S3Store(ObjectStoreBase):
             return boto3.client('s3', config=config)
 
     @classmethod
-    def create_boto_resource(
-        cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None
-    ) -> Any:
+    def create_boto_resource(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         # Create a session using the defined profile
         return cls.create_boto_session(profile_name).resource('s3', **(extra_args or {}))

@@ -893,10 +893,7 @@ class ArrayType(ColumnType):
     dtype: ColumnType.Type | None
 
     def __init__(
-        self,
-        shape: tuple[int | None, ...] | None = None,
-        dtype: ColumnType | None = None,
-        nullable: bool = False,
+        self, shape: tuple[int | None, ...] | None = None, dtype: ColumnType | None = None, nullable: bool = False
     ):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         assert shape is None or dtype is not None, (shape, dtype)  # cannot specify a shape without a dtype

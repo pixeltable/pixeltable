@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from pixeltable.metadata import schema
 
 
@@ -42,9 +41,7 @@ class MetadataUtils:
         return r
 
     @classmethod
-    def _create_md_change_dict(
-        cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]] | None
-    ) -> dict[int, str]:
+    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]] | None) -> dict[int, str]:
         """Return a dictionary of schema changes by version
         Args:
             md_list: a list of tuples, each containing a version number and a metadata dictionary.

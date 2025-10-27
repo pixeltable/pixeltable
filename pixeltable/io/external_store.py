@@ -68,10 +68,7 @@ class Project(ExternalStore, abc.ABC):
     stored_proxies: dict[ColumnHandle, ColumnHandle]  # original col -> proxy col
 
     def __init__(
-        self,
-        name: str,
-        col_mapping: dict[ColumnHandle, str],
-        stored_proxies: dict[ColumnHandle, ColumnHandle] | None,
+        self, name: str, col_mapping: dict[ColumnHandle, str], stored_proxies: dict[ColumnHandle, ColumnHandle] | None
     ):
         super().__init__(name)
         self._col_mapping = col_mapping

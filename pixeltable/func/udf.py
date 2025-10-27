@@ -237,9 +237,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         return lambda py_fn: make_expr_template(py_fn, kwargs['param_types'])
 
 
-def from_table(
-    tbl: catalog.Table, return_value: 'exprs.Expr' | None, description: str | None
-) -> ExprTemplateFunction:
+def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, description: str | None) -> ExprTemplateFunction:
     """
     Constructs an `ExprTemplateFunction` from a `Table`.
 

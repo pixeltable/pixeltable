@@ -43,9 +43,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def _unpack_row(
-    row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]
-) -> list[Any] | None:
+def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]) -> list[Any] | None:
     """Convert a Row result into a list of entity instances.
 
     Assumes that the query contains a select() of exactly those entities.

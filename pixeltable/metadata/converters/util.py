@@ -80,9 +80,7 @@ def __update_external_store_md(table_md: dict, external_store_md_updater: Callab
         external_store_md_updater(store_md)
 
 
-def __substitute_md_rec(
-    md: Any, substitution_fn: Callable[[str | None, Any], tuple[str | None, Any] | None]
-) -> Any:
+def __substitute_md_rec(md: Any, substitution_fn: Callable[[str | None, Any], tuple[str | None, Any] | None]) -> Any:
     if isinstance(md, dict):
         updated_dict: dict[str, Any] = {}
         for k, v in md.items():

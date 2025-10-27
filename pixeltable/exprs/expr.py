@@ -339,11 +339,7 @@ class Expr(abc.ABC):
     @overload
     @classmethod
     def list_subexprs(
-        cls,
-        expr_list: Iterable[Expr],
-        *,
-        filter: Callable[[Expr], bool] | None = None,
-        traverse_matches: bool = True,
+        cls, expr_list: Iterable[Expr], *, filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload

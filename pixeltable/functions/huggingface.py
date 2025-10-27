@@ -1034,9 +1034,7 @@ def text_to_image(
 
 
 @pxt.udf
-def text_to_speech(
-    text: str, *, model_id: str, speaker_id: int | None = None, vocoder: str | None = None
-) -> pxt.Audio:
+def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, vocoder: str | None = None) -> pxt.Audio:
     """
     Converts text to speech using a pretrained TTS model. `model_id` should be a reference to a
     pretrained [text-to-speech model](https://huggingface.co/models?pipeline_tag=text-to-speech).

@@ -252,9 +252,7 @@ class Function(ABC):
 
         return return_type
 
-    def _assemble_callable_args(
-        self, callable: Callable, bound_args: dict[str, 'exprs.Expr']
-    ) -> dict[str, Any] | None:
+    def _assemble_callable_args(self, callable: Callable, bound_args: dict[str, 'exprs.Expr']) -> dict[str, Any] | None:
         """
         Return the kwargs to pass to callable, given bound_args passed to this function.
 

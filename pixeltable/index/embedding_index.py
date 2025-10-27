@@ -189,9 +189,7 @@ class EmbeddingIndex(IndexBase):
         return 'embedding'
 
     @classmethod
-    def _resolve_embedding_fn(
-        cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type
-    ) -> func.Function | None:
+    def _resolve_embedding_fn(cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type) -> func.Function | None:
         """Find an overload resolution for `embed_fn` that matches the given type."""
         assert isinstance(embed_fn, func.Function)
         for resolved_fn in embed_fn._resolved_fns:

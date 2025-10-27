@@ -1,4 +1,3 @@
-
 import sqlalchemy as sql
 
 from pixeltable import type_system as ts

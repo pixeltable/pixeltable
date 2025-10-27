@@ -850,9 +850,7 @@ def ls(path: str = '') -> pd.DataFrame:
 
 
 def _extract_paths(
-    dir_entries: dict[str, Catalog.DirEntry],
-    parent: catalog.Path,
-    entry_type: type[catalog.SchemaObject] | None = None,
+    dir_entries: dict[str, Catalog.DirEntry], parent: catalog.Path, entry_type: type[catalog.SchemaObject] | None = None
 ) -> list[catalog.Path]:
     """Convert nested dir_entries structure to a flattened list of paths."""
     matches: list[str]
@@ -983,11 +981,7 @@ def tool(fn: func.Function, name: str | None = None, description: str | None = N
 
 
 def configure_logging(
-    *,
-    to_stdout: bool | None = None,
-    level: int | None = None,
-    add: str | None = None,
-    remove: str | None = None,
+    *, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None
 ) -> None:
     """Configure logging.
 
