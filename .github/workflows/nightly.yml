@@ -75,6 +75,8 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           ref: release
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
@@ -138,6 +140,8 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           ref: release
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
