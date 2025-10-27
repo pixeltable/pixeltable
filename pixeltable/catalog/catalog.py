@@ -37,7 +37,7 @@ from .view import View
 if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
-    from .. import DataFrame, exprs
+    from .. import exprs
 
 
 _logger = logging.getLogger('pixeltable')
@@ -613,7 +613,10 @@ class Catalog:
                     row = conn.execute(q).one_or_none()
                     if row is None:
                         return
-                    tbl_version = row.md.get('current_version')
+                    view_md = row.md.get('view_md')
+                    is_snapshot = False if view_md is None else view_md.get('is_snapshot')
+                    assert is_snapshot is not None
+                    tbl_version = row.md.get('current_version') if is_snapshot else None
                     op = schema.md_from_dict(TableOp, row.op)
                     delete_next_op_stmt = sql.delete(schema.PendingTableOp).where(
                         schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.op_sn == row.op_sn
@@ -967,17 +970,16 @@ class Catalog:
                 return self._load_tbl_at_version(tbl_id, version)
         return self._tbls.get((tbl_id, version))
 
-    @retry_loop(for_write=True)
     def create_table(
         self,
         path: Path,
         schema: dict[str, Any],
-        df: 'DataFrame',
         if_exists: IfExistsParam,
         primary_key: Optional[list[str]],
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
+        create_default_idxs: bool,
     ) -> tuple[Table, bool]:
         """
         Creates a new InsertableTable at the given path.
@@ -986,26 +988,37 @@ class Catalog:
 
         Otherwise, creates a new table `t` and returns `t, True` (or raises an exception if the operation fails).
         """
-        existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-        if existing is not None:
-            assert isinstance(existing, Table)
-            return existing, False
 
-        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-        assert dir is not None
+        @retry_loop(for_write=True)
+        def create_fn() -> tuple[UUID, bool]:
+            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
+            if existing is not None:
+                assert isinstance(existing, Table)
+                return existing._id, False
 
-        tbl = InsertableTable._create(
-            dir._id,
-            path.name,
-            schema,
-            df,
-            primary_key=primary_key,
-            num_retained_versions=num_retained_versions,
-            comment=comment,
-            media_validation=media_validation,
-        )
-        self._tbls[tbl._id, None] = tbl
-        return tbl, True
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+
+            md, ops = InsertableTable._create(
+                path.name,
+                schema,
+                primary_key=primary_key,
+                num_retained_versions=num_retained_versions,
+                comment=comment,
+                media_validation=media_validation,
+                create_default_idxs=create_default_idxs,
+            )
+            tbl_id = UUID(md.tbl_md.tbl_id)
+            self.store_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            return tbl_id, True
+
+        tbl_id, is_created = create_fn()
+        # finalize pending ops
+        with self.begin_xact(tbl_id=tbl_id, for_write=True, finalize_pending_ops=True):
+            tbl = self.get_table_by_id(tbl_id)
+            _logger.info(f'Created table {tbl._name!r}, id={tbl._id}')
+            Env.get().console_logger.info(f'Created table {tbl._name!r}.')
+            return tbl, is_created
 
     def create_view(
         self,
@@ -1016,6 +1029,7 @@ class Catalog:
         sample_clause: Optional['SampleClause'],
         additional_columns: Optional[dict[str, Any]],
         is_snapshot: bool,
+        create_default_idxs: bool,
         iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]],
         num_retained_versions: int,
         comment: str,
@@ -1057,6 +1071,7 @@ class Catalog:
                 predicate=where,
                 sample_clause=sample_clause,
                 is_snapshot=is_snapshot,
+                create_default_idxs=create_default_idxs,
                 iterator_cls=iterator_class,
                 iterator_args=iterator_args,
                 num_retained_versions=num_retained_versions,

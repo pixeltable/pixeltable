@@ -167,6 +167,7 @@ dev = [
     "accelerate>=1.10",
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
+    "twelvelabs>=1.0",
 ]
 test = [
     "pytest>=8.4",
@@ -179,6 +180,10 @@ extra-dev = [
     # This is for dependencies that will be installed locally for devs (via `make install`), but not in CI.
     "llama-cpp-python>=0.3.16 ; sys_platform != 'win32'"
 ]
+
+[tool.hatch.build.hooks.version]
+path = "pixeltable/_version.py"
+template = "__version__: str = '{version}'\n"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -272,6 +277,7 @@ ignore = [
     "PLC1901",  # Allow empty string comparisons
     "PLC2701",  # Allow private name imports
     "PLE0605",  # Invalid format for __all__ (appears to generate false positives)
+    "PLR0402",  # Allow `import x.y as y` instead of `from x import y` (needed to avoid circular imports)
     "PLR2004",  # Permit "magic values" (numbers that are not defined as constants)
     "PLR6201",  # Don't require set literal for membership tests
     "PLR6301",  # Class method (not sure what to do yet)

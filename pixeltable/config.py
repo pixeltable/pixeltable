@@ -170,6 +170,7 @@ KNOWN_CONFIG_OPTIONS = {
     'bedrock': {'api_key': 'AWS Bedrock API key'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
+    'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
     'gemini': {'api_key': 'Gemini API key', 'rate_limits': 'Per-model rate limits for Gemini API requests'},
     'hf': {'auth_token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
