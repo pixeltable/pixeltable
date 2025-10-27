@@ -131,7 +131,9 @@ class AzureBlobStore(ObjectStoreBase):
     # TODO: utils package should not include back-references to `Column`
     def copy_local_file(self, col: 'Column', src_path: Path) -> str:
         """Copy a local file to Azure Blob Storage, and return its new URL"""
-        prefix, filename = ObjectPath.create_prefix_raw(col.tbl.id, col.id, col.tbl.version, ext=src_path.suffix)
+        prefix, filename = ObjectPath.create_prefix_raw(
+            col.get_tbl().id, col.id, col.get_tbl().version, ext=src_path.suffix
+        )
         blob_name = f'{self.prefix}{prefix}/{filename}'
         new_file_uri = f'{self.__base_uri}{prefix}/{filename}'
 
