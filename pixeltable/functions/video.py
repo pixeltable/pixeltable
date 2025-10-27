@@ -1025,34 +1025,21 @@ def scene_detect_adaptive(
             )
 
             scene_cuts: list[dict] = []
-            last_processed_frame_idx: int | None = None
-
-            # Iterate through frames
+            frame_idx: int | None = None
             for item in frame_iter:
-                # Convert PIL Image to numpy array (RGB format)
                 frame_array = np.array(item.frame.convert('RGB'))
+                frame_idx = round(item.time * video_fps)
+                timecode = FrameTimecode(frame_idx, video_fps)
 
-                # Calculate the actual video frame index from time and framerate
-                actual_frame_idx = round(item.time * video_fps)
-
-                # Create FrameTimecode for this frame
-                timecode = FrameTimecode(actual_frame_idx, video_fps)
-
-                # Process the frame and get any detected cuts
                 cuts = detector.process_frame(timecode, frame_array)
-
-                # Add detected cuts to our result list
                 for cut_timecode in cuts:
                     cut_frame_idx = cut_timecode.get_frames()
-                    # Calculate frame time in seconds from frame index and fps
                     cut_frame_time = cut_frame_idx / video_fps
                     scene_cuts.append({'frame_idx': cut_frame_idx, 'frame_time': cut_frame_time})
 
-                last_processed_frame_idx = actual_frame_idx
-
             # Post-process to capture any final scene cuts
-            if last_processed_frame_idx is not None:
-                final_timecode = FrameTimecode(last_processed_frame_idx, video_fps)
+            if frame_idx is not None:
+                final_timecode = FrameTimecode(frame_idx, video_fps)
                 final_cuts = detector.post_process(final_timecode)
                 for cut_timecode in final_cuts:
                     cut_frame_idx = cut_timecode.get_frames()
