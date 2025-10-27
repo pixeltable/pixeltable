@@ -61,7 +61,7 @@ class LabelStudioProject(Project):
         project_id: int,
         media_import_method: Literal['post', 'file', 'url'],
         col_mapping: dict[ColumnHandle, str],
-        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
+        stored_proxies: dict[ColumnHandle, ColumnHandle] | None = None,
     ):
         self.project_id = project_id
         self.media_import_method = media_import_method
@@ -552,8 +552,8 @@ class LabelStudioProject(Project):
         name: str | None,
         title: str | None,
         media_import_method: Literal['post', 'file', 'url'],
-        col_mapping: Optional[dict[str, str]],
-        s3_configuration: Optional[dict[str, Any]],
+        col_mapping: dict[str, str] | None,
+        s3_configuration: dict[str, Any] | None,
         **kwargs: Any,
     ) -> 'LabelStudioProject':
         """

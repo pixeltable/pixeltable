@@ -460,7 +460,7 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
 
 
 @pxt.udf
-def text_generation(text: str, *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> str:
+def text_generation(text: str, *, model_id: str, model_kwargs: dict[str, Any] | None = None) -> str:
     """
     Generates text using a pretrained language model. `model_id` should be a reference to a pretrained
     [text generation model](https://huggingface.co/models?pipeline_tag=text-generation).
@@ -574,7 +574,7 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
 
 @pxt.udf(batch_size=4)
 def image_captioning(
-    image: Batch[PIL.Image.Image], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None
+    image: Batch[PIL.Image.Image], *, model_id: str, model_kwargs: dict[str, Any] | None = None
 ) -> Batch[str]:
     """
     Generates captions for images using a pretrained image captioning model. `model_id` should be a reference to a
@@ -624,7 +624,7 @@ def image_captioning(
 
 
 @pxt.udf(batch_size=8)
-def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> Batch[str]:
+def summarization(text: Batch[str], *, model_id: str, model_kwargs: dict[str, Any] | None = None) -> Batch[str]:
     """
     Summarizes text using a pretrained summarization model. `model_id` should be a reference to a pretrained
     [summarization model](https://huggingface.co/models?pipeline_tag=summarization) such as BART, T5, or Pegasus.
@@ -955,7 +955,7 @@ def text_to_image(
     height: int = 512,
     width: int = 512,
     seed: int | None = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> PIL.Image.Image:
     """
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
@@ -1143,7 +1143,7 @@ def image_to_image(
     *,
     model_id: str,
     seed: int | None = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> PIL.Image.Image:
     """
     Transforms input images based on text prompts using a pretrained image-to-image model.
@@ -1371,7 +1371,7 @@ def image_to_video(
     num_frames: int = 25,
     fps: int = 6,
     seed: int | None = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
     Generates videos from input images using a pretrained image-to-video model.

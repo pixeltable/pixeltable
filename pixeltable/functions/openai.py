@@ -183,7 +183,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 
 
 @pxt.udf
-async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[dict[str, Any]] = None) -> pxt.Audio:
+async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, Any] | None = None) -> pxt.Audio:
     """
     Generates audio from the input text.
 
@@ -226,7 +226,7 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[d
 
 
 @pxt.udf
-async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
+async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Transcribes audio into the input language.
 
@@ -265,7 +265,7 @@ async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: Optional
 
 
 @pxt.udf
-async def translations(audio: pxt.Audio, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
+async def translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Translates audio into English.
 
@@ -335,7 +335,7 @@ def _is_model_family(model: str, family: str) -> bool:
 
 
 def _chat_completions_get_request_resources(
-    messages: list, model: str, model_kwargs: Optional[dict[str, Any]]
+    messages: list, model: str, model_kwargs: dict[str, Any] | None
 ) -> dict[str, int]:
     if model_kwargs is None:
         model_kwargs = {}
@@ -362,9 +362,9 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
     tools: Optional[list[dict[str, Any]]] = None,
-    tool_choice: Optional[dict[str, Any]] = None,
+    tool_choice: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
@@ -436,7 +436,7 @@ async def chat_completions(
 
 
 def _vision_get_request_resources(
-    prompt: str, image: PIL.Image.Image, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    prompt: str, image: PIL.Image.Image, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict[str, int]:
     if model_kwargs is None:
         model_kwargs = {}
@@ -477,7 +477,7 @@ async def vision(
     image: PIL.Image.Image,
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> str:
     """
@@ -567,7 +567,7 @@ async def embeddings(
     input: Batch[str],
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
@@ -621,7 +621,7 @@ async def embeddings(
 
 
 @embeddings.conditional_return_type
-def _(model: str, model_kwargs: Optional[dict[str, Any]] = None) -> ts.ArrayType:
+def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
     dimensions: int | None = None
     if model_kwargs is not None:
         dimensions = model_kwargs.get('dimensions')
@@ -639,7 +639,7 @@ def _(model: str, model_kwargs: Optional[dict[str, Any]] = None) -> ts.ArrayType
 
 @pxt.udf
 async def image_generations(
-    prompt: str, *, model: str = 'dall-e-2', model_kwargs: Optional[dict[str, Any]] = None
+    prompt: str, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
 ) -> PIL.Image.Image:
     """
     Creates an image given a prompt.
@@ -685,7 +685,7 @@ async def image_generations(
 
 
 @image_generations.conditional_return_type
-def _(model_kwargs: Optional[dict[str, Any]] = None) -> ts.ImageType:
+def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
     if model_kwargs is None or 'size' not in model_kwargs:
         # default size is 1024x1024
         return ts.ImageType(size=(1024, 1024))

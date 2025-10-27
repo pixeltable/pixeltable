@@ -71,7 +71,7 @@ def import_parquet(
     table: str,
     *,
     parquet_path: str,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:

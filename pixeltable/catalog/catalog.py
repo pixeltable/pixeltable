@@ -1027,7 +1027,7 @@ class Catalog:
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: Optional[dict[str, Any]],
+        additional_columns: dict[str, Any] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,

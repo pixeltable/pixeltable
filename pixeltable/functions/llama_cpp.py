@@ -24,7 +24,7 @@ def create_chat_completion(
     model_path: str | None = None,
     repo_id: str | None = None,
     repo_filename: str | None = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> dict:
     """
     Generate a chat completion from a list of messages.

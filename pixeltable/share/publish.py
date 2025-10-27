@@ -222,7 +222,7 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
 
 
 def _download_from_presigned_url(
-    url: str, output_path: Path, headers: Optional[dict[str, str]] = None, max_retries: int = 3
+    url: str, output_path: Path, headers: dict[str, str] | None = None, max_retries: int = 3
 ) -> None:
     """Download file with progress bar and retries"""
     session = _create_retry_session(max_retries=max_retries)

@@ -29,7 +29,7 @@ def _fireworks_client() -> 'fireworks.client.Fireworks':
 
 @pxt.udf(resource_pool='request-rate:fireworks')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
     """
     Creates a model response for the given chat conversation.

@@ -39,10 +39,10 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
     tools: Optional[list[dict[str, Any]]] = None,
-    tool_choice: Optional[dict[str, Any]] = None,
-    provider: Optional[dict[str, Any]] = None,
+    tool_choice: dict[str, Any] | None = None,
+    provider: dict[str, Any] | None = None,
     transforms: Optional[list[str]] = None,
 ) -> dict:
     """

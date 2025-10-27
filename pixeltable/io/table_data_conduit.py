@@ -51,11 +51,11 @@ class TableDataConduitFormat(str, enum.Enum):
 class TableDataConduit:
     source: 'TableDataSource'
     source_format: str | None = None
-    source_column_map: Optional[dict[str, str]] = None
+    source_column_map: dict[str, str] | None = None
     if_row_exists: Literal['update', 'ignore', 'error'] = 'error'
-    pxt_schema: Optional[dict[str, ts.ColumnType]] = None
-    src_schema_overrides: Optional[dict[str, ts.ColumnType]] = None
-    src_schema: Optional[dict[str, ts.ColumnType]] = None
+    pxt_schema: dict[str, ts.ColumnType] | None = None
+    src_schema_overrides: dict[str, ts.ColumnType] | None = None
+    src_schema: dict[str, ts.ColumnType] | None = None
     pxt_pk: Optional[list[str]] = None
     src_pk: Optional[list[str]] = None
     valid_rows: RowData | None = None

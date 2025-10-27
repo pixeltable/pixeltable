@@ -40,7 +40,7 @@ def normalize_schema_names(
     primary_key: list[str],
     schema_overrides: dict[str, Any],
     require_valid_pxt_column_names: bool = False,
-) -> tuple[dict[str, Any], list[str], Optional[dict[str, str]]]:
+) -> tuple[dict[str, Any], list[str], dict[str, str] | None]:
     """
     Convert all names in the input schema from source names to valid Pixeltable identifiers
     - Ensure that all names are unique.

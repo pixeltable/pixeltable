@@ -16,7 +16,7 @@ def import_pandas(
     tbl_name: str,
     df: pd.DataFrame,
     *,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -56,7 +56,7 @@ def import_pandas(
 def import_csv(
     tbl_name: str,
     filepath_or_buffer: str | os.PathLike,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -86,7 +86,7 @@ def import_excel(
     tbl_name: str,
     io: str | os.PathLike,
     *,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -192,7 +192,7 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
 
 
 def _df_row_to_pxt_row(
-    row: tuple[Any, ...], schema: dict[str, ts.ColumnType], col_mapping: Optional[dict[str, str]]
+    row: tuple[Any, ...], schema: dict[str, ts.ColumnType], col_mapping: dict[str, str] | None
 ) -> dict[str, Any]:
     """Convert a row to insertable format"""
     pxt_row: dict[str, Any] = {}

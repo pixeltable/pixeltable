@@ -59,7 +59,7 @@ class ExprEvalNode(ExecNode):
     avail_input_rows: int  # total number across both current_/next_input_batch
     input_complete: bool  # True if we've received all input batches
     num_in_flight: int  # number of dispatched rows that haven't completed
-    row_pos_map: Optional[dict[int, int]]  # id(row) -> position of row in input; only set if maintain_input_order
+    row_pos_map: dict[int, int] | None  # id(row) -> position of row in input; only set if maintain_input_order
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
 
     # debugging

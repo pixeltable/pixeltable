@@ -57,7 +57,7 @@ class TablePackager:
     preview_header: dict[str, str]
     preview: list[list[Any]]
 
-    def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, table: catalog.Table, additional_md: dict[str, Any] | None = None) -> None:
         self.table = table
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
@@ -364,11 +364,11 @@ class TableRestorer:
     """
 
     tbl_path: str
-    md: Optional[dict[str, Any]]
+    md: dict[str, Any] | None
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
-    def __init__(self, tbl_path: str, md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, tbl_path: str, md: dict[str, Any] | None = None) -> None:
         self.tbl_path = tbl_path
         self.md = md
         self.tmp_dir = TempStore.create_path()

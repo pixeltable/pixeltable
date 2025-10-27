@@ -354,7 +354,7 @@ class S3Store(ObjectStoreBase):
         return boto3.Session()
 
     @classmethod
-    def create_boto_client(cls, profile_name: str | None = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
+    def create_boto_client(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
             'connect_timeout': 15,
@@ -381,7 +381,7 @@ class S3Store(ObjectStoreBase):
 
     @classmethod
     def create_boto_resource(
-        cls, profile_name: str | None = None, extra_args: Optional[dict[str, Any]] = None
+        cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None
     ) -> Any:
         # Create a session using the defined profile
         return cls.create_boto_session(profile_name).resource('s3', **(extra_args or {}))

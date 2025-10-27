@@ -71,7 +71,7 @@ class Project(ExternalStore, abc.ABC):
         self,
         name: str,
         col_mapping: dict[ColumnHandle, str],
-        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]],
+        stored_proxies: dict[ColumnHandle, ColumnHandle] | None,
     ):
         super().__init__(name)
         self._col_mapping = col_mapping
@@ -190,7 +190,7 @@ class Project(ExternalStore, abc.ABC):
         table: Table,
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
-        col_mapping: Optional[dict[str, str]],
+        col_mapping: dict[str, str] | None,
     ) -> dict[ColumnHandle, str]:
         """
         Verifies that the specified `col_mapping` is valid. In particular, checks that:
@@ -271,7 +271,7 @@ class MockProject(Project):
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
         col_mapping: dict[ColumnHandle, str],
-        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
+        stored_proxies: dict[ColumnHandle, ColumnHandle] | None = None,
     ):
         super().__init__(name, col_mapping, stored_proxies)
         self.export_cols = export_cols
@@ -285,7 +285,7 @@ class MockProject(Project):
         name: str,
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
-        col_mapping: Optional[dict[str, str]] = None,
+        col_mapping: dict[str, str] | None = None,
     ) -> 'MockProject':
         col_mapping = cls.validate_columns(t, export_cols, import_cols, col_mapping)
         return cls(name, export_cols, import_cols, col_mapping)

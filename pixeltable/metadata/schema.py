@@ -151,16 +151,16 @@ class ViewMd:
     base_versions: TableVersionPath
 
     # filter predicate applied to the base table; view-only
-    predicate: Optional[dict[str, Any]]
+    predicate: dict[str, Any] | None
 
     # sampling predicate applied to the base table; view-only
-    sample_clause: Optional[dict[str, Any]]
+    sample_clause: dict[str, Any] | None
 
     # ComponentIterator subclass; only for component views
     iterator_class_fqn: str | None
 
     # args to pass to the iterator class constructor; only for component views
-    iterator_args: Optional[dict[str, Any]]
+    iterator_args: dict[str, Any] | None
 
 
 @dataclasses.dataclass

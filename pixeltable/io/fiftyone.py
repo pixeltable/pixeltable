@@ -90,7 +90,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         df = tbl.select(*selection)
         self.__row_iter = df._output_row_iterator()
 
-    def __next__(self) -> tuple[str, fo.ImageMetadata | None, Optional[dict[str, fo.Label]]]:
+    def __next__(self) -> tuple[str, fo.ImageMetadata | None, dict[str, fo.Label] | None]:
         row = next(self.__row_iter)
         img = row[self.__image_idx]
         assert isinstance(img, PIL.Image.Image)

@@ -8,7 +8,7 @@ from pixeltable.metadata import schema
 class MetadataUtils:
     @classmethod
     def _diff_md(
-        cls, old_md: Optional[dict[int, schema.SchemaColumn]], new_md: Optional[dict[int, schema.SchemaColumn]]
+        cls, old_md: dict[int, schema.SchemaColumn] | None, new_md: dict[int, schema.SchemaColumn] | None
     ) -> str:
         """Return a string reporting the differences in a specific entry in two dictionaries
 

@@ -240,7 +240,7 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
 
 
 def iter_tuples2(
-    batch: pa.Table | pa.RecordBatch, col_mapping: Optional[dict[str, str]], schema: dict[str, ts.ColumnType]
+    batch: pa.Table | pa.RecordBatch, col_mapping: dict[str, str] | None, schema: dict[str, ts.ColumnType]
 ) -> Iterator[dict[str, Any]]:
     """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
     pydict = to_pydict(batch)

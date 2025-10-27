@@ -704,10 +704,10 @@ class DateType(ColumnType):
 
 
 class JsonType(ColumnType):
-    json_schema: Optional[dict[str, Any]]
+    json_schema: dict[str, Any] | None
     __validator: jsonschema.protocols.Validator | None
 
-    def __init__(self, json_schema: Optional[dict[str, Any]] = None, nullable: bool = False):
+    def __init__(self, json_schema: dict[str, Any] | None = None, nullable: bool = False):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.json_schema = json_schema
         if json_schema is None:
@@ -799,7 +799,7 @@ class JsonType(ColumnType):
         )
 
     @classmethod
-    def __superschema(cls, a: dict[str, Any], b: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def __superschema(cls, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
         # Defining a general type hierarchy over all JSON schemas would be a challenging problem. In order to keep
         # things manageable, we only define a hierarchy among "conforming" schemas, which provides enough generality
         # for the most important use cases (unions for type inference, validation of inline exprs). A schema is
@@ -859,7 +859,7 @@ class JsonType(ColumnType):
         return {}  # Unresolvable type conflict; the supertype is an unrestricted JsonType.
 
     @classmethod
-    def __superschema_with_nulls(cls, a: dict[str, Any], b: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def __superschema_with_nulls(cls, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
         a, a_nullable = cls.__unpack_null_from_schema(a)
         b, b_nullable = cls.__unpack_null_from_schema(b)
 

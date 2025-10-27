@@ -50,7 +50,7 @@ def _retry(fn: Callable[..., T]) -> Callable[..., T]:
 
 
 @pxt.udf(resource_pool='request-rate:together:chat')
-async def completions(prompt: str, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
+async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Generate completions based on a given prompt using a specified model.
 
@@ -89,7 +89,7 @@ async def completions(prompt: str, *, model: str, model_kwargs: Optional[dict[st
 
 @pxt.udf(resource_pool='request-rate:together:chat')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
     """
     Generate chat completions based on a given prompt using a specified model.
@@ -184,7 +184,7 @@ def _(model: str) -> ts.ArrayType:
 
 @pxt.udf(resource_pool='request-rate:together:images')
 async def image_generations(
-    prompt: str, *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> PIL.Image.Image:
     """
     Generate images based on a given prompt using a specified model.

@@ -14,7 +14,7 @@ class RowBuffer:
     """Fixed-length circular buffer of DataRows; knows how to maintain input order"""
 
     size: int
-    row_pos_map: Optional[dict[int, int]]  # id(row) -> position of row in output; None if not maintaining order
+    row_pos_map: dict[int, int] | None  # id(row) -> position of row in output; None if not maintaining order
     num_rows: int  # number of rows in the buffer
     num_ready: int  # number of consecutive non-None rows at head
     buffer: np.ndarray  # of object

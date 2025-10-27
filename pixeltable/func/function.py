@@ -175,7 +175,7 @@ class Function(ABC):
 
     def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Self, dict[str, Any]]:
         result: int = -1
-        bound_args: Optional[dict[str, Any]] = None
+        bound_args: dict[str, Any] | None = None
         assert len(self.signatures) > 0
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_signature() and surface any errors directly
@@ -254,7 +254,7 @@ class Function(ABC):
 
     def _assemble_callable_args(
         self, callable: Callable, bound_args: dict[str, 'exprs.Expr']
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Return the kwargs to pass to callable, given bound_args passed to this function.
 
