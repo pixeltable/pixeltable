@@ -910,9 +910,9 @@ class TableVersion:
         if col.get_tbl().id != self.id:
             raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
-            raise excs.Error(f"Invalid column name: '{new_name}'")
+            raise excs.Error(f'Invalid column name: {new_name}')
         if new_name in self.cols_by_name:
-            raise excs.Error(f'Column {new_name} already exists')
+            raise excs.Error(f'Column {new_name!r} already exists')
         del self.cols_by_name[old_name]
         col.name = new_name
         self.cols_by_name[new_name] = col
@@ -1029,11 +1029,11 @@ class TableVersion:
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
-                raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
+                raise excs.Error(f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`')
             analysis_info = Planner.analyze(self.path, where)
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
-                raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+                raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
 
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
 
@@ -1090,7 +1090,7 @@ class TableVersion:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
             if not isinstance(col_name, str):
-                raise excs.Error(f'Update specification: dict key must be column name, got {col_name!r}')
+                raise excs.Error(f'Update specification: dict key must be column name; got {col_name!r}')
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
                 assert len(val) == len(self.store_tbl.rowid_columns())
@@ -1099,15 +1099,15 @@ class TableVersion:
                 continue
             col = self.path.get_column(col_name)
             if col is None:
-                raise excs.Error(f'Column {col_name} unknown')
+                raise excs.Error(f'Unknown column: {col_name}')
             if col.get_tbl().id != self.id:
                 raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
-                raise excs.Error(f'Column {col_name} is computed and cannot be updated')
+                raise excs.Error(f'Column {col_name!r} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
-                raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
+                raise excs.Error(f'Column {col_name!r} is a primary key column and cannot be updated')
             if col.col_type.is_media_type() and not allow_media:
-                raise excs.Error(f'Column {col_name} is a media column and cannot be updated')
+                raise excs.Error(f'Column {col_name!r} is a media column and cannot be updated')
 
             # make sure that the value is compatible with the column type
             value_expr: exprs.Expr
@@ -1117,19 +1117,19 @@ class TableVersion:
             except (TypeError, jsonschema.exceptions.ValidationError) as exc:
                 if not allow_exprs:
                     raise excs.Error(
-                        f'Column {col_name}: value {val!r} is not a valid literal for this column '
-                        f'(expected {col.col_type})'
+                        f'Column {col_name!r}: value is not a valid literal for this column '
+                        f'(expected `{col.col_type}`): {val!r}'
                     ) from exc
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
                     raise excs.Error(
-                        f'Column {col_name}: value {val!r} is not a recognized literal or expression'
+                        f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}'
                     ) from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
-                        f'{col_name} ({col.col_type})'
+                        f'Type `{value_expr.col_type}` of value {val!r} is not compatible with the type '
+                        f'`{col.col_type}` of column {col_name!r}'
                     ) from exc
             update_targets[col] = value_expr
 
@@ -1149,7 +1149,7 @@ class TableVersion:
         target_columns = [self.cols_by_name[name] for name in col_names]
         where_clause: Optional[exprs.Expr] = None
         if where is not None:
-            self._validate_where_clause(where, error_prefix="'where' argument")
+            self._validate_where_clause(where, error_prefix='`where` argument')
             where_clause = where
         if errors_only:
             errortype_pred = (
@@ -1226,16 +1226,16 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         if not isinstance(pred, Expr):
-            raise excs.Error(f'{error_prefix} must be a predicate, got {type(pred)}')
+            raise excs.Error(f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`')
         analysis_info = Planner.analyze(self.path, pred)
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
-            raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
+            raise excs.Error(f'Filter not expressible in SQL: {analysis_info.filter}')
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
         assert self.is_insertable
         if where is not None:
-            self._validate_where_clause(where, error_prefix="'where' argument")
+            self._validate_where_clause(where, error_prefix='`where` argument')
         status = self.propagate_delete(where, base_versions=[], timestamp=time.time())
         return status
 
@@ -1305,7 +1305,7 @@ class TableVersion:
             names = [row[1] for row in result]
             raise excs.Error(
                 (
-                    f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""} '
+                    f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""}: '
                     f'({", ".join(names)})'
                 )
             )
@@ -1388,7 +1388,7 @@ class TableVersion:
         # Do this at the end, after all DB operations have completed.
         # TODO: The transaction could still fail. Really this should be done via PendingTableOps.
         self.delete_media(tbl_version=old_version)
-        _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
+        _logger.info(f'TableVersion {self.name!r}: reverted to version {self.version}')
 
     def _init_external_stores(self) -> None:
         from pixeltable.io.external_store import ExternalStore
