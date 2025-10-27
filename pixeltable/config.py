@@ -131,11 +131,11 @@ class Config:
         try:
             if expected_type is bool and isinstance(value, str):
                 if value.lower() not in ('true', 'false'):
-                    raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
+                    raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}")
                 return value.lower() == 'true'  # type: ignore[return-value]
             return expected_type(value)  # type: ignore[call-arg]
         except (ValueError, TypeError) as exc:
-            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
+            raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}") from exc
 
     def get_string_value(self, key: str, section: str = 'pixeltable') -> str | None:
         return self.get_value(key, str, section)

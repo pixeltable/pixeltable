@@ -262,7 +262,7 @@ class TestView:
         assert v.select().collect()[0][col_name] == orig_val
 
         # by default, raises an error if the column already exists
-        expected_err = f"Duplicate column name: '{col_name}'"
+        expected_err = f'Duplicate column name: {col_name}'
         with pytest.raises(pxt.Error, match=expected_err):
             v.add_column(**{col_name: pxt.Int})
         with pytest.raises(pxt.Error, match=expected_err):
@@ -653,7 +653,7 @@ class TestView:
         res1 = reload_tester.run_query(v1.select(t.c2 == v1.c2, t.c3 * 2 == v1.c3))
         assert all(all(row) for row in res1)
 
-        with pytest.raises(AttributeError, match="Column 'c1' unknown"):
+        with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
         res = reload_tester.run_query(v1.select(t.c4).limit(5))
@@ -677,7 +677,7 @@ class TestView:
         res2b = v1.select(v1.c2, v1.c3)
         assert_resultset_eq(res2a.collect(), res2b.collect())
 
-        with pytest.raises(AttributeError, match="Column 'c1' unknown"):
+        with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
     def test_computed_cols(self, reset_db: None) -> None:
@@ -797,11 +797,13 @@ class TestView:
 
         with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s, additional_columns={'v1': t.c3 * 2.0})
-        assert 'value expression cannot be computed in the context of the base test_tbl' in str(exc_info.value)
+        assert "Column 'v1': Value expression cannot be computed in the context of the base table 'test_tbl'" in str(
+            exc_info.value
+        )
 
         with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s.where(t.c2 < 10))
-        assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
+        assert "View filter cannot be computed in the context of the base table 'test_tbl'" in str(exc_info.value)
 
         # create view with filter and computed columns
         schema = {'v1': s.c3 * 2.0, 'v2': s.c6.f5}
