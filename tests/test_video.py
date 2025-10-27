@@ -15,6 +15,7 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     generate_test_video,
+    get_audio_files,
     get_video_files,
     reload_catalog,
     skip_test_if_not_installed,
@@ -972,8 +973,6 @@ class TestVideo:
     def test_with_audio(self, reset_db: None) -> None:
         from pixeltable.functions.video import with_audio
 
-        from .utils import get_audio_files
-
         video_filepaths = get_video_files()
         audio_filepaths = get_audio_files()
         num_rows = min(len(video_filepaths), len(audio_filepaths))
@@ -1020,6 +1019,13 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=0.0))
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
+
+    def test_scene_detect(self, reset_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        t.insert({'video': p} for p in video_filepaths)
+        _ = t.select(scenes=t.video.scene_detect_adaptive()).collect()
+        pass
 
     def test_default_video_codec(self, reset_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)

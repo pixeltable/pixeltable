@@ -166,6 +166,7 @@ dev = [
     "diffusers>=0.34",
     "accelerate>=1.10",
     "twelvelabs>=1.0",
+    "scenedetect>=0.6.0.1",
 ]
 test = [
     "pytest>=8.4",

@@ -6,7 +6,7 @@ import glob
 import logging
 import pathlib
 import subprocess
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, Optional
 
 import av
 import av.stream
@@ -934,6 +934,127 @@ def _create_drawtext_params(
             drawtext_params.append(f'boxborderw={"|".join(map(str, box_border))}')
 
     return drawtext_params
+
+
+@pxt.udf(is_method=True)
+def scene_detect_adaptive(
+    video: pxt.Video,
+    *,
+    fps: int = 0,
+    adaptive_threshold: float = 3.0,
+    min_scene_len: int = 15,
+    window_width: int = 2,
+    min_content_val: float = 15.0,
+    luma_only: bool = False,
+    kernel_size: Optional[int] = None,
+) -> list[dict]:
+    """
+    Detect scene cuts in a video using PySceneDetect's AdaptiveDetector algorithm.
+
+    __Requirements:__
+
+    - `scenedetect` package needs to be installed
+
+    Args:
+        video: The video to analyze for scene cuts.
+        adaptive_threshold: Threshold that the score ratio must exceed to trigger a new scene cut.
+            Lower values will detect more scenes (more sensitive), higher values will detect fewer scenes.
+        min_scene_len: Minimum number of frames that must pass after a cut is detected before
+            another cut can be registered. This prevents detecting multiple cuts in quick succession.
+        window_width: Size of the rolling average window (number of frames before and after each frame)
+            used to smooth the content score and reduce false positives.
+        min_content_val: Minimum threshold that the content value must exceed to register as a scene cut.
+            This filters out very subtle changes that might otherwise trigger false positives.
+        luma_only: If True, only analyzes changes in the luminance (brightness) channel of the video,
+            ignoring color information. This can be faster and may work better for grayscale content.
+        kernel_size: Size of kernel to use for edge detection filtering. If None, uses the detector's default.
+
+    Returns:
+        A list of dictionaries, one for each detected scene cut, with the following keys:
+
+        - `frame_idx` (int): The frame index (0-based) where the scene cut was detected
+        - `frame_time` (float): The timestamp in seconds where the scene cut was detected
+
+        The list is ordered by frame index. If no scene cuts are detected, returns an empty list.
+
+    Examples:
+        Detect scene cuts with default parameters:
+
+        >>> tbl.select(tbl.video.scene_detect_adaptive()).collect()
+
+        Detect more scenes by lowering the threshold:
+
+        >>> tbl.select(tbl.video.scene_detect_adaptive(adaptive_threshold=1.5)).collect()
+
+        Use luminance-only detection with a longer minimum scene length:
+
+        >>> tbl.select(
+        ...     tbl.video.scene_detect_adaptive(
+        ...         luma_only=True,
+        ...         min_scene_len=30
+        ...     )
+        ... ).collect()
+
+        Add scene cuts as a computed column:
+
+        >>> tbl.add_computed_column(
+        ...     scene_cuts=tbl.video.scene_detect_adaptive(adaptive_threshold=2.0)
+        ... )
+    """
+    from scenedetect import FrameTimecode
+    from scenedetect.detectors import AdaptiveDetector
+
+    try:
+        with av.open(str(video)) as container:
+            video_stream = container.streams.video[0]
+            fps = float(video_stream.average_rate)
+
+            # Create the AdaptiveDetector
+            detector = AdaptiveDetector(
+                adaptive_threshold=adaptive_threshold,
+                min_scene_len=min_scene_len,
+                window_width=window_width,
+                min_content_val=min_content_val,
+                luma_only=luma_only,
+                kernel_size=kernel_size,
+            )
+
+            scene_cuts: list[dict] = []
+            frame_idx = 0
+
+            # Iterate through all frames
+            for frame in container.decode(video=0):
+                # Convert frame to numpy array (RGB format)
+                frame_array = frame.to_ndarray(format='rgb24')
+
+                # Create FrameTimecode for this frame
+                timecode = FrameTimecode(frame_idx, fps)
+
+                # Process the frame and get any detected cuts
+                cuts = detector.process_frame(timecode, frame_array)
+
+                # Add detected cuts to our result list
+                for cut_timecode in cuts:
+                    cut_frame_idx = cut_timecode.get_frames()
+                    # Calculate frame time in seconds from frame index and fps
+                    cut_frame_time = cut_frame_idx / fps
+                    scene_cuts.append({'frame_idx': cut_frame_idx, 'frame_time': cut_frame_time})
+
+                frame_idx += 1
+
+            # Post-process to capture any final scene cuts
+            if frame_idx > 0:
+                final_timecode = FrameTimecode(frame_idx - 1, fps)
+                final_cuts = detector.post_process(final_timecode)
+                for cut_timecode in final_cuts:
+                    cut_frame_idx = cut_timecode.get_frames()
+                    cut_frame_time = cut_frame_idx / fps
+                    scene_cuts.append({'frame_idx': cut_frame_idx, 'frame_time': cut_frame_time})
+
+            return scene_cuts
+
+    except Exception as e:
+        raise pxt.Error(f'scene_detect_adaptive(): failed to detect scenes: {e}') from e
 
 
 __all__ = local_public_names(__name__)
