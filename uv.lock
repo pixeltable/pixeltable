@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '4' and sys_platform == 'darwin'",
@@ -3821,6 +3821,17 @@ wheels = [
 ]
 
 [[package]]
+name = "npx"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/5f/bedde14c7f0a03af8e1c06a66f3cf4bc44646ce67d1adfa455851e70c2cf/npx-0.1.6-py3-none-any.whl", hash = "sha256:42311219c2af12470c6785f49c366798d67f3583aea18d73c2679d3eb13359a9", size = 10620, upload-time = "2024-06-21T14:46:58.624Z" },
+]
+
+[[package]]
 name = "numba"
 version = "0.61.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4651,17 +4662,20 @@ dev = [
     { name = "mypy" },
     { name = "nbmake" },
     { name = "notebook" },
+    { name = "npx" },
     { name = "ollama" },
     { name = "openai" },
     { name = "openai-whisper" },
     { name = "openpyxl" },
     { name = "pandas-stubs" },
+    { name = "pixeltable-doctools" },
     { name = "pixeltable-yolox", marker = "python_full_version < '3.13' or sys_platform != 'win32'" },
     { name = "psycopg2-binary" },
     { name = "pyarrow-stubs" },
     { name = "pycocotools" },
     { name = "pydoclint" },
     { name = "pyiceberg" },
+    { name = "pypandoc" },
     { name = "replicate" },
     { name = "ruff" },
     { name = "sentence-transformers" },
@@ -4764,17 +4778,20 @@ dev = [
     { name = "mypy", specifier = ">=1.16" },
     { name = "nbmake", specifier = ">=1.5,<2" },
     { name = "notebook", specifier = ">=7.1.0,<8" },
+    { name = "npx" },
     { name = "ollama", specifier = ">=0.5.1" },
     { name = "openai", specifier = ">=1.86.0" },
     { name = "openai-whisper", specifier = ">=20250625" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pandas-stubs", specifier = ">=2.0" },
+    { name = "pixeltable-doctools", git = "https://github.com/pixeltable/pixeltable-doctools" },
     { name = "pixeltable-yolox", marker = "python_full_version < '3.13' or sys_platform != 'win32'", specifier = "==0.4.2" },
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "pyarrow-stubs", specifier = ">=19" },
     { name = "pycocotools", specifier = ">=2.0.10" },
     { name = "pydoclint", specifier = ">=0.7" },
     { name = "pyiceberg", specifier = ">=0.6.0" },
+    { name = "pypandoc" },
     { name = "replicate", specifier = ">=1.0.7,<2" },
     { name = "ruff", specifier = ">=0.9.3,<0.10" },
     { name = "sentence-transformers", specifier = "~=4.0" },
@@ -4809,6 +4826,16 @@ test = [
     { name = "pytest", specifier = ">=8.4" },
     { name = "pytest-rerunfailures", specifier = ">=15.1" },
     { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8" },
+]
+
+[[package]]
+name = "pixeltable-doctools"
+version = "0.1.0"
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#8c401d0c660bd04860633a994e7b2d79b645a2a8" }
+dependencies = [
+    { name = "docstring-parser-fork" },
+    { name = "nbformat" },
+    { name = "pypandoc" },
 ]
 
 [[package]]
@@ -5796,6 +5823,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/42/ee/3c449b0de061440ba1ac984aa845315e9e2dca0ff2003c5adfc6febff203/pymupdf-1.25.3-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a5de51efdbe4d486b6c1111c84e8a231cbfb426f3d6ff31ab530ad70e6f39756", size = 21123157, upload-time = "2025-02-06T13:03:06.966Z" },
     { url = "https://files.pythonhosted.org/packages/83/53/71faaaf91c56f2883b13f3dd849bf2697f012eb35eb7b952d62734cff41f/pymupdf-1.25.3-cp39-abi3-win32.whl", hash = "sha256:bca72e6089f985d800596e22973f79cc08af6cbff1d93e5bda9248326a03857c", size = 15094211, upload-time = "2025-02-06T13:04:52.08Z" },
     { url = "https://files.pythonhosted.org/packages/09/e0/d72e88a1d5e23aa381fd463057dc3d0fb29090e1e7308a870c334716579c/pymupdf-1.25.3-cp39-abi3-win_amd64.whl", hash = "sha256:4fb357438c9129fbf939b5af85323434df64e36759c399c376b62ad6da95498c", size = 16542949, upload-time = "2025-02-06T13:04:22.444Z" },
+]
+
+[[package]]
+name = "pypandoc"
+version = "1.15"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/88/26e650d053df5f3874aa3c05901a14166ce3271f58bfe114fd776987efbd/pypandoc-1.15.tar.gz", hash = "sha256:ea25beebe712ae41d63f7410c08741a3cab0e420f6703f95bc9b3a749192ce13", size = 32940, upload-time = "2025-01-08T17:39:58.705Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/06/0763e0ccc81754d3eadb21b2cb86cf21bdedc9b52698c2ad6785db7f0a4e/pypandoc-1.15-py3-none-any.whl", hash = "sha256:4ededcc76c8770f27aaca6dff47724578428eca84212a31479403a9731fc2b16", size = 21321, upload-time = "2025-01-08T17:39:09.928Z" },
 ]
 
 [[package]]
