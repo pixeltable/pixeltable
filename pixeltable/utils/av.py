@@ -1,7 +1,15 @@
-from typing import Any
+from __future__ import annotations
 
+import math
+from dataclasses import dataclass
+from fractions import Fraction
+from pathlib import Path
+from typing import Any, Iterator
+
+import PIL.Image
 import av
 import av.stream
+import pandas as pd
 
 from pixeltable.env import Env
 
@@ -221,32 +229,44 @@ class VideoFrames:
         fps: Number of frames to extract per second. If None or 0.0, extracts all frames.
     """
 
-    def __init__(self, path: str, fps: float | None = None):
+    path: Path
+    fps: float | None
+    container: av.container.input.InputContainer | None
+    video_framerate: Fraction | None
+    video_time_base: Fraction | None
+    video_start_time: int | None
+    video_frame_count: int | None
+    frames_to_extract: list[int] | None
+
+    @dataclass
+    class Item:
+        frame_idx: int
+        pts: int
+        dts: int
+        time: float
+        is_corrupt: bool
+        key_frame: bool
+        pict_type: int
+        interlaced_frame: bool
+        frame: PIL.Image.Image
+
+    def __init__(self, path: Path, fps: float | None = None) -> None:
         self.path = path
-        self.fps = fps if fps is not None and fps > 0.0 else None
+        self.fps = fps
         self.container = None
         self.video_framerate = None
         self.video_time_base = None
         self.video_start_time = None
         self.video_frame_count = None
         self.frames_to_extract = None
-        self.next_pos = 0
 
-    def __enter__(self):
-        import math
-        import pandas as pd
-        from fractions import Fraction
-
-        # Open the video file
+    def __enter__(self) -> VideoFrames:
         self.container = av.open(self.path)
         video_stream = self.container.streams.video[0]
-
-        # Extract video metadata
         self.video_framerate = video_stream.average_rate
         self.video_time_base = video_stream.time_base
         self.video_start_time = video_stream.start_time or 0
 
-        # Determine the number of frames in the video
         self.video_frame_count = video_stream.frames
         if self.video_frame_count == 0:
             # The video codec does not provide a frame count in the standard `frames` field
@@ -276,69 +296,61 @@ class VideoFrames:
             n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
             self.frames_to_extract = [round(i / freq) for i in range(n)]
 
-        self.next_pos = 0
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
         # Clean up
         if self.container:
             self.container.close()
         return False
 
-    def __iter__(self):
-        return self
-
-    def __next__(self) -> dict[str, Any]:
+    def __iter__(self) -> Iterator[Item]:
         import PIL.Image
 
-        # Determine the frame index in the video corresponding to the iterator index `next_pos`
-        if self.frames_to_extract is None:
-            next_video_idx = self.next_pos  # extracting all frames
-        elif self.next_pos >= len(self.frames_to_extract):
-            raise StopIteration
-        else:
-            next_video_idx = self.frames_to_extract[self.next_pos]
-
-        # Step through the video until we find the frame we're looking for
+        next_pos = next_video_idx = 0
         while True:
-            try:
-                frame = next(self.container.decode(video=0))
-            except StopIteration:
-                raise
-            except EOFError:
-                raise StopIteration from None
+            # Determine the frame index in the video corresponding to next_pos
+            if self.frames_to_extract is None:
+                next_video_idx = next_pos  # extracting all frames
+            elif next_pos >= len(self.frames_to_extract):
+                return
+            else:
+                next_video_idx = self.frames_to_extract[next_pos]
 
-            # Compute the index of the current frame based on pts
-            pts = frame.pts - self.video_start_time
-            video_idx = round(pts * self.video_time_base * self.video_framerate)
-            assert isinstance(video_idx, int)
+            # decode frames until we hit next_video_idx
+            while True:
+                try:
+                    frame = next(self.container.decode(video=0))
+                except StopIteration:
+                    return
+                except EOFError:
+                    return
 
-            if video_idx < next_video_idx:
-                # Haven't reached the desired frame yet
-                continue
+                pts = frame.pts - self.video_start_time
+                video_idx = round(pts * self.video_time_base * self.video_framerate)
+                if video_idx < next_video_idx:
+                    # Haven't reached the desired frame yet
+                    continue
+                # Sanity check that we're at the right frame
+                if video_idx != next_video_idx:
+                    raise ValueError(f'Frame {next_video_idx} is missing from the video (video file may be corrupt)')
 
-            # Sanity check that we're at the right frame
-            if video_idx != next_video_idx:
-                raise ValueError(f'Frame {next_video_idx} is missing from the video (video file may be corrupt)')
+                img = frame.to_image()
+                assert isinstance(img, PIL.Image.Image)
 
-            # Convert frame to PIL Image
-            img = frame.to_image()
-            assert isinstance(img, PIL.Image.Image)
+                # Build result dict with frame and all frame attributes
+                result = VideoFrames.Item(
+                    frame_idx=next_pos,
+                    pts=frame.pts,
+                    dts=frame.dts,
+                    time=frame.time,
+                    is_corrupt=frame.is_corrupt,
+                    key_frame=frame.key_frame,
+                    pict_type=frame.pict_type,
+                    interlaced_frame=frame.interlaced_frame,
+                    frame=img,
+                )
 
-            # Build result dict with frame and all frame attributes
-            result = {
-                'frame': img,
-                'frame_attrs': {
-                    'index': video_idx,
-                    'pts': frame.pts,
-                    'dts': frame.dts,
-                    'time': frame.time,
-                    'is_corrupt': frame.is_corrupt,
-                    'key_frame': frame.key_frame,
-                    'pict_type': frame.pict_type,
-                    'interlaced_frame': frame.interlaced_frame,
-                }
-            }
-
-            self.next_pos += 1
-            return result
+                next_pos += 1
+                yield result
+                break
