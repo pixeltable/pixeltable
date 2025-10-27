@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -55,6 +55,8 @@ class Env:
     For a local environment, Pixeltable uses an embedded PostgreSQL server that runs locally in a separate process.
     For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
+
+    SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
 
     _instance: Optional[Env] = None
     __initializing: bool = False
@@ -94,7 +96,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[orm.Session]
-    _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
+    _current_isolation_level: str | None
     _dbms: Optional[Dbms]
     _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
 
@@ -274,7 +276,7 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE'
+                self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -289,7 +291,7 @@ class Env:
                 self._current_isolation_level = None
         else:
             assert self._current_session is not None
-            assert for_write == (self._current_isolation_level == 'serializable')
+            assert self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
             yield self._current_conn
 
     def configure_logging(
@@ -355,6 +357,8 @@ class Env:
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
             path_parts = list(Path(record.pathname).parts)
             path_parts.reverse()
+            if 'pixeltable' not in path_parts:
+                return False
             max_idx = path_parts.index('pixeltable')
             for module_name in path_parts[:max_idx]:
                 if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
@@ -402,7 +406,7 @@ class Env:
 
         if not self._media_dir.exists():
             self._media_dir.mkdir()
-        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), may_contain_object_name=False)
+        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), allow_obj_name=False)
         if not self._file_cache_dir.exists():
             self._file_cache_dir.mkdir()
         if not self._dataset_cache_dir.exists():
@@ -576,6 +580,12 @@ class Env:
             assert isinstance(tz_name, str)
             self._logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
+            if self.is_using_cockroachdb:
+                # This could be set when the database is created, but we set it now
+                conn.execute(sql.text('SET null_ordered_last = true;'))
+                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
+                assert isinstance(null_ordered_last, str)
+                self._logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -752,17 +762,21 @@ class Env:
 
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
+        self.__register_package('accelerate')
         self.__register_package('anthropic')
         self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
         self.__register_package('boto3')
         self.__register_package('datasets')
+        self.__register_package('diffusers')
         self.__register_package('fiftyone')
+        self.__register_package('twelvelabs')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
         self.__register_package('mcp')
         self.__register_package('mistralai')
@@ -775,6 +789,7 @@ class Env:
         self.__register_package('replicate')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
         self.__register_package('together')

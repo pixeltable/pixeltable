@@ -2,10 +2,11 @@
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
 """
 
+import glob
 import logging
 import pathlib
 import subprocess
-from typing import Literal, NoReturn
+from typing import Any, Literal, NoReturn
 
 import av
 import av.stream
@@ -19,28 +20,6 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger('pixeltable')
-_format_defaults: dict[str, tuple[str, str]] = {  # format -> (codec, ext)
-    'wav': ('pcm_s16le', 'wav'),
-    'mp3': ('libmp3lame', 'mp3'),
-    'flac': ('flac', 'flac'),
-    # 'mp4': ('aac', 'm4a'),
-}
-
-# for mp4:
-# - extract_audio() fails with
-#   "Application provided invalid, non monotonically increasing dts to muxer in stream 0: 1146 >= 290"
-# - chatgpt suggests this can be fixed in the following manner
-#     for packet in container.demux(audio_stream):
-#         packet.pts = None  # Reset the PTS and DTS to allow FFmpeg to set them automatically
-#         packet.dts = None
-#         for frame in packet.decode():
-#             frame.pts = None
-#             for packet in output_stream.encode(frame):
-#                 output_container.mux(packet)
-#
-#     # Flush remaining packets
-#     for packet in output_stream.encode():
-#         output_container.mux(packet)
 
 
 @pxt.uda(requires_order_by=True)
@@ -149,9 +128,9 @@ def extract_audio(
         ...     extracted_audio=tbl.video_col.extract_audio(format='flac')
         ... )
     """
-    if format not in _format_defaults:
+    if format not in av_utils.AUDIO_FORMATS:
         raise ValueError(f'extract_audio(): unsupported audio format: {format}')
-    default_codec, ext = _format_defaults[format]
+    default_codec, ext = av_utils.AUDIO_FORMATS[format]
 
     with av.open(video_path) as container:
         if len(container.streams.audio) <= stream_idx:
@@ -305,7 +284,14 @@ def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
 
 @pxt.udf(is_method=True)
 def clip(
-    video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None
+    video: pxt.Video,
+    *,
+    start_time: float,
+    end_time: float | None = None,
+    duration: float | None = None,
+    mode: Literal['fast', 'accurate'] = 'accurate',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video | None:
     """
     Extract a clip from a video, specified by `start_time` and either `end_time` or `duration` (in seconds).
@@ -322,6 +308,14 @@ def clip(
         start_time: Start time in seconds
         end_time: End time in seconds
         duration: Duration of the clip in seconds
+        mode:
+
+            - `'fast'`: avoids re-encoding but starts the clip at the nearest keyframes and as a result, the clip
+                duration will be slightly longer than requested
+            - `'accurate'`: extracts a frame-accurate clip, but requires re-encoding
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+            Only available for `mode='accurate'`.
+        video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
 
     Returns:
         New video containing only the specified time range or None if start_time is beyond the end of the video.
@@ -335,6 +329,11 @@ def clip(
         raise pxt.Error(f'duration must be positive, got {duration}')
     if end_time is not None and duration is not None:
         raise pxt.Error('end_time and duration cannot both be specified')
+    if mode == 'fast':
+        if video_encoder is not None:
+            raise pxt.Error("video_encoder is not supported for mode='fast'")
+        if video_encoder_args is not None:
+            raise pxt.Error("video_encoder_args is not supported for mode='fast'")
 
     video_duration = av_utils.get_video_duration(video)
     if video_duration is not None and start_time > video_duration:
@@ -344,7 +343,15 @@ def clip(
 
     if end_time is not None:
         duration = end_time - start_time
-    cmd = av_utils.ffmpeg_clip_cmd(str(video), output_path, start_time, duration)
+    cmd = av_utils.ffmpeg_clip_cmd(
+        str(video),
+        output_path,
+        start_time,
+        duration,
+        fast=(mode == 'fast'),
+        video_encoder=video_encoder,
+        video_encoder_args=video_encoder_args,
+    )
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -358,9 +365,17 @@ def clip(
 
 
 @pxt.udf(is_method=True)
-def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
+def segment_video(
+    video: pxt.Video,
+    *,
+    duration: float | None = None,
+    segment_times: list[float] | None = None,
+    mode: Literal['fast', 'accurate'] = 'accurate',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> list[str]:
     """
-    Split a video into fixed-size segments.
+    Split a video into segments.
 
     __Requirements:__
 
@@ -368,7 +383,19 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
 
     Args:
         video: Input video file to segment
-        duration: Approximate duration of each segment (in seconds).
+        duration: Duration of each segment (in seconds). For `mode='fast'`, this is approximate;
+            for `mode='accurate'`, segments will have exact durations. Cannot be specified together with
+            `segment_times`.
+        segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
+            segment durations. If all segment times are less than the duration of the video, produces exactly
+            `len(segment_times) + 1` segments. Cannot be empty or be specified together with `duration`.
+        mode: Segmentation mode:
+
+            - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
+            - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+            Only available for `mode='accurate'`.
+        video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
 
     Returns:
         List of file paths for the generated video segments.
@@ -377,45 +404,105 @@ def segment_video(video: pxt.Video, *, duration: float) -> list[str]:
         pxt.Error: If the video is missing timing information.
 
     Examples:
-        Split a video at 1 minute intervals
+        Split a video at 1 minute intervals using fast mode:
 
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60)).collect()
+        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60, mode='fast')).collect()
+
+        Split video into exact 10-second segments with default accurate mode, using the libx264 encoder with a CRF of 23
+        and slow preset (for smaller output files):
+
+        >>> tbl.select(
+        ...     segment_paths=tbl.video.segment_video(
+        ...         duration=10,
+        ...         video_encoder='libx264',
+        ...         video_encoder_args={'crf': 23, 'preset': 'slow'}
+        ...     )
+        ... ).collect()
 
         Split video into two parts at the midpoint:
 
         >>> duration = tbl.video.get_duration()
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=duration / 2 + 1)).collect()
+        >>> tbl.select(segment_paths=tbl.video.segment_video(segment_times=[duration / 2])).collect()
     """
     Env.get().require_binary('ffmpeg')
-    if duration <= 0:
+    if duration is not None and segment_times is not None:
+        raise pxt.Error('duration and segment_times cannot both be specified')
+    if duration is not None and duration <= 0:
         raise pxt.Error(f'duration must be positive, got {duration}')
+    if segment_times is not None and len(segment_times) == 0:
+        raise pxt.Error('segment_times cannot be empty')
+    if mode == 'fast':
+        if video_encoder is not None:
+            raise pxt.Error("video_encoder is not supported for mode='fast'")
+        if video_encoder_args is not None:
+            raise pxt.Error("video_encoder_args is not supported for mode='fast'")
 
     base_path = TempStore.create_path(extension='')
 
-    # we extract consecutive clips instead of running ffmpeg -f segment, which is inexplicably much slower
-    start_time = 0.0
-    result: list[str] = []
-    try:
-        while True:
-            segment_path = f'{base_path}_segment_{len(result)}.mp4'
-            cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, duration)
+    output_paths: list[str] = []
+    if mode == 'accurate':
+        # Use ffmpeg -f segment for accurate segmentation with re-encoding
+        output_pattern = f'{base_path}_segment_%04d.mp4'
+        cmd = av_utils.ffmpeg_segment_cmd(
+            str(video),
+            output_pattern,
+            segment_duration=duration,
+            segment_times=segment_times,
+            video_encoder=video_encoder,
+            video_encoder_args=video_encoder_args,
+        )
 
+        try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            segment_duration = av_utils.get_video_duration(segment_path)
-            if segment_duration == 0.0:
-                # we're done
+            output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
+            # TODO: is this actually an error?
+            # if len(output_paths) == 0:
+            #     stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            #     raise pxt.Error(
+            #         f'ffmpeg failed to create output files for commandline: {" ".join(cmd)}\n{stderr_output}'
+            #     )
+            return output_paths
+
+        except subprocess.CalledProcessError as e:
+            _handle_ffmpeg_error(e)
+
+    else:
+        # Fast mode: extract consecutive clips using stream copy (no re-encoding)
+        # This is faster but can only split at keyframes, leading to approximate durations
+        start_time = 0.0
+        segment_idx = 0
+        try:
+            while True:
+                target_duration: float | None
+                if duration is not None:
+                    target_duration = duration
+                elif segment_idx < len(segment_times):
+                    target_duration = segment_times[segment_idx] - start_time
+                else:
+                    target_duration = None  # the rest
+                segment_path = f'{base_path}_segment_{len(output_paths)}.mp4'
+                cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, target_duration)
+
+                _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                segment_duration = av_utils.get_video_duration(segment_path)
+                if segment_duration == 0.0:
+                    # we're done
+                    pathlib.Path(segment_path).unlink()
+                    return output_paths
+                output_paths.append(segment_path)
+                start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
+
+                segment_idx += 1
+                if segment_times is not None and segment_idx > len(segment_times):
+                    break
+
+            return output_paths
+
+        except subprocess.CalledProcessError as e:
+            # clean up partial results
+            for segment_path in output_paths:
                 pathlib.Path(segment_path).unlink()
-                return result
-            result.append(segment_path)
-            start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
-
-        return result
-
-    except subprocess.CalledProcessError as e:
-        # clean up partial results
-        for segment_path in result:
-            pathlib.Path(segment_path).unlink()
-        _handle_ffmpeg_error(e)
+            _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)

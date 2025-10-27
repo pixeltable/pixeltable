@@ -8,6 +8,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 
 from ..utils import (
+    IN_CI,
     SAMPLE_IMAGE_URL,
     ReloadTester,
     get_audio_files,
@@ -21,6 +22,7 @@ from ..utils import (
 
 
 @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
+@pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:
     def test_hf_function(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
@@ -48,7 +50,6 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
-    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_sentence_transformer(self, reset_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import sentence_transformer, sentence_transformer_list
@@ -92,7 +93,6 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_cross_encoder(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import cross_encoder, cross_encoder_list
@@ -165,7 +165,6 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_detr_for_object_detection(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_object_detection
@@ -187,7 +186,6 @@ class TestHuggingface:
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
 
-    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_vit_for_image_classification(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
@@ -201,7 +199,6 @@ class TestHuggingface:
         assert result['labels'] == [962, 935, 937]
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
-    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
     def test_speech2text_for_conditional_generation(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
@@ -224,3 +221,279 @@ class TestHuggingface:
         result = t.collect()
         assert 'administration' in result['transcription'][0]
         assert 'construire' in result['translation'][0]
+
+    def test_text_generation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import text_generation
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        test_prompts = ['The weather today is', 'The capital of France is']
+
+        t.add_computed_column(
+            completion=text_generation(
+                t.prompt, model_id='Qwen/Qwen3-0.6B', model_kwargs={'temperature': 0.5, 'max_length': 150}
+            )
+        )
+
+        validate_update_status(t.insert({'prompt': p} for p in test_prompts), expected_rows=2)
+        results = t.select(t.completion).collect()
+
+        # Verify we got text completions
+        assert len(results) == 2
+        for result in results:
+            assert isinstance(result['completion'], str), result['completion']
+            assert len(result['completion'].strip()) > 0
+        assert 'Paris' in results[1]['completion']
+
+    def test_text_classification(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import text_classification
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        test_texts = ['I love this product!', 'This is terrible.']
+
+        # Test with a sentiment analysis model
+        t.add_computed_column(
+            sentiment=text_classification(t.text, model_id='cardiffnlp/twitter-roberta-base-sentiment-latest', top_k=2)
+        )
+
+        validate_update_status(t.insert({'text': text} for text in test_texts), expected_rows=2)
+        results = t.select(t.sentiment).collect()
+
+        # Verify we got classification results
+        assert len(results) == 2
+        for result in results:
+            assert isinstance(result['sentiment'], list)
+            assert len(result['sentiment']) <= 2  # top_k=2
+            for item in result['sentiment']:
+                assert 'label' in item
+                assert 'score' in item
+        assert results[0]['sentiment'][0]['label_text'] == 'positive'
+        assert results[1]['sentiment'][0]['label_text'] == 'negative'
+
+    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
+    @pytest.mark.expensive
+    def test_image_captioning(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import image_captioning
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+
+        # Test with BLIP model
+        t.add_computed_column(
+            caption=image_captioning(
+                t.img, model_id='Salesforce/blip-image-captioning-base', model_kwargs={'max_length': 30}
+            )
+        )
+
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        result = t.select(t.caption).collect()[0]
+
+        # Verify we got a caption
+        assert isinstance(result['caption'], str)
+        assert 'food' in result['caption']
+
+    def test_summarization(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import summarization
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        long_text = (
+            'Machine learning is a method of data analysis that automates analytical model building. '
+            'It is a branch of artificial intelligence based on the idea that systems can learn from data, '
+            'identify patterns and make decisions with minimal human intervention.'
+        )
+
+        # Test with BART model
+        t.add_computed_column(
+            summary=summarization(
+                t.text, model_id='Falconsai/text_summarization', model_kwargs={'max_length': 50, 'min_length': 10}
+            )
+        )
+
+        validate_update_status(t.insert(text=long_text), expected_rows=1)
+        result = t.select(t.summary).collect()[0]
+
+        # Verify we got a summary
+        assert isinstance(result['summary'], str)
+        assert len(result['summary'].strip()) > 0
+        assert len(result['summary']) < len(long_text)  # Should be shorter than original
+
+    def test_question_answering(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import question_answering
+
+        t = pxt.create_table('test_tbl', {'context': pxt.String, 'question': pxt.String})
+        context = 'Paris is the capital of France.'
+        question = 'What is the capital of France?'
+
+        # Test with DistilBERT QA model
+        t.add_computed_column(
+            answer=question_answering(t.question, t.context, model_id='distilbert-base-cased-distilled-squad')
+        )
+
+        validate_update_status(t.insert(context=context, question=question), expected_rows=1)
+        result = t.select(t.answer).collect()[0]
+
+        # Verify we got an answer
+        assert isinstance(result['answer'], dict)
+        assert 'answer' in result['answer']
+        assert 'score' in result['answer']
+        assert 'paris' in result['answer']['answer'].lower()
+
+    def test_translation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import translation
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        english_text = 'Hello, how are you?'
+
+        # Test with Helsinki-NLP translation model
+        t.add_computed_column(french=translation(t.text, model_id='Helsinki-NLP/opus-mt-en-fr'))
+
+        validate_update_status(t.insert(text=english_text), expected_rows=1)
+        result = t.select(t.french).collect()[0]
+
+        # Verify we got a translation
+        assert isinstance(result['french'], str)
+        assert len(result['french'].strip()) > 0
+        assert result['french'] != english_text  # Should be different from input
+
+    def test_named_entity_recognition(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import token_classification
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        text_with_entities = 'Apple Inc. is located in Cupertino, California.'
+
+        # Test with BERT NER model
+        t.add_computed_column(
+            entities=token_classification(t.text, model_id='dslim/bert-base-NER', aggregation_strategy='simple')
+        )
+
+        validate_update_status(t.insert(text=text_with_entities), expected_rows=1)
+        result = t.select(t.entities).collect()[0]
+
+        # Verify we got entities
+        assert isinstance(result['entities'], list)
+        assert len(result['entities']) > 0
+        for entity in result['entities']:
+            assert 'entity_group' in entity
+            assert 'score' in entity
+            assert 'word' in entity
+
+    def test_automatic_speech_recognition(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import automatic_speech_recognition
+
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        audio_file = next(
+            file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
+        )
+
+        # Test with Whisper model
+        t.add_computed_column(transcript=automatic_speech_recognition(t.audio, model_id='openai/whisper-tiny'))
+
+        validate_update_status(t.insert(audio=audio_file), expected_rows=1)
+        result = t.select(t.transcript).collect()[0]
+
+        # Verify we got a transcription
+        assert isinstance(result['transcript'], str)
+        assert len(result['transcript'].strip()) > 0
+
+    def test_text_to_speech(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
+        from pixeltable.functions.huggingface import text_to_speech
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        test_text = 'Hello world, this is a test.'
+
+        # Test with SpeechT5 model
+        t.add_computed_column(
+            audio=text_to_speech(t.text, model_id='microsoft/speecht5_tts', vocoder='microsoft/speecht5_hifigan')
+        )
+
+        validate_update_status(t.insert(text=test_text), expected_rows=1)
+        result = t.select(t.audio).collect()[0]
+
+        # Verify we got audio data
+        assert result['audio'] is not None
+        # Audio should be pxt.Audio type - basic check that it's not empty
+
+    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
+    @pytest.mark.expensive
+    def test_text_to_image(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('diffusers')
+        from pixeltable.functions.huggingface import text_to_image
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        test_prompt = 'a simple red circle'
+
+        # Test with Stable Diffusion (use small image size for faster testing)
+        t.add_computed_column(
+            image=text_to_image(
+                t.prompt,
+                model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
+                height=256,
+                width=256,
+                seed=42,
+                model_kwargs={'num_inference_steps': 10},  # Fewer steps for testing
+            )
+        )
+
+        validate_update_status(t.insert(prompt=test_prompt), expected_rows=1)
+        result = t.select(t.image).collect()[0]
+
+        # Verify we got an image
+        assert result['image'] is not None
+
+    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
+    @pytest.mark.expensive
+    def test_image_to_image(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('diffusers')
+        from pixeltable.functions.huggingface import image_to_image
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'prompt': pxt.String})
+        test_prompt = 'turn this into a red circle'
+
+        # Test with Stable Diffusion
+        t.add_computed_column(
+            modified_image=image_to_image(
+                t.img,
+                t.prompt,
+                model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
+                model_kwargs={'strength': 0.5, 'num_inference_steps': 10},
+            )
+        )
+
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL, prompt=test_prompt), expected_rows=1)
+        result = t.select(t.modified_image).collect()[0]
+
+        # Verify we got a modified image
+        assert result['modified_image'] is not None
+
+    @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
+    @pytest.mark.expensive
+    def test_image_to_video(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('diffusers')
+        from pixeltable.functions.huggingface import image_to_video
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+
+        t.add_computed_column(
+            video=image_to_video(
+                t.img,
+                model_id='stabilityai/stable-video-diffusion-img2vid-xt',
+                num_frames=2,  # Minimal frames for testing
+                model_kwargs={'num_inference_steps': 5},
+            )
+        )
+
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        result = t.select(t.video).collect()[0]
+
+        # Verify we got a video
+        assert result['video'] is not None

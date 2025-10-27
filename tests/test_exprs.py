@@ -1375,12 +1375,12 @@ class TestExprs:
         with pytest.raises(pxt.Error) as exc_info:
             # group_by with non-ancestor table
             _ = t.select(t.c2).group_by(t)
-        assert 'group_by(): test_tbl is not a base table of test_tbl' in str(exc_info.value)
+        assert "group_by(): 'test_tbl' is not a base table of 'test_tbl'" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             # group_by with non-singleton table
             _ = t.select(t.c2).group_by(t, t.c2)
-        assert 'group_by(): only one table can be specified' in str(exc_info.value)
+        assert 'group_by(): only one Table can be specified' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing update parameter

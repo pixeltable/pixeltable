@@ -131,11 +131,11 @@ class Config:
         try:
             if expected_type is bool and isinstance(value, str):
                 if value.lower() not in ('true', 'false'):
-                    raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
+                    raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}")
                 return value.lower() == 'true'  # type: ignore[return-value]
             return expected_type(value)  # type: ignore[call-arg]
         except (ValueError, TypeError) as exc:
-            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
+            raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}") from exc
 
     def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
         return self.get_value(key, str, section)
@@ -163,11 +163,13 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'API key for Pixeltable cloud',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
+        'b2_profile': 'S3-compatible profile name used to access Backblaze B2 storage',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'bedrock': {'api_key': 'AWS Bedrock API key'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
+    'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
     'gemini': {'api_key': 'Gemini API key', 'rate_limits': 'Per-model rate limits for Gemini API requests'},
     'hf': {'auth_token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},

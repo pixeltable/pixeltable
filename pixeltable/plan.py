@@ -93,18 +93,13 @@ class SampleClause:
     seed: Optional[int]
     stratify_exprs: Optional[list[exprs.Expr]]
 
-    # This seed value is used if one is not supplied
-    DEFAULT_SEED = 0
-
     # The version of the hashing algorithm used for ordering and fractional sampling.
     CURRENT_VERSION = 1
 
     def __post_init__(self) -> None:
-        """If no version was provided, provide the default version"""
+        # If no version was provided, provide the default version
         if self.version is None:
             self.version = self.CURRENT_VERSION
-        if self.seed is None:
-            self.seed = self.DEFAULT_SEED
 
     @property
     def is_stratified(self) -> bool:
@@ -482,7 +477,8 @@ class Planner:
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated/recomputed column
-        idx_val_cols = target.get_idx_val_columns(set(updated_cols) | recomputed_cols)
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
@@ -492,7 +488,7 @@ class Planner:
         # our query plan
         # - evaluates the update targets and recomputed columns
         # - copies all other stored columns
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl.id == tbl.tbl_version.id}
+        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == tbl.tbl_version.id}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -527,7 +523,7 @@ class Planner:
         plan = cls._add_save_node(plan)
 
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+        return plan, [f'{c.get_tbl().name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def __check_valid_columns(
@@ -652,11 +648,12 @@ class Planner:
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated column
-        idx_val_cols = target.get_idx_val_columns(updated_cols)
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl.id == target.id}
+        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -1006,6 +1003,7 @@ class Planner:
             analyzer.window_fn_calls
         )
         ctx = exec.ExecContext(row_builder)
+
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
 
@@ -1061,7 +1059,7 @@ class Planner:
                 tbl,
                 row_builder,
                 select_list=tbl_scan_exprs,
-                columns=[c for c in columns if c.tbl.id == tbl.tbl_id],
+                columns=[c for c in columns if c.get_tbl().id == tbl.tbl_id],
                 set_pk=with_pk,
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
                 exact_version_only=exact_version_only,

@@ -181,8 +181,8 @@ chat_table.add_computed_column(response=openai.chat_completions(
 
 - 🖼️ **Image Understanding**: [Add image search and analysis](https://github.com/pixeltable/pixeltable/tree/main/examples/text-and-image-similarity-search-nextjs-fastapi)
 - 🎥 **Video Processing**: [Index and search video content](https://huggingface.co/spaces/Pixeltable/Call-Analysis-AI-Tool)
-- 🔊 **Audio Analysis**: [Transcribe and analyze voice messages](https://docs.pixeltable.com/docs/transcribing-and-indexing-audio-and-video)
-- 💻 **Local Deployment**: Run entirely on your hardware with [Ollama](https://docs.pixeltable.com/docs/working-with-ollama)/[Llama.cpp](https://docs.pixeltable.com/docs/working-with-llamacpp)
+- 🔊 **Audio Analysis**: [Transcribe and analyze voice messages](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb)
+- 💻 **Local Deployment**: Run entirely on your hardware with [Ollama](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-ollama.ipynb)/[Llama.cpp](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-llama-cpp.ipynb)
 
 More examples available on our [Hugging Face Spaces](https://huggingface.co/Pixeltable).
 

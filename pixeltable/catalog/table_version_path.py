@@ -195,25 +195,14 @@ class TableVersionPath:
         else:
             return None
 
-    def get_column_by_id(self, tbl_id: UUID, col_id: int) -> Optional[Column]:
-        """Return the column for the given tbl/col id"""
-        self.refresh_cached_md()
-        if self.tbl_version.id == tbl_id:
-            assert col_id in self._cached_tbl_version.cols_by_id
-            return self._cached_tbl_version.cols_by_id[col_id]
-        elif self.base is not None:
-            return self.base.get_column_by_id(tbl_id, col_id)
-        else:
-            return None
-
     def has_column(self, col: Column) -> bool:
         """Return True if this table has the given column."""
-        assert col.tbl is not None
+        assert col.get_tbl() is not None
         self.refresh_cached_md()
 
         if (
-            col.tbl.id == self.tbl_version.id
-            and col.tbl.effective_version == self.tbl_version.effective_version
+            col.get_tbl().id == self.tbl_version.id
+            and col.get_tbl().effective_version == self.tbl_version.effective_version
             and col.id in self._cached_tbl_version.cols_by_id
         ):
             # the column is visible in this table version

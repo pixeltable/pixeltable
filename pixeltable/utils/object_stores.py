@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple, Optional
 from uuid import UUID
 
 from pixeltable import env, exceptions as excs
@@ -22,6 +22,7 @@ class StorageTarget(enum.Enum):
     LOCAL_STORE = 'os'  # Local file system
     S3_STORE = 's3'  # Amazon S3
     R2_STORE = 'r2'  # Cloudflare R2
+    B2_STORE = 'b2'  # Backblaze B2
     GCS_STORE = 'gs'  # Google Cloud Storage
     AZURE_STORE = 'az'  # Azure Blob Storage
     HTTP_STORE = 'http'  # HTTP/HTTPS
@@ -63,6 +64,7 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.LOCAL_STORE,
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
+            StorageTarget.B2_STORE,
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
@@ -218,15 +220,23 @@ class ObjectPath:
             # Standard HTTP(S) URL format
             # https://account.blob.core.windows.net/container/<optional path>/<optional object>
             # https://account.r2.cloudflarestorage.com/container/<optional path>/<optional object>
+            # https://s3.us-west-004.backblazeb2.com/container/<optional path>/<optional object>
             # and possibly others
             key = parsed.path
             if 'cloudflare' in parsed.netloc:
                 storage_target = StorageTarget.R2_STORE
+            elif 'backblazeb2' in parsed.netloc:
+                storage_target = StorageTarget.B2_STORE
             elif 'windows' in parsed.netloc:
                 storage_target = StorageTarget.AZURE_STORE
             else:
                 storage_target = StorageTarget.HTTP_STORE
-            if storage_target in [StorageTarget.S3_STORE, StorageTarget.AZURE_STORE, StorageTarget.R2_STORE]:
+            if storage_target in (
+                StorageTarget.S3_STORE,
+                StorageTarget.AZURE_STORE,
+                StorageTarget.R2_STORE,
+                StorageTarget.B2_STORE,
+            ):
                 account_name = parsed.netloc.split('.', 1)[0]
                 account_extension = parsed.netloc.split('.', 1)[1]
                 path_parts = key.lstrip('/').split('/', 1)
@@ -243,7 +253,7 @@ class ObjectPath:
         return r
 
     @classmethod
-    def parse_object_storage_addr(cls, src_addr: str, may_contain_object_name: bool) -> StorageObjectAddress:
+    def parse_object_storage_addr(cls, src_addr: str, allow_obj_name: bool) -> StorageObjectAddress:
         """
         Parses a cloud storage URI into its scheme, bucket, prefix, and object name.
 
@@ -263,14 +273,14 @@ class ObjectPath:
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
         """
         soa = cls.parse_object_storage_addr1(src_addr)
-        prefix, object_name = cls.separate_prefix_object(soa.key, may_contain_object_name)
+        prefix, object_name = cls.separate_prefix_object(soa.key, allow_obj_name)
         assert not object_name.endswith('/')
         r = soa._replace(prefix=prefix, object_name=object_name)
         return r
 
 
 class ObjectStoreBase:
-    def validate(self, error_col_name: str) -> Optional[str]:
+    def validate(self, error_prefix: str) -> Optional[str]:
         """Check the store configuration. Returns base URI if store is accessible.
 
         Args:
@@ -350,14 +360,16 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None) -> Any:
+    def get_store(
+        cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None
+    ) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
         soa = (
             Env.get().object_soa
             if dest is None
-            else ObjectPath.parse_object_storage_addr(dest, may_contain_object_name=may_contain_object_name)
+            else ObjectPath.parse_object_storage_addr(dest, allow_obj_name=may_contain_object_name)
         )
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
@@ -367,6 +379,11 @@ class ObjectOps:
 
             return S3Store(soa)
         if soa.storage_target == StorageTarget.R2_STORE:
+            env.Env.get().require_package('boto3')
+            from pixeltable.utils.s3_store import S3Store
+
+            return S3Store(soa)
+        if soa.storage_target == StorageTarget.B2_STORE:
             env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 
@@ -384,7 +401,7 @@ class ObjectOps:
         )
 
     @classmethod
-    def validate_destination(cls, dest: str | Path | None, col_name: Optional[str]) -> str:
+    def validate_destination(cls, dest: str | Path | None, col_name: str | None = None) -> str:
         """Convert a Column destination parameter to a URI, else raise errors.
         Args:
             dest: The requested destination
@@ -392,19 +409,19 @@ class ObjectOps:
         Returns:
             URI of destination, or raises an error
         """
-        error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
+        error_prefix = f'Column {col_name!r}: ' if col_name is not None else ''
 
         # General checks on any destination
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_col_name}`destination` must be a string or path, got {dest!r}')
+            raise excs.Error(f'{error_prefix}`destination` must be a string or path; got {dest!r}')
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
-        dest2 = store.validate(error_col_name)
+        dest2 = store.validate(error_prefix)
         if dest2 is None:
-            raise excs.Error(f'{error_col_name}`destination` must be a supported destination, got {dest!r}')
+            raise excs.Error(f'{error_prefix}`destination` must be a supported destination; got {dest!r}')
         return dest2
 
     @classmethod
@@ -412,7 +429,7 @@ class ObjectOps:
         """Copy an object from a URL to a local Path. Thread safe.
         Raises an exception if the download fails or the scheme is not supported
         """
-        soa = ObjectPath.parse_object_storage_addr(src_uri, may_contain_object_name=True)
+        soa = ObjectPath.parse_object_storage_addr(src_uri, allow_obj_name=True)
         store = cls.get_store(src_uri, True)
         store.copy_object_to_local_file(soa.object_name, dest_path)
 

@@ -1,4 +1,5 @@
 import dataclasses
+import types
 import typing
 import uuid
 from typing import Any, NamedTuple, Optional, TypeVar, Union, get_type_hints
@@ -29,8 +30,8 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
     origin = typing.get_origin(data_class_type)
     if origin is not None:
         type_args = typing.get_args(data_class_type)
-        if origin is Union and type(None) in type_args:
-            # Handling Optional types
+        if (origin is Union or origin is types.UnionType) and type(None) in type_args:
+            # handling Optional[T], T | None
             non_none_args = [arg for arg in type_args if arg is not type(None)]
             assert len(non_none_args) == 1
             return md_from_dict(non_none_args[0], data) if data is not None else None
