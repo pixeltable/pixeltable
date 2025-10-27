@@ -888,13 +888,13 @@ class JsonType(ColumnType):
 
 
 class ArrayType(ColumnType):
-    shape: Optional[tuple[int | None, ...]]
+    shape: tuple[int | None, ...] | None
     pxt_dtype: ColumnType | None
     dtype: ColumnType.Type | None
 
     def __init__(
         self,
-        shape: Optional[tuple[int | None, ...]] = None,
+        shape: tuple[int | None, ...] | None = None,
         dtype: ColumnType | None = None,
         nullable: bool = False,
     ):
@@ -934,7 +934,7 @@ class ArrayType(ColumnType):
         if super_dtype is None:
             # if the dtypes are incompatible, then the supertype is a fully general array
             return ArrayType(nullable=(self.nullable or other.nullable))
-        super_shape: Optional[tuple[int | None, ...]]
+        super_shape: tuple[int | None, ...] | None
         if self.shape is None or other.shape is None or len(self.shape) != len(other.shape):
             super_shape = None
         else:
@@ -1079,7 +1079,7 @@ class ImageType(ColumnType):
         self,
         width: int | None = None,
         height: int | None = None,
-        size: Optional[tuple[int, int]] = None,
+        size: tuple[int, int] | None = None,
         mode: str | None = None,
         nullable: bool = False,
     ):
@@ -1136,7 +1136,7 @@ class ImageType(ColumnType):
         return ImageType(width=width, height=height, mode=mode, nullable=(self.nullable or other.nullable))
 
     @property
-    def size(self) -> Optional[tuple[int, int]]:
+    def size(self) -> tuple[int, int] | None:
         if self.width is None or self.height is None:
             return None
         return (self.width, self.height)

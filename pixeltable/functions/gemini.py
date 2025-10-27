@@ -34,7 +34,7 @@ def _genai_client() -> 'genai.client.Client':
 
 @pxt.udf(resource_pool='request-rate:gemini')
 async def generate_content(
-    contents: str, *, model: str, config: dict | None = None, tools: Optional[list[dict]] = None
+    contents: str, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
     Generate content from the specified model. For additional details, see:

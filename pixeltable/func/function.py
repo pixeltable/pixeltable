@@ -33,7 +33,7 @@ class Function(ABC):
     self_path: str | None
     is_method: bool
     is_property: bool
-    _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
+    _conditional_return_type: Callable[..., ts.ColumnType] | None
 
     # We cache the overload resolutions in self._resolutions. This ensures that each resolution is represented
     # globally by a single Python object. We do this dynamically rather than pre-constructing them in order to
@@ -286,7 +286,7 @@ class Function(ABC):
                 return None
             assert isinstance(arg, exprs.Expr)
 
-            expects_expr: Optional[type[exprs.Expr]] = None
+            expects_expr: type[exprs.Expr] | None = None
             type_hint = callable_type_hints.get(param.name)
             if typing.get_origin(type_hint) is not None:
                 type_hint = typing.get_origin(type_hint)  # Remove type subscript if one exists

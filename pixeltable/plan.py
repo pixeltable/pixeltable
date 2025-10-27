@@ -91,7 +91,7 @@ class SampleClause:
     n_per_stratum: int | None
     fraction: float | None
     seed: int | None
-    stratify_exprs: Optional[list[exprs.Expr]]
+    stratify_exprs: list[exprs.Expr] | None
 
     # The version of the hashing algorithm used for ordering and fractional sampling.
     CURRENT_VERSION = 1
@@ -162,7 +162,7 @@ class Analyzer:
     from_clause: FromClause
     all_exprs: list[exprs.Expr]  # union of all exprs, aside from sql_where_clause
     select_list: list[exprs.Expr]
-    group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
+    group_by_clause: list[exprs.Expr] | None  # None for non-aggregate queries; [] for agg query w/o grouping
     grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
     order_by_clause: OrderByClause
     stratify_exprs: list[exprs.Expr]  # [] if no stratiifcation is required
@@ -185,7 +185,7 @@ class Analyzer:
         from_clause: FromClause,
         select_list: Sequence[exprs.Expr],
         where_clause: exprs.Expr | None = None,
-        group_by_clause: Optional[list[exprs.Expr]] = None,
+        group_by_clause: list[exprs.Expr] | None = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
         sample_clause: SampleClause | None = None,
     ):

@@ -12,7 +12,7 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
-def __substitute_md(k: str | None, v: Any) -> Optional[tuple[str | None, Any]]:
+def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     # Defaults are now stored as literals in signatures
     if k == 'parameters':
         for param in v:

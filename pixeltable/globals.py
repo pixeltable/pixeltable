@@ -50,7 +50,7 @@ def create_table(
     schema: dict[str, Any] | None = None,
     *,
     source: TableDataSource | None = None,
-    source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+    source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
     schema_overrides: dict[str, Any] | None = None,
     create_default_idxs: bool = True,
     on_error: Literal['abort', 'ignore'] = 'abort',
@@ -154,7 +154,7 @@ def create_table(
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
-    primary_key: Optional[list[str]] = normalize_primary_key_parameter(primary_key)
+    primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
     data_source: TableDataConduit | None = None
     if source is not None:
         tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
@@ -852,7 +852,7 @@ def ls(path: str = '') -> pd.DataFrame:
 def _extract_paths(
     dir_entries: dict[str, Catalog.DirEntry],
     parent: catalog.Path,
-    entry_type: Optional[type[catalog.SchemaObject]] = None,
+    entry_type: type[catalog.SchemaObject] | None = None,
 ) -> list[catalog.Path]:
     """Convert nested dir_entries structure to a flattened list of paths."""
     matches: list[str]

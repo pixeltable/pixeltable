@@ -392,7 +392,7 @@ def quantize(
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.reduce, is_method=True)
-def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int, int, int, int]] = None) -> PIL.Image.Image:
+def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | None = None) -> PIL.Image.Image:
     """
     Reduce the image by the given factor.
 

@@ -15,7 +15,7 @@ class ExecContext:
     batch_size: int
     num_rows: int | None
     conn: sql.engine.Connection | None
-    pk_clause: Optional[list[sql.ClauseElement]]
+    pk_clause: list[sql.ClauseElement] | None
     num_computed_exprs: int
     ignore_errors: bool
     random_seed: int  # general-purpose source of randomness with execution scope
@@ -26,7 +26,7 @@ class ExecContext:
         *,
         show_pbar: bool = False,
         batch_size: int = 0,
-        pk_clause: Optional[list[sql.ClauseElement]] = None,
+        pk_clause: list[sql.ClauseElement] | None = None,
         num_computed_exprs: int = 0,
         ignore_errors: bool = False,
     ):

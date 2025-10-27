@@ -15,7 +15,7 @@ class ColumnMetadata(TypedDict):
     """`True` if this is a stored column; `False` if it is dynamically computed."""
     is_primary_key: bool
     """`True` if this column is part of the table's primary key."""
-    media_validation: Optional[Literal['on_read', 'on_write']]
+    media_validation: Literal['on_read', 'on_write'] | None
     """The media validation policy for this column."""
     computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""

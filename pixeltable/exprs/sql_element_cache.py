@@ -11,7 +11,7 @@ class SqlElementCache:
 
     cache: dict[int, sql.ColumnElement | None]  # key: Expr.id
 
-    def __init__(self, elements: Optional[ExprDict[sql.ColumnElement]] = None):
+    def __init__(self, elements: ExprDict[sql.ColumnElement] | None = None):
         self.cache = {}
         if elements is not None:
             for e, el in elements.items():

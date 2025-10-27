@@ -205,7 +205,7 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def copy_list(cls, expr_list: Optional[list[Expr]]) -> Optional[list[Expr]]:
+    def copy_list(cls, expr_list: list[Expr] | None) -> list[Expr] | None:
         if expr_list is None:
             return None
         return [e.copy() for e in expr_list]
@@ -241,7 +241,7 @@ class Expr(abc.ABC):
         for i in range(len(expr_list)):
             expr_list[i] = expr_list[i].substitute(spec)
 
-    def resolve_computed_cols(self, resolve_cols: Optional[set[catalog.Column]] = None) -> Expr:
+    def resolve_computed_cols(self, resolve_cols: set[catalog.Column] | None = None) -> Expr:
         """
         Recursively replace ColRefs to unstored computed columns with their value exprs.
         Also replaces references to stored computed columns in resolve_cols.
@@ -319,7 +319,7 @@ class Expr(abc.ABC):
 
     def subexprs(
         self,
-        expr_class: Optional[type[T]] = None,
+        expr_class: type[T] | None = None,
         filter: Optional[Callable[[Expr], bool]] = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]:
@@ -360,7 +360,7 @@ class Expr(abc.ABC):
     def list_subexprs(
         cls,
         expr_list: Iterable[Expr],
-        expr_class: Optional[type[T]] = None,
+        expr_class: type[T] | None = None,
         filter: Optional[Callable[[Expr], bool]] = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]:
@@ -377,7 +377,7 @@ class Expr(abc.ABC):
     ) -> bool:
         return any(e._contains(expr_class, filter) for e in expr_list)
 
-    def _contains(self, cls: Optional[type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+    def _contains(self, cls: type[Expr] | None = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.
         """

@@ -368,7 +368,7 @@ class StoreBase:
         exec_plan: ExecNode,
         v_min: int,
         show_progress: bool = True,
-        rowids: Optional[Iterator[int]] = None,
+        rowids: Iterator[int] | None = None,
         abort_on_exc: bool = False,
     ) -> tuple[set[int], RowCountStats]:
         """Insert rows into the store table and update the catalog table's md

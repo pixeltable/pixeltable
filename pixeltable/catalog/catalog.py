@@ -45,7 +45,7 @@ _logger = logging.getLogger('pixeltable')
 
 def _unpack_row(
     row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]
-) -> Optional[list[Any]]:
+) -> list[Any] | None:
     """Convert a Row result into a list of entity instances.
 
     Assumes that the query contains a select() of exactly those entities.
@@ -821,7 +821,7 @@ class Catalog:
         add_name: str | None = None,
         drop_dir_path: Path | None = None,
         drop_name: str | None = None,
-        drop_expected: Optional[type[SchemaObject]] = None,
+        drop_expected: type[SchemaObject] | None = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
     ) -> tuple[SchemaObject | None, Dir | None, SchemaObject | None]:
@@ -921,7 +921,7 @@ class Catalog:
     def _get_schema_object(
         self,
         path: Path,
-        expected: Optional[type[SchemaObject]] = None,
+        expected: type[SchemaObject] | None = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
         lock_parent: bool = False,
@@ -975,7 +975,7 @@ class Catalog:
         path: Path,
         schema: dict[str, Any],
         if_exists: IfExistsParam,
-        primary_key: Optional[list[str]],
+        primary_key: list[str] | None,
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,

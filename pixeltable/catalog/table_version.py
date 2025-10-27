@@ -89,7 +89,7 @@ class TableVersion:
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
 
-    iterator_cls: Optional[type[ComponentIterator]]
+    iterator_cls: type[ComponentIterator] | None
     iterator_args: exprs.InlineDict | None
     num_iterator_cols: int
 
@@ -980,7 +980,7 @@ class TableVersion:
         exec_plan: 'exec.ExecNode',
         timestamp: float,
         *,
-        rowids: Optional[Iterator[int]] = None,
+        rowids: Iterator[int] | None = None,
         print_stats: bool = False,
         abort_on_exc: bool = False,
     ) -> UpdateStatus:

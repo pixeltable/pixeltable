@@ -31,7 +31,7 @@ def udf(
     is_method: bool = False,
     is_property: bool = False,
     resource_pool: str | None = None,
-    type_substitutions: Optional[Sequence[dict]] = None,
+    type_substitutions: Sequence[dict] | None = None,
     _force_stored: bool = False,
 ) -> Callable[[Callable], CallableFunction]: ...
 
@@ -97,13 +97,13 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
 def make_function(
     decorated_fn: Callable,
     return_type: ts.ColumnType | None = None,
-    param_types: Optional[list[ts.ColumnType]] = None,
+    param_types: list[ts.ColumnType] | None = None,
     batch_size: int | None = None,
     substitute_fn: Callable | None = None,
     is_method: bool = False,
     is_property: bool = False,
     resource_pool: str | None = None,
-    type_substitutions: Optional[Sequence[dict]] = None,
+    type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
     force_stored: bool = False,
 ) -> CallableFunction:
@@ -201,11 +201,11 @@ def expr_udf(py_fn: Callable) -> ExprTemplateFunction: ...
 
 
 @overload
-def expr_udf(*, param_types: Optional[list[ts.ColumnType]] = None) -> Callable[[Callable], ExprTemplateFunction]: ...
+def expr_udf(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], ExprTemplateFunction]: ...
 
 
 def expr_udf(*args: Any, **kwargs: Any) -> Any:
-    def make_expr_template(py_fn: Callable, param_types: Optional[list[ts.ColumnType]]) -> ExprTemplateFunction:
+    def make_expr_template(py_fn: Callable, param_types: list[ts.ColumnType] | None) -> ExprTemplateFunction:
         from pixeltable import exprs
 
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():

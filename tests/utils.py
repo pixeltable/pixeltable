@@ -54,7 +54,7 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
     raise AssertionError()
 
 
-def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.Table:
+def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
     schema: dict[str, ts.ColumnType] = {}
@@ -63,7 +63,7 @@ def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.T
     return pxt.create_table(name, schema)
 
 
-def create_table_data(t: pxt.Table, col_names: Optional[list[str]] = None, num_rows: int = 10) -> list[dict[str, Any]]:
+def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: dict[str, Any] = {}
@@ -295,7 +295,7 @@ def inf_array_iterator(
             yield rng.random(size=size, dtype=dtype)  # type: ignore[arg-type]
 
 
-def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
+def read_data_file(dir_name: str, file_name: str, path_col_names: list[str] | None = None) -> list[dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
     path_col_names: col names in csv file that contain file names; those will be converted to absolute paths

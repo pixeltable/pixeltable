@@ -19,7 +19,7 @@ class AggregationNode(ExecNode):
     At the moment, this returns all results in a single DataRowBatch.
     """
 
-    group_by: Optional[list[exprs.Expr]]
+    group_by: list[exprs.Expr] | None
     input_exprs: list[exprs.Expr]
     agg_fn_eval_ctx: exprs.RowBuilder.EvalCtx
     agg_fn_calls: list[exprs.FunctionCall]
@@ -30,7 +30,7 @@ class AggregationNode(ExecNode):
         self,
         tbl: catalog.TableVersionHandle,
         row_builder: exprs.RowBuilder,
-        group_by: Optional[list[exprs.Expr]],
+        group_by: list[exprs.Expr] | None,
         agg_fn_calls: list[exprs.FunctionCall],
         input_exprs: Iterable[exprs.Expr],
         input: ExecNode,
@@ -73,7 +73,7 @@ class AggregationNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         prev_row: exprs.DataRow | None = None
-        current_group: Optional[list[Any]] = None  # the values of the group-by exprs
+        current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0
         num_output_rows = 0
         async for row_batch in self.input:

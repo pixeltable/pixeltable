@@ -19,7 +19,7 @@ class DataRowBatch:
     row_builder: exprs.RowBuilder
     rows: list[exprs.DataRow]
 
-    def __init__(self, row_builder: exprs.RowBuilder, rows: Optional[list[exprs.DataRow]] = None):
+    def __init__(self, row_builder: exprs.RowBuilder, rows: list[exprs.DataRow] | None = None):
         self.row_builder = row_builder
         self.rows = [] if rows is None else rows
 

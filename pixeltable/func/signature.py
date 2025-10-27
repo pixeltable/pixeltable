@@ -104,7 +104,7 @@ class Signature:
         return_type: ts.ColumnType,
         parameters: list[Parameter],
         is_batched: bool = False,
-        system_parameters: Optional[list[str]] = None,
+        system_parameters: list[str] | None = None,
     ):
         assert isinstance(return_type, ts.ColumnType)
         self.return_type = return_type
@@ -253,8 +253,8 @@ class Signature:
     def create_parameters(
         cls,
         py_fn: Callable | None = None,
-        py_params: Optional[list[inspect.Parameter]] = None,
-        param_types: Optional[list[ts.ColumnType]] = None,
+        py_params: list[inspect.Parameter] | None = None,
+        param_types: list[ts.ColumnType] | None = None,
         type_substitutions: dict | None = None,
         is_cls_method: bool = False,
     ) -> list[Parameter]:
@@ -310,7 +310,7 @@ class Signature:
     def create(
         cls,
         py_fn: Callable,
-        param_types: Optional[list[ts.ColumnType]] = None,
+        param_types: list[ts.ColumnType] | None = None,
         return_type: ts.ColumnType | None = None,
         type_substitutions: dict | None = None,
         is_cls_method: bool = False,

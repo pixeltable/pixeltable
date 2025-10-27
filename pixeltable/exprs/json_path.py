@@ -32,7 +32,7 @@ class JsonPath(Expr):
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
-        self, anchor: Expr | None, path_elements: Optional[list[str | int | slice]] = None, scope_idx: int = 0
+        self, anchor: Expr | None, path_elements: list[str | int | slice] | None = None, scope_idx: int = 0
     ) -> None:
         if path_elements is None:
             path_elements = []

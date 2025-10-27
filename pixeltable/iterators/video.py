@@ -67,7 +67,7 @@ class FrameIterator(ComponentIterator):
     video_start_time: int
 
     # List of frame indices to be extracted, or None to extract all frames
-    frames_to_extract: Optional[list[int]]
+    frames_to_extract: list[int] | None
 
     # Next frame to extract, as an iterator `pos` index. If `frames_to_extract` is None, this is the same as the
     # frame index in the video. Otherwise, the corresponding video index is `frames_to_extract[next_pos]`.

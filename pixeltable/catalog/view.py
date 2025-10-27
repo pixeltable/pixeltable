@@ -85,9 +85,9 @@ class View(Table):
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-        iterator_cls: Optional[type[ComponentIterator]],
+        iterator_cls: type[ComponentIterator] | None,
         iterator_args: dict | None,
-    ) -> tuple[TableVersionMd, Optional[list[TableOp]]]:
+    ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
@@ -292,7 +292,7 @@ class View(Table):
         source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,

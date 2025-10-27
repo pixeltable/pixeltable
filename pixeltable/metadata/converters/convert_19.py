@@ -28,7 +28,7 @@ def _(engine: sql.engine.Engine) -> None:
                 conn.execute(sql.text(f'ALTER TABLE {store_name} ALTER COLUMN col_{col_id} TYPE TIMESTAMPTZ'))
 
 
-def __update_timestamp_literals(k: Any, v: Any) -> Optional[tuple[Any, Any]]:
+def __update_timestamp_literals(k: Any, v: Any) -> tuple[Any, Any] | None:
     if isinstance(v, dict) and 'val_t' in v:
         # It's a literal with an explicit 'val_t' field. In version 19 this can only mean a
         # timestamp literal, which (in version 19) is stored in the DB as a naive datetime.

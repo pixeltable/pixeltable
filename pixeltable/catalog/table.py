@@ -383,7 +383,7 @@ class Table(SchemaObject):
                 helper.append(f'COMMENT: {self._get_comment()}')
             return helper
 
-    def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+    def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 'Column Name': col.name,
@@ -394,7 +394,7 @@ class Table(SchemaObject):
             if columns is None or col.name in columns
         )
 
-    def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+    def _index_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
         from pixeltable import index
 
         if self._tbl_version is None:
@@ -1253,7 +1253,7 @@ class Table(SchemaObject):
         *,
         col: Column | None = None,
         idx_name: str | None = None,
-        _idx_class: Optional[type[index.IndexBase]] = None,
+        _idx_class: type[index.IndexBase] | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         from pixeltable.catalog import Catalog
@@ -1305,7 +1305,7 @@ class Table(SchemaObject):
         source: TableDataSource,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
@@ -1323,7 +1323,7 @@ class Table(SchemaObject):
         source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,

@@ -44,7 +44,7 @@ class FunctionCall(Expr):
     fn_expr_idx: int
     order_by_start_idx: int
     aggregator: Any | None
-    current_partition_vals: Optional[list[Any]]
+    current_partition_vals: list[Any] | None
 
     _validation_error: str | None
 
@@ -54,8 +54,8 @@ class FunctionCall(Expr):
         args: list[Expr],
         kwargs: dict[str, Expr],
         return_type: ts.ColumnType,
-        order_by_clause: Optional[list[Any]] = None,
-        group_by_clause: Optional[list[Any]] = None,
+        order_by_clause: list[Any] | None = None,
+        group_by_clause: list[Any] | None = None,
         is_method_call: bool = False,
         validation_error: str | None = None,
     ):

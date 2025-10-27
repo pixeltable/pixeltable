@@ -193,7 +193,7 @@ class DataFrame:
     _schema: dict[str, ts.ColumnType]
     select_list: Optional[list[tuple[exprs.Expr, str | None]]]
     where_clause: exprs.Expr | None
-    group_by_clause: Optional[list[exprs.Expr]]
+    group_by_clause: list[exprs.Expr] | None
     grouping_tbl: catalog.TableVersion | None
     order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
     limit_val: exprs.Expr | None
@@ -204,7 +204,7 @@ class DataFrame:
         from_clause: plan.FromClause | None = None,
         select_list: Optional[list[tuple[exprs.Expr, str | None]]] = None,
         where_clause: exprs.Expr | None = None,
-        group_by_clause: Optional[list[exprs.Expr]] = None,
+        group_by_clause: list[exprs.Expr] | None = None,
         grouping_tbl: catalog.TableVersion | None = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
@@ -298,7 +298,7 @@ class DataFrame:
 
     @classmethod
     def _convert_param_to_typed_expr(
-        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
     ) -> exprs.Expr | None:
         if v is None:
             if required:
@@ -318,7 +318,7 @@ class DataFrame:
 
     @classmethod
     def validate_constant_type_range(
-        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
     ) -> Any:
         """Validate that the given named parameter is a constant of the required type and within the specified range."""
         v_expr = cls._convert_param_to_typed_expr(v, required_type, required, name, range)
@@ -364,7 +364,7 @@ class DataFrame:
 
     def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
-        group_by_clause: Optional[list[exprs.Expr]] = None
+        group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
             assert self.group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
@@ -956,7 +956,7 @@ class DataFrame:
             raise excs.Error('group_by() cannot be used with sample()')
 
         grouping_tbl: catalog.TableVersion | None = None
-        group_by_clause: Optional[list[exprs.Expr]] = None
+        group_by_clause: list[exprs.Expr] | None = None
         for item in grouping_items:
             if isinstance(item, (catalog.Table, catalog.TableVersion)):
                 if len(grouping_items) > 1:

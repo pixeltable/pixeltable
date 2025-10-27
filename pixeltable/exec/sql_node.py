@@ -245,8 +245,8 @@ class SqlNode(ExecNode):
         cls,
         tbl: catalog.TableVersionPath,
         stmt: sql.Select,
-        refd_tbl_ids: Optional[set[UUID]] = None,
-        exact_version_only: Optional[set[UUID]] = None,
+        refd_tbl_ids: set[UUID] | None = None,
+        exact_version_only: set[UUID] | None = None,
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
@@ -450,7 +450,7 @@ class SqlScanNode(SqlNode):
         columns: list[catalog.Column],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
+        exact_version_only: list[catalog.TableVersionHandle] | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -528,7 +528,7 @@ class SqlAggregationNode(SqlNode):
         limit: max number of rows to return: None = no limit
     """
 
-    group_by_items: Optional[list[exprs.Expr]]
+    group_by_items: list[exprs.Expr] | None
     input_cte: sql.CTE | None
 
     def __init__(
@@ -536,9 +536,9 @@ class SqlAggregationNode(SqlNode):
         row_builder: exprs.RowBuilder,
         input: SqlNode,
         select_list: Iterable[exprs.Expr],
-        group_by_items: Optional[list[exprs.Expr]] = None,
+        group_by_items: list[exprs.Expr] | None = None,
         limit: int | None = None,
-        exact_version_only: Optional[list[catalog.TableVersion]] = None,
+        exact_version_only: list[catalog.TableVersion] | None = None,
     ):
         assert len(input.cell_md_refs) == 0  # there's no aggregation over json or arrays in SQL
         self.input_cte, input_col_map = input.to_cte()
@@ -619,7 +619,7 @@ class SqlSampleNode(SqlNode):
 
     input_cte: sql.CTE | None
     pk_count: int
-    stratify_exprs: Optional[list[exprs.Expr]]
+    stratify_exprs: list[exprs.Expr] | None
     sample_clause: 'SampleClause'
 
     def __init__(

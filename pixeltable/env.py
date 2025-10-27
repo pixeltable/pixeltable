@@ -818,7 +818,7 @@ class Env:
         if not shutil.which(binary_name):
             raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
-    def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
+    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -862,7 +862,7 @@ class Env:
             else:
                 os.remove(path)
 
-    # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
+    # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
         info = self._resource_pool_info.get(pool_id)
@@ -1035,7 +1035,7 @@ class ApiClient:
 class PackageInfo:
     is_installed: bool
     library_name: str  # pypi library name (may be different from package name)
-    version: Optional[list[int]] = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
+    version: list[int] | None = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
 
 
 TIME_FORMAT = '%H:%M.%S %f'

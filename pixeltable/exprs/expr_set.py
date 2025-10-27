@@ -17,7 +17,7 @@ class ExprSet(Generic[T]):
     expr_offsets: dict[int, int]  # key: Expr.id, value: offset into self.exprs.keys()
     exprs_by_idx: dict[int, T]  # key: slot_idx
 
-    def __init__(self, elements: Optional[Iterable[T]] = None):
+    def __init__(self, elements: Iterable[T] | None = None):
         self.exprs = {}
         self.expr_offsets = {}
         self.exprs_by_idx = {}

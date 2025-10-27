@@ -18,7 +18,7 @@ class FnCallArgs:
     fn_call: exprs.FunctionCall
     rows: list[exprs.DataRow]
     # single call
-    args: Optional[list[Any]] = None
+    args: list[Any] | None = None
     kwargs: dict[str, Any] | None = None
     # batch call
     batch_args: Optional[list[list[Any | None]]] = None

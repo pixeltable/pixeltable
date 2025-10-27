@@ -11,7 +11,7 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
-def __substitute_md(k: str | None, v: Any) -> Optional[tuple[str | None, Any]]:
+def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     import pixeltable.type_system as ts
     from pixeltable.exprs.literal import Literal
 

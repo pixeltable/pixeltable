@@ -362,7 +362,7 @@ class RowBuilder:
             self.__set_slot_idxs_aux(c)
 
     def get_dependencies(
-        self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None, limit_scope: bool = True
+        self, targets: Iterable[Expr], exclude: Iterable[Expr] | None = None, limit_scope: bool = True
     ) -> list[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
@@ -398,7 +398,7 @@ class RowBuilder:
         return [self.unique_exprs[id] for id in result_ids]
 
     def create_eval_ctx(
-        self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None, limit_scope: bool = True
+        self, targets: Iterable[Expr], exclude: Iterable[Expr] | None = None, limit_scope: bool = True
     ) -> EvalCtx:
         """Return EvalCtx for targets"""
         targets = list(targets)
@@ -459,7 +459,7 @@ class RowBuilder:
                     ) from exc
 
     def create_store_table_row(
-        self, data_row: DataRow, cols_with_excs: Optional[set[int]], pk: tuple[int, ...]
+        self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int, ...]
     ) -> tuple[list[Any], int]:
         """Create a store table row from the slots that have an output column assigned
 

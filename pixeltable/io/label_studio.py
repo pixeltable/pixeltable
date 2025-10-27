@@ -278,8 +278,8 @@ class LabelStudioProject(Project):
         # columns. `rl_col_idxs` holds the indices for the columns that map to RectangleLabels
         # preannotations; `data_col_idxs` holds the indices for the columns that map to data fields.
         # We have to wait until we begin iterating to populate them, so they're initially `None`.
-        rl_col_idxs: Optional[list[int]] = None
-        data_col_idxs: Optional[list[int]] = None
+        rl_col_idxs: list[int] | None = None
+        data_col_idxs: list[int] | None = None
 
         row_ids_in_pxt: set[tuple] = set()
         tasks_created = 0

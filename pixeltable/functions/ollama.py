@@ -40,7 +40,7 @@ def generate(
     suffix: str = '',
     system: str = '',
     template: str = '',
-    context: Optional[list[int]] = None,
+    context: list[int] | None = None,
     raw: bool = False,
     format: str | None = None,
     options: dict | None = None,
@@ -84,7 +84,7 @@ def chat(
     messages: list[dict],
     *,
     model: str,
-    tools: Optional[list[dict]] = None,
+    tools: list[dict] | None = None,
     format: str | None = None,
     options: dict | None = None,
 ) -> dict:

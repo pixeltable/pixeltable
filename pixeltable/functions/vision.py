@@ -293,9 +293,9 @@ def __create_label_colors(labels: list[Any]) -> dict[Any, str]:
 def draw_bounding_boxes(
     img: PIL.Image.Image,
     boxes: list[list[int]],
-    labels: Optional[list[Any]] = None,
+    labels: list[Any] | None = None,
     color: str | None = None,
-    box_colors: Optional[list[str]] = None,
+    box_colors: list[str] | None = None,
     fill: bool = False,
     width: int = 1,
     font: str | None = None,

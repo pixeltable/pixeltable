@@ -43,7 +43,7 @@ async def chat_completions(
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: dict[str, Any] | None = None,
     provider: dict[str, Any] | None = None,
-    transforms: Optional[list[str]] = None,
+    transforms: list[str] | None = None,
 ) -> dict:
     """
     Chat Completion API via OpenRouter.

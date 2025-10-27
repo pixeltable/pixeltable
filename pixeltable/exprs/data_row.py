@@ -126,7 +126,7 @@ class DataRow:
     _may_have_exc: bool
 
     # the primary key of a store row is a sequence of ints (the number is different for table vs view)
-    pk: Optional[tuple[int, ...]]
+    pk: tuple[int, ...] | None
     # for nested rows (ie, those produced by JsonMapperDispatcher)
     parent_row: DataRow | None
     parent_slot_idx: int | None

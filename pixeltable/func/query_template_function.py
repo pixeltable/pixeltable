@@ -22,7 +22,7 @@ class QueryTemplateFunction(Function):
 
     @classmethod
     def create(
-        cls, template_callable: Callable, param_types: Optional[list[ts.ColumnType]], path: str, name: str
+        cls, template_callable: Callable, param_types: list[ts.ColumnType] | None, path: str, name: str
     ) -> QueryTemplateFunction:
         # we need to construct a template df and a signature
         py_sig = inspect.signature(template_callable)
@@ -100,11 +100,11 @@ def query(py_fn: Callable) -> QueryTemplateFunction: ...
 
 
 @overload
-def query(*, param_types: Optional[list[ts.ColumnType]] = None) -> Callable[[Callable], QueryTemplateFunction]: ...
+def query(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], QueryTemplateFunction]: ...
 
 
 def query(*args: Any, **kwargs: Any) -> Any:
-    def make_query_template(py_fn: Callable, param_types: Optional[list[ts.ColumnType]]) -> QueryTemplateFunction:
+    def make_query_template(py_fn: Callable, param_types: list[ts.ColumnType] | None) -> QueryTemplateFunction:
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
@@ -129,7 +129,7 @@ def retrieval_udf(
     table: catalog.Table,
     name: str | None = None,
     description: str | None = None,
-    parameters: Optional[Iterable[str | exprs.ColumnRef]] = None,
+    parameters: Iterable[str | exprs.ColumnRef] | None = None,
     limit: int | None = 10,
 ) -> func.QueryTemplateFunction:
     """

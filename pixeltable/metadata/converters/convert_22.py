@@ -11,7 +11,7 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
-def __substitute_md(k: str | None, v: Any) -> Optional[tuple[str | None, Any]]:
+def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     if isinstance(v, dict) and '_classname' in v and v['_classname'] == 'DataFrame':
         v['from_clause'] = {'tbls': [v['tbl']], 'join_clauses': []}
         return k, v

@@ -39,7 +39,7 @@ def converse(
     system: Optional[list[dict[str, Any]]] = None,
     inference_config: dict | None = None,
     additional_model_request_fields: dict | None = None,
-    tool_config: Optional[list[dict]] = None,
+    tool_config: list[dict] | None = None,
 ) -> dict:
     """
     Generate a conversation response.

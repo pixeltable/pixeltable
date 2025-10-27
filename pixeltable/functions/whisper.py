@@ -21,7 +21,7 @@ def transcribe(
     audio: pxt.Audio,
     *,
     model: str,
-    temperature: Optional[Sequence[float]] = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+    temperature: Sequence[float] | None = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
     compression_ratio_threshold: float | None = 2.4,
     logprob_threshold: float | None = -1.0,
     no_speech_threshold: float | None = 0.6,

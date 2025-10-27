@@ -56,8 +56,8 @@ class TableDataConduit:
     pxt_schema: dict[str, ts.ColumnType] | None = None
     src_schema_overrides: dict[str, ts.ColumnType] | None = None
     src_schema: dict[str, ts.ColumnType] | None = None
-    pxt_pk: Optional[list[str]] = None
-    src_pk: Optional[list[str]] = None
+    pxt_pk: list[str] | None = None
+    src_pk: list[str] | None = None
     valid_rows: RowData | None = None
     extra_fields: dict[str, Any] = field(default_factory=dict)
 
