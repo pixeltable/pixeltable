@@ -858,10 +858,7 @@ class Catalog:
             if dir is None:
                 # Dir does not exist; raise an appropriate error.
                 if add_dir_path is not None or add_name is not None:
-                    raise excs.Error(
-                        f'Directory {p!r} does not exist. Create it first with:\n'
-                        f'pxt.create_dir({p!r})'
-                    )
+                    raise excs.Error(f'Directory {p!r} does not exist. Create it first with:\npxt.create_dir({p!r})')
                 else:
                     raise excs.Error(f'Directory {p!r} does not exist.')
             if p == add_dir_path:
