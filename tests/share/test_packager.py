@@ -181,6 +181,8 @@ class TestPackager:
         bundle_path: Path  # Path of the bundle on disk
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
+        store_col_schema: set[tuple[str, str]]  # Set of (column_name, data_type) for the store table's columns
+        store_idx_schema: set[tuple[str, str]]  # Set of (indexname, indexdef) for the store table's indices
         result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
 
     def __package_table(self, tbl: pxt.Table) -> BundleInfo:
@@ -190,12 +192,14 @@ class TestPackager:
         schema = tbl._get_schema()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
+        store_col_schema = self.__extract_store_col_schema(tbl)
+        store_idx_schema = self.__extract_store_idx_schema(tbl)
 
         # Package the snapshot into a tarball
         packager = TablePackager(tbl)
         bundle_path = packager.package()
 
-        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
+        return TestPackager.BundleInfo(bundle_path, depth, schema, store_col_schema, store_idx_schema, result_set)
 
     def __restore_and_check_table(self, bundle_info: BundleInfo, tbl_name: str, version: int | None = None) -> None:
         """
@@ -210,8 +214,33 @@ class TestPackager:
         t = pxt.get_table(tbl_name)
         assert bundle_info.schema == t._get_schema()
         assert bundle_info.depth == t._tbl_version_path.path_len()
+
+        # Verify that the postgres schema subsumes the original.
+        # (There may be additional columns in the restored table depending on the order in which different versions are
+        # restored. But the columns present in the original table must be present and identical in the restored table.
+        # Regarding indices: the restored table omits indices that were dropped on the Table before the bundle was
+        # created.)
+        assert bundle_info.store_col_schema.issubset(self.__extract_store_col_schema(t))
+        t._tbl_version_path.tbl_version.get().store_tbl.validate()
+
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
+
+    def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
+        with Env.get().begin_xact():
+            store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
+            sql_text = (
+                f'SELECT column_name, data_type FROM information_schema.columns WHERE table_name = {store_tbl_name!r}'
+            )
+            result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
+            return {(col_name, data_type) for col_name, data_type in result}
+
+    def __extract_store_idx_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
+        with Env.get().begin_xact():
+            store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
+            sql_text = f'SELECT indexname, indexdef FROM pg_indexes WHERE tablename = {store_tbl_name!r}'
+            result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
+            return {(indexname, indexdef) for indexname, indexdef in result}
 
     def __purge_db(self) -> None:
         clean_db()

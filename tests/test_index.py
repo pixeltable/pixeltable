@@ -45,9 +45,8 @@ class TestIndex:
 
         # similarity query should fail because there are multiple indices
         # img_idx1 and img_idx2 on img column in multi_idx_img_tbl
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
             _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(1).collect()
-        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
         # but we can specify the index to use, and the query should work
         df = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx1'), asc=False).limit(1)
         _ = reload_tester.run_query(df)
@@ -191,7 +190,7 @@ class TestIndex:
             _ = t.order_by(t.img.similarity(t.split)).limit(1).collect()
         assert 'not an expression' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error, match='No indices found for '):
+        with pytest.raises(pxt.Error, match="No embedding index found for column 'split'"):
             _ = t.order_by(t.split.similarity('red truck')).limit(1).collect()
 
         t = small_img_tbl
@@ -201,17 +200,16 @@ class TestIndex:
         assert 'does not have a string embedding' in str(exc_info.value).lower()
 
         t.add_embedding_index('img', embedding=clip_embed)
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
             _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
-        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
 
         # Similarity fails when attempted on a snapshot
         t_s = pxt.create_snapshot('t_s', t)
-        with pytest.raises(pxt.Error, match='No indices found for '):
+        with pytest.raises(pxt.Error, match='Snapshot does not support indices'):
             _ = t_s.order_by(t_s.img.similarity('red truck')).limit(1).collect()
 
-        # Direct access to the unnamed embedding column fails on a snapshot
-        with pytest.raises(pxt.Error, match='No indices found for '):
+        # embedding() fails on a snapshot
+        with pytest.raises(pxt.Error, match='Snapshot does not support indices'):
             _ = t_s.select(t_s.img.embedding(idx='other_idx')).limit(2)
 
         t.drop_embedding_index(idx_name='idx0')
@@ -428,12 +426,12 @@ class TestIndex:
         with pytest.raises(pxt.Error, match="Cannot drop index 'cat_idx' because the following columns depend on it"):
             img_t.drop_embedding_index(column=img_t.category)
 
-        img_t.add_computed_column(simmy=img_t.category.similarity('red_truck', idx='cat_idx'))
+        img_t.add_computed_column(sim=img_t.category.similarity('red_truck', idx='cat_idx'))
         with pytest.raises(pxt.ExprEvalError) as exc_info:
             img_t.insert([rows[7]])
         assert 'cannot be used in a computed column' in str(exc_info.value.__cause__)
 
-        img_t.drop_column('simmy')
+        img_t.drop_column('sim')
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
@@ -469,10 +467,9 @@ class TestIndex:
         res = img_t.where(img_t.img == rows[0]['img']).collect()
         assert len(res) == 1
 
-        # Direct access to the unnamed embedding column works
         res = img_t.select(img_t.img.embedding()).limit(2).collect()
         assert len(res) == 2
-        assert isinstance(res[0, 'img_embedding_'], np.ndarray)
+        assert isinstance(res[0, 0], np.ndarray)
 
         with pytest.raises(pxt.Error) as exc_info:
             # duplicate name
@@ -526,10 +523,6 @@ class TestIndex:
 
         # multiple indices
         img_t.add_embedding_index(img_t.img, idx_name='other_idx', embedding=clip_embed)
-        with pytest.raises(pxt.Error) as exc_info:
-            sim = img_t.img.similarity('red truck')
-            _ = img_t.order_by(sim, asc=False).limit(1).collect()
-        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
         # lookup using the first index, how called idx3
         sim = img_t.img.similarity('red truck', idx='idx3')
         res = img_t.order_by(sim, asc=False).limit(1).collect()
@@ -539,13 +532,12 @@ class TestIndex:
         res = img_t.order_by(sim, asc=False).limit(1).collect()
         assert len(res) == 1
 
-        # Direct access to the new named embedding column works
         r = img_t.select(img_t.img.embedding(idx='other_idx')).limit(2).collect()
         assert len(r) == 2
-        assert isinstance(r[0, 'img_embedding_other_idx'], np.ndarray)
+        assert isinstance(r[0, 0], np.ndarray)
 
-        # Direct access to an unnamed embedding column fails when multiple indices are present
-        with pytest.raises(pxt.Error, match='has multiple indices'):
+        # embedding() fails when multiple indices are present
+        with pytest.raises(pxt.Error, match='has multiple embedding indices'):
             _ = img_t.select(img_t.img.embedding()).collect()
 
         # Adding an index with an invalid index name fails
@@ -721,7 +713,7 @@ class TestIndex:
         with pytest.raises(pxt.Error, match="Column 'img' has multiple indices"):
             img_t.drop_embedding_index(column=img_t.img)
 
-        with pytest.raises(pxt.Error, match="Column 'img' has multiple indices"):
+        with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
             sim = img_t.img.similarity('red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
 

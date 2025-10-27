@@ -77,6 +77,17 @@ class Table(SchemaObject):
         self._tbl_version = None
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        old_name = self._name
+        old_dir_id = self._dir_id
+
+        cat = catalog.Catalog.get()
+
+        @cat.register_undo_action
+        def _() -> None:
+            # TODO: We should really be invalidating the Table instance and forcing a reload.
+            self._name = old_name
+            self._dir_id = old_dir_id
+
         super()._move(new_name, new_dir_id)
         conn = env.Env.get().conn
         stmt = sql.text(
@@ -117,7 +128,7 @@ class Table(SchemaObject):
                 is_primary_key=col.is_pk,
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
-                defined_in=col.tbl.name,
+                defined_in=col.get_tbl().name,
             )
         # Pure snapshots have no indices
         indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}
@@ -442,7 +453,7 @@ class Table(SchemaObject):
         assert col is not None
         assert col.name in self._get_schema()
         cat = catalog.Catalog.get()
-        if any(c.name is not None for c in cat.get_column_dependents(col.tbl.id, col.id)):
+        if any(c.name is not None for c in cat.get_column_dependents(col.get_tbl().id, col.id)):
             return True
         assert self._tbl_version is not None
         return any(
@@ -625,7 +636,7 @@ class Table(SchemaObject):
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                     with errors will have a `None` value for the column, with information about the error stored in the
-                    corresponding `tbl.col_name.errormsg` tbl.col_name.errortype` fields.
+                    corresponding `tbl.col_name.errormsg` and `tbl.col_name.errortype` fields.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -865,7 +876,7 @@ class Table(SchemaObject):
                         raise excs.Error(f'Unknown column: {column}')
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
-                if col.tbl.id != self._tbl_version_path.tbl_id:
+                if col.get_tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot drop base table column {col.name!r}')
                 col = self._tbl_version.get().cols_by_name[column]
             else:
@@ -876,10 +887,10 @@ class Table(SchemaObject):
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 col = column.col
-                if col.tbl.id != self._tbl_version_path.tbl_id:
+                if col.get_tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot drop base table column {col.name!r}')
 
-            dependent_user_cols = [c for c in cat.get_column_dependents(col.tbl.id, col.id) if c.name is not None]
+            dependent_user_cols = [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
                 raise excs.Error(
                     f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
@@ -895,7 +906,7 @@ class Table(SchemaObject):
                     predicate = view._tbl_version.get().predicate
                     if predicate is not None:
                         for predicate_col in exprs.Expr.get_refd_column_ids(predicate.as_dict()):
-                            if predicate_col.tbl_id == col.tbl.id and predicate_col.col_id == col.id:
+                            if predicate_col.tbl_id == col.get_tbl().id and predicate_col.col_id == col.id:
                                 dependent_views.append((view, predicate))
 
             if len(dependent_views) > 0:
@@ -983,25 +994,28 @@ class Table(SchemaObject):
         rows are inserted into the table.
 
         To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
-        Only `String` and `Image` columns are currently supported. Here's an example that uses a
-        [CLIP embedding][pixeltable.functions.huggingface.clip] to index an image column:
+        Only `String` and `Image` columns are currently supported.
 
-        >>> from pixeltable.functions.huggingface import clip
-        ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-        ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+        Examples:
+            Here's an example that uses a
+            [CLIP embedding][pixeltable.functions.huggingface.clip] to index an image column:
 
-        Once the index is created, similiarity lookups can be performed using the `similarity` pseudo-function.
+            >>> from pixeltable.functions.huggingface import clip
+            >>> embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+            >>> tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
 
-        >>> reference_img = PIL.Image.open('my_image.jpg')
-        ... sim = tbl.img.similarity(reference_img)
-        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+            Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
 
-        If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
-        performed using any of its supported types. In our example, CLIP supports both text and images, so we can
-        also search for images using a text description:
+            >>> reference_img = PIL.Image.open('my_image.jpg')
+            >>> sim = tbl.img.similarity(reference_img)
+            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
-        >>> sim = tbl.img.similarity('a picture of a train')
-        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+            If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
+            performed using any of its supported types. In our example, CLIP supports both text and images, so we can
+            also search for images using a text description:
+
+            >>> sim = tbl.img.similarity('a picture of a train')
+            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
@@ -1032,9 +1046,9 @@ class Table(SchemaObject):
             Add an index to the `img` column of the table `my_table`:
 
             >>> from pixeltable.functions.huggingface import clip
-            ... tbl = pxt.get_table('my_table')
-            ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-            ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
+            >>> tbl = pxt.get_table('my_table')
+            >>> embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+            >>> tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
 
             Alternatively, the `img` column may be specified by name:
 
@@ -1085,10 +1099,9 @@ class Table(SchemaObject):
             if idx_name is not None:
                 Table.validate_column_name(idx_name)
 
-            # create the EmbeddingIndex instance to verify args
-            idx = EmbeddingIndex(
-                col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed
-            )
+            # validate EmbeddingIndex args
+            idx = EmbeddingIndex(metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
+            _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
@@ -1257,9 +1270,9 @@ class Table(SchemaObject):
                 return
             idx_info = self._tbl_version.get().idxs_by_name[idx_name]
         else:
-            if col.tbl.id != self._tbl_version.id:
+            if col.get_tbl().id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base table {col.tbl.name!r}'
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base table {col.get_tbl().name!r}'
                 )
             idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
@@ -1277,7 +1290,7 @@ class Table(SchemaObject):
         # Find out if anything depends on this index
         val_col = idx_info.val_col
         dependent_user_cols = [
-            c for c in Catalog.get().get_column_dependents(val_col.tbl.id, val_col.id) if c.name is not None
+            c for c in Catalog.get().get_column_dependents(val_col.get_tbl().id, val_col.id) if c.name is not None
         ]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
@@ -1328,7 +1341,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any,
-        )```
+        )
+        ```
 
         To insert just a single row, you can use the more concise syntax:
 
@@ -1338,7 +1352,8 @@ class Table(SchemaObject):
             on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
             **kwargs: Any
-        )```
+        )
+        ```
 
         Args:
             source: A data source from which data can be imported.
@@ -1459,8 +1474,8 @@ class Table(SchemaObject):
             the row with new `id` 3 (assuming this key does not exist):
 
             >>> tbl.update(
-                [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
-                if_not_exists='insert')
+            ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
+            ...     if_not_exists='insert')
         """
         from pixeltable.catalog import Catalog
 
@@ -1567,7 +1582,7 @@ class Table(SchemaObject):
                     col_name = col.name
                 if not col.is_computed:
                     raise excs.Error(f'Column {col_name!r} is not a computed column')
-                if col.tbl.id != self._tbl_version_path.tbl_id:
+                if col.get_tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot recompute column of a base: {col_name}')
                 col_names.append(col_name)
 

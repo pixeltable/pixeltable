@@ -10,8 +10,11 @@
 dist
 docs/local
 local
+pixeltable/_version.py
 site
 target
 tests/target
 .DS_Store
 **/.DS_Store
+docs/mintlify/notebooks/
+docs/mintlify/changelog/

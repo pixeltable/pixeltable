@@ -83,6 +83,8 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 
     * Don't worry about making small, incremental commits to your branch; they'll be squash-committed when it
         eventually gets merged to `main`.
+    * Use `make format` to format your Python code, and `make check` for static checks. These checks are
+        enforced by CI during pull request.
 
 3. Create a pull request
 

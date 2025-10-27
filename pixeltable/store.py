@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import logging
 import sys
+import time
 import warnings
 from typing import Any, Iterable, Iterator, Optional
 
@@ -85,6 +86,7 @@ class StoreBase:
             tbl_version = self.tbl_version.get()
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
+        # we captured all columns, including dropped ones: they're still part of the physical table
         for col in [c for c in tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
@@ -111,6 +113,11 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
+        # we only capture indices visible in this version
+        for idx_info in tbl_version.idxs.values():
+            idx = idx_info.idx.sa_index(tbl_version._store_idx_name(idx_info.id), idx_info.val_col)
+            idxs.append(idx)
+
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 
@@ -135,34 +142,121 @@ class StoreBase:
         assert isinstance(result, int)
         return result
 
-    def create(self) -> None:
-        """Create If Not Exists for this table"""
-        conn = Env.get().conn
-        stmt = sql.schema.CreateTable(self.sa_tbl).compile(conn)
-        create_stmt = str(stmt)
-        if_not_exists_stmt = create_stmt.replace('CREATE TABLE', 'CREATE TABLE IF NOT EXISTS')
+    def _exec_if_not_exists(self, stmt: str, wait_for_table: bool) -> None:
+        """
+        Execute a statement containing 'IF NOT EXISTS' and ignore any duplicate object-related errors.
 
-        # Postgres seems not to handle concurrent Create Table If Not Exists correctly, we need to ignore the various
-        # errors that can occur when two connections run the same Create Table statement.
-        try:
-            conn.execute(sql.text(if_not_exists_stmt))
-        except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
-            Env.get().console_logger.info(f'StoreBase.create() failed with: {e}')
-            if (
-                isinstance(e.orig, psycopg.errors.UniqueViolation)
-                and 'duplicate key value violates unique constraint "pg_type_typname_nsp_index"' in str(e.orig)
-            ) or (
-                isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
-                and 'already exists' in str(e.orig)
-            ):
-                pass
-            else:
-                raise
+        The statement needs to run in a separate transaction, because the expected error conditions will abort the
+        enclosing transaction (and the ability to run additional statements in that same transaction).
+        """
+        while True:
+            with Env.get().begin_xact(for_write=True) as conn:
+                try:
+                    if wait_for_table:
+                        # Try to lock the table to make sure that it exists. This needs to run in the same transaction
+                        # as 'stmt' to avoid a race condition.
+                        # TODO: adapt this for CockroachDB
+                        lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
+                        conn.execute(sql.text(lock_stmt))
+                    conn.execute(sql.text(stmt))
+                    return
+                except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
+                    Env.get().console_logger.info(f'{stmt} failed with: {e}')
+                    if (
+                        isinstance(e.orig, psycopg.errors.UniqueViolation)
+                        and 'duplicate key value violates unique constraint' in str(e.orig)
+                    ) or (
+                        isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
+                        and 'already exists' in str(e.orig)
+                    ):
+                        # table already exists
+                        return
+                    elif isinstance(e.orig, psycopg.errors.UndefinedTable):
+                        # the Lock Table failed because the table doesn't exist yet; try again
+                        time.sleep(1)
+                        continue
+                    else:
+                        raise
+
+    def _store_tbl_exists(self) -> bool:
+        """Returns True if the store table exists, False otherwise."""
+        with Env.get().begin_xact(for_write=False) as conn:
+            q = (
+                'SELECT COUNT(*) FROM pg_catalog.pg_tables '
+                f"WHERE schemaname = 'public' AND tablename = {self._storage_name()!r}"
+            )
+            res = conn.execute(sql.text(q)).scalar_one()
+            return res == 1
+
+    def create(self) -> None:
+        """
+        Create or update store table to bring it in sync with self.sa_tbl. Idempotent.
+
+        This runs a sequence of DDL statements (Create Table, Alter Table Add Column, Create Index), each of which
+        is run in its own transaction.
+
+        The exception to that are local replicas, for which TableRestorer creates an enclosing transaction. In theory,
+        this should avoid the potential for race conditions that motivate the error handling present in
+        _exec_if_not_exists() (meaning: we shouldn't see those errors when creating local replicas).
+        TODO: remove the special case for local replicas in order to make the logic easier to reason about.
+        """
+        postgres_dialect = sql.dialects.postgresql.dialect()
+
+        if not self._store_tbl_exists():
+            # run Create Table If Not Exists; we always need If Not Exists to avoid race conditions between concurrent
+            # Pixeltable processes
+            create_stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(dialect=postgres_dialect)
+            self._exec_if_not_exists(str(create_stmt), wait_for_table=False)
+        else:
+            # ensure that all columns exist by running Alter Table Add Column If Not Exists for all columns
+            for col in self.sa_tbl.columns:
+                stmt = self._add_column_stmt(col)
+                self._exec_if_not_exists(stmt, wait_for_table=True)
+            # TODO: do we also need to ensure that these columns are now visible (ie, is there another potential race
+            # condition here?)
+
+        # ensure that all visible indices exist by running Create Index If Not Exists
+        for index in self.sa_tbl.indexes:
+            create_stmt = sql.schema.CreateIndex(index, if_not_exists=True).compile(dialect=postgres_dialect)
+            self._exec_if_not_exists(str(create_stmt), wait_for_table=True)
+
+    def create_index(self, idx_id: int) -> None:
+        """Create If Not Exists for this index"""
+        idx_info = self.tbl_version.get().idxs[idx_id]
+        sa_idx = idx_info.idx.sa_index(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col)
+        conn = Env.get().conn
+        stmt = sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(conn)
+        create_stmt = str(stmt)
+        self._exec_if_not_exists(create_stmt, wait_for_table=True)
+
+    def validate(self) -> None:
+        """Validate store table against self.table_version"""
+        with Env.get().begin_xact() as conn:
+            # check that all columns are present
+            q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
+            store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
+            tbl_col_info = {col.store_name() for col in self.tbl_version.get().cols if col.is_stored}
+            assert tbl_col_info.issubset(store_col_info)
+
+            # check that all visible indices are present
+            q = f'SELECT indexname FROM pg_indexes WHERE tablename = {self._storage_name()!r}'
+            store_idx_names = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
+            tbl_index_names = {
+                self.tbl_version.get()._store_idx_name(info.id) for info in self.tbl_version.get().idxs.values()
+            }
+            assert tbl_index_names.issubset(store_idx_names)
 
     def drop(self) -> None:
         """Drop store table"""
         conn = Env.get().conn
         self.sa_md.drop_all(bind=conn)
+
+    def _add_column_stmt(self, sa_col: sql.Column) -> str:
+        col_type_str = sa_col.type.compile(dialect=sql.dialects.postgresql.dialect())
+        return (
+            f'ALTER TABLE {self._storage_name()} ADD COLUMN IF NOT EXISTS '
+            f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
+        )
 
     def add_column(self, col: catalog.Column) -> None:
         """Add column(s) to the store-resident table based on a catalog column
@@ -172,7 +266,7 @@ class StoreBase:
         """
         assert col.is_stored
         conn = Env.get().conn
-        col_type_str = col.get_sa_col_type().compile(dialect=conn.dialect)
+        col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
         s_txt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL'
         added_storage_cols = [col.store_name()]
         if col.stores_cellmd:
@@ -195,15 +289,6 @@ class StoreBase:
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
 
-    def ensure_columns_exist(self, cols: Iterable[catalog.Column]) -> None:
-        conn = Env.get().conn
-        sql_text = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
-        result = conn.execute(sql.text(sql_text))
-        existing_cols = {row[0] for row in result}
-        for col in cols:
-            if col.store_name() not in existing_cols:
-                self.add_column(col)
-
     def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
@@ -213,7 +298,7 @@ class StoreBase:
             sql.exc.DBAPIError if there was a SQL error during execution
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
-        assert col.tbl.id == self.tbl_version.id
+        assert col.get_tbl().id == self.tbl_version.id
         num_excs = 0
         num_rows = 0
         # create temp table to store output of exec_plan, with the same primary key as the store table

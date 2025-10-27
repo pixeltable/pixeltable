@@ -1,91 +1,53 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from pathlib import Path
-from typing import Optional
-from uuid import UUID
+import os
+from typing import ClassVar
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
-from pixeltable.utils.object_stores import ObjectOps, ObjectPath
+from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+
+from .utils import skip_test_if_not_installed
 
 
 class TestDestination:
-    @staticmethod
-    def validate_dest(dest: Optional[str]) -> bool:
-        if dest is None:
-            return False
-        try:
-            ObjectOps.validate_destination(dest, '')
-            return True
-        except Exception:
-            return False
-
-    USE_LOCAL_DEST = 'fs'
-    USE_GS_DEST = 'gcs_store'
-    USE_S3_DEST = 's3'
-    USE_R2_DEST = 'r2'
-    USE_B2_DEST = 'b2'
-    USE_AZURE_DEST = 'az'
-
-    @staticmethod
-    def create_destination_by_number(n: int, dest_id: str) -> tuple[Path | str | None, str | None]:
-        """Return the destination directory for test images"""
-        if dest_id == 'fs':
-            base_path = Config.get().home / 'test_dest'
-            base_path.mkdir(exist_ok=True)
-            dest_path = base_path / f'img_rot{n}'
-            dest_path.mkdir(exist_ok=True)
-            dest_uri = dest_path.resolve().as_uri()
-            return dest_path, dest_uri
-        if dest_id == 'gcs_store':
-            gs_uri = f'gs://pxt-test/ci_test/img_rot{n}'
-            return gs_uri, gs_uri
-        elif dest_id == 's3':
-            s3_uri = f's3://pxt-test/ci_test/img_rot{n}'
-            return s3_uri, s3_uri
-        elif dest_id == 'r2':
-            r2_uri = f'https://a711169187ea0f395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
-            return r2_uri, r2_uri
-        elif dest_id == 'r2_bad':
-            r2_uri = f'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/ci_test/img_rot{n}'
-            return r2_uri, r2_uri
-        elif dest_id == 'b2':
-            b2_uri = f'https://s3.us-east-005.backblazeb2.com/pxt-test/ci_test/img_rot{n}'
-            return b2_uri, b2_uri
-        elif dest_id == 'az':
-            return None, None
-        raise AssertionError(f'Invalid dest_id: {dest_id}')
+    TESTED_DESTINATIONS = (
+        StorageTarget.B2_STORE,
+        StorageTarget.GCS_STORE,
+        StorageTarget.LOCAL_STORE,
+        StorageTarget.R2_STORE,
+        StorageTarget.S3_STORE,
+    )
 
     @classmethod
-    def get_valid_dest(cls, n: int, dest_id: str, backup_dest: str) -> str:
-        """If the specified destination is not valid (no credentials), use the backup destination"""
+    def resolve_destination_uri(cls, dest_id: StorageTarget) -> str:
+        assert dest_id in cls.TESTED_DESTINATIONS
+        uri: str
+        match dest_id:
+            case StorageTarget.B2_STORE:
+                uri = 'https://s3.us-east-005.backblazeb2.com/pixeltable/pytest'
+            case StorageTarget.GCS_STORE:
+                if 'GOOGLE_APPLICATION_CREDENTIALS' not in os.environ:
+                    pytest.skip('GOOGLE_APPLICATION_CREDENTIALS is not set')
+                uri = 'gs://pxt-gs-test/pytest'
+            case StorageTarget.LOCAL_STORE:
+                base_path = Config.get().home / 'test-dest'
+                for i in range(1, 5):
+                    (base_path / f'bucket{i}').mkdir(parents=True, exist_ok=True)
+                uri = base_path.as_uri()
+            case StorageTarget.S3_STORE:
+                uri = 's3://pxt-test/pytest'
+            case StorageTarget.R2_STORE:
+                uri = 'https://ae60fad96d33636287c3b2e76b88241f.r2.cloudflarestorage.com/pxt-test/pytest'
+
         try:
-            _, dest = cls.create_destination_by_number(n, dest_id)
-            if ObjectOps.validate_destination(dest, ''):
-                return dest
-            return backup_dest
-        except Exception:
-            return backup_dest
-
-    @classmethod
-    def count(cls, uri: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
-        """Return the count of media files in the destination for a given table ID"""
-        return ObjectOps.count(uri, tbl_id, tbl_version)
-
-    def pr_us(self, us: pxt.UpdateStatus, op: str = '') -> None:
-        """Print contents of UpdateStatus"""
-        print(f'=========================== pr_us =========================== op: {op}')
-        print(f'num_rows: {us.num_rows}')
-        print(f'num_computed_values: {us.num_computed_values}')
-        print(f'num_excs: {us.num_excs}')
-        print(f'updated_cols: {us.updated_cols}')
-        print(f'cols_with_excs: {us.cols_with_excs}')
-        print(us.row_count_stats)
-        print(us.cascade_row_count_stats)
-        print('============================================================')
+            ObjectOps.validate_destination(uri)
+            return uri
+        except Exception as exc:
+            pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
 
     def test_dest_errors(self, reset_db: None) -> None:
         t = pxt.create_table('test_dest_errors', schema={'img': pxt.Image})
@@ -116,29 +78,17 @@ class TestDestination:
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
         # Test with a destination that is not reachable
-        r2_bad_dest = self.create_destination_by_number(1, 'r2_bad')[1]
-        assert not self.validate_dest(r2_bad_dest)
-
-    def parse_object_addr(self, s: str, consider_object: bool) -> bool:
-        print(f'Parsing: {s}')
-        try:
-            r = ObjectPath.parse_object_storage_addr(s, consider_object)
-            print(f'Success: {r!r}')
-            return True
-        except ValueError as e:
-            print(f'Error: {e!r}')
-            return False
-
-    def check_parse(self, s: str) -> None:
-        assert self.parse_object_addr(s, False)
-        assert self.parse_object_addr(s, True)
+        with pytest.raises(Exception):  # noqa: B017
+            ObjectOps.validate_destination(
+                'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest'
+            )
 
     def test_dest_parser(self, reset_db: None) -> None:
         a_name = 'acct-name'
         o_name = 'obj-name'
         p_name1 = 'path-name'
         p_name2 = 'path-name/path2-name'
-        for s in [
+        for s in (
             's3://container',
             f'wasb://container@{a_name}.blob.core.windows.net',
             f'https://{a_name}.blob.core.windows.net/container',
@@ -147,39 +97,39 @@ class TestDestination:
             'https://raw.github.com',
             'file://dir1/dir2/dir3',
             'dir1/dir2/dir3',
-        ]:
-            self.check_parse(s)
-            self.check_parse(s + '/')
-            self.check_parse(s + '/' + p_name1)
-            self.check_parse(s + '/' + p_name1 + '/')
-            self.check_parse(s + '/' + p_name2)
-            self.check_parse(s + '/' + p_name2 + '/')
-            self.check_parse(s + '/' + o_name)
-            self.check_parse(s + '/' + p_name2 + '/' + o_name)
+        ):
+            for allow_obj_name in (False, True):
+                ObjectPath.parse_object_storage_addr(s, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/', allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name1, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name1 + '/', allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name2, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name2 + '/', allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + o_name, allow_obj_name)
+                ObjectPath.parse_object_storage_addr(s + '/' + p_name2 + '/' + o_name, allow_obj_name)
 
-        assert self.parse_object_addr(
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg', True
+        ObjectPath.parse_object_storage_addr(
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
+            allow_obj_name=True,
         )
 
-        assert self.parse_object_addr('file://dir1/dir2/dir3', False)
-        assert self.parse_object_addr(f'file://dir1/dir2/dir3/{o_name}', True)
-        assert self.parse_object_addr(f'dir2/dir3/{o_name}', True)
+        ObjectPath.parse_object_storage_addr('file://dir1/dir2/dir3', allow_obj_name=False)
+        ObjectPath.parse_object_storage_addr(f'file://dir1/dir2/dir3/{o_name}', allow_obj_name=True)
+        ObjectPath.parse_object_storage_addr(f'dir2/dir3/{o_name}', allow_obj_name=True)
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
-    def test_dest_local_2(self, reset_db: None, dest_id: str) -> None:
-        """Test destination with two local destinations"""
-        if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
-            pytest.skip(f'Destination {dest_id} not installed or not reachable')
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
+    def test_destination(self, reset_db: None, dest_id: StorageTarget) -> None:
+        """Test various media destinations."""
+        dest_uri = self.resolve_destination_uri(dest_id)
 
-        # Create two valid local file Paths for images
-        valid_dest_1, dest1_uri = self.create_destination_by_number(1, dest_id)
-        valid_dest_2, create_destination_by_number_uri = self.create_destination_by_number(2, dest_id)
+        dest1_uri = f'{dest_uri}/bucket1'
+        dest2_uri = f'{dest_uri}/bucket2'
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
-        t.add_computed_column(img_rot2=t.img.rotate(180), destination=valid_dest_1)
-        t.add_computed_column(img_rot3=t.img.rotate(270), destination=valid_dest_2)
+        t.add_computed_column(img_rot2=t.img.rotate(180), destination=dest1_uri)
+        t.add_computed_column(img_rot3=t.img.rotate(270), destination=dest2_uri)
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -192,20 +142,20 @@ class TestDestination:
 
         n = len(r)
         assert n == 2
-        assert n == self.count(None, t._id)
-        assert n == self.count(dest1_uri, t._id)
-        assert n == self.count(create_destination_by_number_uri, t._id)
+        assert n == ObjectOps.count(None, t._id)
+        assert n == ObjectOps.count(dest1_uri, t._id)
+        assert n == ObjectOps.count(dest2_uri, t._id)
 
         n = 1
-        assert n == self.count(None, t._id, 2)
-        assert n == self.count(dest1_uri, t._id, 3)
-        assert n == self.count(create_destination_by_number_uri, t._id, 4)
+        assert n == ObjectOps.count(None, t._id, 2)
+        assert n == ObjectOps.count(dest1_uri, t._id, 3)
+        assert n == ObjectOps.count(dest2_uri, t._id, 4)
 
         version = 5
         n = 1
-        assert n == self.count(None, t._id, version)
-        assert n == self.count(dest1_uri, t._id, version)
-        assert n == self.count(create_destination_by_number_uri, t._id, version)
+        assert n == ObjectOps.count(None, t._id, version)
+        assert n == ObjectOps.count(dest1_uri, t._id, version)
+        assert n == ObjectOps.count(dest2_uri, t._id, version)
 
         # Test that we can list objects in the destination
         olist = ObjectOps.list_uris(dest1_uri, n_max=10)
@@ -218,26 +168,24 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        assert self.count(None, save_id) == 0
-        assert self.count(dest1_uri, save_id) == 0
-        assert self.count(create_destination_by_number_uri, save_id) == 0
+        assert ObjectOps.count(None, save_id) == 0
+        assert ObjectOps.count(dest1_uri, save_id) == 0
+        assert ObjectOps.count(dest2_uri, save_id) == 0
 
-    @pytest.mark.parametrize('dest_id', ['fs', 'gcs_store', 's3', 'r2', 'b2', 'az'])
-    def test_dest_local_two_copy(self, reset_db: None, dest_id: str) -> None:
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
+    def test_dest_two_copies(self, reset_db: None, dest_id: StorageTarget) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
-        if not self.validate_dest(self.create_destination_by_number(1, dest_id)[1]):
-            pytest.skip(f'Destination {dest_id} not installed or not reachable')
+        dest_uri = self.resolve_destination_uri(dest_id)
 
-        # Create two valid local file Paths for images
-        valid_dest_1, dest1_uri = self.create_destination_by_number(1, dest_id)
-        valid_dest_2, dest2_uri = self.create_destination_by_number(2, dest_id)
+        dest1_uri = f'{dest_uri}/bucket1'
+        dest2_uri = f'{dest_uri}/bucket2'
 
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
-        t.add_computed_column(img_rot2=t.img.rotate(90), destination=valid_dest_1)
-        t.add_computed_column(img_rot3=t.img.rotate(90), destination=valid_dest_2)
-        t.add_computed_column(img_rot4=t.img.rotate(90), destination=valid_dest_2)  # Try to copy twice to the same dest
+        t.add_computed_column(img_rot2=t.img.rotate(90), destination=dest1_uri)
+        t.add_computed_column(img_rot3=t.img.rotate(90), destination=dest2_uri)
+        t.add_computed_column(img_rot4=t.img.rotate(90), destination=dest2_uri)  # Try to copy twice to the same dest
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -247,27 +195,28 @@ class TestDestination:
         print(r_dest)
 
         assert len(r) == 2
-        assert len(r) == self.count(None, t._id)
-        assert len(r) == self.count(dest1_uri, t._id)
+        assert len(r) == ObjectOps.count(None, t._id)
+        assert len(r) == ObjectOps.count(dest1_uri, t._id)
 
         # The outcome of this test is unusual:
         # When the column img_rot4 is ADDED, the computed result for existing rows is not identified
         # as a duplicate, so it is double copied to the destination.
         # When new rows are INSERTED, the results and destinations for img_rot3 and img_rot4 are identified
         # as duplicates, so they are not double copied to the destination.
-        assert len(r) + 1 == self.count(dest2_uri, t._id)
+        assert len(r) + 1 == ObjectOps.count(dest2_uri, t._id)
 
     def test_dest_local_copy(self, reset_db: None) -> None:
         """Test destination attempting to copy a local file to another destination"""
 
         # Create valid local file Paths and URIs for images
-        valid_dest_1, dest1_uri = self.create_destination_by_number(1, self.USE_LOCAL_DEST)
+        dest_uri = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
+        dest1_uri = f'{dest_uri}/bucket1'
 
         # The intent of this test is to copy the same image to two different destinations
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img, destination=None)
-        t.add_computed_column(img_rot2=t.img, destination=valid_dest_1)
+        t.add_computed_column(img_rot2=t.img, destination=dest1_uri)
         print(t.collect())
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         r = t.collect()
@@ -279,62 +228,40 @@ class TestDestination:
         assert len(r) == 2
 
         # Copying a local file to the LocalStore is not allowed
-        assert self.count(None, t._id) == 0
+        assert ObjectOps.count(None, t._id) == 0
 
         # Ensure that local file is copied to a specified destination
-        assert len(r) == self.count(dest1_uri, t._id)
+        assert len(r) == ObjectOps.count(dest1_uri, t._id)
 
     def test_dest_all(self, reset_db: None) -> None:
         """Test destination with all available storage targets"""
-        n = 1
-        _, lc_uri = self.create_destination_by_number(n, self.USE_LOCAL_DEST)
-        c2_uri = self.get_valid_dest(n, self.USE_GS_DEST, lc_uri)
-        c3_uri = self.get_valid_dest(n, self.USE_S3_DEST, lc_uri)
-        c4_uri = self.get_valid_dest(n, self.USE_R2_DEST, lc_uri)
-        c5_uri = self.get_valid_dest(n, self.USE_B2_DEST, lc_uri)
+        dest_uris = tuple(self.resolve_destination_uri(dest_id) + '/bucket1' for dest_id in self.TESTED_DESTINATIONS)
+
         t = pxt.create_table('test_dest', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
-        t.add_computed_column(img_rot_1=t.img.rotate(90), destination=lc_uri)
-        t.add_computed_column(img_rot_2=t.img.rotate(180), destination=c2_uri)
-        t.add_computed_column(img_rot_3=t.img.rotate(270), destination=c3_uri)
-        t.add_computed_column(img_rot_4=t.img.rotate(360), destination=c4_uri)
-        t.add_computed_column(img_rot_5=t.img.rotate(450), destination=c5_uri)
+        for i, (dest_id, dest_uri) in enumerate(zip(self.TESTED_DESTINATIONS, dest_uris, strict=True)):
+            t.add_computed_column(**{f'img_rot_{dest_id}': t.img.rotate(30 * i)}, destination=dest_uri)
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
 
-        tbl_id = t._id
         assert t.count() == 2
-        target_count: dict[str, int] = defaultdict(int)
-        print(f'Using destinations:\n  {lc_uri}\n  {c2_uri}\n  {c3_uri}\n  {c4_uri}\n  {c5_uri}')
         r_dest = t.select(
-            t.img.fileurl,
-            t.img_rot_1.fileurl,
-            t.img_rot_2.fileurl,
-            t.img_rot_3.fileurl,
-            t.img_rot_4.fileurl,
-            t.img_rot_5.fileurl,
+            t.img.fileurl, *[getattr(t, f'img_rot_{dest_id}').fileurl for dest_id in self.TESTED_DESTINATIONS]
         ).collect()
         print(r_dest)
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
-            print(f'Count for {t_uri}: {self.count(t_uri, tbl_id)}')
-            target_count[t_uri] += 2
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
-            assert self.count(t_uri, tbl_id) == target_count[t_uri], f'Count mismatch for {t_uri}'
+        for uri in dest_uris:
+            print(f'Count for {uri}: {ObjectOps.count(uri, t._id)}')
+            assert ObjectOps.count(uri, t._id) == 2
 
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
-            olist = ObjectOps.list_uris(t_uri, n_max=20)
-            print('list of files in the destination')
-            for item in olist:
-                print(item)
-            assert len(olist) >= 2
+        for uri in dest_uris:
+            object_list = ObjectOps.list_uris(uri, n_max=20)
+            assert len(object_list) >= 2
 
         pxt.drop_table(t)
-        for t_uri in [lc_uri, c2_uri, c3_uri, c4_uri, c5_uri]:
-            assert self.count(t_uri, tbl_id) == 0
+        for uri in dest_uris:
+            assert ObjectOps.count(uri, t._id) == 0
 
-    def dest_public_read_only(self, src_base: str, src_obj: str) -> None:
+    def __download_object(self, src_base: str, src_obj: str) -> None:
         """Test downloading a media object from a public Store"""
-        from pixeltable.utils.local_store import TempStore
-
         src_uri = src_base + src_obj
         # Download a media object from Azure Blob Storage
         temp_path = TempStore.create_path()
@@ -354,29 +281,24 @@ class TestDestination:
             print(item)
         assert len(r) > 2
 
-    S3_PUBLIC_BUCKET = 's3://open-images-dataset/validation/'
-    S3_PUBLIC_OBJECT = '3c02ca9ec9b2b77b.jpg'
+    PUBLIC_TEST_OBJECTS: ClassVar[dict[StorageTarget, tuple[str, str, str]]] = {
+        # StorageTarget -> (module_name, src_base, src_obj)
+        StorageTarget.AZURE_STORE: (
+            'azure.storage.blob',
+            'https://azureopendatastorage.blob.core.windows.net/mnist/',
+            'train-images-idx3-ubyte.gz',
+        ),
+        StorageTarget.GCS_STORE: (
+            'google.cloud.storage',
+            'gs://hdrplusdata/',
+            '20171106_subset/gallery_20171023/c483_20150901_105412_265.jpg',
+        ),
+        StorageTarget.S3_STORE: ('boto3', 's3://open-images-dataset/validation/', '3c02ca9ec9b2b77b.jpg'),
+    }
 
-    def test_dest_public_s3(self, reset_db: None) -> None:
-        """Test s3 interfaces on public bucket / object"""
-        if not self.validate_dest(self.S3_PUBLIC_BUCKET):
-            pytest.skip('S3 support not installed or destination not reachable')
-        self.dest_public_read_only(self.S3_PUBLIC_BUCKET, self.S3_PUBLIC_OBJECT)
-
-    GS_PUBLIC_BUCKET = 'gs://hdrplusdata/'
-    GS_PUBLIC_OBJECT = '20171106_subset/gallery_20171023/c483_20150901_105412_265.jpg'
-
-    def test_dest_public_gs(self, reset_db: None) -> None:
-        """Test Google Cloud Storage interfaces on public bucket / object"""
-        if not self.validate_dest(self.GS_PUBLIC_BUCKET):
-            pytest.skip('GS support not installed or destination not reachable')
-        self.dest_public_read_only(self.GS_PUBLIC_BUCKET, self.GS_PUBLIC_OBJECT)
-
-    AZ_PUBLIC_BUCKET = 'https://azureopendatastorage.blob.core.windows.net/mnist/'
-    AZ_PUBLIC_OBJECT = 'train-images-idx3-ubyte.gz'
-
-    def test_dest_public_az(self, reset_db: None) -> None:
-        """Test Azure interfaces on public bucket / object"""
-        if not self.validate_dest(self.AZ_PUBLIC_BUCKET):
-            pytest.skip('AZ support not installed or destination not reachable')
-        self.dest_public_read_only(self.AZ_PUBLIC_BUCKET, self.AZ_PUBLIC_OBJECT)
+    @pytest.mark.parametrize('dest_id', PUBLIC_TEST_OBJECTS.keys())
+    def test_public_download(self, reset_db: None, dest_id: StorageTarget) -> None:
+        """Test downloading a media object from a public Store"""
+        module_name, src_base, src_obj = self.PUBLIC_TEST_OBJECTS[dest_id]
+        skip_test_if_not_installed(module_name)
+        self.__download_object(src_base, src_obj)
