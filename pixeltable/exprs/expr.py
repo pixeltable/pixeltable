@@ -396,7 +396,9 @@ class Expr(abc.ABC):
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
+        return {ref.col.get_tbl().id for ref in self.subexprs(ColumnRef)} | {
+            ref.tbl.id for ref in self.subexprs(RowidRef)
+        }
 
     @classmethod
     def all_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
@@ -495,6 +497,18 @@ class Expr(abc.ABC):
         """
         pass
 
+    def prepare(self) -> None:
+        """
+        Create execution state. This is called before the first eval() call.
+        """
+        for c in self.components:
+            c.prepare()
+
+    @classmethod
+    def prepare_list(cls, expr_list: Iterable[Expr]) -> None:
+        for e in expr_list:
+            e.prepare()
+
     def release(self) -> None:
         """
         Allow Expr class to tear down execution state. This is called after the last eval() call.
@@ -503,7 +517,7 @@ class Expr(abc.ABC):
             c.release()
 
     @classmethod
-    def release_list(cls, expr_list: list[Expr]) -> None:
+    def release_list(cls, expr_list: Iterable[Expr]) -> None:
         for e in expr_list:
             e.release()
 

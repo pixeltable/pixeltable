@@ -8,9 +8,11 @@ import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL.Image
 import sqlalchemy as sql
 
+import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
+import pixeltable.func as func
 import pixeltable.type_system as ts
-from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 
 from .base import IndexBase
@@ -39,16 +41,13 @@ class EmbeddingIndex(IndexBase):
     }
 
     metric: Metric
-    value_expr: exprs.FunctionCall
     string_embed: Optional[func.Function]
     image_embed: Optional[func.Function]
     string_embed_signature_idx: int
     image_embed_signature_idx: int
-    index_col_type: pgvector.sqlalchemy.Vector
 
     def __init__(
         self,
-        c: catalog.Column,
         metric: str,
         embed: Optional[func.Function] = None,
         string_embed: Optional[func.Function] = None,
@@ -59,8 +58,6 @@ class EmbeddingIndex(IndexBase):
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
-        if not c.col_type.is_string_type() and not c.col_type.is_image_type():
-            raise excs.Error('Embedding index requires string or image column')
 
         self.string_embed = None
         self.image_embed = None
@@ -102,47 +99,42 @@ class EmbeddingIndex(IndexBase):
             )
 
         # Now validate the return types of the embedding functions.
-
         if self.string_embed is not None:
             self._validate_embedding_fn(self.string_embed)
-
         if self.image_embed is not None:
             self._validate_embedding_fn(self.image_embed)
 
+        self.metric = self.Metric[metric.upper()]
+
+    def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
+        if not c.col_type.is_string_type() and not c.col_type.is_image_type():
+            raise excs.Error(
+                f'Embedding index requires string or image column, column {c.name!r} has type {c.col_type}'
+            )
         if c.col_type.is_string_type() and self.string_embed is None:
             raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
         if c.col_type.is_image_type() and self.image_embed is None:
             raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
 
-        self.metric = self.Metric[metric.upper()]
-        self.value_expr = (
+        return (
             self.string_embed(exprs.ColumnRef(c))
             if c.col_type.is_string_type()
             else self.image_embed(exprs.ColumnRef(c))
         )
-        assert isinstance(self.value_expr.col_type, ts.ArrayType)
-        vector_size = self.value_expr.col_type.shape[0]
-        assert vector_size is not None
-        self.index_col_type = pgvector.sqlalchemy.Vector(vector_size)
-
-    def index_value_expr(self) -> exprs.Expr:
-        """Return expression that computes the value that goes into the index"""
-        return self.value_expr
 
     def records_value_errors(self) -> bool:
         return True
 
-    def index_sa_type(self) -> sql.types.TypeEngine:
-        """Return the sqlalchemy type of the index value column"""
-        return self.index_col_type
+    def get_index_sa_type(self, val_col_type: ts.ColumnType) -> sql.types.TypeEngine:
+        assert isinstance(val_col_type, ts.ArrayType) and val_col_type.shape is not None
+        vector_size = val_col_type.shape[0]
+        assert vector_size is not None
+        return pgvector.sqlalchemy.Vector(vector_size)
 
-    def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
+    def sa_index(self, store_index_name: str, index_value_col: 'catalog.Column') -> sql.Index:
         """Create the index on the index value column"""
-        Env.get().dbms.create_vector_index(
-            index_name=index_name,
-            index_value_sa_col=index_value_col.sa_col,
-            conn=Env.get().conn,
-            metric=self.PGVECTOR_OPS[self.metric],
+        return Env.get().dbms.sa_vector_index(
+            store_index_name, index_value_col.sa_col, metric=self.PGVECTOR_OPS[self.metric]
         )
 
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
@@ -153,6 +145,7 @@ class EmbeddingIndex(IndexBase):
     def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
         assert isinstance(item, (str, PIL.Image.Image))
+        embedding: np.ndarray
         if isinstance(item, str):
             assert self.string_embed is not None
             embedding = self.string_embed.exec([item], {})
@@ -252,7 +245,7 @@ class EmbeddingIndex(IndexBase):
         }
 
     @classmethod
-    def from_dict(cls, c: catalog.Column, d: dict) -> EmbeddingIndex:
+    def from_dict(cls, d: dict) -> EmbeddingIndex:
         string_embed = func.Function.from_dict(d['string_embed']) if d['string_embed'] is not None else None
         image_embed = func.Function.from_dict(d['image_embed']) if d['image_embed'] is not None else None
-        return cls(c, metric=d['metric'], string_embed=string_embed, image_embed=image_embed)
+        return cls(metric=d['metric'], string_embed=string_embed, image_embed=image_embed)
