@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 from uuid import UUID
 
 import more_itertools
@@ -57,7 +57,7 @@ class TablePackager:
     preview_header: dict[str, str]
     preview: list[list[Any]]
 
-    def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, table: catalog.Table, additional_md: dict[str, Any] | None = None) -> None:
         self.table = table
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
@@ -342,11 +342,11 @@ class TablePackager:
             scaled_img.save(buffer, 'webp')
             return base64.b64encode(buffer.getvalue()).decode()
 
-    def __encode_video(self, video_path: str) -> Optional[str]:
+    def __encode_video(self, video_path: str) -> str | None:
         thumb = Formatter.extract_first_video_frame(video_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
-    def __encode_document(self, doc_path: str) -> Optional[str]:
+    def __encode_document(self, doc_path: str) -> str | None:
         thumb = Formatter.make_document_thumbnail(doc_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
@@ -364,11 +364,11 @@ class TableRestorer:
     """
 
     tbl_path: str
-    md: Optional[dict[str, Any]]
+    md: dict[str, Any] | None
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
-    def __init__(self, tbl_path: str, md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, tbl_path: str, md: dict[str, Any] | None = None) -> None:
         self.tbl_path = tbl_path
         self.md = md
         self.tmp_dir = TempStore.create_path()
@@ -710,7 +710,7 @@ class TableRestorer:
         self,
         val: Any,
         sql_type: sql.types.TypeEngine[Any],
-        col: Optional[catalog.Column],
+        col: catalog.Column | None,
         is_media_col: bool,
         is_cellmd_col: bool,
     ) -> Any:

@@ -23,17 +23,17 @@ class TestProject:
         # Nonexistent local column
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, None)
-        assert 'Column `export1` does not exist' in str(exc_info.value)
+        assert "Column 'export1' does not exist" in str(exc_info.value)
 
         # Nonexistent local column, but with a mapping specified
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'not_col': 'export1', 'col2': 'export2'})
-        assert 'Column name `not_col` appears as a key' in str(exc_info.value)
+        assert "Column name 'not_col' appears as a key" in str(exc_info.value)
 
         # Nonexistent external column
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'col2'})
-        assert 'has no column `col2`' in str(exc_info.value)
+        assert "has no column 'col2'" in str(exc_info.value)
 
         # Correct partial spec
         Project.validate_columns(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'})
@@ -52,7 +52,7 @@ class TestProject:
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'col1': 'export2'})
         assert (
-            'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `Image`)'
+            "Column 'col1' cannot be exported to external column 'export2' (incompatible types; expecting `Image`)"
             in str(exc_info.value)
         )
 
@@ -60,7 +60,7 @@ class TestProject:
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'col1': 'import2'})
         assert (
-            'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `Video`)'
+            "Column 'col1' cannot be imported from external column 'import2' (incompatible types; expecting `Video`)"
             in str(exc_info.value)
         )
 
@@ -86,17 +86,17 @@ class TestProject:
         # Cannot export from super to subtype
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t3, export_img_cols, import_img_cols, {'img': 'export_spec_img'})
-        assert 'Column `img` cannot be exported to external column `export_spec_img`' in str(exc_info.value)
+        assert "Column 'img' cannot be exported to external column 'export_spec_img'" in str(exc_info.value)
 
         # Cannot import from super to subtype
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t3, export_img_cols, import_img_cols, {'spec_img': 'import_img'})
-        assert 'Column `spec_img` cannot be imported from external column `import_img`' in str(exc_info.value)
+        assert "Column 'spec_img' cannot be imported from external column 'import_img'" in str(exc_info.value)
 
         t3.add_computed_column(computed_img=t3.img.rotate(180))
         with pytest.raises(pxt.Error) as exc_info:
             Project.validate_columns(t3, export_img_cols, import_img_cols, {'computed_img': 'import_img'})
-        assert 'Column `computed_img` is a computed column, which cannot be populated from an external column' in str(
+        assert "Column 'computed_img' is a computed column, which cannot be populated from an external column" in str(
             exc_info.value
         )
 
@@ -108,12 +108,12 @@ class TestProject:
             t._link_external_store(
                 MockProject.create(t, 'project', export_cols, import_cols, {'col1': 'export1', 'col2': 'export2'})
             )
-        assert 'Table `test_store` already has an external store with that name: project' in str(exc_info.value)
+        assert "Table 'test_store' already has an external store with that name: project" in str(exc_info.value)
 
         # Cannot drop a linked column
         with pytest.raises(pxt.Error) as exc_info:
             t.drop_column('col1')
-        assert 'Cannot drop column `col1` because the following external stores depend on it:\nproject' in str(
+        assert "Cannot drop column 'col1' because the following external stores depend on it:\nproject" in str(
             exc_info.value
         )
 
@@ -128,8 +128,8 @@ class TestProject:
         with pytest.raises(pxt.Error) as exc_info:
             t.drop_column('col3')
         assert (
-            'Cannot drop column `col3` because the following external stores depend on it:\n'
-            'project (in view `test_view`)' in str(exc_info.value)
+            "Cannot drop column 'col3' because the following external stores depend on it:\n"
+            "project (in view 'test_view')" in str(exc_info.value)
         )
 
     @pytest.mark.parametrize('with_reloads', [False, True])

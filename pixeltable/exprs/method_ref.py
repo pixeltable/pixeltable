@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -55,7 +55,7 @@ class MethodRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('method_name', self.method_name)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

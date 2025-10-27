@@ -5,7 +5,7 @@ first `pip install mistralai` and configure your Mistral AI credentials, as desc
 the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mistralai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -32,7 +32,7 @@ def _mistralai_client() -> 'mistralai.Mistral':
 
 @pxt.udf(resource_pool='request-rate:mistral')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
     """
     Chat Completion API.
@@ -77,7 +77,7 @@ async def chat_completions(
 
 
 @pxt.udf(resource_pool='request-rate:mistral')
-async def fim_completions(prompt: str, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
+async def fim_completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Fill-in-the-middle Completion API.
 

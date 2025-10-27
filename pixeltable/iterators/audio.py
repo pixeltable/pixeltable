@@ -1,7 +1,7 @@
 import logging
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import av
 
@@ -37,7 +37,7 @@ class AudioSplitter(ComponentIterator):
 
     # List of chunks to extract
     # Each chunk is defined by start and end presentation timestamps in audio file (int)
-    chunks_to_extract_in_pts: Optional[list[tuple[int, int]]]
+    chunks_to_extract_in_pts: list[tuple[int, int]] | None
     # next chunk to extract
     next_pos: int
 

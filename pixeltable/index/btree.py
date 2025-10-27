@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sql
 
@@ -24,7 +24,7 @@ class BtreeIndex(IndexBase):
 
     @staticmethod
     @udf
-    def str_filter(s: Optional[str]) -> Optional[str]:
+    def str_filter(s: str | None) -> str | None:
         if s is None:
             return None
         return s[: BtreeIndex.MAX_STRING_LEN]

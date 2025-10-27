@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Generic, Iterable, Iterator, Optional, TypeVar
+from typing import Generic, Iterable, Iterator, TypeVar
 
 from .expr import Expr
 
@@ -17,7 +17,7 @@ class ExprSet(Generic[T]):
     expr_offsets: dict[int, int]  # key: Expr.id, value: offset into self.exprs.keys()
     exprs_by_idx: dict[int, T]  # key: slot_idx
 
-    def __init__(self, elements: Optional[Iterable[T]] = None):
+    def __init__(self, elements: Iterable[T] | None = None):
         self.exprs = {}
         self.expr_offsets = {}
         self.exprs_by_idx = {}
@@ -51,7 +51,7 @@ class ExprSet(Generic[T]):
     def __iter__(self) -> Iterator[T]:
         return iter(self.exprs.values())
 
-    def __getitem__(self, index: object) -> Optional[T]:
+    def __getitem__(self, index: object) -> T | None:
         """Indexed lookup by slot_idx or Expr.id."""
         assert isinstance(index, (int, Expr))
         if isinstance(index, int):

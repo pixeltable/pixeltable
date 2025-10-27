@@ -1,4 +1,4 @@
-from typing import Callable, ClassVar, Optional
+from typing import Callable, ClassVar
 
 from mypy import nodes
 from mypy.plugin import AnalyzeTypeContext, ClassDefContext, FunctionContext, MethodSigContext, Plugin
@@ -26,21 +26,21 @@ class PxtPlugin(Plugin):
     }
     __FULLNAME_MAP: ClassVar[dict] = {f'{k.__module__}.{k.__name__}': v for k, v in __TYPE_MAP.items()}
 
-    def get_function_hook(self, fullname: str) -> Optional[Callable[[FunctionContext], Type]]:
+    def get_function_hook(self, fullname: str) -> Callable[[FunctionContext], Type] | None:
         return adjust_uda_type
 
-    def get_type_analyze_hook(self, fullname: str) -> Optional[Callable[[AnalyzeTypeContext], Type]]:
+    def get_type_analyze_hook(self, fullname: str) -> Callable[[AnalyzeTypeContext], Type] | None:
         if fullname in self.__FULLNAME_MAP:
             subst_name = self.__FULLNAME_MAP[fullname]
             return lambda ctx: adjust_pxt_type(ctx, subst_name)
         return None
 
-    def get_method_signature_hook(self, fullname: str) -> Optional[Callable[[MethodSigContext], FunctionLike]]:
+    def get_method_signature_hook(self, fullname: str) -> Callable[[MethodSigContext], FunctionLike] | None:
         if fullname in (self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME):
             return adjust_kwargs
         return None
 
-    def get_class_decorator_hook_2(self, fullname: str) -> Optional[Callable[[ClassDefContext], bool]]:
+    def get_class_decorator_hook_2(self, fullname: str) -> Callable[[ClassDefContext], bool] | None:
         if fullname == self.__UDA_FULLNAME:
             return adjust_uda_methods
         return None

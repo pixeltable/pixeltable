@@ -326,7 +326,7 @@ class TestOpenai:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(moderation=moderations(input=t.input))
-        t.add_computed_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
+        t.add_computed_column(moderation_2=moderations(input=t.input, model='omni-moderation-latest'))
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
 

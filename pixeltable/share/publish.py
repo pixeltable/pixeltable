@@ -3,7 +3,7 @@ import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -159,7 +159,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
 
 
 def _create_retry_session(
-    max_retries: int = 3, backoff_factor: float = 1.0, status_forcelist: Optional[list] = None
+    max_retries: int = 3, backoff_factor: float = 1.0, status_forcelist: list | None = None
 ) -> requests.Session:
     """Create a requests session with retry configuration"""
     if status_forcelist is None:
@@ -222,7 +222,7 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
 
 
 def _download_from_presigned_url(
-    url: str, output_path: Path, headers: Optional[dict[str, str]] = None, max_retries: int = 3
+    url: str, output_path: Path, headers: dict[str, str] | None = None, max_retries: int = 3
 ) -> None:
     """Download file with progress bar and retries"""
     session = _create_retry_session(max_retries=max_retries)
