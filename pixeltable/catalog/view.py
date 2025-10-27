@@ -11,10 +11,6 @@ import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
 from pixeltable.iterators import ComponentIterator
 
-if TYPE_CHECKING:
-    from pixeltable.plan import SampleClause
-
-
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
@@ -27,6 +23,7 @@ from .update_status import UpdateStatus
 if TYPE_CHECKING:
     from pixeltable.catalog.table import TableMetadata
     from pixeltable.globals import TableDataSource
+    from pixeltable.plan import SampleClause
 
 _logger = logging.getLogger('pixeltable')
 
@@ -104,7 +101,7 @@ class View(Table):
         # verify that filters can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by([base]):
-                raise excs.Error(f'Filter cannot be computed in the context of the base {base.tbl_name()}')
+                raise excs.Error(f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
         if sample_clause is not None:
@@ -112,7 +109,9 @@ class View(Table):
             if sample_clause.stratify_exprs is not None and not all(
                 stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
             ):
-                raise excs.Error(f'Sample clause cannot be computed in the context of the base {base.tbl_name()}')
+                raise excs.Error(
+                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}'
+                )
             # create a copy that we can modify and store
             sc = sample_clause
             sample_clause = SampleClause(
@@ -126,8 +125,8 @@ class View(Table):
             # make sure that the value can be computed in the context of the base
             if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
                 raise excs.Error(
-                    f'Column {col.name}: value expression cannot be computed in the context of the '
-                    f'base {base.tbl_name()}'
+                    f'Column {col.name!r}: Value expression cannot be computed in the context of the '
+                    f'base table {base.tbl_name()!r}'
                 )
 
         if iterator_cls is not None:
@@ -154,7 +153,7 @@ class View(Table):
             sig = func.Signature(ts.InvalidType(), params)
 
             expr_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
-            sig.validate_args(expr_args, context=f'in iterator {iterator_cls.__name__!r}')
+            sig.validate_args(expr_args, context=f'in iterator of type `{iterator_cls.__name__}`')
             literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in expr_args.items()}
 
             # prepend pos and output_schema columns to cols:
@@ -237,7 +236,7 @@ class View(Table):
     def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
-            raise excs.Error(f'Column {col.name}: non-computed columns in views must be nullable')
+            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable')
         super()._verify_column(col)
 
     @classmethod
