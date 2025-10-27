@@ -4,7 +4,7 @@ import asyncio
 import logging
 import traceback
 from types import TracebackType
-from typing import AsyncIterator, Iterable, Optional
+from typing import AsyncIterator, Iterable
 
 import numpy as np
 

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sysconfig
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator
 from unittest import TestCase
 from uuid import uuid4
 

@@ -8,7 +8,7 @@ the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini)
 import asyncio
 import io
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import PIL.Image
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import itertools
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts

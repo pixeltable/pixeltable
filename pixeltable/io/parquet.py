@@ -4,7 +4,7 @@ import json
 import logging
 import typing
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs

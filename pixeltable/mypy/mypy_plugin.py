@@ -1,4 +1,4 @@
-from typing import Callable, ClassVar, Optional
+from typing import Callable, ClassVar
 
 from mypy import nodes
 from mypy.plugin import AnalyzeTypeContext, ClassDefContext, FunctionContext, MethodSigContext, Plugin

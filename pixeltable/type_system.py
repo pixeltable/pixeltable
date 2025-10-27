@@ -10,7 +10,7 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Literal, Mapping, Optional, Sequence, Union
+from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 

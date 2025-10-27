@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Optional, Sequence, cast
+from typing import Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import pgvector.sqlalchemy  # type: ignore[import-untyped]

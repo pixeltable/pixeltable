@@ -1,5 +1,4 @@
 import types
-from typing import Optional
 
 from pixeltable.func import Function
 

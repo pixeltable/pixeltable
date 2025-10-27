@@ -1,4 +1,4 @@
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 

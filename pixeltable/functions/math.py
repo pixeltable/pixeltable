@@ -12,7 +12,6 @@ t.select(t.float_col.floor()).collect()
 
 import builtins
 import math
-from typing import Optional
 
 import sqlalchemy as sql
 

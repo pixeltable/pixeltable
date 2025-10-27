@@ -15,7 +15,7 @@ import builtins
 import re
 import textwrap
 from string import whitespace
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 

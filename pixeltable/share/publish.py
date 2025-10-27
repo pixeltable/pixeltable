@@ -3,7 +3,7 @@ import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 import requests
 from requests.adapters import HTTPAdapter

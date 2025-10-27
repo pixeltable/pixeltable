@@ -7,7 +7,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import numpy as np
 import pyarrow.parquet as pq

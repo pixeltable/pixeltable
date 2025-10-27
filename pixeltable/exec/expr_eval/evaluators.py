@@ -5,7 +5,7 @@ import datetime
 import itertools
 import logging
 import sys
-from typing import Any, Callable, Iterator, Optional, cast
+from typing import Any, Callable, Iterator, cast
 
 from pixeltable import exprs, func
 

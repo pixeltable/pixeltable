@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]

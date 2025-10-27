@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import operator
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import sqlalchemy as sql
 

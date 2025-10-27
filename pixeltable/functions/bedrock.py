@@ -6,7 +6,7 @@ including Anthropic Claude, Amazon Titan, and other providers.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import env, exprs

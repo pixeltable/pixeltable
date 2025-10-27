@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Union
 
 import pandas as pd
 import pydantic

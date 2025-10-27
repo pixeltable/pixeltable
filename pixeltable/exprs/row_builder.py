@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import Any, Iterable, NamedTuple, Optional, Sequence
+from typing import Any, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import numpy as np

@@ -4,7 +4,7 @@ import dataclasses
 import inspect
 import logging
 import typing
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts

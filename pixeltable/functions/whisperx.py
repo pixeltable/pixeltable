@@ -1,6 +1,6 @@
 """WhisperX audio transcription and diarization functions."""
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 

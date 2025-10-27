@@ -4,7 +4,7 @@ import abc
 import asyncio
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Iterable, Optional, Protocol
+from typing import Any, Iterable, Protocol
 
 import numpy as np
 

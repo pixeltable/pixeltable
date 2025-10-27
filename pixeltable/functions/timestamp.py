@@ -11,7 +11,6 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 """
 
 from datetime import datetime
-from typing import Optional
 
 import sqlalchemy as sql
 

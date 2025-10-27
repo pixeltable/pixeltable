@@ -4,7 +4,6 @@ import enum
 import itertools
 import logging
 from dataclasses import dataclass
-from typing import Optional
 from uuid import UUID
 
 import pixeltable.exceptions as excs

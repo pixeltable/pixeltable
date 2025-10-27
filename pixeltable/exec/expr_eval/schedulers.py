@@ -7,7 +7,7 @@ import logging
 import re
 import sys
 import time
-from typing import Any, Awaitable, Collection, Optional
+from typing import Any, Awaitable, Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config

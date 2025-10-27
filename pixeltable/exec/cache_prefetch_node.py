@@ -9,7 +9,7 @@ import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator, Optional
+from typing import AsyncIterator, Iterator
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs

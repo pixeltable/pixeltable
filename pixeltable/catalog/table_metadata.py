@@ -1,5 +1,5 @@
 import datetime
-from typing import Literal, Optional, TypedDict
+from typing import Literal, TypedDict
 
 
 class ColumnMetadata(TypedDict):

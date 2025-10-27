@@ -5,7 +5,7 @@ import platform
 import subprocess
 import sys
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable_pgserver
 import pytest

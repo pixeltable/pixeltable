@@ -1,5 +1,5 @@
 import logging
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator
 
 from pixeltable import catalog, exprs
 from pixeltable.utils.local_store import TempStore

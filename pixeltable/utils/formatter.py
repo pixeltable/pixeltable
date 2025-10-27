@@ -4,7 +4,7 @@ import io
 import json
 import logging
 import mimetypes
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import av
 import numpy as np

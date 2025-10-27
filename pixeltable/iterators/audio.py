@@ -1,7 +1,7 @@
 import logging
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import av
 

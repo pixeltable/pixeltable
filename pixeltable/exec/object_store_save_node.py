@@ -6,7 +6,7 @@ import logging
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator, NamedTuple, Optional
+from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget

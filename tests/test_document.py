@@ -3,7 +3,7 @@ import itertools
 import json
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 import PIL.Image
 import pytest

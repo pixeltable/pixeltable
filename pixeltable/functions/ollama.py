@@ -5,7 +5,7 @@ Provides integration with Ollama for running large language models locally,
 including chat completions and embeddings.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 

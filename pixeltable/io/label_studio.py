@@ -4,7 +4,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional
+from typing import Any, Iterator, Literal
 from xml.etree import ElementTree as ET
 
 import label_studio_sdk

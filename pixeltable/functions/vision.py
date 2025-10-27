@@ -14,7 +14,7 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 import colorsys
 import hashlib
 from collections import defaultdict
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import PIL.Image

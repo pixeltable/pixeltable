@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import typing
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts

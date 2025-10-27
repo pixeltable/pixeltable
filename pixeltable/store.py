@@ -5,7 +5,7 @@ import logging
 import sys
 import time
 import warnings
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator
 
 import more_itertools
 import psycopg

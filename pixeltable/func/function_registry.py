@@ -4,7 +4,6 @@ import dataclasses
 import importlib
 import logging
 import sys
-from typing import Optional
 from uuid import UUID
 
 import sqlalchemy as sql

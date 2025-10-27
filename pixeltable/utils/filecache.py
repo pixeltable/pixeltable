@@ -9,7 +9,7 @@ from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 from uuid import UUID
 
 import pixeltable.exceptions as excs

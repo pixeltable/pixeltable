@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import sqlalchemy as sql

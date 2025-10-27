@@ -1,6 +1,5 @@
 import dataclasses
 import os
-from typing import Optional
 
 import bs4
 import fitz  # type: ignore[import-untyped]

@@ -1,5 +1,5 @@
 import os
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 
 import fiftyone as fo  # type: ignore[import-untyped]
 import fiftyone.utils.data as foud  # type: ignore[import-untyped]

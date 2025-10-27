@@ -6,7 +6,7 @@ import io
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]

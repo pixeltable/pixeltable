@@ -11,7 +11,6 @@ t.select(t.img_col.convert('L')).collect()
 """
 
 import base64
-from typing import Optional
 
 import PIL.Image
 

@@ -3,7 +3,6 @@ import typing
 import warnings
 from datetime import datetime
 from textwrap import dedent
-from typing import Optional
 
 import numpy as np
 import pytest

@@ -2,7 +2,6 @@ import hashlib
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
 
 def print_perf_counter_delta(delta: float) -> str:

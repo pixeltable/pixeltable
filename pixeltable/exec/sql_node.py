@@ -2,7 +2,7 @@ import datetime
 import logging
 import warnings
 from decimal import Decimal
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Optional, Sequence
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql

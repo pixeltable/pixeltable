@@ -1,6 +1,6 @@
 import builtins
 import typing
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import sqlalchemy as sql
 

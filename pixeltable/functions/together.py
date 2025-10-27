@@ -7,7 +7,7 @@ the [Working with Together AI](https://pixeltable.readme.io/docs/together-ai) tu
 
 import base64
 import io
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import numpy as np
 import PIL.Image

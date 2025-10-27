@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterator, Optional
+from typing import Iterator
 
 from pixeltable import exprs
 

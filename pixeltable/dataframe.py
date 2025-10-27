@@ -16,7 +16,6 @@ from typing import (
     Hashable,
     Iterator,
     NoReturn,
-    Optional,
     Sequence,
     TypeVar,
 )

@@ -5,7 +5,7 @@ import inspect
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
 import sqlalchemy as sql
 from typing_extensions import Self

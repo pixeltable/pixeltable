@@ -6,7 +6,7 @@ supporting chat completions and embeddings with GGUF format models.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs

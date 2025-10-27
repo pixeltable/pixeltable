@@ -1,4 +1,3 @@
-from typing import Optional
 
 import sqlalchemy as sql
 

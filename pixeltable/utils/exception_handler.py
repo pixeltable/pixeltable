@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, TypeVar
 
 R = TypeVar('R')
 

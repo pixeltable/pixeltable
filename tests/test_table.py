@@ -6,7 +6,7 @@ import random
 import re
 import time
 from pathlib import Path
-from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
+from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
 
 import av
 import numpy as np

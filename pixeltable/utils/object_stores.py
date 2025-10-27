@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
 from pixeltable import env, exceptions as excs

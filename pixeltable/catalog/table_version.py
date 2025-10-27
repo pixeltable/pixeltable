@@ -7,7 +7,7 @@ import itertools
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, Optional
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
 from uuid import UUID
 
 import jsonschema.exceptions

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]

@@ -6,7 +6,7 @@ This UDF will cause Pixeltable to invoke the relevant model locally. In order to
 first `pip install openai-whisper`.
 """
 
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import pixeltable as pxt
 from pixeltable.env import Env

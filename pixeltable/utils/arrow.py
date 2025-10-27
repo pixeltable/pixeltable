@@ -1,7 +1,7 @@
 import datetime
 import io
 import json
-from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import numpy as np
 import PIL.Image

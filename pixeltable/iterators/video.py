@@ -4,7 +4,7 @@ import math
 import subprocess
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional
+from typing import Any, Iterator, Literal
 
 import av
 import pandas as pd

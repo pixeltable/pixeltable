@@ -6,7 +6,7 @@ you must first sign up at https://openrouter.ai, create an API key, and configur
 as described in the Working with OpenRouter tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client

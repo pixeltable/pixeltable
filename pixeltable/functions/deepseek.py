@@ -6,7 +6,7 @@ and other AI capabilities.
 """
 
 import json
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import httpx
 

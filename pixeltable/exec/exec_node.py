@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
+from typing import AsyncIterator, Iterable, Iterator, TypeVar
 
 from pixeltable import exprs
 from pixeltable.env import Env

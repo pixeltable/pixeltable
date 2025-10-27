@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Union
 
 import jsonschema.exceptions
 import numpy as np

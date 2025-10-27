@@ -5,7 +5,7 @@ import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Iterator
 
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import storage  # type: ignore[attr-defined]

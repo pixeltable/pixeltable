@@ -1,5 +1,4 @@
 import dataclasses
-from typing import Optional
 
 import pandas as pd
 from pandas.io.formats.style import Styler

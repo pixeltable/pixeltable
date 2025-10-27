@@ -7,7 +7,7 @@ import random
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
 from uuid import UUID
 
 import psycopg

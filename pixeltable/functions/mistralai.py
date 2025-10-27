@@ -5,7 +5,7 @@ first `pip install mistralai` and configure your Mistral AI credentials, as desc
 the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mistralai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional, Sequence, overload
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts

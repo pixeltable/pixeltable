@@ -4,7 +4,7 @@ import threading
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
 
 import boto3
 import botocore

@@ -1,5 +1,5 @@
 import math
-from typing import Counter, Optional
+from typing import Counter
 
 import av
 import numpy as np

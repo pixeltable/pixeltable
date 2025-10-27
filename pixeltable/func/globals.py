@@ -1,7 +1,6 @@
 import importlib
 import inspect
 from types import ModuleType
-from typing import Optional
 
 import pixeltable.exceptions as excs
 

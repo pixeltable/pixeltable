@@ -5,7 +5,7 @@ first `pip install groq` and configure your Groq credentials, as described in
 the [Working with Groq](https://pixeltable.readme.io/docs/working-with-groq) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exprs
