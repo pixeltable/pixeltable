@@ -153,7 +153,7 @@ async def messages(
     model: str,
     max_tokens: int,
     model_kwargs: dict[str, Any] | None = None,
-    tools: Optional[list[dict[str, Any]]] = None,
+    tools: list[dict[str, Any]] | None = None,
     tool_choice: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:

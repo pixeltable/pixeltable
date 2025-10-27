@@ -76,7 +76,7 @@ class View(Table):
         dir_id: UUID,
         name: str,
         base: TableVersionPath,
-        select_list: Optional[list[tuple[exprs.Expr, str | None]]],
+        select_list: list[tuple[exprs.Expr, str | None]] | None,
         additional_columns: dict[str, Any],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,

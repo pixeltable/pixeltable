@@ -40,7 +40,7 @@ async def chat_completions(
     *,
     model: str,
     model_kwargs: dict[str, Any] | None = None,
-    tools: Optional[list[dict[str, Any]]] = None,
+    tools: list[dict[str, Any]] | None = None,
     tool_choice: dict[str, Any] | None = None,
     provider: dict[str, Any] | None = None,
     transforms: list[str] | None = None,

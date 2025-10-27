@@ -191,22 +191,22 @@ class DataFrame:
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
-    select_list: Optional[list[tuple[exprs.Expr, str | None]]]
+    select_list: list[tuple[exprs.Expr, str | None]] | None
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
     grouping_tbl: catalog.TableVersion | None
-    order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
+    order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
     def __init__(
         self,
         from_clause: plan.FromClause | None = None,
-        select_list: Optional[list[tuple[exprs.Expr, str | None]]] = None,
+        select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
         grouping_tbl: catalog.TableVersion | None = None,
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
     ):
@@ -232,7 +232,7 @@ class DataFrame:
 
     @classmethod
     def _normalize_select_list(
-        cls, tbls: list[catalog.TableVersionPath], select_list: Optional[list[tuple[exprs.Expr, str | None]]]
+        cls, tbls: list[catalog.TableVersionPath], select_list: list[tuple[exprs.Expr, str | None]] | None
     ) -> tuple[list[exprs.Expr], list[str]]:
         """
         Expand select list information with all columns and their names
@@ -495,7 +495,7 @@ class DataFrame:
             exprs.Expr.list_substitute(order_by_exprs, var_exprs)
 
         select_list = list(zip(select_list_exprs, self.schema.keys()))
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None
         if order_by_exprs is not None:
             order_by_clause = [
                 (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])

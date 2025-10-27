@@ -186,7 +186,7 @@ class Analyzer:
         select_list: Sequence[exprs.Expr],
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
         sample_clause: SampleClause | None = None,
     ):
         if order_by_clause is None:

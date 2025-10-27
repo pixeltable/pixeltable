@@ -282,7 +282,7 @@ def create_view(
     if is_snapshot and create_default_idxs is True:
         raise excs.Error('Cannot create default indexes on a snapshot')
     tbl_version_path: TableVersionPath
-    select_list: Optional[list[tuple[exprs.Expr, str | None]]] = None
+    select_list: list[tuple[exprs.Expr, str | None]] | None = None
     where: exprs.Expr | None = None
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path

@@ -14,7 +14,7 @@ class ExprDict(Generic[T]):
 
     _data: dict[int, tuple[Expr, T]]
 
-    def __init__(self, iterable: Optional[Iterable[tuple[Expr, T]]] = None):
+    def __init__(self, iterable: Iterable[tuple[Expr, T]] | None = None):
         self._data = {}
 
         if iterable is not None:

@@ -945,7 +945,7 @@ class TableVersion:
 
     def insert(
         self,
-        rows: Optional[list[dict[str, Any]]],
+        rows: list[dict[str, Any]] | None,
         df: DataFrame | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,

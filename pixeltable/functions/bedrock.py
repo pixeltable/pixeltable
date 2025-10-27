@@ -36,7 +36,7 @@ def converse(
     messages: list[dict[str, Any]],
     *,
     model_id: str,
-    system: Optional[list[dict[str, Any]]] = None,
+    system: list[dict[str, Any]] | None = None,
     inference_config: dict | None = None,
     additional_model_request_fields: dict | None = None,
     tool_config: list[dict] | None = None,

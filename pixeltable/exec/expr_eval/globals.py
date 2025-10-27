@@ -21,7 +21,7 @@ class FnCallArgs:
     args: list[Any] | None = None
     kwargs: dict[str, Any] | None = None
     # batch call
-    batch_args: Optional[list[list[Any | None]]] = None
+    batch_args: list[list[Any | None]] | None = None
     batch_kwargs: Optional[dict[str, list[Any | None]]] = None
 
     @property
