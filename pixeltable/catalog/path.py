@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from pixeltable import exceptions as excs
 
@@ -12,7 +12,7 @@ _logger = logging.getLogger('pixeltable')
 
 class Path(NamedTuple):
     components: list[str]
-    version: Optional[int] = None
+    version: int | None = None
 
     @classmethod
     def parse(
@@ -23,7 +23,7 @@ class Path(NamedTuple):
         allow_versioned_path: bool = False,
     ) -> Path:
         components: list[str]
-        version: Optional[int]
+        version: int | None
         if ':' in path:
             parts = path.split(':')
             if len(parts) != 2:
@@ -113,9 +113,6 @@ class Path(NamedTuple):
 
     def __hash__(self) -> int:
         return hash(str(self))
-
-    def __lt__(self, other: Path) -> bool:
-        return str(self) < str(other)
 
 
 ROOT_PATH = Path([''])

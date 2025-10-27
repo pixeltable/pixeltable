@@ -1649,7 +1649,7 @@ class Table(SchemaObject):
             # Push this version
             push_replica(uuid_uri, self)
         else:
-            versioned_path = catalog.Path(self._path())._replace(version=version)
+            versioned_path = catalog.Path.parse(self._path())._replace(version=version)
             versioned_tbl = catalog.Catalog.get().get_table(versioned_path, IfNotExistsParam.IGNORE)
             if versioned_tbl is None:
                 raise excs.Error(f'Table {self._name!r} has no known version {version}')
@@ -1666,7 +1666,9 @@ class Table(SchemaObject):
         cloud_uri = tbl_version.cloud_uri
 
         if not tbl_version.is_replica:
-            raise excs.Error(f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).')
+            raise excs.Error(
+                f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
+            )
         assert cloud_uri is not None
 
         orgdb = cloud_uri.removeprefix('pxt://').split('/')[0]

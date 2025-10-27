@@ -1420,8 +1420,6 @@ class TableVersion:
         return self._tbl_md.additional_md.get('cloud_uri')
 
     def update_cloud_uri(self, cloud_uri: Optional[str]) -> None:
-        from .catalog import Catalog
-
         if self._tbl_md.additional_md.get('cloud_uri') == cloud_uri:
             return  # Nothing to do
 
