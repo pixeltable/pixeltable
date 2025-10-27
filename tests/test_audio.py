@@ -25,7 +25,7 @@ from .utils import (
 
 
 class TestAudio:
-    def check_audio_params(self, path: str, format: Optional[str] = None, codec: Optional[str] = None) -> None:
+    def check_audio_params(self, path: str, format: str | None = None, codec: str | None = None) -> None:
         with av.open(path) as container:
             audio_stream = container.streams.audio[0]
             if format == 'mp4':

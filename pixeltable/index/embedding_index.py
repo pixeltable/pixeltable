@@ -41,17 +41,17 @@ class EmbeddingIndex(IndexBase):
     }
 
     metric: Metric
-    string_embed: Optional[func.Function]
-    image_embed: Optional[func.Function]
+    string_embed: func.Function | None
+    image_embed: func.Function | None
     string_embed_signature_idx: int
     image_embed_signature_idx: int
 
     def __init__(
         self,
         metric: str,
-        embed: Optional[func.Function] = None,
-        string_embed: Optional[func.Function] = None,
-        image_embed: Optional[func.Function] = None,
+        embed: func.Function | None = None,
+        string_embed: func.Function | None = None,
+        image_embed: func.Function | None = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
             raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
@@ -164,7 +164,7 @@ class EmbeddingIndex(IndexBase):
     def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
         assert isinstance(item, (str, PIL.Image.Image))
-        embedding: Optional[np.ndarray] = None
+        embedding: np.ndarray | None = None
         if isinstance(item, str):
             assert self.string_embed is not None
             embedding = self.string_embed.exec([item], {})
@@ -191,7 +191,7 @@ class EmbeddingIndex(IndexBase):
     @classmethod
     def _resolve_embedding_fn(
         cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type
-    ) -> Optional[func.Function]:
+    ) -> func.Function | None:
         """Find an overload resolution for `embed_fn` that matches the given type."""
         assert isinstance(embed_fn, func.Function)
         for resolved_fn in embed_fn._resolved_fns:

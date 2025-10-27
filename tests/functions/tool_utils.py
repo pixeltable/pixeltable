@@ -13,7 +13,7 @@ def run_tool_invocations_test(
 ) -> None:
     """make_table is expected to yield an empty table with 'prompt' and 'tool_calls' columns."""
     tools = pxt.tools(stock_price, weather)
-    tool_choice_opts: list[Optional[pxt.ToolChoice]] = [None]
+    tool_choice_opts: list[pxt.ToolChoice | None] = [None]
     if test_tool_choice:
         tool_choice_opts += [
             tools.choice(auto=True),
@@ -122,7 +122,7 @@ def stock_price(ticker: str) -> float:
 
 
 @pxt.udf
-def weather(city: str) -> Optional[str]:
+def weather(city: str) -> str | None:
     """
     Get today's weather forecast for a given city.
 

@@ -34,7 +34,7 @@ class ColumnPropertyRef(Expr):
         self.prop = prop
         self.id = self._create_id()
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         return str(self).replace('.', '_')
 
     def _equals(self, other: ColumnPropertyRef) -> bool:
@@ -55,7 +55,7 @@ class ColumnPropertyRef(Expr):
     def is_cellmd_prop(self) -> bool:
         return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG, self.Property.CELLMD)
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         if not self.col_ref.col_handle.get().is_stored:
             return None
         col = self.col_ref.col_handle.get()

@@ -12,9 +12,9 @@ _logger = logging.getLogger('pixeltable')
 
 class Path:
     components: list[str]
-    version: Optional[int]
+    version: int | None
 
-    def __init__(self, components: list[str], version: Optional[int] = None) -> None:
+    def __init__(self, components: list[str], version: int | None = None) -> None:
         assert len(components) > 0
         self.components = components
         self.version = version
@@ -28,7 +28,7 @@ class Path:
         allow_versioned_path: bool = False,
     ) -> Path:
         components: list[str]
-        version: Optional[int]
+        version: int | None
         if ':' in path:
             parts = path.split(':')
             if len(parts) != 2:

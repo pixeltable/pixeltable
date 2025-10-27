@@ -43,18 +43,18 @@ class CachePrefetchNode(ExecNode):
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
-    ready_rows: deque[Optional[exprs.DataRow]]
+    ready_rows: deque[exprs.DataRow | None]
 
     in_flight_rows: dict[int, CachePrefetchNode.RowState]  # rows with in-flight urls; id(row) -> RowState
     in_flight_requests: dict[futures.Future, str]  # in-flight requests for urls; future -> URL
     in_flight_urls: dict[str, list[tuple[exprs.DataRow, exprs.ColumnSlotIdx]]]  # URL -> [(row, info)]
     input_finished: bool
-    row_idx: Iterator[Optional[int]]
+    row_idx: Iterator[int | None]
 
     @dataclasses.dataclass
     class RowState:
         row: exprs.DataRow
-        idx: Optional[int]  # position in input stream; None if we don't retain input order
+        idx: int | None  # position in input stream; None if we don't retain input order
         num_missing: int  # number of missing URLs in this row
 
     def __init__(
@@ -78,7 +78,7 @@ class CachePrefetchNode(ExecNode):
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
 
-    async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> Optional[DataRowBatch]:
+    async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
         try:
             input_batch = await anext(input_iter)
@@ -127,7 +127,7 @@ class CachePrefetchNode(ExecNode):
             sum(int(row is not None) for row in itertools.islice(self.ready_rows, self.BATCH_SIZE)) == self.BATCH_SIZE
         )
 
-    def __add_ready_row(self, row: exprs.DataRow, row_idx: Optional[int]) -> None:
+    def __add_ready_row(self, row: exprs.DataRow, row_idx: int | None) -> None:
         if row_idx is None:
             self.ready_rows.append(row)
         else:
@@ -144,7 +144,7 @@ class CachePrefetchNode(ExecNode):
             tmp_path, exc = f.result()
             if exc is not None and not ignore_errors:
                 raise exc
-            local_path: Optional[Path] = None
+            local_path: Path | None = None
             if tmp_path is not None:
                 # register the file with the cache for the first column in which it's missing
                 assert url in self.in_flight_urls
@@ -174,7 +174,7 @@ class CachePrefetchNode(ExecNode):
         # the time it takes to get the next batch together
         cache_misses: list[str] = []
 
-        url_pos: dict[str, Optional[int]] = {}  # url -> row_idx; used for logging
+        url_pos: dict[str, int | None] = {}  # url -> row_idx; used for logging
         for row in input_batch:
             # identify missing local files in input batch, or fill in their paths if they're already cached
             num_missing = 0
@@ -213,7 +213,7 @@ class CachePrefetchNode(ExecNode):
             _logger.debug(f'submitted {url} for idx {url_pos[url]}')
             self.in_flight_requests[f] = url
 
-    def __fetch_url(self, url: str) -> tuple[Optional[Path], Optional[Exception]]:
+    def __fetch_url(self, url: str) -> tuple[Path | None, Exception | None]:
         """Fetches a remote URL into the TempStore and returns its path"""
         from pixeltable.utils.local_store import TempStore
 

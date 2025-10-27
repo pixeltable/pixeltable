@@ -18,7 +18,7 @@ async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
     import mcp
     from mcp.client.streamable_http import streamablehttp_client
 
-    list_tools_result: Optional[mcp.types.ListToolsResult] = None
+    list_tools_result: mcp.types.ListToolsResult | None = None
     async with (
         streamablehttp_client(url) as (read_stream, write_stream, _),
         mcp.ClientSession(read_stream, write_stream) as session,

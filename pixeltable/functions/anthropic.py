@@ -130,7 +130,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         if retry_after_str is not None:
             _logger.debug(f'retry-after: {retry_after_str}')
 
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+    def get_retry_delay(self, exc: Exception) -> float | None:
         import anthropic
 
         # deal with timeouts separately, they don't come with headers
@@ -155,7 +155,7 @@ async def messages(
     model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Create a Message.
@@ -254,7 +254,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 
 @pxt.udf
-def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+def _anthropic_response_to_pxt_tool_calls(response: dict) -> dict | None:
     anthropic_tool_calls = [r for r in response['content'] if r['type'] == 'tool_use']
     if len(anthropic_tool_calls) == 0:
         return None

@@ -24,7 +24,7 @@ class FunctionCall(Expr):
     fn: func.Function
     is_method_call: bool
     agg_init_args: dict[str, Any]
-    resource_pool: Optional[str]
+    resource_pool: str | None
 
     # These collections hold the component indices corresponding to the args and kwargs
     # that were passed to the FunctionCall. They're 1:1 with the original call pattern.
@@ -43,10 +43,10 @@ class FunctionCall(Expr):
     group_by_stop_idx: int
     fn_expr_idx: int
     order_by_start_idx: int
-    aggregator: Optional[Any]
+    aggregator: Any | None
     current_partition_vals: Optional[list[Any]]
 
-    _validation_error: Optional[str]
+    _validation_error: str | None
 
     def __init__(
         self,
@@ -57,7 +57,7 @@ class FunctionCall(Expr):
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
-        validation_error: Optional[str] = None,
+        validation_error: str | None = None,
     ):
         assert not fn.is_polymorphic
         assert all(isinstance(arg, Expr) for arg in args)
@@ -149,7 +149,7 @@ class FunctionCall(Expr):
         target = tbl._tbl_version_path.tbl_version
         return [RowidRef(target, i) for i in range(target.get().num_rowid_columns())]
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         return self.fn.name
 
     def _equals(self, other: FunctionCall) -> bool:
@@ -178,7 +178,7 @@ class FunctionCall(Expr):
         return self.display_str()
 
     @property
-    def validation_error(self) -> Optional[str]:
+    def validation_error(self) -> str | None:
         return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
@@ -245,7 +245,7 @@ class FunctionCall(Expr):
         assert self.is_agg_fn_call
         return self.order_by
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         assert self.is_valid
 
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
@@ -448,7 +448,7 @@ class FunctionCall(Expr):
         group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
         order_by_exprs = components[order_by_start_idx:]
 
-        validation_error: Optional[str] = None
+        validation_error: str | None = None
 
         if isinstance(fn, func.InvalidFunction):
             validation_error = (
@@ -489,7 +489,7 @@ class FunctionCall(Expr):
             ).strip()
         else:
             # Evaluate the call_return_type as defined in the current codebase.
-            call_return_type: Optional[ts.ColumnType] = None
+            call_return_type: ts.ColumnType | None = None
 
             if isinstance(resolved_fn, func.ExprTemplateFunction) and not resolved_fn.template.expr.is_valid:
                 # The FunctionCall is based on an ExprTemplateFunction, but the template expression is not valid

@@ -21,7 +21,7 @@ class Config:
     configuration values, which can be set in the config file or as environment variables.
     """
 
-    __instance: ClassVar[Optional[Config]] = None
+    __instance: ClassVar[Config | None] = None
 
     __home: Path
     __config_file: Path
@@ -110,7 +110,7 @@ class Config:
             return os.environ[env_var]
         return default
 
-    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
+    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None:
         value: Any = self.lookup_env(section, key)  # Try to get from environment first
         # Next try the config file
         if value is None:
@@ -137,16 +137,16 @@ class Config:
         except (ValueError, TypeError) as exc:
             raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
 
-    def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
+    def get_string_value(self, key: str, section: str = 'pixeltable') -> str | None:
         return self.get_value(key, str, section)
 
-    def get_int_value(self, key: str, section: str = 'pixeltable') -> Optional[int]:
+    def get_int_value(self, key: str, section: str = 'pixeltable') -> int | None:
         return self.get_value(key, int, section)
 
-    def get_float_value(self, key: str, section: str = 'pixeltable') -> Optional[float]:
+    def get_float_value(self, key: str, section: str = 'pixeltable') -> float | None:
         return self.get_value(key, float, section)
 
-    def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
+    def get_bool_value(self, key: str, section: str = 'pixeltable') -> bool | None:
         return self.get_value(key, bool, section)
 
 

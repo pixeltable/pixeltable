@@ -26,11 +26,11 @@ def udf(decorated_fn: Callable) -> CallableFunction: ...
 @overload
 def udf(
     *,
-    batch_size: Optional[int] = None,
-    substitute_fn: Optional[Callable] = None,
+    batch_size: int | None = None,
+    substitute_fn: Callable | None = None,
     is_method: bool = False,
     is_property: bool = False,
-    resource_pool: Optional[str] = None,
+    resource_pool: str | None = None,
     type_substitutions: Optional[Sequence[dict]] = None,
     _force_stored: bool = False,
 ) -> Callable[[Callable], CallableFunction]: ...
@@ -39,7 +39,7 @@ def udf(
 # pxt.udf() called explicitly on a Table:
 @overload
 def udf(
-    table: catalog.Table, /, *, return_value: Any = None, description: Optional[str] = None
+    table: catalog.Table, /, *, return_value: Any = None, description: str | None = None
 ) -> ExprTemplateFunction: ...
 
 
@@ -96,15 +96,15 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
 
 def make_function(
     decorated_fn: Callable,
-    return_type: Optional[ts.ColumnType] = None,
+    return_type: ts.ColumnType | None = None,
     param_types: Optional[list[ts.ColumnType]] = None,
-    batch_size: Optional[int] = None,
-    substitute_fn: Optional[Callable] = None,
+    batch_size: int | None = None,
+    substitute_fn: Callable | None = None,
     is_method: bool = False,
     is_property: bool = False,
-    resource_pool: Optional[str] = None,
+    resource_pool: str | None = None,
     type_substitutions: Optional[Sequence[dict]] = None,
-    function_name: Optional[str] = None,
+    function_name: str | None = None,
     force_stored: bool = False,
 ) -> CallableFunction:
     """
@@ -238,7 +238,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
 
 
 def from_table(
-    tbl: catalog.Table, return_value: Optional['exprs.Expr'], description: Optional[str]
+    tbl: catalog.Table, return_value: 'exprs.Expr' | None, description: str | None
 ) -> ExprTemplateFunction:
     """
     Constructs an `ExprTemplateFunction` from a `Table`.

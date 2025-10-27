@@ -32,7 +32,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('openai')
-def _(api_key: str, base_url: Optional[str] = None, api_version: Optional[str] = None) -> 'openai.AsyncOpenAI':
+def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
     default_query = None if api_version is None else {'api-version': api_version}
@@ -169,7 +169,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
         self.record(requests=requests_info, tokens=tokens_info)
         self.has_exc = True
 
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+    def get_retry_delay(self, exc: Exception) -> float | None:
         import openai
 
         if not isinstance(exc, self.retryable_errors):
@@ -365,7 +365,7 @@ async def chat_completions(
     model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -478,7 +478,7 @@ async def vision(
     *,
     model: str,
     model_kwargs: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
@@ -568,7 +568,7 @@ async def embeddings(
     *,
     model: str,
     model_kwargs: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -622,7 +622,7 @@ async def embeddings(
 
 @embeddings.conditional_return_type
 def _(model: str, model_kwargs: Optional[dict[str, Any]] = None) -> ts.ArrayType:
-    dimensions: Optional[int] = None
+    dimensions: int | None = None
     if model_kwargs is not None:
         dimensions = model_kwargs.get('dimensions')
     if dimensions is None:
@@ -761,7 +761,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 
 @pxt.udf
-def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+def _openai_response_to_pxt_tool_calls(response: dict) -> dict | None:
     if 'tool_calls' not in response['choices'][0]['message'] or response['choices'][0]['message']['tool_calls'] is None:
         return None
     openai_tool_calls = response['choices'][0]['message']['tool_calls']

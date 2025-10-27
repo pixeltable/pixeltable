@@ -26,7 +26,7 @@ class SimilarityExpr(Expr):
     idx_id: int
     idx_name: str
 
-    def __init__(self, col_ref: ColumnRef, item: Any, idx_name: Optional[str] = None):
+    def __init__(self, col_ref: ColumnRef, item: Any, idx_name: str | None = None):
         from pixeltable.index import EmbeddingIndex
 
         super().__init__(ts.FloatType())
@@ -64,7 +64,7 @@ class SimilarityExpr(Expr):
     def default_column_name(self) -> str:
         return 'similarity'
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
@@ -75,7 +75,7 @@ class SimilarityExpr(Expr):
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.similarity_clause(idx_info.val_col, item)
 
-    def as_order_by_clause(self, is_asc: bool) -> Optional[sql.ColumnElement]:
+    def as_order_by_clause(self, is_asc: bool) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions

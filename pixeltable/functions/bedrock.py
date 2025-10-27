@@ -37,8 +37,8 @@ def converse(
     *,
     model_id: str,
     system: Optional[list[dict[str, Any]]] = None,
-    inference_config: Optional[dict] = None,
-    additional_model_request_fields: Optional[dict] = None,
+    inference_config: dict | None = None,
+    additional_model_request_fields: dict | None = None,
     tool_config: Optional[list[dict]] = None,
 ) -> dict:
     """
@@ -111,7 +111,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 
 @pxt.udf
-def _bedrock_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+def _bedrock_response_to_pxt_tool_calls(response: dict) -> dict | None:
     if response.get('stopReason') != 'tool_use':
         return None
 

@@ -20,7 +20,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     __image_format: str  # format to use for any exported images that are not already stored on disk
     __labels: dict[str, tuple[exprs.Expr, type[fo.Label]]]  # label_name -> (expr, label_cls)
     __image_idx: int  # index of the image expr in the select list
-    __localpath_idx: Optional[int]  # index of the image localpath in the select list, if present
+    __localpath_idx: int | None  # index of the image localpath in the select list, if present
     __row_iter: Iterator[list]  # iterator over the table rows, to be convered to FiftyOne samples
 
     def __init__(
@@ -30,10 +30,10 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         image_format: str,
         classifications: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
         detections: exprs.Expr | list[exprs.Expr] | dict[str, exprs.Expr] | None = None,
-        dataset_dir: Optional[os.PathLike] = None,
+        dataset_dir: os.PathLike | None = None,
         shuffle: bool = False,
         seed: int | float | str | bytes | bytearray | None = None,
-        max_samples: Optional[int] = None,
+        max_samples: int | None = None,
     ):
         super().__init__(dataset_dir=dataset_dir, shuffle=shuffle, seed=seed, max_samples=max_samples)
 
@@ -90,7 +90,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         df = tbl.select(*selection)
         self.__row_iter = df._output_row_iterator()
 
-    def __next__(self) -> tuple[str, Optional[fo.ImageMetadata], Optional[dict[str, fo.Label]]]:
+    def __next__(self) -> tuple[str, fo.ImageMetadata | None, Optional[dict[str, fo.Label]]]:
         row = next(self.__row_iter)
         img = row[self.__image_idx]
         assert isinstance(img, PIL.Image.Image)

@@ -105,9 +105,9 @@ class TestPackager:
         self,
         t: pxt.Table,
         bundle_path: Path,
-        media_dir: Optional[Path] = None,
-        scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
-        expected_cols: Optional[int] = None,
+        media_dir: Path | None = None,
+        scope_tbl: pxt.Table | None = None,  # If specified, use instead of `tbl` to select rows
+        expected_cols: int | None = None,
     ) -> None:
         parquet_dir = bundle_path / 'tables' / f'tbl_{t._id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))

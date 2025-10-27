@@ -12,7 +12,7 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
-def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+def __substitute_md(k: str | None, v: Any) -> Optional[tuple[str | None, Any]]:
     # Defaults are now stored as literals in signatures
     if k == 'parameters':
         for param in v:
@@ -55,8 +55,8 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         # We need to expand ("unroll") any var-args or var-kwargs.
 
         new_args_len = len(new_args)
-        rolled_args: Optional[dict] = None
-        rolled_kwargs: Optional[dict] = None
+        rolled_args: dict | None = None
+        rolled_kwargs: dict | None = None
 
         if 'signature' in v['fn']:
             # If it's a pickled function, there's no signature, so we're out of luck; varargs in a pickled function

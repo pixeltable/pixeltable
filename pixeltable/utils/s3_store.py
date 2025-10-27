@@ -29,7 +29,7 @@ class S3CompatClientDict(NamedTuple):
     Thread-safe via the module-level 'client_lock'.
     """
 
-    profile: Optional[str]  # AWS-style profile used to locate credentials
+    profile: str | None  # AWS-style profile used to locate credentials
     clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
 
 
@@ -150,7 +150,7 @@ class S3Store(ObjectStoreBase):
         """Return the prefix from the base URI."""
         return self.__prefix_name
 
-    def validate(self, error_col_name: str) -> Optional[str]:
+    def validate(self, error_col_name: str) -> str | None:
         """
         Checks if the URI exists.
 
@@ -164,7 +164,7 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, self.bucket_name, f'validate bucket {error_col_name}')
         return None
 
-    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> str:
+    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
@@ -172,7 +172,7 @@ class S3Store(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_uri(self, col: 'Column', ext: Optional[str] = None) -> str:
+    def _prepare_uri(self, col: 'Column', ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
@@ -203,7 +203,7 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
-    def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> tuple[Iterator, Any]:
+    def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> tuple[Iterator, Any]:
         """Private method to get filtered objects for a table, optionally filtered by version.
 
         Args:
@@ -242,7 +242,7 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
-    def count(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Count the number of files belonging to tbl_id. If tbl_version is not None,
         count only those files belonging to the specified tbl_version.
 
@@ -259,7 +259,7 @@ class S3Store(ObjectStoreBase):
 
         return sum(1 for _ in object_iterator)
 
-    def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version.
 
@@ -342,7 +342,7 @@ class S3Store(ObjectStoreBase):
             raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_code} - {error_message}')
 
     @classmethod
-    def create_boto_session(cls, profile_name: Optional[str] = None) -> Any:
+    def create_boto_session(cls, profile_name: str | None = None) -> Any:
         """Create a boto session using the defined profile"""
         if profile_name:
             try:
@@ -354,7 +354,7 @@ class S3Store(ObjectStoreBase):
         return boto3.Session()
 
     @classmethod
-    def create_boto_client(cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
+    def create_boto_client(cls, profile_name: str | None = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
             'connect_timeout': 15,
@@ -381,7 +381,7 @@ class S3Store(ObjectStoreBase):
 
     @classmethod
     def create_boto_resource(
-        cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None
+        cls, profile_name: str | None = None, extra_args: Optional[dict[str, Any]] = None
     ) -> Any:
         # Create a session using the defined profile
         return cls.create_boto_session(profile_name).resource('s3', **(extra_args or {}))

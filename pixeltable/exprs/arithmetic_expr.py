@@ -58,7 +58,7 @@ class ArithmeticExpr(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('operator', self.operator.value)]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
         left = sql_elements.get(self._op1)
         right = sql_elements.get(self._op2)
@@ -118,7 +118,7 @@ class ArithmeticExpr(Expr):
 
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
-    def eval_nullable(self, op1_val: Optional[float], op2_val: Optional[float]) -> Optional[float]:
+    def eval_nullable(self, op1_val: float | None, op2_val: float | None) -> float | None:
         """
         Return the result of evaluating the expression on two nullable int/float operands,
         None is interpreted as SQL NULL
@@ -144,7 +144,7 @@ class ArithmeticExpr(Expr):
         elif self.operator == ArithmeticOperator.FLOORDIV:
             return op1_val // op2_val
 
-    def as_literal(self) -> Optional[Literal]:
+    def as_literal(self) -> Literal | None:
         op1_lit = self._op1.as_literal()
         if op1_lit is None:
             return None

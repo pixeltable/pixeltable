@@ -25,16 +25,16 @@ class CallableFunction(Function):
     """
 
     py_fns: list[Callable]
-    self_name: Optional[str]
-    batch_size: Optional[int]
+    self_name: str | None
+    batch_size: int | None
 
     def __init__(
         self,
         signatures: list[Signature],
         py_fns: list[Callable],
-        self_path: Optional[str] = None,
-        self_name: Optional[str] = None,
-        batch_size: Optional[int] = None,
+        self_path: str | None = None,
+        self_name: str | None = None,
+        batch_size: int | None = None,
         is_method: bool = False,
         is_property: bool = False,
     ):
@@ -60,7 +60,7 @@ class CallableFunction(Function):
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.py_fn)
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         return inspect.getdoc(self.py_fns[0])
 
     @property
@@ -138,7 +138,7 @@ class CallableFunction(Function):
         batched_kwargs = {k: v for k, v in kwargs.items() if k not in constant_param_names}
         return constant_kwargs, batched_kwargs
 
-    def get_batch_size(self, *args: Any, **kwargs: Any) -> Optional[int]:
+    def get_batch_size(self, *args: Any, **kwargs: Any) -> int | None:
         return self.batch_size
 
     @property
@@ -187,7 +187,7 @@ class CallableFunction(Function):
         return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
-    def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
+    def from_store(cls, name: str | None, md: dict, binary_obj: bytes) -> Function:
         py_fn = cloudpickle.loads(binary_obj)
         assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])

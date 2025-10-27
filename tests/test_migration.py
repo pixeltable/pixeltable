@@ -248,13 +248,13 @@ class TestMigration:
         assert inline_list_mixed == [1, 'a', 'test string 21', [1, 'a', 'test string 21'], 1, 'a']
 
     @staticmethod
-    def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+    def __substitute_md(k: str | None, v: Any) -> Optional[tuple[str | None, Any]]:
         if k == 'path' and v == 'pixeltable.tool.embed_udf.clip_text_embed':
             return 'path', 'tool.embed_udf.clip_text_embed'
         return None
 
     @staticmethod
-    def __replace_pickled_udfs(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+    def __replace_pickled_udfs(k: str | None, v: Any) -> Optional[tuple[str | None, Any]]:
         # The following set of conditions uniquely identifies FunctionCall instances in the artifacts whose function
         # is `test_udf_stored_batched`. See comment above re: pickled UDFs in Python 3.10.
         # TODO: Remove this method once we implement a better solution for dealing with legacy pickled UDFs.

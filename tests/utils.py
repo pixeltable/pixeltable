@@ -412,7 +412,7 @@ def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     return glob_result
 
 
-def get_audio_file(name: str) -> Optional[str]:
+def get_audio_file(name: str) -> str | None:
     audio_dir = TESTS_DIR / 'data' / 'audio'
     file_path = audio_dir / name
     glob_result = glob.glob(f'{file_path}', recursive=True)
@@ -580,7 +580,7 @@ def skip_test_if_no_aws_credentials() -> None:
         pytest.skip(str(exc))
 
 
-def validate_update_status(status: pxt.UpdateStatus, expected_rows: Optional[int] = None) -> None:
+def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None = None) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
@@ -588,11 +588,11 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: Optional[int
 
 def validate_sync_status(
     status: pxt.UpdateStatus,
-    expected_external_rows_created: Optional[int] = None,
-    expected_external_rows_updated: Optional[int] = None,
-    expected_external_rows_deleted: Optional[int] = None,
-    expected_pxt_rows_updated: Optional[int] = None,
-    expected_num_excs: Optional[int] = 0,
+    expected_external_rows_created: int | None = None,
+    expected_external_rows_updated: int | None = None,
+    expected_external_rows_deleted: int | None = None,
+    expected_pxt_rows_updated: int | None = None,
+    expected_num_excs: int | None = 0,
 ) -> None:
     if expected_external_rows_created is not None:
         assert status.external_rows_created == expected_external_rows_created, status

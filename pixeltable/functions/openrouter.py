@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 @register_client('openrouter')
-def _(api_key: str, site_url: Optional[str] = None, app_name: Optional[str] = None) -> 'openai.AsyncOpenAI':
+def _(api_key: str, site_url: str | None = None, app_name: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
     # Create default headers for OpenRouter

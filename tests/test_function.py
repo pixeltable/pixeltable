@@ -88,7 +88,7 @@ class TestFunction:
 
     @staticmethod
     @pxt.udf
-    def f2(a: Optional[int], b: float = 0.0, c: Optional[float] = 1.0) -> float:
+    def f2(a: int | None, b: float = 0.0, c: float | None = 1.0) -> float:
         return (0.0 if a is None else a) + b + (0.0 if c is None else c)
 
     def test_call(self, test_tbl: pxt.Table) -> None:
@@ -537,7 +537,7 @@ class TestFunction:
         with pytest.raises(pxt.Error) as exc_info:
 
             @pxt.udf
-            def udf3(name: str) -> Optional[np.ndarray]:
+            def udf3(name: str) -> np.ndarray | None:
                 return None
 
         assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
@@ -705,7 +705,7 @@ class TestFunction:
 
     @pxt.uda(type_substitutions=({T: str}, {T: int}, {T: float}))  # type: ignore[misc]
     class typevar_uda(pxt.Aggregator, typing.Generic[T]):
-        max: Optional[T]
+        max: T | None
 
         def __init__(self) -> None:
             self.max = None
@@ -816,7 +816,7 @@ class TestFunction:
                 fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
             )
 
-        def reload_and_validate_table(validation_error: Optional[str] = None, has_result_column: bool = True) -> None:
+        def reload_and_validate_table(validation_error: str | None = None, has_result_column: bool = True) -> None:
             reload_catalog()
 
             t: pxt.Table
@@ -887,7 +887,7 @@ class TestFunction:
             )
             return '(?s)' + regex
 
-        db_params = '(a: Optional[String])' if as_kwarg else '(Optional[String])'
+        db_params = '(a: String | None)' if as_kwarg else '(String | None)'
         signature_error = dedent(
             f"""
             The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
@@ -966,11 +966,11 @@ class TestFunction:
 
         # Widen the return type; this fails in all cases
         @pxt.udf(_force_stored=True)
-        def udf_version_7(a: str, b: int = 3) -> Optional[pxt.Array]:
+        def udf_version_7(a: str, b: int = 3) -> pxt.Array | None:
             return None
 
         mimic(udf_version_7)
-        reload_and_validate_table(validation_error=return_type_error.format(return_type='Optional[Array]'))
+        reload_and_validate_table(validation_error=return_type_error.format(return_type='Array | None'))
 
         # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
         @pxt.udf(_force_stored=True)
@@ -1142,8 +1142,8 @@ class TestFunction:
             Args:
                 in1: of type `Int`
                 in2: of type `String`
-                in3: of type `Optional[Float]`
-                in4: of type `Optional[Image]`
+                in3: of type `Float | None`
+                in4: of type `Image | None`
             """
         ).strip()  # fmt: skip
 
@@ -1223,10 +1223,10 @@ class TestFunction:
             Args:
                 in1: of type `Int`
                 in2: of type `String`
-                in3: of type `Optional[Float]`
-                in4: of type `Optional[Image]`
-                in5: of type `Optional[Json]`
-                in6: of type `Optional[Json]`
+                in3: of type `Float | None`
+                in4: of type `Image | None`
+                in5: of type `Json | None`
+                in6: of type `Json | None`
             """
         ).strip()  # fmt: skip
 
@@ -1241,8 +1241,8 @@ class TestFunction:
             Args:
                 in1: of type `Int`
                 in2: of type `String`
-                in3: of type `Optional[Float]`
-                in4: of type `Optional[Image]`
+                in3: of type `Float | None`
+                in4: of type `Image | None`
             """
         ).strip()  # fmt: skip
 
@@ -1270,4 +1270,4 @@ def udf6(name: str) -> str:
     return ''
 
 
-evolving_udf: Optional[func.CallableFunction] = None
+evolving_udf: func.CallableFunction | None = None

@@ -49,13 +49,13 @@ class ExprEvalNode(ExecNode):
     # execution state
     tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
     exc_event: asyncio.Event  # set if an exception needs to be propagated
-    error: Optional[Exception]  # exception that needs to be propagated
+    error: Exception | None  # exception that needs to be propagated
     completed_rows: asyncio.Queue[exprs.DataRow]  # rows that have completed evaluation
     completed_event: asyncio.Event  # set when completed_rows is non-empty
     input_iter: AsyncIterator[DataRowBatch]
-    current_input_batch: Optional[DataRowBatch]  # batch from which we're currently consuming rows
+    current_input_batch: DataRowBatch | None  # batch from which we're currently consuming rows
     input_row_idx: int  # next row to consume from current_input_batch
-    next_input_batch: Optional[DataRowBatch]  # read-ahead input batch
+    next_input_batch: DataRowBatch | None  # read-ahead input batch
     avail_input_rows: int  # total number across both current_/next_input_batch
     input_complete: bool  # True if we've received all input batches
     num_in_flight: int  # number of dispatched rows that haven't completed
@@ -217,8 +217,8 @@ class ExprEvalNode(ExecNode):
 
         row: exprs.DataRow
         exc_event_aw = asyncio.create_task(self.exc_event.wait(), name='exc_event.wait()')
-        input_batch_aw: Optional[asyncio.Task] = None
-        completed_aw: Optional[asyncio.Task] = None
+        input_batch_aw: asyncio.Task | None = None
+        completed_aw: asyncio.Task | None = None
         closed_evaluators = False  # True after calling Evaluator.close()
         exprs.Expr.prepare_list(self.exec_ctx.all_exprs)
 

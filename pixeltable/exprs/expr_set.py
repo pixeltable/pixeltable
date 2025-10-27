@@ -51,7 +51,7 @@ class ExprSet(Generic[T]):
     def __iter__(self) -> Iterator[T]:
         return iter(self.exprs.values())
 
-    def __getitem__(self, index: object) -> Optional[T]:
+    def __getitem__(self, index: object) -> T | None:
         """Indexed lookup by slot_idx or Expr.id."""
         assert isinstance(index, (int, Expr))
         if isinstance(index, int):

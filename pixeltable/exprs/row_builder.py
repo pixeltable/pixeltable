@@ -69,7 +69,7 @@ class RowBuilder:
 
     input_exprs: ExprSet
 
-    tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
+    tbl: catalog.TableVersion | None  # reference table of the RowBuilder; used to identify pk columns for writes
     table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
@@ -110,7 +110,7 @@ class RowBuilder:
         output_exprs: Sequence[Expr],
         columns: Sequence[catalog.Column],
         input_exprs: Iterable[Expr],
-        tbl: Optional[catalog.TableVersion] = None,
+        tbl: catalog.TableVersion | None = None,
     ):
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
@@ -308,7 +308,7 @@ class RowBuilder:
             self._record_output_expr_id(d, output_expr_id)
 
     def _compute_dependencies(
-        self, target_slot_idxs: list[int], excluded_slot_idxs: list[int], target_scope: Optional[ExprScope] = None
+        self, target_slot_idxs: list[int], excluded_slot_idxs: list[int], target_scope: ExprScope | None = None
     ) -> list[int]:
         """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'
 
@@ -380,7 +380,7 @@ class RowBuilder:
             return []
         # make sure we only refer to recorded exprs
         targets = [self.unique_exprs[e] for e in targets]
-        target_scope: Optional[ExprScope] = None
+        target_scope: ExprScope | None = None
         if limit_scope:
             # make sure all targets are from the same scope
             target_scopes = {e.scope() for e in targets}
@@ -427,9 +427,9 @@ class RowBuilder:
         self,
         data_row: DataRow,
         ctx: EvalCtx,
-        profile: Optional[ExecProfile] = None,
+        profile: ExecProfile | None = None,
         ignore_errors: bool = False,
-        force_eval: Optional[ExprScope] = None,
+        force_eval: ExprScope | None = None,
     ) -> None:
         """
         Populates the slots in data_row given in ctx.

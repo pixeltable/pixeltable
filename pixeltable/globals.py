@@ -49,7 +49,7 @@ def create_table(
     path: str,
     schema: Optional[dict[str, Any]] = None,
     *,
-    source: Optional[TableDataSource] = None,
+    source: TableDataSource | None = None,
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     create_default_idxs: bool = True,
@@ -217,7 +217,7 @@ def create_view(
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-) -> Optional[catalog.Table]:
+) -> catalog.Table | None:
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
 
     Args:
@@ -282,8 +282,8 @@ def create_view(
     if is_snapshot and create_default_idxs is True:
         raise excs.Error('Cannot create default indexes on a snapshot')
     tbl_version_path: TableVersionPath
-    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None
-    where: Optional[exprs.Expr] = None
+    select_list: Optional[list[tuple[exprs.Expr, str | None]]] = None
+    where: exprs.Expr | None = None
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
         sample_clause = None
@@ -341,7 +341,7 @@ def create_snapshot(
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-) -> Optional[catalog.Table]:
+) -> catalog.Table | None:
     """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
 
     Args:
@@ -695,7 +695,7 @@ def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths:
 
 def create_dir(
     path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
-) -> Optional[catalog.Dir]:
+) -> catalog.Dir | None:
     """Create a directory.
 
     Args:
@@ -962,7 +962,7 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
     return func.tools.Tools(tools=[arg if isinstance(arg, func.tools.Tool) else tool(arg) for arg in args])
 
 
-def tool(fn: func.Function, name: Optional[str] = None, description: Optional[str] = None) -> func.tools.Tool:
+def tool(fn: func.Function, name: str | None = None, description: str | None = None) -> func.tools.Tool:
     """
     Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the documentation for
     [pxt.tools()][pixeltable.tools] for more details.
@@ -984,10 +984,10 @@ def tool(fn: func.Function, name: Optional[str] = None, description: Optional[st
 
 def configure_logging(
     *,
-    to_stdout: Optional[bool] = None,
-    level: Optional[int] = None,
-    add: Optional[str] = None,
-    remove: Optional[str] = None,
+    to_stdout: bool | None = None,
+    level: int | None = None,
+    add: str | None = None,
+    remove: str | None = None,
 ) -> None:
     """Configure logging.
 

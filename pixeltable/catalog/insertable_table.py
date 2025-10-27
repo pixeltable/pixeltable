@@ -109,7 +109,7 @@ class InsertableTable(Table):
     @overload
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -126,7 +126,7 @@ class InsertableTable(Table):
 
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -305,7 +305,7 @@ class InsertableTable(Table):
                         f'{model_type.__name__!r}, which is not JSON-convertible'
                     )
 
-    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
@@ -325,11 +325,11 @@ class InsertableTable(Table):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             return self._tbl_version.get().delete(where=where)
 
-    def _get_base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> 'Table' | None:
         return None
 
     @property
-    def _effective_base_versions(self) -> list[Optional[int]]:
+    def _effective_base_versions(self) -> list[int | None]:
         return []
 
     def _table_descriptor(self) -> str:

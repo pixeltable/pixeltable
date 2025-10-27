@@ -61,8 +61,8 @@ class ColumnRef(Expr):
     def __init__(
         self,
         col: catalog.Column,
-        reference_tbl: Optional[catalog.TableVersionPath] = None,
-        perform_validation: Optional[bool] = None,
+        reference_tbl: catalog.TableVersionPath | None = None,
+        perform_validation: bool | None = None,
     ):
         super().__init__(col.col_type)
         self.col = col
@@ -159,12 +159,12 @@ class ColumnRef(Expr):
             FileCache.get().emit_eviction_warnings()
             return status
 
-    def similarity(self, item: Any, *, idx: Optional[str] = None) -> Expr:
+    def similarity(self, item: Any, *, idx: str | None = None) -> Expr:
         from .similarity_expr import SimilarityExpr
 
         return SimilarityExpr(self, item, idx_name=idx)
 
-    def embedding(self, *, idx: Optional[str] = None) -> ColumnRef:
+    def embedding(self, *, idx: str | None = None) -> ColumnRef:
         from pixeltable.index import EmbeddingIndex
 
         idx_info = self.tbl.get().get_idx(self.col, idx, EmbeddingIndex)
@@ -174,7 +174,7 @@ class ColumnRef(Expr):
     def tbl(self) -> catalog.TableVersionHandle:
         return self.reference_tbl.tbl_version if self.reference_tbl is not None else self.col.tbl_handle
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         return self.col.name if self.col is not None else None
 
     def _equals(self, other: ColumnRef) -> bool:
@@ -241,7 +241,7 @@ class ColumnRef(Expr):
         assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
         self.pos_idx = cast(store.StoreComponentView, col.get_tbl().store_tbl).pos_col_idx
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         if self.perform_validation:
             return None
         self.col = self.col_handle.get()

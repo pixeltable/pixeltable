@@ -342,11 +342,11 @@ class TablePackager:
             scaled_img.save(buffer, 'webp')
             return base64.b64encode(buffer.getvalue()).decode()
 
-    def __encode_video(self, video_path: str) -> Optional[str]:
+    def __encode_video(self, video_path: str) -> str | None:
         thumb = Formatter.extract_first_video_frame(video_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
-    def __encode_document(self, doc_path: str) -> Optional[str]:
+    def __encode_document(self, doc_path: str) -> str | None:
         thumb = Formatter.make_document_thumbnail(doc_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
@@ -710,7 +710,7 @@ class TableRestorer:
         self,
         val: Any,
         sql_type: sql.types.TypeEngine[Any],
-        col: Optional[catalog.Column],
+        col: catalog.Column | None,
         is_media_col: bool,
         is_cellmd_col: bool,
     ) -> Any:

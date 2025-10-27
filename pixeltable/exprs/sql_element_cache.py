@@ -9,7 +9,7 @@ from .expr_dict import ExprDict
 class SqlElementCache:
     """Cache of sql.ColumnElements for exprs"""
 
-    cache: dict[int, Optional[sql.ColumnElement]]  # key: Expr.id
+    cache: dict[int, sql.ColumnElement | None]  # key: Expr.id
 
     def __init__(self, elements: Optional[ExprDict[sql.ColumnElement]] = None):
         self.cache = {}
@@ -21,7 +21,7 @@ class SqlElementCache:
         for e, el in elements.items():
             self.cache[e.id] = el
 
-    def get(self, e: Expr) -> Optional[sql.ColumnElement]:
+    def get(self, e: Expr) -> sql.ColumnElement | None:
         """Returns the sql.ColumnElement for the given Expr, or None if Expr.to_sql() returns None."""
         try:
             return self.cache[e.id]

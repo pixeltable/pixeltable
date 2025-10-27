@@ -221,7 +221,7 @@ class TestDataFrame:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id + 1).collect()
-        assert 'boolean expression expected, but got Optional[Int]: id + 1' in str(exc_info.value)
+        assert 'boolean expression expected, but got Int | None: id + 1' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()

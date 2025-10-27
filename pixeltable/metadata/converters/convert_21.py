@@ -24,7 +24,7 @@ def __update_schema_column(schema_column: dict) -> None:
     schema_column['media_validation'] = None
 
 
-def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+def __substitute_md(k: str | None, v: Any) -> Optional[tuple[str | None, Any]]:
     if isinstance(v, dict) and '_classname' in v and v['_classname'] == 'ColumnRef':
         if 'perform_validation' not in v:
             v['perform_validation'] = False

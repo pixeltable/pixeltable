@@ -34,7 +34,7 @@ def _genai_client() -> 'genai.client.Client':
 
 @pxt.udf(resource_pool='request-rate:gemini')
 async def generate_content(
-    contents: str, *, model: str, config: Optional[dict] = None, tools: Optional[list[dict]] = None
+    contents: str, *, model: str, config: dict | None = None, tools: Optional[list[dict]] = None
 ) -> dict:
     """
     Generate content from the specified model. For additional details, see:
@@ -103,7 +103,7 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 
 @pxt.udf
-def _gemini_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
     pxt_tool_calls: dict[str, list[dict]] = {}
     for part in response['candidates'][0]['content']['parts']:
         tool_call = part.get('function_call')
@@ -123,7 +123,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(resource_pool='request-rate:imagen')
-async def generate_images(prompt: str, *, model: str, config: Optional[dict] = None) -> PIL.Image.Image:
+async def generate_images(prompt: str, *, model: str, config: dict | None = None) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
@@ -167,7 +167,7 @@ def _(model: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:veo')
 async def generate_videos(
-    prompt: Optional[str] = None, image: Optional[PIL.Image.Image] = None, *, model: str, config: Optional[dict] = None
+    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
@@ -205,7 +205,7 @@ async def generate_videos(
     if prompt is None and image is None:
         raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
-    image_: Optional[types.Image] = None
+    image_: types.Image | None = None
     if image is not None:
         with io.BytesIO() as buffer:
             image.save(buffer, format='jpeg')

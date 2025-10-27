@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 class QueryTemplateFunction(Function):
     """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
 
-    template_df: Optional['DataFrame']
-    self_name: Optional[str]
-    _comment: Optional[str]
+    template_df: 'DataFrame' | None
+    self_name: str | None
+    _comment: str | None
 
     @classmethod
     def create(
@@ -40,11 +40,11 @@ class QueryTemplateFunction(Function):
 
     def __init__(
         self,
-        template_df: Optional['DataFrame'],
+        template_df: 'DataFrame' | None,
         sig: Signature,
-        path: Optional[str] = None,
-        name: Optional[str] = None,
-        comment: Optional[str] = None,
+        path: str | None = None,
+        name: str | None = None,
+        comment: str | None = None,
     ):
         assert sig is not None
         super().__init__([sig], self_path=path)
@@ -82,7 +82,7 @@ class QueryTemplateFunction(Function):
     def name(self) -> str:
         return self.self_name
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         return self._comment
 
     def _as_dict(self) -> dict:
@@ -127,10 +127,10 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
 def retrieval_udf(
     table: catalog.Table,
-    name: Optional[str] = None,
-    description: Optional[str] = None,
+    name: str | None = None,
+    description: str | None = None,
     parameters: Optional[Iterable[str | exprs.ColumnRef]] = None,
-    limit: Optional[int] = 10,
+    limit: int | None = 10,
 ) -> func.QueryTemplateFunction:
     """
     Constructs a retrieval UDF for the given table. The retrieval UDF is a UDF whose parameters are

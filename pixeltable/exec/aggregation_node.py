@@ -24,7 +24,7 @@ class AggregationNode(ExecNode):
     agg_fn_eval_ctx: exprs.RowBuilder.EvalCtx
     agg_fn_calls: list[exprs.FunctionCall]
     output_batch: DataRowBatch
-    limit: Optional[int]
+    limit: int | None
 
     def __init__(
         self,
@@ -72,7 +72,7 @@ class AggregationNode(ExecNode):
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        prev_row: Optional[exprs.DataRow] = None
+        prev_row: exprs.DataRow | None = None
         current_group: Optional[list[Any]] = None  # the values of the group-by exprs
         num_input_rows = 0
         num_output_rows = 0

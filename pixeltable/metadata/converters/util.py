@@ -15,7 +15,7 @@ def convert_table_md(
     table_md_updater: Optional[Callable[[dict, UUID], None]] = None,
     column_md_updater: Optional[Callable[[dict], None]] = None,
     external_store_md_updater: Optional[Callable[[dict], None]] = None,
-    substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None,
+    substitution_fn: Optional[Callable[[str | None, Any], Optional[tuple[str | None, Any]]]] = None,
     table_modifier: Optional[Callable[[sql.Connection, UUID, dict, dict], None]] = None,
 ) -> None:
     """
@@ -81,7 +81,7 @@ def __update_external_store_md(table_md: dict, external_store_md_updater: Callab
 
 
 def __substitute_md_rec(
-    md: Any, substitution_fn: Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]
+    md: Any, substitution_fn: Callable[[str | None, Any], Optional[tuple[str | None, Any]]]
 ) -> Any:
     if isinstance(md, dict):
         updated_dict: dict[str, Any] = {}

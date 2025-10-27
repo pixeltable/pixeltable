@@ -58,47 +58,47 @@ class Env:
 
     SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
 
-    _instance: Optional[Env] = None
+    _instance: Env | None = None
     __initializing: bool = False
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
-    _media_dir: Optional[Path]
-    _object_soa: Optional[StorageObjectAddress]
-    _file_cache_dir: Optional[Path]  # cached object files with external URL
-    _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
-    _log_dir: Optional[Path]  # log files
-    _tmp_dir: Optional[Path]  # any tmp files
-    _sa_engine: Optional[sql.engine.base.Engine]
-    _pgdata_dir: Optional[Path]
-    _db_name: Optional[str]
-    _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
-    _db_url: Optional[str]
-    _default_time_zone: Optional[ZoneInfo]
+    _media_dir: Path | None
+    _object_soa: StorageObjectAddress | None
+    _file_cache_dir: Path | None  # cached object files with external URL
+    _dataset_cache_dir: Path | None  # cached datasets (eg, pytorch or COCO)
+    _log_dir: Path | None  # log files
+    _tmp_dir: Path | None  # any tmp files
+    _sa_engine: sql.engine.base.Engine | None
+    _pgdata_dir: Path | None
+    _db_name: str | None
+    _db_server: pixeltable_pgserver.PostgresServer | None  # set only when running in local environment
+    _db_url: str | None
+    _default_time_zone: ZoneInfo | None
     _verbosity: int
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
 
-    _spacy_nlp: Optional[spacy.Language]
-    _httpd: Optional[http.server.HTTPServer]
-    _http_address: Optional[str]
+    _spacy_nlp: spacy.Language | None
+    _httpd: http.server.HTTPServer | None
+    _http_address: str | None
     _logger: logging.Logger
     _default_log_level: int
-    _logfilename: Optional[str]
+    _logfilename: str | None
     _log_to_stdout: bool
     _module_log_level: dict[str, int]  # module name -> log level
     _file_cache_size_g: float
-    _pxt_api_key: Optional[str]
+    _pxt_api_key: str | None
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
-    _current_conn: Optional[sql.Connection]
-    _current_session: Optional[orm.Session]
+    _current_conn: sql.Connection | None
+    _current_session: orm.Session | None
     _current_isolation_level: str | None
-    _dbms: Optional[Dbms]
-    _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
+    _dbms: Dbms | None
+    _event_loop: asyncio.AbstractEventLoop | None  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
@@ -202,11 +202,11 @@ class Env:
         return self._http_address
 
     @property
-    def user(self) -> Optional[str]:
+    def user(self) -> str | None:
         return Config.get().get_string_value('user')
 
     @user.setter
-    def user(self, user: Optional[str]) -> None:
+    def user(self, user: str | None) -> None:
         if user is None:
             if 'PIXELTABLE_USER' in os.environ:
                 del os.environ['PIXELTABLE_USER']
@@ -214,11 +214,11 @@ class Env:
             os.environ['PIXELTABLE_USER'] = user
 
     @property
-    def default_time_zone(self) -> Optional[ZoneInfo]:
+    def default_time_zone(self) -> ZoneInfo | None:
         return self._default_time_zone
 
     @default_time_zone.setter
-    def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
+    def default_time_zone(self, tz: ZoneInfo | None) -> None:
         """
         This is not a publicly visible setter; it is only for testing purposes.
         """
@@ -235,17 +235,17 @@ class Env:
         return self._verbosity
 
     @property
-    def conn(self) -> Optional[sql.Connection]:
+    def conn(self) -> sql.Connection | None:
         assert self._current_conn is not None
         return self._current_conn
 
     @property
-    def session(self) -> Optional[orm.Session]:
+    def session(self) -> orm.Session | None:
         assert self._current_session is not None
         return self._current_session
 
     @property
-    def dbms(self) -> Optional[Dbms]:
+    def dbms(self) -> Dbms | None:
         assert self._dbms is not None
         return self._dbms
 
@@ -297,10 +297,10 @@ class Env:
     def configure_logging(
         self,
         *,
-        to_stdout: Optional[bool] = None,
-        level: Optional[int] = None,
-        add: Optional[str] = None,
-        remove: Optional[str] = None,
+        to_stdout: bool | None = None,
+        level: int | None = None,
+        add: str | None = None,
+        remove: str | None = None,
     ) -> None:
         """Configure logging.
 
@@ -342,7 +342,7 @@ class Env:
     def set_log_level(self, level: int) -> None:
         self._default_log_level = level
 
-    def set_module_log_level(self, module: str, level: Optional[int]) -> None:
+    def set_module_log_level(self, module: str, level: int | None) -> None:
         if level is None:
             self._module_log_level.pop(module, None)
         else:
@@ -649,7 +649,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> Optional[str]:
+    def pxt_api_key(self) -> str | None:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
@@ -671,7 +671,7 @@ class Env:
             # Determine the type of the parameter for proper config parsing.
             pname = param.name
             t = param.annotation
-            # Deference Optional[T]
+            # Deference T | None
             if typing.get_origin(t) in (typing.Union, types.UnionType):
                 args = typing.get_args(t)
                 if args[0] is type(None):
@@ -802,7 +802,7 @@ class Env:
         self.__register_package('yolox', library_name='pixeltable-yolox')
         self.__register_package('lancedb')
 
-    def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
+    def __register_package(self, package_name: str, library_name: str | None = None) -> None:
         is_installed: bool
         try:
             is_installed = importlib.util.find_spec(package_name) is not None
@@ -1028,7 +1028,7 @@ _registered_clients: dict[str, ApiClient] = {}
 class ApiClient:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
-    client_obj: Optional[Any] = None
+    client_obj: Any | None = None
 
 
 @dataclass
@@ -1096,7 +1096,7 @@ class RateLimitsInfo:
         """Update self.resource_limits based on the exception headers"""
         self.has_exc = True
 
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+    def get_retry_delay(self, exc: Exception) -> float | None:
         """Returns number of seconds to wait before retry, or None if not retryable"""
         if len(self.resource_limits) == 0:
             return 1.0

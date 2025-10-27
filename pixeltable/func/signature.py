@@ -18,11 +18,11 @@ _logger = logging.getLogger('pixeltable')
 @dataclasses.dataclass
 class Parameter:
     name: str
-    col_type: Optional[ts.ColumnType]  # None for variable parameters
+    col_type: ts.ColumnType | None  # None for variable parameters
     kind: inspect._ParameterKind
     # for some reason, this needs to precede is_batched in the dataclass definition,
     # otherwise Python complains that an argument with a default is followed by an argument without a default
-    default: Optional['exprs.Literal'] = None  # default value for the parameter
+    default: 'exprs.Literal' | None = None  # default value for the parameter
     is_batched: bool = False  # True if the parameter is a batched parameter (eg, Batch[dict])
 
     def __post_init__(self) -> None:
@@ -172,7 +172,7 @@ class Signature:
 
         return True
 
-    def validate_args(self, bound_args: dict[str, Optional['exprs.Expr']], context: str = '') -> None:
+    def validate_args(self, bound_args: dict[str, 'exprs.Expr' | None], context: str = '') -> None:
         if context:
             context = f' ({context})'
 
@@ -231,11 +231,11 @@ class Signature:
         return f'({", ".join(param_strs)}) -> {self.get_return_type()}'
 
     @classmethod
-    def _infer_type(cls, annotation: Optional[type]) -> tuple[Optional[ts.ColumnType], Optional[bool]]:
+    def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:
         """Returns: (column type, is_batched) or (None, ...) if the type cannot be inferred"""
         if annotation is None:
             return (None, None)
-        py_type: Optional[type] = None
+        py_type: type | None = None
         is_batched = False
         if typing.get_origin(annotation) == typing.Annotated:
             type_args = typing.get_args(annotation)
@@ -252,10 +252,10 @@ class Signature:
     @classmethod
     def create_parameters(
         cls,
-        py_fn: Optional[Callable] = None,
+        py_fn: Callable | None = None,
         py_params: Optional[list[inspect.Parameter]] = None,
         param_types: Optional[list[ts.ColumnType]] = None,
-        type_substitutions: Optional[dict] = None,
+        type_substitutions: dict | None = None,
         is_cls_method: bool = False,
     ) -> list[Parameter]:
         """Ignores parameters starting with '_'."""
@@ -311,8 +311,8 @@ class Signature:
         cls,
         py_fn: Callable,
         param_types: Optional[list[ts.ColumnType]] = None,
-        return_type: Optional[ts.ColumnType] = None,
-        type_substitutions: Optional[dict] = None,
+        return_type: ts.ColumnType | None = None,
+        type_substitutions: dict | None = None,
         is_cls_method: bool = False,
     ) -> Signature:
         """Create a signature for the given Callable.

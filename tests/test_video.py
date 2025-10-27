@@ -34,7 +34,7 @@ class TestVideo:
         )
         return base_t, view_t
 
-    def create_and_insert(self, stored: Optional[bool], paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
+    def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
         base_t, view_t = self.create_tbls()
         _ = ObjectOps.count(None, view_t._id)
 
@@ -243,7 +243,7 @@ class TestVideo:
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
     class agg_fn(pxt.Aggregator):
-        img: Optional[PIL.Image.Image]
+        img: PIL.Image.Image | None
 
         def __init__(self) -> None:
             self.img = None

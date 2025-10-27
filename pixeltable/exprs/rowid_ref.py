@@ -25,18 +25,18 @@ class RowidRef(Expr):
     (with and without a TableVersion).
     """
 
-    tbl: Optional[catalog.TableVersionHandle]
-    normalized_base: Optional[catalog.TableVersionHandle]
+    tbl: catalog.TableVersionHandle | None
+    normalized_base: catalog.TableVersionHandle | None
     tbl_id: UUID
     normalized_base_id: UUID
     rowid_component_idx: int
 
     def __init__(
         self,
-        tbl: Optional[catalog.TableVersionHandle],
+        tbl: catalog.TableVersionHandle | None,
         idx: int,
-        tbl_id: Optional[UUID] = None,
-        normalized_base_id: Optional[UUID] = None,
+        tbl_id: UUID | None = None,
+        normalized_base_id: UUID | None = None,
     ):
         super().__init__(ts.IntType(nullable=False))
         self.tbl = tbl
@@ -57,7 +57,7 @@ class RowidRef(Expr):
         self.rowid_component_idx = idx
         self.id = self._create_id()
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         return str(self)
 
     def _equals(self, other: RowidRef) -> bool:
@@ -98,7 +98,7 @@ class RowidRef(Expr):
         self.tbl = tbl.tbl_version
         self.tbl_id = self.tbl.id
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
         assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()

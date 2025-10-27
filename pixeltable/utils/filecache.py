@@ -58,7 +58,7 @@ class FileCache:
     - implement MRU eviction for queries that exceed the capacity
     """
 
-    __instance: Optional[FileCache] = None
+    __instance: FileCache | None = None
 
     cache: OrderedDict[str, CacheEntry]
     total_size: int
@@ -126,12 +126,12 @@ class FileCache:
             return 0
         return int(self.total_size / len(self.cache))
 
-    def num_files(self, tbl_id: Optional[UUID] = None) -> int:
+    def num_files(self, tbl_id: UUID | None = None) -> int:
         if tbl_id is None:
             return len(self.cache)
         return sum(e.tbl_id == tbl_id for e in self.cache.values())
 
-    def clear(self, tbl_id: Optional[UUID] = None) -> None:
+    def clear(self, tbl_id: UUID | None = None) -> None:
         """
         For testing purposes: allow resetting capacity and stats.
         """
@@ -174,7 +174,7 @@ class FileCache:
         h.update(url.encode())
         return h.hexdigest()
 
-    def lookup(self, url: str) -> Optional[Path]:
+    def lookup(self, url: str) -> Path | None:
         self.num_requests += 1
         key = self._url_hash(url)
         entry = self.cache.get(key, None)

@@ -44,7 +44,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 def _unpack_row(
-    row: Optional[sql.engine.Row], entities: list[type[sql.orm.decl_api.DeclarativeBase]]
+    row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]
 ) -> Optional[list[Any]]:
     """Convert a Row result into a list of entity instances.
 
@@ -75,7 +75,7 @@ T = TypeVar('T')
 
 
 def retry_loop(
-    *, tbl: Optional[TableVersionPath] = None, for_write: bool, lock_mutable_tree: bool = False
+    *, tbl: TableVersionPath | None = None, for_write: bool, lock_mutable_tree: bool = False
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -159,13 +159,13 @@ class Catalog:
     - metadata validation is only needed for live TableVersion instances (snapshot instances are immutable)
     """
 
-    _instance: Optional[Catalog] = None
+    _instance: Catalog | None = None
 
     # cached TableVersion instances; key: [id, version]
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
-    _tbl_versions: dict[tuple[UUID, Optional[int]], TableVersion]
-    _tbls: dict[tuple[UUID, Optional[int]], Table]
+    _tbl_versions: dict[tuple[UUID, int | None], TableVersion]
+    _tbls: dict[tuple[UUID, int | None], Table]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -258,8 +258,8 @@ class Catalog:
     def begin_xact(
         self,
         *,
-        tbl: Optional[TableVersionPath] = None,
-        tbl_id: Optional[UUID] = None,
+        tbl: TableVersionPath | None = None,
+        tbl_id: UUID | None = None,
         for_write: bool = False,
         lock_mutable_tree: bool = False,
         convert_db_excs: bool = True,
@@ -303,7 +303,7 @@ class Catalog:
         # )
         # _logger.debug(f'begin_xact(): {tv_msg}')
         num_retries = 0
-        pending_ops_tbl_id: Optional[UUID] = None
+        pending_ops_tbl_id: UUID | None = None
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
         while True:
             if pending_ops_tbl_id is not None:
@@ -322,7 +322,7 @@ class Catalog:
                 with Env.get().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
-                            target: Optional[TableVersionHandle] = None
+                            target: TableVersionHandle | None = None
                             if tbl is not None:
                                 if self._acquire_path_locks(
                                     tbl=tbl,
@@ -490,7 +490,7 @@ class Catalog:
         tbl: TableVersionPath,
         for_write: bool = False,
         lock_mutable_tree: bool = False,
-        check_pending_ops: Optional[bool] = None,
+        check_pending_ops: bool | None = None,
     ) -> bool:
         """
         Path locking protocol:
@@ -524,13 +524,13 @@ class Catalog:
         self,
         *,
         for_write: bool,
-        tbl_id: Optional[UUID] = None,
-        dir_id: Optional[UUID] = None,
-        tbl_name: Optional[str] = None,
+        tbl_id: UUID | None = None,
+        dir_id: UUID | None = None,
+        tbl_name: str | None = None,
         lock_mutable_tree: bool = False,
         raise_if_not_exists: bool = True,
-        check_pending_ops: Optional[bool] = None,
-    ) -> Optional[TableVersionHandle]:
+        check_pending_ops: bool | None = None,
+    ) -> TableVersionHandle | None:
         """
         For writes: force acquisition of an X-lock on a Table record via a blind update.
 
@@ -594,7 +594,7 @@ class Catalog:
         while True:
             try:
                 tbl_version: int
-                op: Optional[TableOp] = None
+                op: TableOp | None = None
                 delete_next_op_stmt: sql.Delete
                 reset_has_pending_stmt: sql.Update
                 with self.begin_xact(
@@ -723,7 +723,7 @@ class Catalog:
         return result
 
     def _acquire_dir_xlock(
-        self, *, parent_id: Optional[UUID] = None, dir_id: Optional[UUID] = None, dir_name: Optional[str] = None
+        self, *, parent_id: UUID | None = None, dir_id: UUID | None = None, dir_name: str | None = None
     ) -> None:
         """Force acquisition of an X-lock on a Dir record via a blind update.
 
@@ -763,9 +763,9 @@ class Catalog:
 
     @dataclasses.dataclass
     class DirEntry:
-        dir: Optional[schema.Dir]
+        dir: schema.Dir | None
         dir_entries: dict[str, Catalog.DirEntry]
-        table: Optional[schema.Table]
+        table: schema.Table | None
 
     @retry_loop(for_write=False)
     def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
@@ -817,14 +817,14 @@ class Catalog:
 
     def _prepare_dir_op(
         self,
-        add_dir_path: Optional[Path] = None,
-        add_name: Optional[str] = None,
-        drop_dir_path: Optional[Path] = None,
-        drop_name: Optional[str] = None,
+        add_dir_path: Path | None = None,
+        add_name: str | None = None,
+        drop_dir_path: Path | None = None,
+        drop_name: str | None = None,
         drop_expected: Optional[type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
-    ) -> tuple[Optional[SchemaObject], Optional[Dir], Optional[SchemaObject]]:
+    ) -> tuple[SchemaObject | None, Dir | None, SchemaObject | None]:
         """
         Validates paths and acquires locks needed for a directory operation, ie, add/drop/rename (add + drop) of a
         directory entry.
@@ -851,8 +851,8 @@ class Catalog:
         if drop_dir_path is not None:
             dir_paths.add(drop_dir_path)
 
-        add_dir: Optional[schema.Dir] = None
-        drop_dir: Optional[schema.Dir] = None
+        add_dir: schema.Dir | None = None
+        drop_dir: schema.Dir | None = None
         for p in sorted(dir_paths):
             dir = self._get_dir(p, lock_dir=True)
             if dir is None:
@@ -862,14 +862,14 @@ class Catalog:
             if p == drop_dir_path:
                 drop_dir = dir
 
-        add_obj: Optional[SchemaObject] = None
+        add_obj: SchemaObject | None = None
         if add_dir is not None:
             add_obj = self._get_dir_entry(add_dir.id, add_name, lock_entry=True)
             if add_obj is not None and raise_if_exists:
                 add_path = add_dir_path.append(add_name)
                 raise excs.Error(f'Path {add_path!r} already exists.')
 
-        drop_obj: Optional[SchemaObject] = None
+        drop_obj: SchemaObject | None = None
         if drop_dir is not None:
             drop_path = drop_dir_path.append(drop_name)
             drop_obj = self._get_dir_entry(drop_dir.id, drop_name, lock_entry=True)
@@ -883,8 +883,8 @@ class Catalog:
         return add_obj, add_dir_obj, drop_obj
 
     def _get_dir_entry(
-        self, dir_id: UUID, name: str, version: Optional[int] = None, lock_entry: bool = False
-    ) -> Optional[SchemaObject]:
+        self, dir_id: UUID, name: str, version: int | None = None, lock_entry: bool = False
+    ) -> SchemaObject | None:
         user = Env.get().user
         conn = Env.get().conn
 
@@ -926,7 +926,7 @@ class Catalog:
         raise_if_not_exists: bool = False,
         lock_parent: bool = False,
         lock_obj: bool = False,
-    ) -> Optional[SchemaObject]:
+    ) -> SchemaObject | None:
         """Return the schema object at the given path, or None if it doesn't exist.
 
         Raises Error if
@@ -961,7 +961,7 @@ class Catalog:
             raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.')
         return obj
 
-    def get_table_by_id(self, tbl_id: UUID, version: Optional[int] = None) -> Optional[Table]:
+    def get_table_by_id(self, tbl_id: UUID, version: int | None = None) -> Table | None:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
         if (tbl_id, version) not in self._tbls:
             if version is None:
@@ -1024,9 +1024,9 @@ class Catalog:
         self,
         path: Path,
         base: TableVersionPath,
-        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
-        where: Optional[exprs.Expr],
-        sample_clause: Optional['SampleClause'],
+        select_list: Optional[list[tuple[exprs.Expr, str | None]]],
+        where: exprs.Expr | None,
+        sample_clause: 'SampleClause' | None,
         additional_columns: Optional[dict[str, Any]],
         is_snapshot: bool,
         create_default_idxs: bool,
@@ -1094,7 +1094,7 @@ class Catalog:
         with self.begin_xact(tbl_id=view_id, for_write=True, finalize_pending_ops=True):
             return self.get_table_by_id(view_id)
 
-    def _clear_tv_cache(self, tbl_id: UUID, effective_version: Optional[int]) -> None:
+    def _clear_tv_cache(self, tbl_id: UUID, effective_version: int | None) -> None:
         if (tbl_id, effective_version) in self._tbl_versions:
             tv = self._tbl_versions[tbl_id, effective_version]
             tv.is_validated = False
@@ -1191,9 +1191,9 @@ class Catalog:
         conn = Env.get().conn
         tbl_id = md.tbl_md.tbl_id
 
-        new_tbl_md: Optional[schema.TableMd] = None
-        new_version_md: Optional[schema.TableVersionMd] = None
-        new_schema_version_md: Optional[schema.TableSchemaVersionMd] = None
+        new_tbl_md: schema.TableMd | None = None
+        new_version_md: schema.TableVersionMd | None = None
+        new_schema_version_md: schema.TableSchemaVersionMd | None = None
         is_new_tbl_version: bool = False
 
         # We need to ensure that the table metadata in the catalog always reflects the latest observed version of
@@ -1446,7 +1446,7 @@ class Catalog:
 
         if parents:
             # start walking down from the root
-            last_parent: Optional[SchemaObject] = None
+            last_parent: SchemaObject | None = None
             for ancestor in path.ancestors():
                 ancestor_obj = self._get_schema_object(ancestor, expected=Dir)
                 assert ancestor_obj is not None or last_parent is not None
@@ -1522,10 +1522,10 @@ class Catalog:
     def get_tbl_version(
         self,
         tbl_id: UUID,
-        effective_version: Optional[int],
-        check_pending_ops: Optional[bool] = None,
+        effective_version: int | None,
+        check_pending_ops: bool | None = None,
         validate_initialized: bool = False,
-    ) -> Optional[TableVersion]:
+    ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table and version and updates the cache.
 
@@ -1574,7 +1574,7 @@ class Catalog:
         assert (tbl_version.id, tbl_version.effective_version) in self._tbl_versions
         del self._tbl_versions[tbl_version.id, tbl_version.effective_version]
 
-    def get_dir(self, dir_id: UUID, for_update: bool = False) -> Optional[Dir]:
+    def get_dir(self, dir_id: UUID, for_update: bool = False) -> Dir | None:
         """Return the Dir with the given id, or None if it doesn't exist"""
         conn = Env.get().conn
         if for_update:
@@ -1586,7 +1586,7 @@ class Catalog:
         dir_record = schema.Dir(**row._mapping)
         return Dir(dir_record.id, dir_record.parent_id, dir_record.md['name'])
 
-    def _get_dir(self, path: Path, lock_dir: bool = False) -> Optional[schema.Dir]:
+    def _get_dir(self, path: Path, lock_dir: bool = False) -> schema.Dir | None:
         """
         lock_dir: if True, X-locks target (but not the ancestors)
         """
@@ -1612,7 +1612,7 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
-    def _load_tbl(self, tbl_id: UUID) -> Optional[Table]:
+    def _load_tbl(self, tbl_id: UUID) -> Table | None:
         """Loads metadata for the table with the given id and caches it."""
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
@@ -1672,7 +1672,7 @@ class Catalog:
             return tbl
 
         # this is a view; determine the sequence of TableVersions to load
-        tbl_version_path: list[tuple[UUID, Optional[int]]] = []
+        tbl_version_path: list[tuple[UUID, int | None]] = []
         if tbl_md.is_pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
@@ -1685,8 +1685,8 @@ class Catalog:
             tbl_version_path.extend((UUID(tbl_id), version) for tbl_id, version in view_md.base_versions)
 
         # load TableVersions, starting at the root
-        base_path: Optional[TableVersionPath] = None
-        view_path: Optional[TableVersionPath] = None
+        base_path: TableVersionPath | None = None
+        view_path: TableVersionPath | None = None
         for id, effective_version in tbl_version_path[::-1]:
             if (id, effective_version) not in self._tbl_versions:
                 _ = self._load_tbl_version(id, effective_version)
@@ -1696,7 +1696,7 @@ class Catalog:
         self._tbls[tbl_id, None] = view
         return view
 
-    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> Optional[Table]:
+    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> Table | None:
         from .view import View
 
         # Load the specified TableMd and TableVersionMd records from the db.
@@ -1723,7 +1723,7 @@ class Catalog:
         # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
         # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
         # given TableVersion's created_at timestamp.
-        ancestors: list[tuple[UUID, Optional[int]]] = [(tbl_id, version)]
+        ancestors: list[tuple[UUID, int | None]] = [(tbl_id, version)]
         if tbl_md.view_md is not None:
             for ancestor_id, _ in tbl_md.view_md.base_versions:
                 q = (
@@ -1750,7 +1750,7 @@ class Catalog:
                 _ = self._load_tbl_version(anc_id, anc_version)
 
         # Now reconstruct the relevant TableVersionPath instance from the ancestor versions.
-        tvp: Optional[TableVersionPath] = None
+        tvp: TableVersionPath | None = None
         for anc_id, anc_version in ancestors[::-1]:
             tvp = TableVersionPath(TableVersionHandle(anc_id, anc_version), base=tvp)
 
@@ -1759,10 +1759,10 @@ class Catalog:
         return view
 
     @retry_loop(for_write=False)
-    def collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
+    def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
         return self._collect_tbl_history(tbl_id, n)
 
-    def _collect_tbl_history(self, tbl_id: UUID, n: Optional[int]) -> list[schema.FullTableMd]:
+    def _collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 
@@ -1798,7 +1798,7 @@ class Catalog:
             for row in src_rows
         ]
 
-    def load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> schema.FullTableMd:
+    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> schema.FullTableMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
@@ -1854,10 +1854,10 @@ class Catalog:
     def store_tbl_md(
         self,
         tbl_id: UUID,
-        dir_id: Optional[UUID],
-        tbl_md: Optional[schema.TableMd],
-        version_md: Optional[schema.TableVersionMd],
-        schema_version_md: Optional[schema.TableSchemaVersionMd],
+        dir_id: UUID | None,
+        tbl_md: schema.TableMd | None,
+        version_md: schema.TableVersionMd | None,
+        schema_version_md: schema.TableSchemaVersionMd | None,
         pending_ops: Optional[list[TableOp]] = None,
     ) -> None:
         """
@@ -2010,8 +2010,8 @@ class Catalog:
         return md
 
     def _load_tbl_version(
-        self, tbl_id: UUID, effective_version: Optional[int], check_pending_ops: bool = True
-    ) -> Optional[TableVersion]:
+        self, tbl_id: UUID, effective_version: int | None, check_pending_ops: bool = True
+    ) -> TableVersion | None:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
         tbl_md, version_md, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
@@ -2067,7 +2067,7 @@ class Catalog:
             assert not pure_snapshot  # a pure snapshot doesn't have a physical table backing it, no point in loading it
 
             base: TableVersionHandle
-            base_path: Optional[TableVersionPath] = None  # needed for live view
+            base_path: TableVersionPath | None = None  # needed for live view
             if view_md.is_snapshot:
                 base = TableVersionHandle(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
             else:
@@ -2098,7 +2098,7 @@ class Catalog:
         self.create_user(None)
         _logger.info('Initialized catalog.')
 
-    def create_user(self, user: Optional[str]) -> None:
+    def create_user(self, user: str | None) -> None:
         """
         Creates a catalog record (root directory) for the specified user, if one does not already exist.
         """
@@ -2117,7 +2117,7 @@ class Catalog:
 
     def _handle_path_collision(
         self, path: Path, expected_obj_type: type[SchemaObject], expected_snapshot: bool, if_exists: IfExistsParam
-    ) -> Optional[SchemaObject]:
+    ) -> SchemaObject | None:
         obj, _, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name)
 
         if if_exists == IfExistsParam.ERROR and obj is not None:

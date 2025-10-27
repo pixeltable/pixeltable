@@ -39,7 +39,7 @@ class Formatter:
         self.__num_cols = num_cols
         self.__http_address = http_address
 
-    def get_pandas_formatter(self, col_type: ts.ColumnType) -> Optional[Callable]:
+    def get_pandas_formatter(self, col_type: ts.ColumnType) -> Callable | None:
         if col_type.is_string_type():
             return self.format_string
         if col_type.is_float_type():
@@ -184,7 +184,7 @@ class Formatter:
         """
 
     @classmethod
-    def extract_first_video_frame(cls, file_path: str) -> Optional[Image.Image]:
+    def extract_first_video_frame(cls, file_path: str) -> Image.Image | None:
         with av.open(file_path) as container:
             try:
                 img = next(container.decode(video=0)).to_image()
@@ -226,7 +226,7 @@ class Formatter:
     @classmethod
     def make_document_thumbnail(
         cls, file_path: str, max_width: int = 320, max_height: int = 320
-    ) -> Optional[Image.Image]:
+    ) -> Image.Image | None:
         """
         Returns a thumbnail image of a document.
         """

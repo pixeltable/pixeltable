@@ -2538,7 +2538,7 @@ class TestTable:
         reload_tester.run_reload_test()
 
     recompute_udf_increment = 0
-    recompute_udf_error_val: Optional[int] = None
+    recompute_udf_error_val: int | None = None
 
     @staticmethod
     @pxt.udf

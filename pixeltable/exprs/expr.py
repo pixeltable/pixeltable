@@ -29,7 +29,7 @@ class ExprScope:
     parent is None: outermost scope
     """
 
-    def __init__(self, parent: Optional[ExprScope]):
+    def __init__(self, parent: ExprScope | None):
         self.parent = parent
 
     def is_contained_in(self, other: ExprScope) -> bool:
@@ -61,13 +61,13 @@ class Expr(abc.ABC):
     # - set by the subclass's __init__()
     # - produced by _create_id()
     # - not expected to survive a serialize()/deserialize() roundtrip
-    id: Optional[int]
+    id: int | None
 
     # index of the expr's value in the data row:
     # - set for all materialized exprs
     # - None: not executable
     # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
-    slot_idx: Optional[int]
+    slot_idx: int | None
 
     T = TypeVar('T', bound='Expr')
 
@@ -103,7 +103,7 @@ class Expr(abc.ABC):
         assert not has_rel_path, self._expr_tree()
         assert not self._has_relative_path(), self._expr_tree()
 
-    def _bind_rel_paths(self, mapper: Optional['exprs.JsonMapperDispatch'] = None) -> None:
+    def _bind_rel_paths(self, mapper: 'exprs.JsonMapperDispatch' | None = None) -> None:
         for c in self.components:
             c._bind_rel_paths(mapper)
 
@@ -118,7 +118,7 @@ class Expr(abc.ABC):
         for c in self.components:
             c._expr_tree_r(indent + 2, buf)
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         """
         Returns:
             None if this expression lacks a default name,
@@ -127,7 +127,7 @@ class Expr(abc.ABC):
         return None
 
     @property
-    def validation_error(self) -> Optional[str]:
+    def validation_error(self) -> str | None:
         """
         Subclasses can override this to indicate that validation has failed after a catalog load.
 
@@ -418,14 +418,14 @@ class Expr(abc.ABC):
                 result.update(cls.get_refd_column_ids(component_dict))
         return result
 
-    def as_literal(self) -> Optional[Expr]:
+    def as_literal(self) -> Expr | None:
         """
         Return a Literal expression if this expression can be evaluated to a constant value, otherwise return None.
         """
         return None
 
     @classmethod
-    def from_array(cls, elements: Iterable) -> Optional[Expr]:
+    def from_array(cls, elements: Iterable) -> Expr | None:
         from .inline_expr import InlineArray
         from .literal import Literal
 
@@ -448,7 +448,7 @@ class Expr(abc.ABC):
             return self
 
     @classmethod
-    def from_object(cls, o: object) -> Optional[Expr]:
+    def from_object(cls, o: object) -> Expr | None:
         """
         Try to turn a literal object into an Expr.
         """
@@ -478,7 +478,7 @@ class Expr(abc.ABC):
                 return Literal(o, col_type=obj_type)
         return None
 
-    def sql_expr(self, sql_elements: 'exprs.SqlElementCache') -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: 'exprs.SqlElementCache') -> sql.ColumnElement | None:
         """
         If this expr can be materialized directly in SQL:
         - returns a ColumnElement
@@ -805,7 +805,7 @@ class Expr(abc.ABC):
 
         return CompoundPredicate(LogicalOperator.NOT, [self])
 
-    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
+    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Expr | None]:
         """
         Returns clauses of a conjunction that meet condition in the first element.
         The second element contains remaining clauses, rolled into a conjunction.
@@ -816,7 +816,7 @@ class Expr(abc.ABC):
         else:
             return [], self
 
-    def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'func.Function':
+    def _make_applicator_function(self, fn: Callable, col_type: ts.ColumnType | None) -> 'func.Function':
         """
         Creates a unary pixeltable `Function` that encapsulates a python `Callable`. The result type of
         the new `Function` is given by `col_type`, and its parameter type will be `self.col_type`.

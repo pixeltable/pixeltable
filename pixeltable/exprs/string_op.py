@@ -60,7 +60,7 @@ class StringOp(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('operator', self.operator.value)]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         left = sql_elements.get(self._op1)
         right = sql_elements.get(self._op2)
         if left is None or right is None:

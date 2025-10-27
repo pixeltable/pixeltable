@@ -13,8 +13,8 @@ class ExecContext:
     profile: exprs.ExecProfile
     show_pbar: bool
     batch_size: int
-    num_rows: Optional[int]
-    conn: Optional[sql.engine.Connection]
+    num_rows: int | None
+    conn: sql.engine.Connection | None
     pk_clause: Optional[list[sql.ClauseElement]]
     num_computed_exprs: int
     ignore_errors: bool

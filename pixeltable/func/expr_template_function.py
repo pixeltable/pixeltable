@@ -41,7 +41,7 @@ class ExprTemplateFunction(Function):
     templates: list[ExprTemplate]
     self_name: str
 
-    def __init__(self, templates: list[ExprTemplate], self_path: Optional[str] = None, name: Optional[str] = None):
+    def __init__(self, templates: list[ExprTemplate], self_path: str | None = None, name: str | None = None):
         self.templates = templates
         self.self_name = name
 
@@ -98,7 +98,7 @@ class ExprTemplateFunction(Function):
         )
         return substituted_expr.col_type
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         if isinstance(self.templates[0].expr, exprs.FunctionCall):
             return self.templates[0].expr.fn.comment()
         return None

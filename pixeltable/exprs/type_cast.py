@@ -19,7 +19,7 @@ class TypeCast(Expr):
     def __init__(self, underlying: Expr, new_type: ts.ColumnType):
         super().__init__(new_type)
         self.components: list[Expr] = [underlying]
-        self.id: Optional[int] = self._create_id()
+        self.id: int | None = self._create_id()
 
     def _equals(self, other: 'TypeCast') -> bool:
         # `TypeCast` has no properties beyond those captured by `Expr`.
@@ -29,7 +29,7 @@ class TypeCast(Expr):
     def _op1(self) -> Expr:
         return self.components[0]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         """
         sql_expr() is unimplemented for now, in order to sidestep potentially thorny
         questions about consistency of doing type conversions in both Python and Postgres.
@@ -40,7 +40,7 @@ class TypeCast(Expr):
         original_val = data_row[self._op1.slot_idx]
         data_row[self.slot_idx] = self.col_type.create_literal(original_val)
 
-    def as_literal(self) -> Optional[Literal]:
+    def as_literal(self) -> Literal | None:
         op1_lit = self._op1.as_literal()
         if op1_lit is None:
             return None

@@ -25,7 +25,7 @@ def _(host: str) -> 'ollama.Client':
     return ollama.Client(host=host)
 
 
-def _ollama_client() -> Optional['ollama.Client']:
+def _ollama_client() -> 'ollama.Client | None':
     try:
         return env.Env.get().get_client('ollama')
     except Exception:
@@ -42,8 +42,8 @@ def generate(
     template: str = '',
     context: Optional[list[int]] = None,
     raw: bool = False,
-    format: Optional[str] = None,
-    options: Optional[dict] = None,
+    format: str | None = None,
+    options: dict | None = None,
 ) -> dict:
     """
     Generate a response for a given prompt with a provided model.
@@ -85,8 +85,8 @@ def chat(
     *,
     model: str,
     tools: Optional[list[dict]] = None,
-    format: Optional[str] = None,
-    options: Optional[dict] = None,
+    format: str | None = None,
+    options: dict | None = None,
 ) -> dict:
     """
     Generate the next message in a chat with a provided model.
@@ -110,7 +110,7 @@ def chat(
 
 @pxt.udf(batch_size=16)
 def embed(
-    input: Batch[str], *, model: str, truncate: bool = True, options: Optional[dict] = None
+    input: Batch[str], *, model: str, truncate: bool = True, options: dict | None = None
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Generate embeddings from a model.

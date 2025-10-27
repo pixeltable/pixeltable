@@ -42,9 +42,9 @@ class FrameIterator(ComponentIterator):
             [Frame](https://pyav.org/docs/develop/api/frame.html)):
 
             * `index` (`int`)
-            * `pts` (`Optional[int]`)
-            * `dts` (`Optional[int]`)
-            * `time` (`Optional[float]`)
+            * `pts` (`int | None`)
+            * `dts` (`int | None`)
+            * `time` (`float | None`)
             * `is_corrupt` (`bool`)
             * `key_frame` (`bool`)
             * `pict_type` (`int`)
@@ -55,8 +55,8 @@ class FrameIterator(ComponentIterator):
 
     # Input parameters
     video_path: Path
-    fps: Optional[float]
-    num_frames: Optional[int]
+    fps: float | None
+    num_frames: int | None
     all_frame_attrs: bool
 
     # Video info
@@ -77,8 +77,8 @@ class FrameIterator(ComponentIterator):
         self,
         video: str,
         *,
-        fps: Optional[float] = None,
-        num_frames: Optional[int] = None,
+        fps: float | None = None,
+        num_frames: int | None = None,
         all_frame_attrs: bool = False,
     ):
         if fps is not None and num_frames is not None:

@@ -48,7 +48,7 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
 }
 
 
-def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> Optional[ts.ColumnType]:
+def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType | None:
     """Convert a pyarrow DataType to a pixeltable ColumnType if one is defined.
     Returns None if no conversion is currently implemented.
     """
@@ -66,7 +66,7 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> Optional[ts.C
         return None
 
 
-def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
+def to_arrow_type(pixeltable_type: ts.ColumnType) -> pa.DataType | None:
     """Convert a pixeltable DataType to a pyarrow datatype if one is defined.
     Returns None if no conversion is currently implemented.
     """

@@ -159,7 +159,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
 
 
 def _create_retry_session(
-    max_retries: int = 3, backoff_factor: float = 1.0, status_forcelist: Optional[list] = None
+    max_retries: int = 3, backoff_factor: float = 1.0, status_forcelist: list | None = None
 ) -> requests.Session:
     """Create a requests session with retry configuration"""
     if status_forcelist is None:

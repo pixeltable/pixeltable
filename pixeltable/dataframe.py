@@ -162,14 +162,14 @@ class DataFrameResultSet:
 #         # output of the agg stage
 #         self.agg_output_exprs: list[exprs.Expr] = []
 #         # Where clause of the Select stmt of the SQL scan stage
-#         self.sql_where_clause: Optional[sql.ClauseElement] = None
+#         self.sql_where_clause: sql.ClauseElement | None = None
 #         # filter predicate applied to input rows of the SQL scan stage
-#         self.filter: Optional[exprs.Predicate] = None
-#         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+#         self.filter: exprs.Predicate | None = None
+#         self.similarity_clause: exprs.ImageSimilarityPredicate | None = None
 #         self.agg_fn_calls: list[exprs.FunctionCall] = []  # derived from unique_exprs
 #         self.has_frame_col: bool = False  # True if we're referencing the frame col
 #
-#         self.evaluator: Optional[exprs.Evaluator] = None
+#         self.evaluator: exprs.Evaluator | None = None
 #         self.sql_scan_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of SQL scan stage
 #         self.agg_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of agg stage
 #         self.filter_eval_ctx: list[exprs.Expr] = []
@@ -191,24 +191,24 @@ class DataFrame:
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
-    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
-    where_clause: Optional[exprs.Expr]
+    select_list: Optional[list[tuple[exprs.Expr, str | None]]]
+    where_clause: exprs.Expr | None
     group_by_clause: Optional[list[exprs.Expr]]
-    grouping_tbl: Optional[catalog.TableVersion]
+    grouping_tbl: catalog.TableVersion | None
     order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
-    limit_val: Optional[exprs.Expr]
-    sample_clause: Optional[SampleClause]
+    limit_val: exprs.Expr | None
+    sample_clause: SampleClause | None
 
     def __init__(
         self,
-        from_clause: Optional[plan.FromClause] = None,
-        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None,
-        where_clause: Optional[exprs.Expr] = None,
+        from_clause: plan.FromClause | None = None,
+        select_list: Optional[list[tuple[exprs.Expr, str | None]]] = None,
+        where_clause: exprs.Expr | None = None,
         group_by_clause: Optional[list[exprs.Expr]] = None,
-        grouping_tbl: Optional[catalog.TableVersion] = None,
+        grouping_tbl: catalog.TableVersion | None = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
-        limit: Optional[exprs.Expr] = None,
-        sample_clause: Optional[SampleClause] = None,
+        limit: exprs.Expr | None = None,
+        sample_clause: SampleClause | None = None,
     ):
         self._from_clause = from_clause
 
@@ -232,7 +232,7 @@ class DataFrame:
 
     @classmethod
     def _normalize_select_list(
-        cls, tbls: list[catalog.TableVersionPath], select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
+        cls, tbls: list[catalog.TableVersionPath], select_list: Optional[list[tuple[exprs.Expr, str | None]]]
     ) -> tuple[list[exprs.Expr], list[str]]:
         """
         Expand select list information with all columns and their names
@@ -299,7 +299,7 @@ class DataFrame:
     @classmethod
     def _convert_param_to_typed_expr(
         cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
-    ) -> Optional[exprs.Expr]:
+    ) -> exprs.Expr | None:
         if v is None:
             if required:
                 raise excs.Error(f'{name!r} parameter must be present')
@@ -387,7 +387,7 @@ class DataFrame:
             sample_clause=self.sample_clause,
         )
 
-    def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
+    def __rowid_columns(self, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
         """Return list of RowidRef for the given number of associated rowids"""
         return Planner.rowid_columns(self._first_tbl.tbl_version, num_rowid_cols)
 
@@ -683,7 +683,7 @@ class DataFrame:
             return self
 
         # analyze select list; wrap literals with the corresponding expressions
-        select_list: list[tuple[exprs.Expr, Optional[str]]] = []
+        select_list: list[tuple[exprs.Expr, str | None]] = []
         for raw_expr, name in base_list:
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
@@ -806,7 +806,7 @@ class DataFrame:
                 raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
             rhs_col_ref = exprs.ColumnRef(rhs_col)
 
-            lhs_col_ref: Optional[exprs.ColumnRef] = None
+            lhs_col_ref: exprs.ColumnRef | None = None
             if any(tbl.has_column(col_ref.col) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
@@ -885,7 +885,7 @@ class DataFrame:
         """
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
-        join_pred: Optional[exprs.Expr]
+        join_pred: exprs.Expr | None
         if how == 'cross':
             if on is not None:
                 raise excs.Error("'on' not allowed for cross join")
@@ -955,7 +955,7 @@ class DataFrame:
         if self.sample_clause is not None:
             raise excs.Error('group_by() cannot be used with sample()')
 
-        grouping_tbl: Optional[catalog.TableVersion] = None
+        grouping_tbl: catalog.TableVersion | None = None
         group_by_clause: Optional[list[exprs.Expr]] = None
         for item in grouping_items:
             if isinstance(item, (catalog.Table, catalog.TableVersion)):
@@ -1080,10 +1080,10 @@ class DataFrame:
 
     def sample(
         self,
-        n: Optional[int] = None,
-        n_per_stratum: Optional[int] = None,
-        fraction: Optional[float] = None,
-        seed: Optional[int] = None,
+        n: int | None = None,
+        n_per_stratum: int | None = None,
+        fraction: float | None = None,
+        seed: int | None = None,
         stratify_by: Any = None,
     ) -> DataFrame:
         """

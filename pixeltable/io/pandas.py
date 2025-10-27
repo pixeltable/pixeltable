@@ -141,7 +141,7 @@ def df_infer_schema(
     return pd_schema
 
 
-def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[ts.ColumnType]:
+def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> ts.ColumnType | None:
     """
     Determines a pixeltable ColumnType from a pandas dtype
 

@@ -177,8 +177,8 @@ def format_initial_prompt(question_text: str, retrieved_context: Optional[List[D
 def format_synthesis_messages(
     question_text: str,
     retrieved_context: Optional[List[Dict]],
-    tool_output: Optional[Dict],
-    llm_general_response: Optional[Dict],
+    tool_output: Dict | None,
+    llm_general_response: Dict | None,
 ) -> List[Dict]:
     """Formats the user message for the final synthesis LLM call.
     Uses related_url for source display if available.

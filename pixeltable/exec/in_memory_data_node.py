@@ -23,7 +23,7 @@ class InMemoryDataNode(ExecNode):
 
     input_rows: list[dict[str, Any]]
     start_row_id: int
-    output_batch: Optional[DataRowBatch]
+    output_batch: DataRowBatch | None
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]

@@ -271,13 +271,13 @@ def _(
 @pxt.udf(is_method=True)
 def replace(
     self: datetime,
-    year: Optional[int] = None,
-    month: Optional[int] = None,
-    day: Optional[int] = None,
-    hour: Optional[int] = None,
-    minute: Optional[int] = None,
-    second: Optional[int] = None,
-    microsecond: Optional[int] = None,
+    year: int | None = None,
+    month: int | None = None,
+    day: int | None = None,
+    hour: int | None = None,
+    minute: int | None = None,
+    second: int | None = None,
+    microsecond: int | None = None,
 ) -> datetime:
     """
     Return a datetime with the same attributes, except for those attributes given new values by whichever keyword

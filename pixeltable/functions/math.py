@@ -80,7 +80,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def round(self: float, digits: Optional[int] = None) -> float:
+def round(self: float, digits: int | None = None) -> float:
     """
     Round a number to a given precision in decimal digits.
 
@@ -93,7 +93,7 @@ def round(self: float, digits: Optional[int] = None) -> float:
 
 
 @round.to_sql
-def _(self: sql.ColumnElement, digits: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, digits: sql.ColumnElement | None = None) -> sql.ColumnElement:
     if digits is None:
         return sql.func.round(self)
     else:

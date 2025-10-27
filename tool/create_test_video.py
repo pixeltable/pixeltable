@@ -15,8 +15,8 @@ def create_test_video(
     frame_rate: int | Fraction = 1,
     frame_width: int = 224,
     aspect_ratio: str = '16:9',
-    frame_height: Optional[int] = None,
-    output_path: Optional[Path] = None,
+    frame_height: int | None = None,
+    output_path: Path | None = None,
     font_file: str = '/Library/Fonts/Arial Unicode.ttf',
 ) -> Path:
     """

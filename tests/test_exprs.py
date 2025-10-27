@@ -45,14 +45,14 @@ class TestExprs:
 
     @staticmethod
     @pxt.udf
-    def mixed_params_fn(a: float, b: Optional[float]) -> float:
+    def mixed_params_fn(a: float, b: float | None) -> float:
         if b is None:
             return a
         return a + b
 
     @staticmethod
     @pxt.udf
-    def optional_params_fn(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    def optional_params_fn(a: float | None, b: float | None) -> float | None:
         if a is None:
             return b
         if b is None:
@@ -1198,7 +1198,7 @@ class TestExprs:
         t = create_scalars_tbl(1000)
         df = t.select().collect().to_pandas()
 
-        def series_to_list(series: pd.Series) -> list[Optional[int]]:
+        def series_to_list(series: pd.Series) -> list[int | None]:
             return [int(x) if pd.notna(x) else None for x in series]
 
         int_sum: Expr = pxtf.sum(t.c_int)
@@ -1523,7 +1523,7 @@ class TestExprs:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
-        assert 'requires numeric types, but s1 has type Optional[String]' in str(exc_info.value)
+        assert 'requires numeric types, but s1 has type String | None' in str(exc_info.value)
 
         results = reload_tester.run_query(t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2))
         assert list(results[0].values()) == ['leftright', 'leftleftleft', 'rightright', 'left/rightleft/right']

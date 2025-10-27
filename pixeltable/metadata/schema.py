@@ -31,7 +31,7 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
     if origin is not None:
         type_args = typing.get_args(data_class_type)
         if (origin is Union or origin is types.UnionType) and type(None) in type_args:
-            # handling Optional[T], T | None
+            # handling T | None, T | None
             non_none_args = [arg for arg in type_args if arg is not type(None)]
             assert len(non_none_args) == 1
             return md_from_dict(non_none_args[0], data) if data is not None else None
@@ -75,7 +75,7 @@ class SystemInfo(Base):
 @dataclasses.dataclass
 class DirMd:
     name: str
-    user: Optional[str]
+    user: str | None
     additional_md: dict[str, Any]
 
 
@@ -104,20 +104,20 @@ class ColumnMd:
 
     id: int
     schema_version_add: int
-    schema_version_drop: Optional[int]
+    schema_version_drop: int | None
     col_type: dict
 
     # if True, is part of the primary key
     is_pk: bool
 
     # if set, this is a computed column
-    value_expr: Optional[dict]
+    value_expr: dict | None
 
     # if True, the column is present in the stored table
-    stored: Optional[bool]
+    stored: bool | None
 
     # If present, the URI for the destination for column values
-    destination: Optional[str] = None
+    destination: str | None = None
 
 
 @dataclasses.dataclass
@@ -133,13 +133,13 @@ class IndexMd:
     index_val_col_id: int  # column holding the values to be indexed
     index_val_undo_col_id: int  # column holding index values for deleted rows
     schema_version_add: int
-    schema_version_drop: Optional[int]
+    schema_version_drop: int | None
     class_fqn: str
     init_args: dict[str, Any]
 
 
 # a stored table version path is a list of (table id as str, effective table version)
-TableVersionPath = list[tuple[str, Optional[int]]]
+TableVersionPath = list[tuple[str, int | None]]
 
 
 @dataclasses.dataclass
@@ -157,7 +157,7 @@ class ViewMd:
     sample_clause: Optional[dict[str, Any]]
 
     # ComponentIterator subclass; only for component views
-    iterator_class_fqn: Optional[str]
+    iterator_class_fqn: str | None
 
     # args to pass to the iterator class constructor; only for component views
     iterator_args: Optional[dict[str, Any]]
@@ -169,7 +169,7 @@ class TableMd:
     name: str
     is_replica: bool
 
-    user: Optional[str]
+    user: str | None
 
     # monotonically increasing w/in Table for both data and schema changes, starting at 0
     current_version: int
@@ -195,7 +195,7 @@ class TableMd:
 
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
-    view_md: Optional[ViewMd]
+    view_md: ViewMd | None
     additional_md: dict[str, Any]
 
     has_pending_ops: bool = False
@@ -246,8 +246,8 @@ class TableVersionMd:
     created_at: float  # time.time()
     version: int
     schema_version: int
-    user: Optional[str] = None  # User that created this version
-    update_status: Optional[UpdateStatus] = None  # UpdateStatus of the change that created this version
+    user: str | None = None  # User that created this version
+    update_status: UpdateStatus | None = None  # UpdateStatus of the change that created this version
     # A version fragment cannot be queried or instantiated via get_table(). A fragment represents a version of a
     # replica table that has incomplete data, and exists only to provide base table support for a dependent view.
     is_fragment: bool = False
@@ -274,7 +274,7 @@ class SchemaColumn:
 
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
     # stores column.MediaValiation.name.lower()
-    media_validation: Optional[str]
+    media_validation: str | None
 
 
 @dataclasses.dataclass
@@ -285,7 +285,7 @@ class TableSchemaVersionMd:
 
     tbl_id: str  # uuid.UUID
     schema_version: int
-    preceding_schema_version: Optional[int]
+    preceding_schema_version: int | None
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
     comment: str
@@ -348,7 +348,7 @@ class Function(Base):
     )
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
-    binary_obj: orm.Mapped[Optional[bytes]] = orm.mapped_column(LargeBinary, nullable=True)
+    binary_obj: orm.Mapped[bytes | None] = orm.mapped_column(LargeBinary, nullable=True)
 
 
 class FullTableMd(NamedTuple):

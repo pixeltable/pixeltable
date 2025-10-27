@@ -53,7 +53,7 @@ class LabelStudioProject(Project):
 
     project_id: int  # Label Studio project ID
     media_import_method: Literal['post', 'file', 'url']
-    _project: Optional[ls_project.Project]
+    _project: ls_project.Project | None
 
     def __init__(
         self,
@@ -349,7 +349,7 @@ class LabelStudioProject(Project):
         return sync_status
 
     @classmethod
-    def __validate_fileurl(cls, col: Column, url: str) -> Optional[str]:
+    def __validate_fileurl(cls, col: Column, url: str) -> str | None:
         # Check that the URL is one that will be visible to Label Studio. If it isn't, log an info message
         # to help users debug the issue.
         if not (url.startswith('http://') or url.startswith('https://')):
@@ -497,7 +497,7 @@ class LabelStudioProject(Project):
 
     @classmethod
     def __coco_to_predictions(
-        cls, coco_annotations: dict[str, Any], from_name: str, rl_info: '_RectangleLabel', task_id: Optional[int] = None
+        cls, coco_annotations: dict[str, Any], from_name: str, rl_info: '_RectangleLabel', task_id: int | None = None
     ) -> dict[str, Any]:
         width = coco_annotations['image']['width']
         height = coco_annotations['image']['height']
@@ -549,8 +549,8 @@ class LabelStudioProject(Project):
         cls,
         t: Table,
         label_config: str,
-        name: Optional[str],
-        title: Optional[str],
+        name: str | None,
+        title: str | None,
         media_import_method: Literal['post', 'file', 'url'],
         col_mapping: Optional[dict[str, str]],
         s3_configuration: Optional[dict[str, Any]],
@@ -652,7 +652,7 @@ class LabelStudioProject(Project):
 
 @dataclass(frozen=True)
 class _DataKey:
-    name: Optional[str]  # The 'name' attribute of the data key; may differ from the field name
+    name: str | None  # The 'name' attribute of the data key; may differ from the field name
     column_type: ts.ColumnType
 
 

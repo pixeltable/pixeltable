@@ -75,7 +75,7 @@ class AggregateFunction(Function):
         self.init_param_names = [self.init_param_names[signature_idx]]
 
     def __cls_to_signature(
-        self, cls: type[Aggregator], type_substitutions: Optional[dict] = None
+        self, cls: type[Aggregator], type_substitutions: dict | None = None
     ) -> tuple[Signature, list[str]]:
         """Inspects the Aggregator class to infer the corresponding function signature. Returns the
         inferred signature along with the list of init_param_names (for downstream error handling).
@@ -159,7 +159,7 @@ class AggregateFunction(Function):
         self.init_param_names.append(init_param_names)
         return self
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         return inspect.getdoc(self.agg_classes[0])
 
     def help_str(self) -> str:
@@ -173,7 +173,7 @@ class AggregateFunction(Function):
         from pixeltable import exprs
 
         # perform semantic analysis of special parameters 'order_by' and 'group_by'
-        order_by_clause: Optional[Any] = None
+        order_by_clause: Any | None = None
         if self.ORDER_BY_PARAM in kwargs:
             if self.requires_order_by:
                 raise excs.Error(
@@ -198,7 +198,7 @@ class AggregateFunction(Function):
             # don't pass the first parameter on, the Function doesn't get to see it
             args = args[1:]
 
-        group_by_clause: Optional[Any] = None
+        group_by_clause: Any | None = None
         if self.GROUP_BY_PARAM in kwargs:
             if not self.allows_window:
                 raise excs.Error(

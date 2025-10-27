@@ -35,7 +35,7 @@ class RateLimitsScheduler(Scheduler):
     get_request_resources_param_names: list[str]  # names of parameters of RateLimitsInfo.get_request_resources()
 
     # scheduling-related state
-    pool_info: Optional[env.RateLimitsInfo]
+    pool_info: env.RateLimitsInfo | None
     est_usage: dict[str, int]  # value per resource; accumulated estimates since the last util. report
 
     num_in_flight: int  # unfinished tasks
@@ -77,7 +77,7 @@ class RateLimitsScheduler(Scheduler):
         self.est_usage = dict.fromkeys(self._resources, 0)
 
     async def _main_loop(self) -> None:
-        item: Optional[RateLimitsScheduler.QueueItem] = None
+        item: RateLimitsScheduler.QueueItem | None = None
         while True:
             if item is None:
                 item = await self.queue.get()
@@ -102,8 +102,8 @@ class RateLimitsScheduler(Scheduler):
             request_resources = self._get_request_resources(item.request)
             limits_info = self._check_resource_limits(request_resources)
             aws: list[Awaitable[None]] = []
-            completed_aw: Optional[asyncio.Task] = None
-            wait_for_reset: Optional[asyncio.Task] = None
+            completed_aw: asyncio.Task | None = None
+            wait_for_reset: asyncio.Task | None = None
             if limits_info is not None:
                 # limits_info's resource is depleted, wait for capacity to free up
 
@@ -167,7 +167,7 @@ class RateLimitsScheduler(Scheduler):
             constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
             return self.pool_info.get_request_resources(**constant_kwargs, **batch_kwargs)
 
-    def _check_resource_limits(self, request_resources: dict[str, int]) -> Optional[env.RateLimitInfo]:
+    def _check_resource_limits(self, request_resources: dict[str, int]) -> env.RateLimitInfo | None:
         """Returns the most depleted resource, relative to its limit, or None if all resources are within limits"""
         candidates: list[tuple[env.RateLimitInfo, float]] = []  # (info, relative remaining)
         for resource, usage in request_resources.items():
@@ -405,7 +405,7 @@ class RequestRateScheduler(Scheduler):
             if is_task:
                 self.num_in_flight -= 1
 
-    def _is_rate_limit_error(self, exc: Exception) -> tuple[bool, Optional[float]]:
+    def _is_rate_limit_error(self, exc: Exception) -> tuple[bool, float | None]:
         """Returns True if the exception indicates a rate limit error, and the retry delay in seconds."""
         from http import HTTPStatus
 
@@ -413,7 +413,7 @@ class RequestRateScheduler(Scheduler):
         # We look for attributes that contain status codes, instead of checking the type of the exception,
         # in order to handle a wider variety of exception classes.
         is_rate_limit_error = False
-        retry_delay: Optional[float] = None
+        retry_delay: float | None = None
 
         # requests.HTTPError/httpx.HTTPStatusError
         if (
@@ -443,7 +443,7 @@ class RequestRateScheduler(Scheduler):
 
         return False, None
 
-    def _extract_retry_delay_from_headers(self, headers: Optional[Any]) -> Optional[float]:
+    def _extract_retry_delay_from_headers(self, headers: Any | None) -> float | None:
         """Extract retry delay from HTTP headers."""
         if headers is None:
             return None
@@ -489,7 +489,7 @@ class RequestRateScheduler(Scheduler):
 
         return None
 
-    def _extract_retry_delay_from_message(self, msg: str) -> Optional[float]:
+    def _extract_retry_delay_from_message(self, msg: str) -> float | None:
         msg_lower = msg.lower()
         for pattern in self.RETRY_AFTER_PATTERNS:
             match = re.search(pattern, msg_lower)
@@ -500,7 +500,7 @@ class RequestRateScheduler(Scheduler):
                     continue
         return None
 
-    def _compute_retry_delay(self, num_retries: int, retry_after: Optional[float] = None) -> float:
+    def _compute_retry_delay(self, num_retries: int, retry_after: float | None = None) -> float:
         """
         Calculate exponential backoff delay for rate limit errors.
 
