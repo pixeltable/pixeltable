@@ -1024,13 +1024,13 @@ class Catalog:
         self,
         path: Path,
         base: TableVersionPath,
-        select_list: Optional[list[tuple[exprs.Expr, str | None]]],
+        select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
         additional_columns: Optional[dict[str, Any]],
         is_snapshot: bool,
         create_default_idxs: bool,
-        iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]],
+        iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
@@ -1858,7 +1858,7 @@ class Catalog:
         tbl_md: schema.TableMd | None,
         version_md: schema.TableVersionMd | None,
         schema_version_md: schema.TableSchemaVersionMd | None,
-        pending_ops: Optional[list[TableOp]] = None,
+        pending_ops: list[TableOp] | None = None,
     ) -> None:
         """
         Stores metadata to the DB.
