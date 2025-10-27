@@ -1272,7 +1272,8 @@ class Table(SchemaObject):
         else:
             if col.get_tbl().id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base table {col.get_tbl().name!r}'
+                    f'Column {col.name!r}: '
+                    f'cannot drop index from column that belongs to base table {col.get_tbl().name!r}'
                 )
             idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
