@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, List, Literal
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -53,7 +53,7 @@ class View(Table):
         return 'table'
 
     @classmethod
-    def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:
+    def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, str | None]]) -> dict[str, dict]:
         """Returns a list of columns in the same format as the additional_columns parameter of View.create.
         The source is the list of expressions from a select() statement on a DataFrame.
         If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
@@ -73,18 +73,18 @@ class View(Table):
         dir_id: UUID,
         name: str,
         base: TableVersionPath,
-        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
+        select_list: list[tuple[exprs.Expr, str | None]] | None,
         additional_columns: dict[str, Any],
-        predicate: Optional['exprs.Expr'],
-        sample_clause: Optional['SampleClause'],
+        predicate: 'exprs.Expr' | None,
+        sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-        iterator_cls: Optional[type[ComponentIterator]],
-        iterator_args: Optional[dict],
-    ) -> tuple[TableVersionMd, Optional[list[TableOp]]]:
+        iterator_cls: type[ComponentIterator] | None,
+        iterator_args: dict | None,
+    ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
@@ -288,22 +288,22 @@ class View(Table):
 
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         raise excs.Error(f'{self._display_str()}: Cannot insert into a {self._display_name()}.')
 
-    def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
+    def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
         raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
 
     @property
-    def _base_tbl_id(self) -> Optional[UUID]:
+    def _base_tbl_id(self) -> UUID | None:
         if self._tbl_version_path.tbl_id != self._id:
             # _tbl_version_path represents a different schema object from this one. This can only happen if this is a
             # named pure snapshot.
@@ -312,14 +312,14 @@ class View(Table):
             return None
         return self._tbl_version_path.base.tbl_id
 
-    def _get_base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> 'Table' | None:
         """Returns None if there is no base table, or if the base table is hidden."""
         base_tbl_id = self._base_tbl_id
         with catalog.Catalog.get().begin_xact(tbl_id=base_tbl_id, for_write=False):
             return catalog.Catalog.get().get_table_by_id(base_tbl_id)
 
     @property
-    def _effective_base_versions(self) -> list[Optional[int]]:
+    def _effective_base_versions(self) -> list[int | None]:
         effective_versions = [tv.effective_version for tv in self._tbl_version_path.get_tbl_versions()]
         if self._snapshot_only and not self._is_anonymous_snapshot():
             return effective_versions  # Named pure snapshot

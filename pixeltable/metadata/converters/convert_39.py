@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -69,7 +68,7 @@ def find_error_columns(conn: sql.Connection, store_name: str) -> list[str]:
 
 
 def migrate_error_to_cellmd_columns(
-    conn: sql.Connection, store_name: str, col_names: list[str], backup_table: Optional[str] = None
+    conn: sql.Connection, store_name: str, col_names: list[str], backup_table: str | None = None
 ) -> None:
     """
     Safe version with error handling and optional backup.

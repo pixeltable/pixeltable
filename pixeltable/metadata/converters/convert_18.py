@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -11,7 +11,7 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
-def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     # Migrate a few changed function names
     if k == 'path' and v == 'pixeltable.functions.string.str_format':
         return 'path', 'pixeltable.functions.string.format'

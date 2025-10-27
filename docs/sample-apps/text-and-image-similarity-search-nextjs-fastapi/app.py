@@ -158,7 +158,7 @@ async def upload_image(tags: str = Form(...), file: UploadFile = File(...)):  # 
 # Endpoint to search video frames.
 @app.post('/api/search')
 async def search_video(
-    query: Optional[UploadFile] = File(None),  # noqa: B008 # Can be text (in filename) or image file
+    query: UploadFile | None = File(None),  # noqa: B008 # Can be text (in filename) or image file
     search_type: Literal['text', 'image'] = Form(...),
     num_results: int = Form(...),
 ):
@@ -210,7 +210,7 @@ async def search_video(
 # Endpoint to search uploaded images.
 @app.post('/api/search-images')
 async def search_images(
-    query: Optional[UploadFile] = File(None),  # noqa: B008 # Text (in filename) or image file
+    query: UploadFile | None = File(None),  # noqa: B008 # Text (in filename) or image file
     search_type: Literal['text', 'image'] = Form(...),
     num_results: int = Form(...),
     similarity_threshold: float = Form(0.5),  # Add similarity threshold parameter

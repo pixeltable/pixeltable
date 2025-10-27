@@ -1,5 +1,4 @@
 import dataclasses
-from typing import Optional
 
 import pandas as pd
 from pandas.io.formats.style import Styler
@@ -11,7 +10,7 @@ class _Descriptor:
     # The remaining fields only affect the behavior if `body` is a pd.DataFrame.
     show_index: bool
     show_header: bool
-    styler: Optional[Styler] = None
+    styler: Styler | None = None
 
 
 class DescriptionHelper:
@@ -36,7 +35,7 @@ class DescriptionHelper:
         descriptor: str | pd.DataFrame,
         show_index: bool = False,
         show_header: bool = True,
-        styler: Optional[Styler] = None,
+        styler: Styler | None = None,
     ) -> None:
         self.__descriptors.append(_Descriptor(descriptor, show_index, show_header, styler))
 

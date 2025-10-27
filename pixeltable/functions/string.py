@@ -15,7 +15,7 @@ import builtins
 import re
 import textwrap
 from string import whitespace
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -78,9 +78,7 @@ def contains(self: str, substr: str, case: bool = True) -> bool:
 
 
 @contains.to_sql
-def _(
-    self: sql.ColumnElement, substr: sql.ColumnElement, case: Optional[sql.ColumnElement] = None
-) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, substr: sql.ColumnElement, case: sql.ColumnElement | None = None) -> sql.ColumnElement:
     # Replace all occurrences of `%`, `_`, and `\` with escaped versions
     escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
     if case is None:
@@ -153,7 +151,7 @@ def fill(self: str, width: int, **kwargs: Any) -> str:
 
 
 @pxt.udf(is_method=True)
-def find(self: str, substr: str, start: int = 0, end: Optional[int] = None) -> int:
+def find(self: str, substr: str, start: int = 0, end: int | None = None) -> int:
     """
     Return the lowest index in string where `substr` is found within the slice `s[start:end]`.
 
@@ -169,10 +167,7 @@ def find(self: str, substr: str, start: int = 0, end: Optional[int] = None) -> i
 
 @find.to_sql
 def _(
-    self: sql.ColumnElement,
-    substr: sql.ColumnElement,
-    start: sql.ColumnElement,
-    end: Optional[sql.ColumnElement] = None,
+    self: sql.ColumnElement, substr: sql.ColumnElement, start: sql.ColumnElement, end: sql.ColumnElement | None = None
 ) -> sql.ColumnElement:
     sl = pxt.functions.string.slice._to_sql(self, start, end)
     if sl is None:
@@ -227,7 +222,7 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
 
 
 @pxt.udf(is_method=True)
-def index(self: str, substr: str, start: int = 0, end: Optional[int] = None) -> int:
+def index(self: str, substr: str, start: int = 0, end: int | None = None) -> int:
     """
     Return the lowest index in string where `substr` is found within the slice `[start:end]`.
     Raises ValueError if `substr` is not found.
@@ -413,7 +408,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def lstrip(self: str, chars: Optional[str] = None) -> str:
+def lstrip(self: str, chars: str | None = None) -> str:
     """
     Return a copy of the string with leading characters removed. The `chars` argument is a string specifying the set of
     characters to be removed. If omitted or `None`, whitespace characters are removed.
@@ -427,7 +422,7 @@ def lstrip(self: str, chars: Optional[str] = None) -> str:
 
 
 @lstrip.to_sql
-def _(self: sql.ColumnElement, chars: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, chars: sql.ColumnElement | None = None) -> sql.ColumnElement:
     return sql.func.ltrim(self, chars if chars is not None else whitespace)
 
 
@@ -535,7 +530,7 @@ def _(self: sql.ColumnElement, n: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def replace(self: str, substr: str, repl: str, n: Optional[int] = None) -> str:
+def replace(self: str, substr: str, repl: str, n: int | None = None) -> str:
     """
     Replace occurrences of `substr` with `repl`.
 
@@ -551,7 +546,7 @@ def replace(self: str, substr: str, repl: str, n: Optional[int] = None) -> str:
 
 @replace.to_sql
 def _(
-    self: sql.ColumnElement, substr: sql.ColumnElement, repl: sql.ColumnElement, n: Optional[sql.ColumnElement] = None
+    self: sql.ColumnElement, substr: sql.ColumnElement, repl: sql.ColumnElement, n: sql.ColumnElement | None = None
 ) -> sql.ColumnElement:
     if n is not None:
         return None  # SQL does not support bounding the number of replacements
@@ -560,7 +555,7 @@ def _(
 
 
 @pxt.udf(is_method=True)
-def replace_re(self: str, pattern: str, repl: str, n: Optional[int] = None, flags: int = 0) -> str:
+def replace_re(self: str, pattern: str, repl: str, n: int | None = None, flags: int = 0) -> str:
     """
     Replace occurrences of a regular expression pattern with `repl`.
 
@@ -591,7 +586,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def rfind(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
+def rfind(self: str, substr: str, start: int | None = 0, end: int | None = None) -> int:
     """
     Return the highest index where `substr` is found, such that `substr` is contained within `[start:end]`.
 
@@ -606,7 +601,7 @@ def rfind(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] =
 
 
 @pxt.udf(is_method=True)
-def rindex(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
+def rindex(self: str, substr: str, start: int | None = 0, end: int | None = None) -> int:
     """
     Return the highest index where `substr` is found, such that `substr` is contained within `[start:end]`.
     Raises ValueError if `substr` is not found.
@@ -643,7 +638,7 @@ def rpartition(self: str, sep: str = ' ') -> list:
 
 
 @pxt.udf(is_method=True)
-def rstrip(self: str, chars: Optional[str] = None) -> str:
+def rstrip(self: str, chars: str | None = None) -> str:
     """
     Return a copy of string with trailing characters removed.
 
@@ -656,12 +651,12 @@ def rstrip(self: str, chars: Optional[str] = None) -> str:
 
 
 @rstrip.to_sql
-def _(self: sql.ColumnElement, chars: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, chars: sql.ColumnElement | None = None) -> sql.ColumnElement:
     return sql.func.rtrim(self, chars if chars is not None else whitespace)
 
 
 @pxt.udf(is_method=True)
-def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:
+def slice(self: str, start: int | None = None, stop: int | None = None, step: int | None = None) -> str:
     """
     Return a slice.
 
@@ -676,9 +671,9 @@ def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, st
 @slice.to_sql
 def _(
     self: sql.ColumnElement,
-    start: Optional[sql.ColumnElement] = None,
-    stop: Optional[sql.ColumnElement] = None,
-    step: Optional[sql.ColumnElement] = None,
+    start: sql.ColumnElement | None = None,
+    stop: sql.ColumnElement | None = None,
+    step: sql.ColumnElement | None = None,
 ) -> sql.ColumnElement:
     if step is not None:
         return None
@@ -709,9 +704,7 @@ def _(
 
 
 @pxt.udf(is_method=True)
-def slice_replace(
-    self: str, start: Optional[int] = None, stop: Optional[int] = None, repl: Optional[str] = None
-) -> str:
+def slice_replace(self: str, start: int | None = None, stop: int | None = None, repl: str | None = None) -> str:
     """
     Replace a positional slice with another value.
 
@@ -744,7 +737,7 @@ def _(self: sql.ColumnElement, substr: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def strip(self: str, chars: Optional[str] = None) -> str:
+def strip(self: str, chars: str | None = None) -> str:
     """
     Return a copy of string with leading and trailing characters removed.
 
@@ -757,7 +750,7 @@ def strip(self: str, chars: Optional[str] = None) -> str:
 
 
 @strip.to_sql
-def _(self: sql.ColumnElement, chars: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, chars: sql.ColumnElement | None = None) -> sql.ColumnElement:
     return sql.func.trim(self, chars if chars is not None else whitespace)
 
 

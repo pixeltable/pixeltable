@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Union
 
 import jsonschema.exceptions
 import numpy as np
@@ -172,20 +172,20 @@ class TestTypes:
 
             assert ColumnType.from_python_type(py_type) == pxt_type
             assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type  # type: ignore[valid-type]
-            assert ColumnType.from_python_type(Optional[py_type]) == nullable_pxt_type
+            assert ColumnType.from_python_type(py_type | None) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type  # noqa: RUF036
             assert ColumnType.from_python_type(py_type | None) == nullable_pxt_type
             assert ColumnType.from_python_type(None | py_type) == nullable_pxt_type  # noqa: RUF036
 
             assert ColumnType.from_python_type(py_type, nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == non_nullable_pxt_type  # type: ignore[valid-type]
-            assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
+            assert ColumnType.from_python_type(py_type | None, nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type  # noqa: RUF036
             assert ColumnType.from_python_type(py_type | None, nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(None | py_type, nullable_default=True) == nullable_pxt_type  # noqa: RUF036
 
             assert str(non_nullable_pxt_type) == string
-            assert str(nullable_pxt_type) == f'Optional[{string}]'
+            assert str(nullable_pxt_type) == f'{string} | None'
             assert non_nullable_pxt_type._to_str(as_schema=True) == f'Required[{string}]'
             assert nullable_pxt_type._to_str(as_schema=True) == string
 
@@ -259,7 +259,7 @@ class TestTypes:
         class SampleModel(pydantic.BaseModel):
             a: str
             b: int
-            c: Optional[bool]
+            c: bool | None
 
         json_type = ColumnType.from_python_type(Json[SampleModel.model_json_schema()])  # type: ignore[misc]
         assert isinstance(json_type, JsonType)
