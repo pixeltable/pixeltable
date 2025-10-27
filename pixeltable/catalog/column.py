@@ -188,7 +188,7 @@ class Column:
         return tv
 
     @property
-    def resolved_destination(self) -> Optional[str]:
+    def resolved_destination(self) -> str | None:
         if self.destination is not None:
             return self.destination
         # TODO: The `self.name is not None` clause is necessary because index columns currently follow the type of
