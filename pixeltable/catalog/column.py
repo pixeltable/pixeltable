@@ -86,11 +86,11 @@ class Column:
         destination: str | None = None,
     ):
         if name is not None and not is_valid_identifier(name):
-            raise excs.Error(f"Invalid column name: '{name}'")
+            raise excs.Error(f'Invalid column name: {name}')
         self.name = name
         self.tbl_handle = tbl_handle
         if col_type is None and computed_with is None:
-            raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
+            raise excs.Error(f'Column {name!r}: `col_type` is required if `computed_with` is not specified')
 
         self._value_expr = None
         self.value_expr_dict = value_expr_dict
@@ -99,7 +99,7 @@ class Column:
             if value_expr is None:
                 # TODO: this shouldn't be a user-facing error
                 raise excs.Error(
-                    f'Column {name}: computed_with needs to be a valid Pixeltable expression, '
+                    f'Column {name!r}: `computed_with` needs to be a valid Pixeltable expression, '
                     f'but it is a {type(computed_with)}'
                 )
             else:
@@ -227,10 +227,10 @@ class Column:
 
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
-        if self.stored == False and self.is_computed and self.has_window_fn_call():
+        if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.Error(
-                f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
-                f'\n{self.value_expr}'
+                f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
+                f'computed with window functions:\n{self.value_expr}'
             )
 
     def has_window_fn_call(self) -> bool:

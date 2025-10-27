@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
 from pixeltable import env, exceptions as excs
@@ -44,7 +44,7 @@ class StorageObjectAddress(NamedTuple):
     key: str = ''  # Key parsed from the source (prefix + object_name)
     prefix: str = ''  # Prefix (within the bucket) parsed from the source
     object_name: str = ''  # Object name parsed from the source (if requested and applicable)
-    path: Optional[Path] = None
+    path: Path | None = None
 
     @property
     def has_object(self) -> bool:
@@ -120,9 +120,7 @@ class ObjectPath:
         return tbl_id.hex
 
     @classmethod
-    def create_prefix_raw(
-        cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
-    ) -> tuple[str, str]:
+    def create_prefix_raw(cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None) -> tuple[str, str]:
         """Construct a unique unix-style prefix and filename for a persisted file.
         The results are derived from table, col, and version specs.
         Returns:
@@ -280,7 +278,7 @@ class ObjectPath:
 
 
 class ObjectStoreBase:
-    def validate(self, error_prefix: str) -> Optional[str]:
+    def validate(self, error_prefix: str) -> str | None:
         """Check the store configuration. Returns base URI if store is accessible.
 
         Args:
@@ -303,7 +301,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def move_local_file(self, col: Column, src_path: Path) -> Optional[str]:
+    def move_local_file(self, col: Column, src_path: Path) -> str | None:
         """Move a file associated with a Column to the store, returning the file's URL within the destination.
 
         Args:
@@ -324,7 +322,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def count(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: UUID, tbl_version: int | None = None) -> int:
         """Return the number of objects in the store associated with the given tbl_id
 
         Args:
@@ -336,7 +334,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def delete(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
+    def delete(self, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
         """Delete objects in the destination for a given table ID, table version.
 
         Args:
@@ -360,7 +358,7 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(cls, dest: Optional[str], allow_obj_name: bool, col_name: Optional[str] = None) -> ObjectStoreBase:
+    def get_store(cls, dest: str | None, allow_obj_name: bool, col_name: str | None = None) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
@@ -453,7 +451,7 @@ class ObjectOps:
         return store.copy_local_file(col, src_path)
 
     @classmethod
-    def delete(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
+    def delete(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
         """Delete objects in the destination for a given table ID, table version.
         Returns:
             Number of objects deleted or None
@@ -462,23 +460,23 @@ class ObjectOps:
         return store.delete(tbl_id, tbl_version)
 
     @classmethod
-    def count_default_input_dest(cls, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+    def count_default_input_dest(cls, tbl_id: UUID, tbl_version: int | None = None) -> int:
         """Return the count of objects in the default input destination for a given table ID"""
         return cls.count(env.Env.get().default_input_media_dest, tbl_id, tbl_version)
 
     @classmethod
-    def count_default_output_dest(cls, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+    def count_default_output_dest(cls, tbl_id: UUID, tbl_version: int | None = None) -> int:
         """Return the count of objects in the default output destination for a given table ID"""
         return cls.count(env.Env.get().default_output_media_dest, tbl_id, tbl_version)
 
     @classmethod
-    def count(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+    def count(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int:
         """Return the count of objects in the destination for a given table ID"""
         store = cls.get_store(dest, False)
         return store.count(tbl_id, tbl_version)
 
     @classmethod
-    def list_objects(cls, dest: Optional[str], return_uri: bool, n_max: int = 10) -> list[str]:
+    def list_objects(cls, dest: str | None, return_uri: bool, n_max: int = 10) -> list[str]:
         """Return a list of objects found in the specified destination bucket.
         The dest specification string must not contain an object name.
         Each returned object includes the full set of prefixes.

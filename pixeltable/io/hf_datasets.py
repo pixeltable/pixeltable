@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import typing
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -36,7 +36,7 @@ _hf_to_pxt: dict[str, ts.ColumnType] = {
 }
 
 
-def _to_pixeltable_type(feature_type: Any, nullable: bool) -> Optional[ts.ColumnType]:
+def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | None:
     """Convert a huggingface feature type to a pixeltable ColumnType if one is defined."""
     import datasets
 
@@ -76,7 +76,7 @@ def _get_hf_schema(dataset: datasets.Dataset | datasets.DatasetDict) -> datasets
 
 def huggingface_schema_to_pxt_schema(
     hf_schema: datasets.Features, schema_overrides: dict[str, Any], primary_key: list[str]
-) -> dict[str, Optional[ts.ColumnType]]:
+) -> dict[str, ts.ColumnType | None]:
     """Generate a pixeltable schema from a huggingface dataset schema.
     Columns without a known mapping are mapped to None
     """
@@ -93,7 +93,7 @@ def import_huggingface_dataset(
     table_path: str,
     dataset: datasets.Dataset | datasets.DatasetDict,
     *,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:

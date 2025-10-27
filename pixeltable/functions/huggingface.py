@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import Any, Callable, Literal, Optional, TypeVar
+from typing import Any, Callable, Literal, TypeVar
 
 import av
 import numpy as np
@@ -351,7 +351,7 @@ def vit_for_image_classification(
 
 
 @pxt.udf
-def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, language: Optional[str] = None) -> str:
+def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, language: str | None = None) -> str:
     """
     Transcribes or translates speech to text using a Speech2Text model. `model_id` should be a reference to a
     pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/speech_to_text) model.
@@ -408,7 +408,7 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
             f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
         )
 
-    forced_bos_token_id: Optional[int] = None if language is None else tokenizer.lang_code_to_id[language]
+    forced_bos_token_id: int | None = None if language is None else tokenizer.lang_code_to_id[language]
 
     # Get the model's sampling rate. Default to 16 kHz (the standard) if not in config
     model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
@@ -460,7 +460,7 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
 
 
 @pxt.udf
-def text_generation(text: str, *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> str:
+def text_generation(text: str, *, model_id: str, model_kwargs: dict[str, Any] | None = None) -> str:
     """
     Generates text using a pretrained language model. `model_id` should be a reference to a pretrained
     [text generation model](https://huggingface.co/models?pipeline_tag=text-generation).
@@ -574,7 +574,7 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
 
 @pxt.udf(batch_size=4)
 def image_captioning(
-    image: Batch[PIL.Image.Image], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None
+    image: Batch[PIL.Image.Image], *, model_id: str, model_kwargs: dict[str, Any] | None = None
 ) -> Batch[str]:
     """
     Generates captions for images using a pretrained image captioning model. `model_id` should be a reference to a
@@ -624,7 +624,7 @@ def image_captioning(
 
 
 @pxt.udf(batch_size=8)
-def summarization(text: Batch[str], *, model_id: str, model_kwargs: Optional[dict[str, Any]] = None) -> Batch[str]:
+def summarization(text: Batch[str], *, model_id: str, model_kwargs: dict[str, Any] | None = None) -> Batch[str]:
     """
     Summarizes text using a pretrained summarization model. `model_id` should be a reference to a pretrained
     [summarization model](https://huggingface.co/models?pipeline_tag=summarization) such as BART, T5, or Pegasus.
@@ -880,7 +880,7 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
 
 @pxt.udf(batch_size=8)
 def translation(
-    text: Batch[str], *, model_id: str, src_lang: Optional[str] = None, target_lang: Optional[str] = None
+    text: Batch[str], *, model_id: str, src_lang: str | None = None, target_lang: str | None = None
 ) -> Batch[str]:
     """
     Translates text using a pretrained translation model. `model_id` should be a reference to a pretrained
@@ -954,8 +954,8 @@ def text_to_image(
     model_id: str,
     height: int = 512,
     width: int = 512,
-    seed: Optional[int] = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    seed: int | None = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> PIL.Image.Image:
     """
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
@@ -1034,9 +1034,7 @@ def text_to_image(
 
 
 @pxt.udf
-def text_to_speech(
-    text: str, *, model_id: str, speaker_id: Optional[int] = None, vocoder: Optional[str] = None
-) -> pxt.Audio:
+def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, vocoder: str | None = None) -> pxt.Audio:
     """
     Converts text to speech using a pretrained TTS model. `model_id` should be a reference to a
     pretrained [text-to-speech model](https://huggingface.co/models?pipeline_tag=text-to-speech).
@@ -1142,8 +1140,8 @@ def image_to_image(
     prompt: str,
     *,
     model_id: str,
-    seed: Optional[int] = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    seed: int | None = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> PIL.Image.Image:
     """
     Transforms input images based on text prompts using a pretrained image-to-image model.
@@ -1217,8 +1215,8 @@ def automatic_speech_recognition(
     audio: pxt.Audio,
     *,
     model_id: str,
-    language: Optional[str] = None,
-    chunk_length_s: Optional[int] = None,
+    language: str | None = None,
+    chunk_length_s: int | None = None,
     return_timestamps: bool = False,
 ) -> str:
     """
@@ -1370,8 +1368,8 @@ def image_to_video(
     model_id: str,
     num_frames: int = 25,
     fps: int = 6,
-    seed: Optional[int] = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    seed: int | None = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
     Generates videos from input images using a pretrained image-to-video model.
@@ -1487,7 +1485,7 @@ def image_to_video(
 
 
 def _lookup_model(
-    model_id: str, create: Callable[..., T], device: Optional[str] = None, pass_device_to_create: bool = False
+    model_id: str, create: Callable[..., T], device: str | None = None, pass_device_to_create: bool = False
 ) -> T:
     from torch import nn
 
@@ -1512,7 +1510,7 @@ def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
     return _processor_cache[key]
 
 
-_model_cache: dict[tuple[str, Callable, Optional[str]], Any] = {}
+_model_cache: dict[tuple[str, Callable, str | None], Any] = {}
 _processor_cache: dict[tuple[str, Callable], Any] = {}
 
 

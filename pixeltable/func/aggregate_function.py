@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional, Sequence, overload
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -42,7 +42,7 @@ class AggregateFunction(Function):
     def __init__(
         self,
         agg_class: type[Aggregator],
-        type_substitutions: Optional[Sequence[dict]],
+        type_substitutions: Sequence[dict] | None,
         self_path: str,
         requires_order_by: bool,
         allows_std_agg: bool,
@@ -75,7 +75,7 @@ class AggregateFunction(Function):
         self.init_param_names = [self.init_param_names[signature_idx]]
 
     def __cls_to_signature(
-        self, cls: type[Aggregator], type_substitutions: Optional[dict] = None
+        self, cls: type[Aggregator], type_substitutions: dict | None = None
     ) -> tuple[Signature, list[str]]:
         """Inspects the Aggregator class to infer the corresponding function signature. Returns the
         inferred signature along with the list of init_param_names (for downstream error handling).
@@ -159,7 +159,7 @@ class AggregateFunction(Function):
         self.init_param_names.append(init_param_names)
         return self
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         return inspect.getdoc(self.agg_classes[0])
 
     def help_str(self) -> str:
@@ -173,7 +173,7 @@ class AggregateFunction(Function):
         from pixeltable import exprs
 
         # perform semantic analysis of special parameters 'order_by' and 'group_by'
-        order_by_clause: Optional[Any] = None
+        order_by_clause: Any | None = None
         if self.ORDER_BY_PARAM in kwargs:
             if self.requires_order_by:
                 raise excs.Error(
@@ -198,7 +198,7 @@ class AggregateFunction(Function):
             # don't pass the first parameter on, the Function doesn't get to see it
             args = args[1:]
 
-        group_by_clause: Optional[Any] = None
+        group_by_clause: Any | None = None
         if self.GROUP_BY_PARAM in kwargs:
             if not self.allows_window:
                 raise excs.Error(
@@ -248,7 +248,7 @@ def uda(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[Sequence[dict]] = None,
+    type_substitutions: Sequence[dict] | None = None,
 ) -> Callable[[type[Aggregator]], AggregateFunction]: ...
 
 
@@ -302,7 +302,7 @@ def make_aggregator(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[Sequence[dict]] = None,
+    type_substitutions: Sequence[dict] | None = None,
 ) -> AggregateFunction:
     class_path = f'{cls.__module__}.{cls.__qualname__}'
     instance = AggregateFunction(cls, type_substitutions, class_path, requires_order_by, allows_std_agg, allows_window)

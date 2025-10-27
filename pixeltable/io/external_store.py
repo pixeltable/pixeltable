@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import itertools
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -68,10 +68,7 @@ class Project(ExternalStore, abc.ABC):
     stored_proxies: dict[ColumnHandle, ColumnHandle]  # original col -> proxy col
 
     def __init__(
-        self,
-        name: str,
-        col_mapping: dict[ColumnHandle, str],
-        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]],
+        self, name: str, col_mapping: dict[ColumnHandle, str], stored_proxies: dict[ColumnHandle, ColumnHandle] | None
     ):
         super().__init__(name)
         self._col_mapping = col_mapping
@@ -190,7 +187,7 @@ class Project(ExternalStore, abc.ABC):
         table: Table,
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
-        col_mapping: Optional[dict[str, str]],
+        col_mapping: dict[str, str] | None,
     ) -> dict[ColumnHandle, str]:
         """
         Verifies that the specified `col_mapping` is valid. In particular, checks that:
@@ -217,19 +214,19 @@ class Project(ExternalStore, abc.ABC):
             if t_col not in t_cols:
                 if is_user_specified_col_mapping:
                     raise excs.Error(
-                        f'Column name `{t_col}` appears as a key in `col_mapping`, but Table `{table._name}` '
+                        f'Column name {t_col!r} appears as a key in `col_mapping`, but {table._display_str()} '
                         'contains no such column.'
                     )
                 else:
                     raise excs.Error(
-                        f'Column `{t_col}` does not exist in Table `{table._name}`. Either add a column `{t_col}`, '
+                        f'Column {t_col!r} does not exist in {table._display_str()}. Either add a column {t_col!r}, '
                         f'or specify a `col_mapping` to associate a different column with '
-                        f'the external field `{ext_col}`.'
+                        f'the external field {ext_col!r}.'
                     )
             if ext_col not in export_cols and ext_col not in import_cols:
                 raise excs.Error(
-                    f'Column name `{ext_col}` appears as a value in `col_mapping`, but the external store '
-                    f'configuration has no column `{ext_col}`.'
+                    f'Column name {ext_col!r} appears as a value in `col_mapping`, but the external store '
+                    f'configuration has no column {ext_col!r}.'
                 )
             col_ref = table[t_col]
             assert isinstance(col_ref, exprs.ColumnRef)
@@ -244,19 +241,19 @@ class Project(ExternalStore, abc.ABC):
                 ext_col_type = export_cols[ext_col]
                 if not ext_col_type.is_supertype_of(t_col_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be exported to external column `{ext_col}` '
+                        f'Column {t_col!r} cannot be exported to external column {ext_col!r} '
                         f'(incompatible types; expecting `{ext_col_type}`)'
                     )
             if ext_col in import_cols:
                 # Validate that the external column can be assigned to the table column
                 if table._tbl_version_path.get_column(t_col).is_computed:
                     raise excs.Error(
-                        f'Column `{t_col}` is a computed column, which cannot be populated from an external column'
+                        f'Column {t_col!r} is a computed column, which cannot be populated from an external column'
                     )
                 ext_col_type = import_cols[ext_col]
                 if not t_col_type.is_supertype_of(ext_col_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be imported from external column `{ext_col}` '
+                        f'Column {t_col!r} cannot be imported from external column {ext_col!r} '
                         f'(incompatible types; expecting `{ext_col_type}`)'
                     )
         return resolved_col_mapping
@@ -271,7 +268,7 @@ class MockProject(Project):
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
         col_mapping: dict[ColumnHandle, str],
-        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
+        stored_proxies: dict[ColumnHandle, ColumnHandle] | None = None,
     ):
         super().__init__(name, col_mapping, stored_proxies)
         self.export_cols = export_cols
@@ -285,7 +282,7 @@ class MockProject(Project):
         name: str,
         export_cols: dict[str, ts.ColumnType],
         import_cols: dict[str, ts.ColumnType],
-        col_mapping: Optional[dict[str, str]] = None,
+        col_mapping: dict[str, str] | None = None,
     ) -> 'MockProject':
         col_mapping = cls.validate_columns(t, export_cols, import_cols, col_mapping)
         return cls(name, export_cols, import_cols, col_mapping)

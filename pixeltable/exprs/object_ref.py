@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -43,7 +43,7 @@ class ObjectRef(Expr):
     def _equals(self, other: ObjectRef) -> bool:
         return self.id == other.id
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

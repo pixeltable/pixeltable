@@ -13,7 +13,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Callable, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Type
 
 import httpx
 import numpy as np
@@ -32,7 +32,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('openai')
-def _(api_key: str, base_url: Optional[str] = None, api_version: Optional[str] = None) -> 'openai.AsyncOpenAI':
+def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
     default_query = None if api_version is None else {'api-version': api_version}
@@ -169,7 +169,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
         self.record(requests=requests_info, tokens=tokens_info)
         self.has_exc = True
 
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+    def get_retry_delay(self, exc: Exception) -> float | None:
         import openai
 
         if not isinstance(exc, self.retryable_errors):
@@ -183,7 +183,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 
 
 @pxt.udf
-async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[dict[str, Any]] = None) -> pxt.Audio:
+async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, Any] | None = None) -> pxt.Audio:
     """
     Generates audio from the input text.
 
@@ -226,7 +226,7 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: Optional[d
 
 
 @pxt.udf
-async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
+async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Transcribes audio into the input language.
 
@@ -265,7 +265,7 @@ async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: Optional
 
 
 @pxt.udf
-async def translations(audio: pxt.Audio, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
+async def translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Translates audio into English.
 
@@ -335,7 +335,7 @@ def _is_model_family(model: str, family: str) -> bool:
 
 
 def _chat_completions_get_request_resources(
-    messages: list, model: str, model_kwargs: Optional[dict[str, Any]]
+    messages: list, model: str, model_kwargs: dict[str, Any] | None
 ) -> dict[str, int]:
     if model_kwargs is None:
         model_kwargs = {}
@@ -362,10 +362,10 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
-    tools: Optional[list[dict[str, Any]]] = None,
-    tool_choice: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    model_kwargs: dict[str, Any] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -436,7 +436,7 @@ async def chat_completions(
 
 
 def _vision_get_request_resources(
-    prompt: str, image: PIL.Image.Image, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    prompt: str, image: PIL.Image.Image, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict[str, int]:
     if model_kwargs is None:
         model_kwargs = {}
@@ -477,8 +477,8 @@ async def vision(
     image: PIL.Image.Image,
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    model_kwargs: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
@@ -567,8 +567,8 @@ async def embeddings(
     input: Batch[str],
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    model_kwargs: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -621,8 +621,8 @@ async def embeddings(
 
 
 @embeddings.conditional_return_type
-def _(model: str, model_kwargs: Optional[dict[str, Any]] = None) -> ts.ArrayType:
-    dimensions: Optional[int] = None
+def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
+    dimensions: int | None = None
     if model_kwargs is not None:
         dimensions = model_kwargs.get('dimensions')
     if dimensions is None:
@@ -639,7 +639,7 @@ def _(model: str, model_kwargs: Optional[dict[str, Any]] = None) -> ts.ArrayType
 
 @pxt.udf
 async def image_generations(
-    prompt: str, *, model: str = 'dall-e-2', model_kwargs: Optional[dict[str, Any]] = None
+    prompt: str, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
 ) -> PIL.Image.Image:
     """
     Creates an image given a prompt.
@@ -685,7 +685,7 @@ async def image_generations(
 
 
 @image_generations.conditional_return_type
-def _(model_kwargs: Optional[dict[str, Any]] = None) -> ts.ImageType:
+def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
     if model_kwargs is None or 'size' not in model_kwargs:
         # default size is 1024x1024
         return ts.ImageType(size=(1024, 1024))
@@ -761,7 +761,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 
 @pxt.udf
-def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+def _openai_response_to_pxt_tool_calls(response: dict) -> dict | None:
     if 'tool_calls' not in response['choices'][0]['message'] or response['choices'][0]['message']['tool_calls'] is None:
         return None
     openai_tool_calls = response['choices'][0]['message']['tool_calls']

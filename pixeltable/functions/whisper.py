@@ -6,7 +6,7 @@ This UDF will cause Pixeltable to invoke the relevant model locally. In order to
 first `pip install openai-whisper`.
 """
 
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -21,16 +21,16 @@ def transcribe(
     audio: pxt.Audio,
     *,
     model: str,
-    temperature: Optional[Sequence[float]] = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
-    compression_ratio_threshold: Optional[float] = 2.4,
-    logprob_threshold: Optional[float] = -1.0,
-    no_speech_threshold: Optional[float] = 0.6,
+    temperature: Sequence[float] | None = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+    compression_ratio_threshold: float | None = 2.4,
+    logprob_threshold: float | None = -1.0,
+    no_speech_threshold: float | None = 0.6,
     condition_on_previous_text: bool = True,
-    initial_prompt: Optional[str] = None,
+    initial_prompt: str | None = None,
     word_timestamps: bool = False,
     prepend_punctuations: str = '"\'“¿([{-',
     append_punctuations: str = '"\'.。,，!！?？:：”)]}、',  # noqa: RUF001
-    decode_options: Optional[dict] = None,
+    decode_options: dict | None = None,
 ) -> dict:
     """
     Transcribe an audio file using Whisper.

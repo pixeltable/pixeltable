@@ -95,7 +95,7 @@ table.add_computed_column(
     @pxt.udf
     def extract_year(date_str: str) -> int:
         return int(date_str.split('-')[0])
-        
+
     # Used immediately
     table.add_computed_column(
         year=extract_year(table.date)
@@ -112,7 +112,7 @@ table.add_computed_column(
     @pxt.udf
     def clean_text(text: str) -> str:
         return text.strip().lower()
-        
+
     # In your application
     from my_functions import clean_text
     table.add_computed_column(
@@ -127,14 +127,14 @@ table.add_computed_column(
   <Tab title="Batched UDFs">
     ```python
     from pixeltable.func import Batch
-    
+
     @pxt.udf(batch_size=32)
     def process_batch(items: Batch[str]) -> Batch[str]:
         results = []
         for item in items:
             results.append(item.upper())
         return results
-        
+
     # Used like a regular UDF
     table.add_computed_column(
         processed=process_batch(table.text)
@@ -193,7 +193,7 @@ table.add_computed_column(
         return model.encode(texts)
     ```
   </Card>
-  
+
   <Card title="Caching" icon="database">
     ```python
     @pxt.udf
@@ -204,18 +204,18 @@ table.add_computed_column(
         return expensive_operation.model(text)
     ```
   </Card>
-  
+
   <Card title="Async Support" icon="bolt">
     ```python
-    from typing import Optional, Literal, Union, Any
+    from typing import Literal, Union, Any
     import json
-    
+
     @pxt.udf
     async def chat_completions(
         messages: list,
         *,
         model: str,
-        model_kwargs: Optional[dict] = None,
+        model_kwargs: dict | None = None,
     ) -> dict:
 
         # Setup API request with proper context management
@@ -224,10 +224,10 @@ table.add_computed_column(
             model=model,
             model_kwargs=model_kwargs
         )
-        
+
         # Process response
         return json.loads(result.text)
-    
+
     # Example usage in a computed column
     table.add_computed_column(
         response=chat_completions(
@@ -293,7 +293,7 @@ table.add_computed_column(
         return text
     ```
   </Accordion>
-  
+
   <Accordion title="Table UDFs" icon="table">
     - Define clear input and output columns for your table UDFs
     - Implement cleanup routines for tables that grow large
@@ -323,7 +323,7 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
     #### Step 1: Create a Specialized Table
     ```python
     # Create a table with your workflow
-    finance_agent = pxt.create_table('directory.financial_analyst', 
+    finance_agent = pxt.create_table('directory.financial_analyst',
                                     {'prompt': pxt.String})
     # Add computed columns for processing
     finance_agent.add_computed_column(/* ... */)
@@ -332,7 +332,7 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
     #### Step 2: Convert to UDF
     ```python
     # Convert table to UDF by specifying return column
-    finance_agent_udf = pxt.udf(finance_agent, 
+    finance_agent_udf = pxt.udf(finance_agent,
                                return_value=finance_agent.answer)
     ```
 
@@ -344,45 +344,44 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
     )
     ```
   </Tab>
-  
+
   <Tab title="Complete Example">
     <AccordionGroup>
       <Accordion title="Setup and Tools" icon="screwdriver-wrench">
         ```python
         import time
-        from typing import Optional
-        
+
         import yfinance as yf
-        
+
         import pixeltable as pxt
         from pixeltable.functions.openai import chat_completions, invoke_tools
-        
+
         DIRECTORY = 'agent'
         OPENAI_MODEL = 'gpt-4o-mini'
-        
+
         # Create Fresh Directory
         pxt.drop_dir(DIRECTORY, force=True)
         pxt.create_dir(DIRECTORY, if_exists='ignore')
-        
-        
+
+
         # yfinance tool for getting stock information
         @pxt.udf
-        def stock_info(ticker: str) -> Optional[dict]:
+        def stock_info(ticker: str) -> dict | None:
             """Get stock info for a given ticker symbol."""
             stock = yf.Ticker(ticker)
             return stock.info
-        
-        
+
+
         # Helper UDF to create a prompt with tool outputs
         @pxt.udf
         def create_prompt(question: str, tool_outputs: list[dict]) -> str:
             return f"""
             QUESTION:
-        
+
             {question}
-        
+
             RESULTS:
-        
+
             {tool_outputs}
             """
         ```
@@ -392,53 +391,53 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
         ```python
         # Create Financial Analyst Agent Table
         finance_agent = pxt.create_table(
-            f'{DIRECTORY}.financial_analyst', 
-            {'prompt': pxt.String}, 
+            f'{DIRECTORY}.financial_analyst',
+            {'prompt': pxt.String},
             if_exists='ignore'
         )
-        
+
         # Prepare initial messages for LLM
         messages = [{'role': 'user', 'content': finance_agent.prompt}]
-        
+
         # Define available tools
         tools = pxt.tools(stock_info)
-        
+
         # Get initial response with tool calls
         finance_agent.add_computed_column(
             initial_response=chat_completions(
-                model=OPENAI_MODEL, 
-                messages=messages, 
-                tools=tools, 
+                model=OPENAI_MODEL,
+                messages=messages,
+                tools=tools,
                 tool_choice=tools.choice(required=True)
             )
         )
-        
+
         # Execute the requested tools
         finance_agent.add_computed_column(
             tool_output=invoke_tools(tools, finance_agent.initial_response)
         )
-        
+
         # Create prompt with tool results
         finance_agent.add_computed_column(
             stock_response_prompt=create_prompt(
-                finance_agent.prompt, 
+                finance_agent.prompt,
                 finance_agent.tool_output
             )
         )
-        
+
         # Generate final response using tool results
         final_messages = [
             {'role': 'system', 'content': "Answer the user's question based on the results."},
             {'role': 'user', 'content': finance_agent.stock_response_prompt},
         ]
-        
+
         finance_agent.add_computed_column(
             final_response=chat_completions(
-                model=OPENAI_MODEL, 
+                model=OPENAI_MODEL,
                 messages=final_messages
             )
         )
-        
+
         # Extract answer text
         finance_agent.add_computed_column(
             answer=finance_agent.final_response.choices[0].message.content
@@ -450,7 +449,7 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
         ```python
         # Convert the finance_agent table to a UDF
         finance_agent_udf = pxt.udf(
-            finance_agent, 
+            finance_agent,
             return_value=finance_agent.answer
         )
         ```
@@ -460,11 +459,11 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
         ```python
         # Create a Portfolio Manager table that uses the finance agent
         portfolio_manager = pxt.create_table(
-            f'{DIRECTORY}.portfolio_manager', 
-            {'prompt': pxt.String}, 
+            f'{DIRECTORY}.portfolio_manager',
+            {'prompt': pxt.String},
             if_exists='ignore'
         )
-        
+
         # Add the finance agent UDF as a computed column
         portfolio_manager.add_computed_column(
             result=finance_agent_udf(portfolio_manager.prompt)
@@ -476,12 +475,12 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
         ```python
         # Get the portfolio manager table
         portfolio_manager = pxt.get_table(f'{DIRECTORY}.portfolio_manager')
-        
+
         # Insert a test query
         portfolio_manager.insert([
             {'prompt': 'What is the price of NVDIA?'}
         ])
-        
+
         # View results
         result = portfolio_manager.select(portfolio_manager.result).collect()
         print(result)
@@ -503,13 +502,13 @@ graph TD
     D --> E[LLM Call with Results]
     E --> F[Final Answer]
     F --> G[Portfolio Manager Table]
-    
+
     classDef default fill:#f9f9f9,stroke:#666,stroke-width:1px,color:black;
     classDef table fill:#b3e0ff,stroke:#0066cc,stroke-width:2px,color:black;
     classDef llm fill:#ffcc99,stroke:#ff8000,stroke-width:2px,color:black;
     classDef tool fill:#c2e0c2,stroke:#339933,stroke-width:2px,color:black;
     classDef result fill:#ffffb3,stroke:#b3b300,stroke-width:2px,color:black;
-    
+
     class B,G table;
     class C,E llm;
     class D tool;
@@ -537,13 +536,13 @@ graph TD
 <AccordionGroup>
   <Accordion title="Chaining Multiple Table UDFs" icon="link">
     You can create a workflow of table UDFs to handle complex multi-stage processing:
-    
+
     ```python
     # Create a chain of specialized agents
     research_agent = pxt.udf(research_table, return_value=research_table.findings)
     analysis_agent = pxt.udf(analysis_table, return_value=analysis_table.insights)
     report_agent = pxt.udf(report_table, return_value=report_table.document)
-    
+
     # Use them in sequence
     workflow.add_computed_column(research=research_agent(workflow.query))
     workflow.add_computed_column(analysis=analysis_agent(workflow.research))
@@ -553,22 +552,22 @@ graph TD
 
   <Accordion title="Parallel Processing with Table UDFs" icon="arrows-split-up-and-left">
     Execute multiple table UDFs in parallel and combine their results:
-    
+
     ```python
     # Define specialized agents for different tasks
     stock_agent = pxt.udf(stock_table, return_value=stock_table.analysis)
     news_agent = pxt.udf(news_table, return_value=news_table.summary)
     sentiment_agent = pxt.udf(sentiment_table, return_value=sentiment_table.score)
-    
+
     # Process in parallel
     portfolio.add_computed_column(stock_data=stock_agent(portfolio.ticker))
     portfolio.add_computed_column(news_data=news_agent(portfolio.ticker))
     portfolio.add_computed_column(sentiment=sentiment_agent(portfolio.ticker))
-    
+
     # Combine results
     portfolio.add_computed_column(report=combine_insights(
-        portfolio.stock_data, 
-        portfolio.news_data, 
+        portfolio.stock_data,
+        portfolio.news_data,
         portfolio.sentiment
     ))
     ```
@@ -591,10 +590,10 @@ UDAs enable you to:
 class sum_of_squares(pxt.Aggregator):
     def __init__(self):
         self.cur_sum = 0
-        
+
     def update(self, val: int) -> None:
         self.cur_sum += val * val
-        
+
     def value(self) -> int:
         return self.cur_sum
 ```

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from pixeltable.metadata import schema
 
 
 class MetadataUtils:
     @classmethod
     def _diff_md(
-        cls, old_md: Optional[dict[int, schema.SchemaColumn]], new_md: Optional[dict[int, schema.SchemaColumn]]
+        cls, old_md: dict[int, schema.SchemaColumn] | None, new_md: dict[int, schema.SchemaColumn] | None
     ) -> str:
         """Return a string reporting the differences in a specific entry in two dictionaries
 
@@ -43,9 +41,7 @@ class MetadataUtils:
         return r
 
     @classmethod
-    def _create_md_change_dict(
-        cls, md_list: Optional[list[tuple[int, dict[int, schema.SchemaColumn]]]]
-    ) -> dict[int, str]:
+    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]] | None) -> dict[int, str]:
         """Return a dictionary of schema changes by version
         Args:
             md_list: a list of tuples, each containing a version number and a metadata dictionary.

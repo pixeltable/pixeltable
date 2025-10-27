@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pixeltable import exceptions as excs
@@ -21,10 +21,10 @@ class TableVersionHandle:
     """
 
     id: UUID
-    effective_version: Optional[int]
-    _tbl_version: Optional[TableVersion]
+    effective_version: int | None
+    _tbl_version: TableVersion | None
 
-    def __init__(self, tbl_id: UUID, effective_version: Optional[int], tbl_version: Optional[TableVersion] = None):
+    def __init__(self, tbl_id: UUID, effective_version: int | None, tbl_version: TableVersion | None = None):
         self.id = tbl_id
         self.effective_version = effective_version
         self._tbl_version = tbl_version
