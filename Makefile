@@ -101,7 +101,7 @@ endif
 
 .make-install/deps: pyproject.toml uv.lock
 	@echo 'Installing dependencies from uv ...'
-	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --no-dev --active
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
