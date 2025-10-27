@@ -152,7 +152,7 @@ dev = [
     "datasets>=3.2.0",
     "openpyxl>=3.1",
     "openai-whisper>=20250625",
-    "whisperx>=3.7",
+    "whisperx>=3.7 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18",
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.16 ; sys_platform == 'linux'",
@@ -166,6 +166,14 @@ dev = [
     "diffusers>=0.34",
     "accelerate>=1.10",
     "twelvelabs>=1.0",
+
+    # Remove before merge
+    "psycopg[binary]>=3.2.6",
+    "av>=15.0.0",
+    "rpds-py>=0.22",
+    "pydantic-core>=2.35",
+    "pyarrow>=22.0",
+    "SQLAlchemy>=2.0.39"
 ]
 test = [
     "pytest>=8.4",

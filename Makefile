@@ -86,7 +86,7 @@ endif
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
 	@echo 'Installing ffmpeg ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' awscli google-cloud-sdk
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 	@echo 'Installing quarto ...'
 	@conda install -q -y -c conda-forge quarto
 	@echo 'Fixing quarto conda packaging bugs ...'
@@ -101,7 +101,7 @@ endif
 
 .make-install/deps: pyproject.toml uv.lock
 	@echo 'Installing dependencies from uv ...'
-	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --no-dev --active
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
