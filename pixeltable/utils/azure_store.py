@@ -3,7 +3,7 @@ import re
 import threading
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterator, Optional
+from typing import TYPE_CHECKING, Iterator
 
 from azure.core.exceptions import AzureError
 
@@ -101,7 +101,7 @@ class AzureBlobStore(ObjectStoreBase):
         """Return the prefix from the base URI."""
         return self.__prefix_name
 
-    def validate(self, error_col_name: str) -> Optional[str]:
+    def validate(self, error_col_name: str) -> str | None:
         """
         Checks if the URI exists and is accessible.
 
@@ -147,7 +147,9 @@ class AzureBlobStore(ObjectStoreBase):
             self.handle_azure_error(e, self.container_name, f'upload file {src_path}')
             raise
 
-    def _get_filtered_blobs(self, tbl_id: Optional[uuid.UUID], tbl_version: Optional[int] = None) -> Iterator:
+    def _get_filtered_blobs(
+        self, tbl_id: uuid.UUID | None, tbl_version: int | None = None
+    ) -> Iterator['BlobProperties']:
         """Private method to get filtered blobs for a table, optionally filtered by version.
 
         Args:
@@ -188,7 +190,7 @@ class AzureBlobStore(ObjectStoreBase):
             self.handle_azure_error(e, self.container_name, f'setup iterator {self.prefix}')
             raise
 
-    def count(self, tbl_id: Optional[uuid.UUID], tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: uuid.UUID | None, tbl_version: int | None = None) -> int:
         """Count the number of files belonging to tbl_id. If tbl_version is not None,
         count only those files belonging to the specified tbl_version.
 
@@ -202,7 +204,7 @@ class AzureBlobStore(ObjectStoreBase):
         blob_iterator = self._get_filtered_blobs(tbl_id, tbl_version)
         return sum(1 for _ in blob_iterator)
 
-    def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version.
 
