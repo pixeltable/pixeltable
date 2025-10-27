@@ -44,7 +44,7 @@ class MetadataUtils:
 
     @classmethod
     def _create_md_change_dict(
-        cls, md_list: Optional[list[tuple[int, dict[int, schema.SchemaColumn]]]]
+        cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]] | None
     ) -> dict[int, str]:
         """Return a dictionary of schema changes by version
         Args:

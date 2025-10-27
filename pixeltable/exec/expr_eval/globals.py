@@ -22,7 +22,7 @@ class FnCallArgs:
     kwargs: dict[str, Any] | None = None
     # batch call
     batch_args: list[list[Any | None]] | None = None
-    batch_kwargs: Optional[dict[str, list[Any | None]]] = None
+    batch_kwargs: dict[str, list[Any | None]] | None = None
 
     @property
     def pxt_fn(self) -> func.CallableFunction:

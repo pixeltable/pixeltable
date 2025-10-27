@@ -321,7 +321,7 @@ class FunctionCall(Expr):
         args, kwargs = self.make_args(data_row)
         self.aggregator.update(*args, **kwargs)
 
-    def make_args(self, data_row: DataRow) -> Optional[tuple[list[Any], dict[str, Any]]]:
+    def make_args(self, data_row: DataRow) -> tuple[list[Any], dict[str, Any]] | None:
         """Return args and kwargs, constructed for data_row; returns None if any non-nullable arg is None."""
         args: list[Any] = []
         parameters_by_pos = self.fn.signature.parameters_by_pos

@@ -12,11 +12,11 @@ __logger = logging.getLogger('pixeltable')
 
 def convert_table_md(
     engine: sql.engine.Engine,
-    table_md_updater: Optional[Callable[[dict, UUID], None]] = None,
-    column_md_updater: Optional[Callable[[dict], None]] = None,
-    external_store_md_updater: Optional[Callable[[dict], None]] = None,
-    substitution_fn: Optional[Callable[[str | None, Any], tuple[str | None, Any] | None]] = None,
-    table_modifier: Optional[Callable[[sql.Connection, UUID, dict, dict], None]] = None,
+    table_md_updater: Callable[[dict, UUID], None] | None = None,
+    column_md_updater: Callable[[dict], None] | None = None,
+    external_store_md_updater: Callable[[dict], None] | None = None,
+    substitution_fn: Callable[[str | None, Any], tuple[str | None, Any] | None] | None = None,
+    table_modifier: Callable[[sql.Connection, UUID, dict, dict], None] | None = None,
 ) -> None:
     """
     Converts schema.TableMd dicts based on the specified conversion functions.
@@ -110,8 +110,8 @@ def __substitute_md_rec(
 
 def convert_table_schema_version_md(
     engine: sql.engine.Engine,
-    table_schema_version_md_updater: Optional[Callable[[dict], None]] = None,
-    schema_column_updater: Optional[Callable[[dict], None]] = None,
+    table_schema_version_md_updater: Callable[[dict], None] | None = None,
+    schema_column_updater: Callable[[dict], None] | None = None,
 ) -> None:
     """
     Converts schema.TableSchemaVersionMd dicts based on the specified conversion functions.
@@ -150,7 +150,7 @@ def __update_schema_column(table_schema_version_md: dict, schema_column_updater:
 
 
 def convert_table_version_record(
-    engine: sql.engine.Engine, table_version_record_updater: Optional[Callable[[TableVersion], None]]
+    engine: sql.engine.Engine, table_version_record_updater: Callable[[TableVersion], None] | None
 ) -> None:
     with sql.orm.Session(engine, future=True) as session:
         for record in session.query(TableVersion).all():
@@ -159,7 +159,7 @@ def convert_table_version_record(
 
 
 def convert_table_schema_version_record(
-    engine: sql.engine.Engine, table_schema_version_record_updater: Optional[Callable[[TableSchemaVersion], None]]
+    engine: sql.engine.Engine, table_schema_version_record_updater: Callable[[TableSchemaVersion], None] | None
 ) -> None:
     with sql.orm.Session(engine, future=True) as session:
         for record in session.query(TableSchemaVersion).all():

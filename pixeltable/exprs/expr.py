@@ -309,18 +309,18 @@ class Expr(abc.ABC):
 
     @overload
     def subexprs(
-        self, *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        self, *, filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload
     def subexprs(
-        self, expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        self, expr_class: type[T], filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
     ) -> Iterator[T]: ...
 
     def subexprs(
         self,
         expr_class: type[T] | None = None,
-        filter: Optional[Callable[[Expr], bool]] = None,
+        filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]:
         """
@@ -342,7 +342,7 @@ class Expr(abc.ABC):
         cls,
         expr_list: Iterable[Expr],
         *,
-        filter: Optional[Callable[[Expr], bool]] = None,
+        filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
     ) -> Iterator[Expr]: ...
 
@@ -352,7 +352,7 @@ class Expr(abc.ABC):
         cls,
         expr_list: Iterable[Expr],
         expr_class: type[T],
-        filter: Optional[Callable[[Expr], bool]] = None,
+        filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]: ...
 
@@ -361,7 +361,7 @@ class Expr(abc.ABC):
         cls,
         expr_list: Iterable[Expr],
         expr_class: type[T] | None = None,
-        filter: Optional[Callable[[Expr], bool]] = None,
+        filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
@@ -377,7 +377,7 @@ class Expr(abc.ABC):
     ) -> bool:
         return any(e._contains(expr_class, filter) for e in expr_list)
 
-    def _contains(self, cls: type[Expr] | None = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+    def _contains(self, cls: type[Expr] | None = None, filter: Callable[[Expr], bool] | None = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.
         """

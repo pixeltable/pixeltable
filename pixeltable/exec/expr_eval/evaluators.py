@@ -67,7 +67,7 @@ class FnCallEvaluator(Evaluator):
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
 
     # only set if fn.is_batched
-    call_args_queue: Optional[asyncio.Queue[FnCallArgs]]  # FnCallArgs waiting for execution
+    call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
     batch_size: int | None
 
     def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher, exec_ctx: ExecCtx):

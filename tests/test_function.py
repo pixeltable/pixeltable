@@ -908,7 +908,7 @@ class TestFunction:
         ).strip()
 
         @pxt.udf(_force_stored=True)
-        def udf_base_version(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+        def udf_base_version(a: str, b: int = 3) -> pxt.Array[pxt.Float] | None:
             return None
 
         mimic(udf_base_version)
@@ -919,7 +919,7 @@ class TestFunction:
 
         # Change type of an unused optional parameter; this works in all cases
         @pxt.udf(_force_stored=True)
-        def udf_version_2(a: str, b: str = 'x') -> Optional[pxt.Array[pxt.Float]]:
+        def udf_version_2(a: str, b: str = 'x') -> pxt.Array[pxt.Float] | None:
             return None
 
         mimic(udf_version_2)
@@ -927,7 +927,7 @@ class TestFunction:
 
         # Rename the parameter; this works only if the UDF was invoked with a positional argument
         @pxt.udf(_force_stored=True)
-        def udf_version_3(c: str, b: str = 'x') -> Optional[pxt.Array[pxt.Float]]:
+        def udf_version_3(c: str, b: str = 'x') -> pxt.Array[pxt.Float] | None:
             return None
 
         mimic(udf_version_3)
@@ -939,7 +939,7 @@ class TestFunction:
         # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
         # argument
         @pxt.udf(_force_stored=True)
-        def udf_version_4(*a: str) -> Optional[pxt.Array[pxt.Float]]:
+        def udf_version_4(*a: str) -> pxt.Array[pxt.Float] | None:
             return None
 
         mimic(udf_version_4)
@@ -950,7 +950,7 @@ class TestFunction:
 
         # Narrow the return type; this works in all cases
         @pxt.udf(_force_stored=True)
-        def udf_version_5(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float, (512,)]]:
+        def udf_version_5(a: str, b: int = 3) -> pxt.Array[pxt.Float, (512,)] | None:
             return None
 
         mimic(udf_version_5)
@@ -958,7 +958,7 @@ class TestFunction:
 
         # Change the type of the parameter to something incompatible; this fails in all cases
         @pxt.udf(_force_stored=True)
-        def udf_version_6(a: float, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+        def udf_version_6(a: float, b: int = 3) -> pxt.Array[pxt.Float] | None:
             return None
 
         mimic(udf_version_6)
@@ -974,7 +974,7 @@ class TestFunction:
 
         # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
         @pxt.udf(_force_stored=True)
-        def udf_version_8(c: float = 5.0, a: str = '', b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+        def udf_version_8(c: float = 5.0, a: str = '', b: int = 3) -> pxt.Array[pxt.Float] | None:
             return None
 
         mimic(udf_version_8)

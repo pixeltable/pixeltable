@@ -863,7 +863,7 @@ class Env:
                 os.remove(path)
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
-    def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
+    def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
         info = self._resource_pool_info.get(pool_id)
         if info is None and make_pool_info is not None:

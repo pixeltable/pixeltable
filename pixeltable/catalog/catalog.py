@@ -179,7 +179,7 @@ class Catalog:
     _column_dependencies: dict[UUID, dict[QColumnId, set[QColumnId]]]
 
     # column dependents are recomputed at the beginning of every write transaction and only reflect the locked tree
-    _column_dependents: Optional[dict[QColumnId, set[QColumnId]]]
+    _column_dependents: dict[QColumnId, set[QColumnId]] | None
 
     @classmethod
     def get(cls) -> Catalog:

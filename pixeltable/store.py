@@ -473,7 +473,7 @@ class StoreBase:
         current_version: int,
         base_versions: list[int | None],
         match_on_vmin: bool,
-        where_clause: Optional[sql.ColumnElement[bool]],
+        where_clause: sql.ColumnElement[bool] | None,
     ) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
