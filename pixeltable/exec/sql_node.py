@@ -2,7 +2,7 @@ import datetime
 import logging
 import warnings
 from decimal import Decimal
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Optional, Sequence
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -22,13 +22,13 @@ _logger = logging.getLogger('pixeltable')
 
 class OrderByItem(NamedTuple):
     expr: exprs.Expr
-    asc: Optional[bool]
+    asc: bool | None
 
 
 OrderByClause = list[OrderByItem]
 
 
-def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> Optional[OrderByClause]:
+def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause | None:
     """Returns a clause that's compatible with 'clauses', or None if that doesn't exist.
     Two clauses are compatible if for each of their respective items c1[i] and c2[i]
     a) the exprs are identical and
@@ -81,15 +81,15 @@ class SqlNode(ExecNode):
         set_pk: if True, sets the primary for each DataRow
     """
 
-    tbl: Optional[catalog.TableVersionPath]
+    tbl: catalog.TableVersionPath | None
     select_list: exprs.ExprSet
     columns: list[catalog.Column]  # for which columns to populate DataRow.cell_vals/cell_md
     cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
     num_pk_cols: int
-    py_filter: Optional[exprs.Expr]  # a predicate that can only be run in Python
-    py_filter_eval_ctx: Optional[exprs.RowBuilder.EvalCtx]
-    cte: Optional[sql.CTE]
+    py_filter: exprs.Expr | None  # a predicate that can only be run in Python
+    py_filter_eval_ctx: exprs.RowBuilder.EvalCtx | None
+    cte: sql.CTE | None
     sql_elements: exprs.SqlElementCache
 
     # execution state
@@ -99,15 +99,15 @@ class SqlNode(ExecNode):
     result_cursor: sql.engine.CursorResult | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
-    where_clause: Optional[exprs.Expr]
-    where_clause_element: Optional[sql.ColumnElement]
+    where_clause: exprs.Expr | None
+    where_clause_element: sql.ColumnElement | None
 
     order_by_clause: OrderByClause
-    limit: Optional[int]
+    limit: int | None
 
     def __init__(
         self,
-        tbl: Optional[catalog.TableVersionPath],
+        tbl: catalog.TableVersionPath | None,
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
         columns: list[catalog.Column],
@@ -216,7 +216,7 @@ class SqlNode(ExecNode):
     def _ordering_tbl_ids(self) -> set[UUID]:
         return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
 
-    def to_cte(self, keep_pk: bool = False) -> Optional[tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]]:
+    def to_cte(self, keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]] | None:
         """
         Creates a CTE that materializes the output of this node plus a mapping from select list expr to output column.
         keep_pk: if True, the PK columns are included in the CTE Select statement
@@ -245,8 +245,8 @@ class SqlNode(ExecNode):
         cls,
         tbl: catalog.TableVersionPath,
         stmt: sql.Select,
-        refd_tbl_ids: Optional[set[UUID]] = None,
-        exact_version_only: Optional[set[UUID]] = None,
+        refd_tbl_ids: set[UUID] | None = None,
+        exact_version_only: set[UUID] | None = None,
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
@@ -270,7 +270,7 @@ class SqlNode(ExecNode):
                 joined_tbls.append(t)
 
         first = True
-        prev_tv: Optional[catalog.TableVersion] = None
+        prev_tv: catalog.TableVersion | None = None
         for t in joined_tbls[::-1]:
             tv = t.get()
             # _logger.debug(f'create_from_clause: tbl_id={tv.id} {id(tv.store_tbl.sa_tbl)}')
@@ -347,7 +347,7 @@ class SqlNode(ExecNode):
                 pass
 
         output_batch = DataRowBatch(self.row_builder)
-        output_row: Optional[exprs.DataRow] = None
+        output_row: exprs.DataRow | None = None
         num_rows_returned = 0
         is_using_cockroachdb = Env.get().is_using_cockroachdb
         tzinfo = Env.get().default_time_zone
@@ -450,7 +450,7 @@ class SqlScanNode(SqlNode):
         columns: list[catalog.Column],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
+        exact_version_only: list[catalog.TableVersionHandle] | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -528,17 +528,17 @@ class SqlAggregationNode(SqlNode):
         limit: max number of rows to return: None = no limit
     """
 
-    group_by_items: Optional[list[exprs.Expr]]
-    input_cte: Optional[sql.CTE]
+    group_by_items: list[exprs.Expr] | None
+    input_cte: sql.CTE | None
 
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
         input: SqlNode,
         select_list: Iterable[exprs.Expr],
-        group_by_items: Optional[list[exprs.Expr]] = None,
-        limit: Optional[int] = None,
-        exact_version_only: Optional[list[catalog.TableVersion]] = None,
+        group_by_items: list[exprs.Expr] | None = None,
+        limit: int | None = None,
+        exact_version_only: list[catalog.TableVersion] | None = None,
     ):
         assert len(input.cell_md_refs) == 0  # there's no aggregation over json or arrays in SQL
         self.input_cte, input_col_map = input.to_cte()
@@ -617,9 +617,9 @@ class SqlSampleNode(SqlNode):
         stratify_exprs: Analyzer processed list of expressions to stratify by.
     """
 
-    input_cte: Optional[sql.CTE]
+    input_cte: sql.CTE | None
     pk_count: int
-    stratify_exprs: Optional[list[exprs.Expr]]
+    stratify_exprs: list[exprs.Expr] | None
     sample_clause: 'SampleClause'
 
     def __init__(
@@ -692,7 +692,7 @@ class SqlSampleNode(SqlNode):
 
             return self._create_stmt_stratified_n(self.sample_clause.n, self.sample_clause.n_per_stratum)
 
-    def _create_stmt_stratified_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
+    def _create_stmt_stratified_n(self, n: int | None, n_per_stratum: int | None) -> sql.Select:
         """Create a Select stmt that returns n samples across all strata or n_per_stratum samples per stratum"""
 
         sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]

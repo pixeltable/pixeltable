@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
 from uuid import UUID
 
 import pydantic
@@ -109,11 +109,11 @@ class InsertableTable(Table):
     @overload
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         **kwargs: Any,
@@ -126,11 +126,11 @@ class InsertableTable(Table):
 
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         **kwargs: Any,
@@ -303,7 +303,7 @@ class InsertableTable(Table):
                         f'`{model_type.__name__}`, which is not JSON-convertible'
                     )
 
-    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
@@ -323,11 +323,11 @@ class InsertableTable(Table):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             return self._tbl_version.get().delete(where=where)
 
-    def _get_base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> 'Table' | None:
         return None
 
     @property
-    def _effective_base_versions(self) -> list[Optional[int]]:
+    def _effective_base_versions(self) -> list[int | None]:
         return []
 
     def _table_descriptor(self) -> str:

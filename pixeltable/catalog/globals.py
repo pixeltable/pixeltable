@@ -4,7 +4,6 @@ import enum
 import itertools
 import logging
 from dataclasses import dataclass
-from typing import Optional
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -17,7 +16,7 @@ _ROWID_COLUMN_NAME = '_rowid'
 
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
 # This will be populated lazily to avoid circular imports.
-_PREDEF_SYMBOLS: Optional[set[str]] = None
+_PREDEF_SYMBOLS: set[str] | None = None
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ import json
 import logging
 import typing
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -71,7 +71,7 @@ def import_parquet(
     table: str,
     *,
     parquet_path: str,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:

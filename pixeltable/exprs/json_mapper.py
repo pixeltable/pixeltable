@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sql
 
@@ -29,10 +29,10 @@ class JsonMapper(Expr):
     """
 
     target_expr_scope: ExprScope
-    parent_mapper: Optional[JsonMapper]
-    target_expr_eval_ctx: Optional[RowBuilder.EvalCtx]
+    parent_mapper: JsonMapper | None
+    target_expr_eval_ctx: RowBuilder.EvalCtx | None
 
-    def __init__(self, src_expr: Optional[Expr], target_expr: Optional[Expr]):
+    def __init__(self, src_expr: Expr | None, target_expr: Expr | None):
         # TODO: type spec should be list[target_expr.col_type]
         super().__init__(ts.JsonType())
 
@@ -54,7 +54,7 @@ class JsonMapper(Expr):
     def _equals(self, _: JsonMapper) -> bool:
         return True
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -92,8 +92,8 @@ class JsonMapperDispatch(Expr):
     """
 
     target_expr_scope: ExprScope
-    parent_mapper: Optional[JsonMapperDispatch]
-    target_expr_eval_ctx: Optional[RowBuilder.EvalCtx]
+    parent_mapper: JsonMapperDispatch | None
+    target_expr_eval_ctx: RowBuilder.EvalCtx | None
 
     def __init__(self, src_expr: Expr, target_expr: Expr):
         super().__init__(ts.InvalidType())
@@ -116,7 +116,7 @@ class JsonMapperDispatch(Expr):
         scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components.append(scope_anchor)
 
-    def _bind_rel_paths(self, mapper: Optional[JsonMapperDispatch] = None) -> None:
+    def _bind_rel_paths(self, mapper: JsonMapperDispatch | None = None) -> None:
         self.src_expr._bind_rel_paths(mapper)
         self.target_expr._bind_rel_paths(self)
         self.parent_mapper = mapper

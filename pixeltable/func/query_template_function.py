@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 
@@ -16,13 +16,13 @@ if TYPE_CHECKING:
 class QueryTemplateFunction(Function):
     """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
 
-    template_df: Optional['DataFrame']
-    self_name: Optional[str]
-    _comment: Optional[str]
+    template_df: 'DataFrame' | None
+    self_name: str | None
+    _comment: str | None
 
     @classmethod
     def create(
-        cls, template_callable: Callable, param_types: Optional[list[ts.ColumnType]], path: str, name: str
+        cls, template_callable: Callable, param_types: list[ts.ColumnType] | None, path: str, name: str
     ) -> QueryTemplateFunction:
         # we need to construct a template df and a signature
         py_sig = inspect.signature(template_callable)
@@ -40,11 +40,11 @@ class QueryTemplateFunction(Function):
 
     def __init__(
         self,
-        template_df: Optional['DataFrame'],
+        template_df: 'DataFrame' | None,
         sig: Signature,
-        path: Optional[str] = None,
-        name: Optional[str] = None,
-        comment: Optional[str] = None,
+        path: str | None = None,
+        name: str | None = None,
+        comment: str | None = None,
     ):
         assert sig is not None
         super().__init__([sig], self_path=path)
@@ -82,7 +82,7 @@ class QueryTemplateFunction(Function):
     def name(self) -> str:
         return self.self_name
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         return self._comment
 
     def _as_dict(self) -> dict:
@@ -100,11 +100,11 @@ def query(py_fn: Callable) -> QueryTemplateFunction: ...
 
 
 @overload
-def query(*, param_types: Optional[list[ts.ColumnType]] = None) -> Callable[[Callable], QueryTemplateFunction]: ...
+def query(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], QueryTemplateFunction]: ...
 
 
 def query(*args: Any, **kwargs: Any) -> Any:
-    def make_query_template(py_fn: Callable, param_types: Optional[list[ts.ColumnType]]) -> QueryTemplateFunction:
+    def make_query_template(py_fn: Callable, param_types: list[ts.ColumnType] | None) -> QueryTemplateFunction:
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
@@ -127,10 +127,10 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
 def retrieval_udf(
     table: catalog.Table,
-    name: Optional[str] = None,
-    description: Optional[str] = None,
-    parameters: Optional[Iterable[str | exprs.ColumnRef]] = None,
-    limit: Optional[int] = 10,
+    name: str | None = None,
+    description: str | None = None,
+    parameters: Iterable[str | exprs.ColumnRef] | None = None,
+    limit: int | None = 10,
 ) -> func.QueryTemplateFunction:
     """
     Constructs a retrieval UDF for the given table. The retrieval UDF is a UDF whose parameters are

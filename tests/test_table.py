@@ -6,7 +6,7 @@ import random
 import re
 import time
 from pathlib import Path
-from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
+from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -2539,7 +2539,7 @@ class TestTable:
         reload_tester.run_reload_test()
 
     recompute_udf_increment = 0
-    recompute_udf_error_val: Optional[int] = None
+    recompute_udf_error_val: int | None = None
 
     @staticmethod
     @pxt.udf

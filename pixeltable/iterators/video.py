@@ -4,7 +4,7 @@ import math
 import subprocess
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional
+from typing import Any, Iterator, Literal
 
 import av
 import pandas as pd
@@ -42,9 +42,9 @@ class FrameIterator(ComponentIterator):
             [Frame](https://pyav.org/docs/develop/api/frame.html)):
 
             * `index` (`int`)
-            * `pts` (`Optional[int]`)
-            * `dts` (`Optional[int]`)
-            * `time` (`Optional[float]`)
+            * `pts` (`int | None`)
+            * `dts` (`int | None`)
+            * `time` (`float | None`)
             * `is_corrupt` (`bool`)
             * `key_frame` (`bool`)
             * `pict_type` (`int`)
@@ -55,8 +55,8 @@ class FrameIterator(ComponentIterator):
 
     # Input parameters
     video_path: Path
-    fps: Optional[float]
-    num_frames: Optional[int]
+    fps: float | None
+    num_frames: int | None
     all_frame_attrs: bool
 
     # Video info
@@ -67,19 +67,14 @@ class FrameIterator(ComponentIterator):
     video_start_time: int
 
     # List of frame indices to be extracted, or None to extract all frames
-    frames_to_extract: Optional[list[int]]
+    frames_to_extract: list[int] | None
 
     # Next frame to extract, as an iterator `pos` index. If `frames_to_extract` is None, this is the same as the
     # frame index in the video. Otherwise, the corresponding video index is `frames_to_extract[next_pos]`.
     next_pos: int
 
     def __init__(
-        self,
-        video: str,
-        *,
-        fps: Optional[float] = None,
-        num_frames: Optional[int] = None,
-        all_frame_attrs: bool = False,
+        self, video: str, *, fps: float | None = None, num_frames: int | None = None, all_frame_attrs: bool = False
     ):
         if fps is not None and num_frames is not None:
             raise excs.Error('At most one of `fps` or `num_frames` may be specified')

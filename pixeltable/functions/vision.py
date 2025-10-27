@@ -14,7 +14,7 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 import colorsys
 import hashlib
 from collections import defaultdict
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import PIL.Image
@@ -293,13 +293,13 @@ def __create_label_colors(labels: list[Any]) -> dict[Any, str]:
 def draw_bounding_boxes(
     img: PIL.Image.Image,
     boxes: list[list[int]],
-    labels: Optional[list[Any]] = None,
-    color: Optional[str] = None,
-    box_colors: Optional[list[str]] = None,
+    labels: list[Any] | None = None,
+    color: str | None = None,
+    box_colors: list[str] | None = None,
     fill: bool = False,
     width: int = 1,
-    font: Optional[str] = None,
-    font_size: Optional[int] = None,
+    font: str | None = None,
+    font_size: int | None = None,
 ) -> PIL.Image.Image:
     """
     Draws bounding boxes on the given image.

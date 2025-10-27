@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -11,7 +11,7 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
-def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     if isinstance(v, dict) and '_classname' in v:
         # The way InlineArray is represented changed in v20. Previously, literal values were stored
         # directly in the Inline expr; now we store them in Literal sub-exprs. This converter

@@ -1,6 +1,5 @@
 import dataclasses
 import os
-from typing import Optional
 
 import bs4
 import fitz  # type: ignore[import-untyped]
@@ -13,10 +12,10 @@ from pixeltable.env import Env
 @dataclasses.dataclass
 class DocumentHandle:
     format: ts.DocumentType.DocumentFormat
-    bs_doc: Optional[bs4.BeautifulSoup] = None
-    md_ast: Optional[dict] = None
-    pdf_doc: Optional[fitz.Document] = None
-    txt_doc: Optional[str] = None
+    bs_doc: bs4.BeautifulSoup | None = None
+    md_ast: dict | None = None
+    pdf_doc: fitz.Document | None = None
+    txt_doc: str | None = None
 
 
 def get_document_handle(path: str) -> DocumentHandle:
@@ -34,7 +33,7 @@ def get_document_handle(path: str) -> DocumentHandle:
     raise excs.Error(f'Unrecognized document format: {path}')
 
 
-def get_handle_by_extension(path: str, extension: str) -> Optional[DocumentHandle]:
+def get_handle_by_extension(path: str, extension: str) -> DocumentHandle | None:
     doc_format = ts.DocumentType.DocumentFormat.from_extension(extension)
 
     try:
