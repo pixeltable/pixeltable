@@ -6,12 +6,12 @@ import glob
 import logging
 import pathlib
 import subprocess
-from typing import Any, Literal, NoReturn, Optional
+from typing import Any, Literal, NoReturn
 
+import PIL.Image
 import av
 import av.stream
 import numpy as np
-import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
@@ -946,7 +946,7 @@ def scene_detect_adaptive(
     window_width: int = 2,
     min_content_val: float = 15.0,
     luma_only: bool = False,
-    kernel_size: Optional[int] = None,
+    kernel_size: int | None = None,
 ) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's AdaptiveDetector algorithm.
@@ -957,6 +957,8 @@ def scene_detect_adaptive(
 
     Args:
         video: The video to analyze for scene cuts.
+        fps: Number of frames to extract per second for analysis. If None, analyzes all frames.
+            Lower values process faster but may miss exact scene cuts.
         adaptive_threshold: Threshold that the score ratio must exceed to trigger a new scene cut.
             Lower values will detect more scenes (more sensitive), higher values will detect fewer scenes.
         min_scene_len: Minimum number of frames that must pass after a cut is detected before
@@ -1000,14 +1002,17 @@ def scene_detect_adaptive(
         >>> tbl.add_computed_column(
         ...     scene_cuts=tbl.video.scene_detect_adaptive(adaptive_threshold=2.0)
         ... )
+
+        Analyze at a lower frame rate for faster processing:
+
+        >>> tbl.select(tbl.video.scene_detect_adaptive(fps=2.0)).collect()
     """
     from scenedetect import FrameTimecode
     from scenedetect.detectors import AdaptiveDetector
 
     try:
-        with av.open(str(video)) as container:
-            video_stream = container.streams.video[0]
-            fps = float(video_stream.average_rate)
+        with av_utils.VideoFrames(pathlib.Path(video), fps=fps) as frame_iter:
+            video_fps = float(frame_iter.video_framerate)
 
             # Create the AdaptiveDetector
             detector = AdaptiveDetector(
@@ -1020,15 +1025,18 @@ def scene_detect_adaptive(
             )
 
             scene_cuts: list[dict] = []
-            frame_idx = 0
+            last_processed_frame_idx: int | None = None
 
-            # Iterate through all frames
-            for frame in container.decode(video=0):
-                # Convert frame to numpy array (RGB format)
-                frame_array = frame.to_ndarray(format='rgb24')
+            # Iterate through frames
+            for item in frame_iter:
+                # Convert PIL Image to numpy array (RGB format)
+                frame_array = np.array(item.frame.convert('RGB'))
+
+                # Calculate the actual video frame index from time and framerate
+                actual_frame_idx = round(item.time * video_fps)
 
                 # Create FrameTimecode for this frame
-                timecode = FrameTimecode(frame_idx, fps)
+                timecode = FrameTimecode(actual_frame_idx, video_fps)
 
                 # Process the frame and get any detected cuts
                 cuts = detector.process_frame(timecode, frame_array)
@@ -1037,18 +1045,18 @@ def scene_detect_adaptive(
                 for cut_timecode in cuts:
                     cut_frame_idx = cut_timecode.get_frames()
                     # Calculate frame time in seconds from frame index and fps
-                    cut_frame_time = cut_frame_idx / fps
+                    cut_frame_time = cut_frame_idx / video_fps
                     scene_cuts.append({'frame_idx': cut_frame_idx, 'frame_time': cut_frame_time})
 
-                frame_idx += 1
+                last_processed_frame_idx = actual_frame_idx
 
             # Post-process to capture any final scene cuts
-            if frame_idx > 0:
-                final_timecode = FrameTimecode(frame_idx - 1, fps)
+            if last_processed_frame_idx is not None:
+                final_timecode = FrameTimecode(last_processed_frame_idx, video_fps)
                 final_cuts = detector.post_process(final_timecode)
                 for cut_timecode in final_cuts:
                     cut_frame_idx = cut_timecode.get_frames()
-                    cut_frame_time = cut_frame_idx / fps
+                    cut_frame_time = cut_frame_idx / video_fps
                     scene_cuts.append({'frame_idx': cut_frame_idx, 'frame_time': cut_frame_time})
 
             return scene_cuts
