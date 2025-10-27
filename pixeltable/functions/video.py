@@ -940,7 +940,7 @@ def _create_drawtext_params(
 def scene_detect_adaptive(
     video: pxt.Video,
     *,
-    fps: int = 0,
+    fps: float | None = None,
     adaptive_threshold: float = 3.0,
     min_scene_len: int = 15,
     window_width: int = 2,

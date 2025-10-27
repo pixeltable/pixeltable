@@ -210,3 +210,135 @@ def ffmpeg_segment_cmd(
         ]
     )
     return cmd
+
+
+class VideoFrames:
+    """
+    Context manager for iterating over video frames at a specified frame rate.
+
+    Args:
+        path: Path to the video file
+        fps: Number of frames to extract per second. If None or 0.0, extracts all frames.
+    """
+
+    def __init__(self, path: str, fps: float | None = None):
+        self.path = path
+        self.fps = fps if fps is not None and fps > 0.0 else None
+        self.container = None
+        self.video_framerate = None
+        self.video_time_base = None
+        self.video_start_time = None
+        self.video_frame_count = None
+        self.frames_to_extract = None
+        self.next_pos = 0
+
+    def __enter__(self):
+        import math
+        import pandas as pd
+        from fractions import Fraction
+
+        # Open the video file
+        self.container = av.open(self.path)
+        video_stream = self.container.streams.video[0]
+
+        # Extract video metadata
+        self.video_framerate = video_stream.average_rate
+        self.video_time_base = video_stream.time_base
+        self.video_start_time = video_stream.start_time or 0
+
+        # Determine the number of frames in the video
+        self.video_frame_count = video_stream.frames
+        if self.video_frame_count == 0:
+            # The video codec does not provide a frame count in the standard `frames` field
+            metadata = video_stream.metadata
+            if 'NUMBER_OF_FRAMES' in metadata:
+                self.video_frame_count = int(metadata['NUMBER_OF_FRAMES'])
+            elif 'DURATION' in metadata:
+                # Calculate the frame count from the stream duration
+                duration = metadata['DURATION']
+                assert isinstance(duration, str)
+                seconds = pd.to_timedelta(duration).total_seconds()
+                self.video_frame_count = round(seconds * self.video_framerate)
+            else:
+                raise ValueError(f'Video {self.path}: failed to get number of frames')
+
+        # Calculate which frames to extract based on fps
+        if self.fps is None:
+            # Extract all frames
+            self.frames_to_extract = None
+        elif self.fps > float(self.video_framerate):
+            raise ValueError(
+                f'Video {self.path}: requested fps ({self.fps}) exceeds video framerate ({float(self.video_framerate)})'
+            )
+        else:
+            # Extract frames at the specified frequency
+            freq = self.fps / float(self.video_framerate)
+            n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
+            self.frames_to_extract = [round(i / freq) for i in range(n)]
+
+        self.next_pos = 0
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Clean up
+        if self.container:
+            self.container.close()
+        return False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> dict[str, Any]:
+        import PIL.Image
+
+        # Determine the frame index in the video corresponding to the iterator index `next_pos`
+        if self.frames_to_extract is None:
+            next_video_idx = self.next_pos  # extracting all frames
+        elif self.next_pos >= len(self.frames_to_extract):
+            raise StopIteration
+        else:
+            next_video_idx = self.frames_to_extract[self.next_pos]
+
+        # Step through the video until we find the frame we're looking for
+        while True:
+            try:
+                frame = next(self.container.decode(video=0))
+            except StopIteration:
+                raise
+            except EOFError:
+                raise StopIteration from None
+
+            # Compute the index of the current frame based on pts
+            pts = frame.pts - self.video_start_time
+            video_idx = round(pts * self.video_time_base * self.video_framerate)
+            assert isinstance(video_idx, int)
+
+            if video_idx < next_video_idx:
+                # Haven't reached the desired frame yet
+                continue
+
+            # Sanity check that we're at the right frame
+            if video_idx != next_video_idx:
+                raise ValueError(f'Frame {next_video_idx} is missing from the video (video file may be corrupt)')
+
+            # Convert frame to PIL Image
+            img = frame.to_image()
+            assert isinstance(img, PIL.Image.Image)
+
+            # Build result dict with frame and all frame attributes
+            result = {
+                'frame': img,
+                'frame_attrs': {
+                    'index': video_idx,
+                    'pts': frame.pts,
+                    'dts': frame.dts,
+                    'time': frame.time,
+                    'is_corrupt': frame.is_corrupt,
+                    'key_frame': frame.key_frame,
+                    'pict_type': frame.pict_type,
+                    'interlaced_frame': frame.interlaced_frame,
+                }
+            }
+
+            self.next_pos += 1
+            return result
