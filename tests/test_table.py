@@ -114,6 +114,8 @@ class TestTable:
             pxt.create_table('test', schema)
         with pytest.raises(pxt.Error, match='does not exist'):
             pxt.create_table('dir2.test2', schema)
+        with pytest.raises(pxt.Error, match='Creating a table directly from a cloud URI is not supported'):
+            pxt.create_table('test', source='pxt://some/remote/table')
 
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')

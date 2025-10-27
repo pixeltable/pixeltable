@@ -856,7 +856,14 @@ class Catalog:
         for p in sorted(dir_paths):
             dir = self._get_dir(p, lock_dir=True)
             if dir is None:
-                raise excs.Error(f'Directory {p!r} does not exist.')
+                # Dir does not exist; raise an appropriate error.
+                if add_dir_path is not None or add_name is not None:
+                    raise excs.Error(
+                        f'Directory {p!r} does not exist. Create it first with:\n'
+                        f'pxt.create_dir({p!r})'
+                    )
+                else:
+                    raise excs.Error(f'Directory {p!r} does not exist.')
             if p == add_dir_path:
                 add_dir = dir
             if p == drop_dir_path:
