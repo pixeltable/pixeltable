@@ -162,22 +162,17 @@ class TestDestination:
 
         print(t.history())
 
-        n = len(r)
-        assert n == 2
-        assert n == ObjectOps.count(t._id, default_output_dest=True)
-        assert n == ObjectOps.count(t._id, dest=dest1_uri)
-        assert n == ObjectOps.count(t._id, dest=dest2_uri)
+        assert ObjectOps.count(t._id, default_output_dest=True) == 2
+        assert ObjectOps.count(t._id, dest=dest1_uri) == 2
+        assert ObjectOps.count(t._id, dest=dest2_uri) == 2
 
-        n = 1
-        assert n == ObjectOps.count(t._id, 2, default_output_dest=True)
-        assert n == ObjectOps.count(t._id, 3, dest=dest1_uri)
-        assert n == ObjectOps.count(t._id, 4, dest=dest2_uri)
+        assert ObjectOps.count(t._id, 2, default_output_dest=True) == 1
+        assert ObjectOps.count(t._id, 3, dest=dest1_uri) == 1
+        assert ObjectOps.count(t._id, 4, dest=dest2_uri) == 1
 
-        version = 5
-        n = 1
-        assert n == ObjectOps.count(t._id, version, default_output_dest=True)
-        assert n == ObjectOps.count(t._id, version, dest=dest1_uri)
-        assert n == ObjectOps.count(t._id, version, dest=dest2_uri)
+        assert ObjectOps.count(t._id, 5, default_output_dest=True) == 1
+        assert ObjectOps.count(t._id, 5, dest=dest1_uri) == 1
+        assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
         # Test that we can list objects in the destination
         olist = ObjectOps.list_uris(dest1_uri, n_max=10)
