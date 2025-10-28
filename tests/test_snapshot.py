@@ -381,6 +381,17 @@ class TestSnapshot:
         assert 'view_snap1' not in str(e.value).lower()
         assert 'view_snap2' not in str(e.value).lower()
 
+    def test_unstored_snapshot(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        """Tests that a snapshot of a table with unstored columns is queryable."""
+        t = pxt.create_table('tbl', {'c1': pxt.Int})
+        t.add_computed_column(c2=(t.c1 + 1), stored=False)
+        t.insert({'c1': i} for i in range(100))
+        snap = pxt.create_snapshot('snap', t)
+        snap.head()
+#        reload_tester.run_query(snap.order_by(t.c1))
+
+#        reload_tester.run_reload_test()
+
     def test_rename_column(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
 
