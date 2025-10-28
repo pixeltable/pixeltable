@@ -59,7 +59,7 @@ class Column:
     schema_version_drop: int | None
     stores_cellmd: bool
     sa_col: sql.schema.Column | None
-    sa_col_type: sql.sqltypes.TypeEngine
+    sa_col_type: sql.types.TypeEngine
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     value_expr_dict: dict[str, Any] | None
@@ -78,7 +78,7 @@ class Column:
         col_id: int | None = None,
         schema_version_add: int | None = None,
         schema_version_drop: int | None = None,
-        sa_col_type: sql.sqltypes.TypeEngine | None = None,
+        sa_col_type: sql.types.TypeEngine | None = None,
         stores_cellmd: bool | None = None,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
@@ -281,7 +281,7 @@ class Column:
         return ts.JsonType(nullable=True)
 
     @classmethod
-    def sa_cellmd_type(cls) -> sql.sqltypes.TypeEngine:
+    def sa_cellmd_type(cls) -> sql.types.TypeEngine:
         return cls.cellmd_type().to_sa_type()
 
     def store_name(self) -> str:
