@@ -1898,6 +1898,7 @@ class Catalog:
                     .values({schema.Table.md: dataclasses.asdict(tbl_md)})
                     .where(schema.Table.id == tbl_id)
                 )
+                assert isinstance(result, sql.CursorResult)
                 assert result.rowcount == 1, result.rowcount
 
         # Construct and insert new table version record if requested.
@@ -1927,6 +1928,7 @@ class Catalog:
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
                     .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
                 )
+                assert isinstance(result, sql.CursorResult)
                 assert result.rowcount == 1, result.rowcount
 
         # Construct and insert a new schema version record if requested.
