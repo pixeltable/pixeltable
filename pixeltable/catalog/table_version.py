@@ -466,7 +466,7 @@ class TableVersion:
             )
 
             stores_cellmd: bool | None = None  # None: determined by the column properties (in the Column c'tor)
-            sa_col_type: sql.sqltypes.TypeEngine | None = None
+            sa_col_type: sql.types.TypeEngine | None = None
             if col_md.id in val_col_idxs:
                 idx = val_col_idxs[col_md.id]
                 # for index value columns, the index gets to override the default
