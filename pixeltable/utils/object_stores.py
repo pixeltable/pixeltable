@@ -460,7 +460,14 @@ class ObjectOps:
         return store.delete(tbl_id, tbl_version)
 
     @classmethod
-    def count(cls, tbl_id: UUID, tbl_version: int | None = None, dest: str | None = None, default_input_dest: bool = False, default_output_dest: bool = False) -> int:
+    def count(
+        cls,
+        tbl_id: UUID,
+        tbl_version: int | None = None,
+        dest: str | None = None,
+        default_input_dest: bool = False,
+        default_output_dest: bool = False,
+    ) -> int:
         """
         Return the count of objects in the destination for a given table ID.
 
@@ -474,7 +481,9 @@ class ObjectOps:
             default_input_dest: If `True`, use the default input media destination
             default_output_dest: If `True`, use the default output media destination
         """
-        assert sum((dest is not None, default_input_dest, default_output_dest)) <= 1, 'At most one of dest, default_input, default_output may be specified'
+        assert sum((dest is not None, default_input_dest, default_output_dest)) <= 1, (
+            'At most one of dest, default_input, default_output may be specified'
+        )
         if default_input_dest:
             dest = env.Env.get().default_input_media_dest
         if default_output_dest:
