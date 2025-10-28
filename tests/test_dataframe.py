@@ -221,7 +221,7 @@ class TestDataFrame:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id + 1).collect()
-        assert '`on` expects an expression of type `Bool`, but got one of type `Optional[Int]`: id + 1' in str(
+        assert '`on` expects an expression of type `Bool`, but got one of type `Int | None`: id + 1' in str(
             exc_info.value
         )
 

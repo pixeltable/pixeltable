@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -12,7 +12,7 @@ def pixelmultiple(a: int, b: int) -> int:
 
 
 @mcp.tool()
-def pixeldict(d: Optional[dict[str, Any]]) -> dict[str, Any]:
+def pixeldict(d: dict[str, Any] | None) -> dict[str, Any]:
     """Returns the Pixeldict of a dictionary."""
     if d is None:
         d = {}

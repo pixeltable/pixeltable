@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -69,7 +69,7 @@ class Comparison(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         import pixeltable.index as index
 
         if str(self._op1.col_type.to_sa_type()) != str(self._op2.col_type.to_sa_type()):

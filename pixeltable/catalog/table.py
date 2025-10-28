@@ -7,7 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Iterable, Literal, overload
 from uuid import UUID
 
 import pandas as pd
@@ -69,7 +69,7 @@ class Table(SchemaObject):
     _tbl_version_path: TableVersionPath
 
     # the physical TableVersion backing this Table; None for pure snapshots
-    _tbl_version: Optional[TableVersionHandle]
+    _tbl_version: TableVersionHandle | None
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
@@ -243,11 +243,7 @@ class Table(SchemaObject):
             return self._df().where(pred)
 
     def join(
-        self,
-        other: 'Table',
-        *,
-        on: Optional['exprs.Expr'] = None,
-        how: 'pixeltable.plan.JoinType.LiteralType' = 'inner',
+        self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.DataFrame':
         """Join this table with another table."""
         from pixeltable.catalog import Catalog
@@ -284,10 +280,10 @@ class Table(SchemaObject):
 
     def sample(
         self,
-        n: Optional[int] = None,
-        n_per_stratum: Optional[int] = None,
-        fraction: Optional[float] = None,
-        seed: Optional[int] = None,
+        n: int | None = None,
+        n_per_stratum: int | None = None,
+        fraction: float | None = None,
+        seed: int | None = None,
         stratify_by: Any = None,
     ) -> pxt.DataFrame:
         """Choose a shuffled sample of rows
@@ -327,11 +323,11 @@ class Table(SchemaObject):
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
-    def get_base_table(self) -> Optional['Table']:
+    def get_base_table(self) -> 'Table' | None:
         return self._get_base_table()
 
     @abc.abstractmethod
-    def _get_base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> 'Table' | None:
         """The base's Table instance. Requires a transaction context"""
 
     def _get_base_tables(self) -> list['Table']:
@@ -345,7 +341,7 @@ class Table(SchemaObject):
 
     @property
     @abc.abstractmethod
-    def _effective_base_versions(self) -> list[Optional[int]]:
+    def _effective_base_versions(self) -> list[int | None]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
     def _get_comment(self) -> str:
@@ -383,7 +379,7 @@ class Table(SchemaObject):
                 helper.append(f'COMMENT: {self._get_comment()}')
             return helper
 
-    def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+    def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 'Column Name': col.name,
@@ -394,7 +390,7 @@ class Table(SchemaObject):
             if columns is None or col.name in columns
         )
 
-    def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+    def _index_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
         from pixeltable import index
 
         if self._tbl_version is None:
@@ -615,8 +611,8 @@ class Table(SchemaObject):
     def add_computed_column(
         self,
         *,
-        stored: Optional[bool] = None,
-        destination: Optional[str | Path] = None,
+        stored: bool | None = None,
+        destination: str | Path | None = None,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
@@ -750,12 +746,12 @@ class Table(SchemaObject):
         """Construct list of Columns, given schema"""
         columns: list[Column] = []
         for name, spec in schema.items():
-            col_type: Optional[ts.ColumnType] = None
-            value_expr: Optional[exprs.Expr] = None
+            col_type: ts.ColumnType | None = None
+            value_expr: exprs.Expr | None = None
             primary_key: bool = False
-            media_validation: Optional[catalog.MediaValidation] = None
+            media_validation: catalog.MediaValidation | None = None
             stored = True
-            destination: Optional[str] = None
+            destination: str | None = None
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
                 col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
@@ -982,10 +978,10 @@ class Table(SchemaObject):
         self,
         column: str | ColumnRef,
         *,
-        idx_name: Optional[str] = None,
-        embedding: Optional[pxt.Function] = None,
-        string_embed: Optional[pxt.Function] = None,
-        image_embed: Optional[pxt.Function] = None,
+        idx_name: str | None = None,
+        embedding: pxt.Function | None = None,
+        string_embed: pxt.Function | None = None,
+        image_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
@@ -1110,7 +1106,7 @@ class Table(SchemaObject):
         self,
         *,
         column: str | ColumnRef | None = None,
-        idx_name: Optional[str] = None,
+        idx_name: str | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         """
@@ -1189,7 +1185,7 @@ class Table(SchemaObject):
         self,
         *,
         column: str | ColumnRef | None = None,
-        idx_name: Optional[str] = None,
+        idx_name: str | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         """
@@ -1251,9 +1247,9 @@ class Table(SchemaObject):
     def _drop_index(
         self,
         *,
-        col: Optional[Column] = None,
-        idx_name: Optional[str] = None,
-        _idx_class: Optional[type[index.IndexBase]] = None,
+        col: Column | None = None,
+        idx_name: str | None = None,
+        _idx_class: type[index.IndexBase] | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         from pixeltable.catalog import Catalog
@@ -1306,8 +1302,8 @@ class Table(SchemaObject):
         source: TableDataSource,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         **kwargs: Any,
@@ -1321,11 +1317,11 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         **kwargs: Any,
@@ -1410,7 +1406,7 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-        self, value_spec: dict[str, Any], where: Optional['exprs.Expr'] = None, cascade: bool = True
+        self, value_spec: dict[str, Any], where: 'exprs.Expr' | None = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -1596,7 +1592,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return result
 
-    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
@@ -1782,7 +1778,7 @@ class Table(SchemaObject):
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._get_schema().keys())
 
-    def get_versions(self, n: Optional[int] = None) -> list[VersionMetadata]:
+    def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
         """
         Returns information about versions of this table, most recent first.
 
@@ -1854,7 +1850,7 @@ class Table(SchemaObject):
 
         return metadata_dicts
 
-    def history(self, n: Optional[int] = None) -> pd.DataFrame:
+    def history(self, n: int | None = None) -> pd.DataFrame:
         """
         Returns a human-readable report about versions of this table.
 

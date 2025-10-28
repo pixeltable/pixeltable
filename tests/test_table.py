@@ -6,7 +6,7 @@ import random
 import re
 import time
 from pathlib import Path
-from typing import Any, Literal, Optional, _GenericAlias, cast  # type: ignore[attr-defined]
+from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -114,6 +114,8 @@ class TestTable:
             pxt.create_table('test', schema)
         with pytest.raises(pxt.Error, match='does not exist'):
             pxt.create_table('dir2.test2', schema)
+        with pytest.raises(pxt.Error, match='Creating a table directly from a cloud URI is not supported'):
+            pxt.create_table('test', source='pxt://some/remote/table')
 
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')
@@ -2539,7 +2541,7 @@ class TestTable:
         reload_tester.run_reload_test()
 
     recompute_udf_increment = 0
-    recompute_udf_error_val: Optional[int] = None
+    recompute_udf_error_val: int | None = None
 
     @staticmethod
     @pxt.udf

@@ -5,7 +5,7 @@ import datetime
 import itertools
 import logging
 import sys
-from typing import Any, Callable, Iterator, Optional, cast
+from typing import Any, Callable, Iterator, cast
 
 from pixeltable import exprs, func
 
@@ -64,11 +64,11 @@ class FnCallEvaluator(Evaluator):
 
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
-    scalar_py_fn: Optional[Callable]  # only set for non-batching CallableFunctions
+    scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
 
     # only set if fn.is_batched
-    call_args_queue: Optional[asyncio.Queue[FnCallArgs]]  # FnCallArgs waiting for execution
-    batch_size: Optional[int]
+    call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
+    batch_size: int | None
 
     def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher, exec_ctx: ExecCtx):
         super().__init__(dispatcher, exec_ctx)
@@ -160,8 +160,8 @@ class FnCallEvaluator(Evaluator):
 
     def _create_batch_call_args(self, call_args: list[FnCallArgs]) -> FnCallArgs:
         """Roll call_args into a single batched FnCallArgs"""
-        batch_args: list[list[Optional[Any]]] = [[None] * len(call_args) for _ in range(len(self.fn_call.arg_idxs))]
-        batch_kwargs: dict[str, list[Optional[Any]]] = {k: [None] * len(call_args) for k in self.fn_call.kwarg_idxs}
+        batch_args: list[list[Any | None]] = [[None] * len(call_args) for _ in range(len(self.fn_call.arg_idxs))]
+        batch_kwargs: dict[str, list[Any | None]] = {k: [None] * len(call_args) for k in self.fn_call.kwarg_idxs}
         assert isinstance(self.fn, func.CallableFunction)
         for i, item in enumerate(call_args):
             for j in range(len(item.args)):

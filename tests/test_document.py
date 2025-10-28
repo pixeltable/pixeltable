@@ -3,7 +3,7 @@ import itertools
 import json
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 import PIL.Image
 import pytest
@@ -31,7 +31,7 @@ def normalize(text: str) -> str:
     return res
 
 
-def diff_snippet(text1: str, text2: str, diff_line_limit: Optional[int] = 20) -> str:
+def diff_snippet(text1: str, text2: str, diff_line_limit: int | None = 20) -> str:
     diff = difflib.unified_diff(text1.splitlines(), text2.splitlines(), lineterm='')
     if diff_line_limit is not None:
         snippet = [line for i, line in enumerate(diff) if i < diff_line_limit]
@@ -165,7 +165,7 @@ class TestDocument:
             )
         ]
 
-        all_text_reference: Optional[str] = None  # all text as a single string; normalized
+        all_text_reference: str | None = None  # all text as a single string; normalized
         headings_reference: set[str] = set()  # headings metadata as a json-serialized string
         for sep1, sep2, limit, metadata in combinations:
             # Intentionally omit args that are not specified in this combination, to test that the iterator

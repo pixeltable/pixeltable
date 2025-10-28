@@ -11,7 +11,6 @@ t.select(t.img_col.convert('L')).collect()
 """
 
 import base64
-from typing import Optional
 
 import PIL.Image
 
@@ -156,7 +155,7 @@ def get_metadata(self: PIL.Image.Image) -> dict:
 
 # Image.point()
 @pxt.udf(is_method=True)
-def point(self: PIL.Image.Image, lut: list[int], mode: Optional[str] = None) -> PIL.Image.Image:
+def point(self: PIL.Image.Image, lut: list[int], mode: str | None = None) -> PIL.Image.Image:
     """
     Map image pixels through a lookup table.
 
@@ -241,7 +240,7 @@ def _(self: Expr) -> ts.ColumnType:
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.entropy, is_method=True)
-def entropy(self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None) -> float:
+def entropy(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> float:
     """
     Returns the entropy of the image, optionally using a mask and extrema.
 
@@ -306,7 +305,7 @@ def getextrema(self: PIL.Image.Image) -> tuple[int, int]:
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.getpalette, is_method=True)
-def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> tuple[int]:
+def getpalette(self: PIL.Image.Image, mode: str | None = None) -> tuple[int]:
     """
     Return the palette of the image, optionally converting it to a different mode.
 
@@ -346,9 +345,7 @@ def getprojection(self: PIL.Image.Image) -> tuple[int]:
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.histogram, is_method=True)
-def histogram(
-    self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None
-) -> list[int]:
+def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> list[int]:
     """
     Return a histogram for the image.
 
@@ -366,9 +363,9 @@ def histogram(
 def quantize(
     self: PIL.Image.Image,
     colors: int = 256,
-    method: Optional[int] = None,
+    method: int | None = None,
     kmeans: int = 0,
-    palette: Optional[int] = None,
+    palette: int | None = None,
     dither: int = PIL.Image.Dither.FLOYDSTEINBERG,
 ) -> PIL.Image.Image:
     """
@@ -392,7 +389,7 @@ def quantize(
 
 
 @pxt.udf(substitute_fn=PIL.Image.Image.reduce, is_method=True)
-def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int, int, int, int]] = None) -> PIL.Image.Image:
+def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | None = None) -> PIL.Image.Image:
     """
     Reduce the image by the given factor.
 

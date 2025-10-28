@@ -5,7 +5,7 @@ import logging
 import sys
 import time
 import warnings
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator
 
 import more_itertools
 import psycopg
@@ -34,11 +34,11 @@ class StoreBase:
 
     tbl_version: catalog.TableVersionHandle
     sa_md: sql.MetaData
-    sa_tbl: Optional[sql.Table]
+    sa_tbl: sql.Table | None
     _pk_cols: list[sql.Column]
     v_min_col: sql.Column
     v_max_col: sql.Column
-    base: Optional[StoreBase]
+    base: StoreBase | None
 
     # In my cursory experiments this was the optimal batch size: it was an improvement over 5_000 and there was no real
     # benefit to going higher.
@@ -80,7 +80,7 @@ class StoreBase:
         self._pk_cols = [*rowid_cols, self.v_min_col]
         return [*rowid_cols, self.v_min_col, self.v_max_col]
 
-    def create_sa_tbl(self, tbl_version: Optional[catalog.TableVersion] = None) -> None:
+    def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
         if tbl_version is None:
             tbl_version = self.tbl_version.get()
@@ -368,7 +368,7 @@ class StoreBase:
         exec_plan: ExecNode,
         v_min: int,
         show_progress: bool = True,
-        rowids: Optional[Iterator[int]] = None,
+        rowids: Iterator[int] | None = None,
         abort_on_exc: bool = False,
     ) -> tuple[set[int], RowCountStats]:
         """Insert rows into the store table and update the catalog table's md
@@ -380,7 +380,7 @@ class StoreBase:
         num_excs = 0
         num_rows = 0
         cols_with_excs: set[int] = set()
-        progress_bar: Optional[tqdm] = None  # create this only after we started executing
+        progress_bar: tqdm | None = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
 
         store_col_names = row_builder.store_column_names()
@@ -453,7 +453,7 @@ class StoreBase:
         # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
         # conn.exec_driver_sql(stmt_text, table_rows)
 
-    def _versions_clause(self, versions: list[Optional[int]], match_on_vmin: bool) -> sql.ColumnElement[bool]:
+    def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
         v = versions[0]
         if v is None:
@@ -471,9 +471,9 @@ class StoreBase:
     def delete_rows(
         self,
         current_version: int,
-        base_versions: list[Optional[int]],
+        base_versions: list[int | None],
         match_on_vmin: bool,
-        where_clause: Optional[sql.ColumnElement[bool]],
+        where_clause: sql.ColumnElement[bool] | None,
     ) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
@@ -599,7 +599,7 @@ class StoreComponentView(StoreView):
         self.rowid_cols.append(self.pos_col)
         return self.rowid_cols
 
-    def create_sa_tbl(self, tbl_version: Optional[catalog.TableVersion] = None) -> None:
+    def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         if tbl_version is None:
             tbl_version = self.tbl_version.get()
         super().create_sa_tbl(tbl_version)
