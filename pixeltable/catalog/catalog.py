@@ -1722,7 +1722,9 @@ class Catalog:
         self._tbls[tbl_id, version] = view
         return view
 
-    def reconstruct_tvp(self, tbl_id: UUID, version: int, tbl_md: schema.TableMd, version_md: schema.TableVersionMd) -> TableVersionPath:
+    def reconstruct_tvp(
+        self, tbl_id: UUID, version: int, tbl_md: schema.TableMd, version_md: schema.TableVersionMd
+    ) -> TableVersionPath:
         # Reconstruct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
         # timestamps of this table and all its ancestors.
         # TODO: Store the relevant TableVersionPaths in the database, so that we don't need to rely on timestamps

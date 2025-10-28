@@ -531,7 +531,11 @@ class TableVersion:
                 self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
 
         # create value exprs, now that we have all lookup structures in place
-        tvp = None if self.effective_version is None else Catalog.get().reconstruct_tvp(self.id, self.effective_version, self.tbl_md, self.version_md)
+        tvp = (
+            None
+            if self.effective_version is None
+            else Catalog.get().reconstruct_tvp(self.id, self.effective_version, self.tbl_md, self.version_md)
+        )
         for col in self.cols_by_id.values():
             col.init_value_expr(tvp)
 
