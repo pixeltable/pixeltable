@@ -188,7 +188,7 @@ release-docs: install
 update-doctools:
 	@echo 'Updating pixeltable-doctools...'
 	@python -m pip uninstall -y -q pixeltable-doctools 2>/dev/null || true
-	@python -m pip install -q --upgrade --no-cache-dir --force-reinstall --no-deps git+https://github.com/pixeltable/pixeltable-doctools.git
+	@python -m pip install -q --upgrade --no-cache-dir --force-reinstall --no-deps git+https://github.com/pixeltable/pixeltable-doctools.git@main
 
 .PHONY: docs-local
 docs-local: install update-doctools
