@@ -6,7 +6,7 @@ import glob
 import logging
 import pathlib
 import subprocess
-from typing import TYPE_CHECKING, Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn
 
 import av
 import av.stream
@@ -20,7 +20,7 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
-    from scenedetect.detectors import SceneDetector
+    from scenedetect.detectors import SceneDetector  # type: ignore[import-untyped]
 
 _logger = logging.getLogger('pixeltable')
 
@@ -954,9 +954,10 @@ def scene_detect_adaptive(
     delta_edges: float = 0.0,
     luma_only: bool = False,
     kernel_size: int | None = None,
-) -> list[float]:
+) -> list[dict]:
     """
-    Detect scene cuts in a video using PySceneDetect's [AdaptiveDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.adaptive_detector.AdaptiveDetector).
+    Detect scene cuts in a video using PySceneDetect's
+    [AdaptiveDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.adaptive_detector.AdaptiveDetector).
 
     __Requirements:__
 
@@ -1055,7 +1056,7 @@ def scene_detect_content(
     luma_only: bool = False,
     kernel_size: int | None = None,
     filter_mode: Literal['merge', 'suppress'] = 'merge',
-) -> list[float]:
+) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's
     [ContentDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.content_detector.ContentDetector).
@@ -1117,7 +1118,7 @@ def scene_detect_content(
         ... )
     """
     from scenedetect.detectors import ContentDetector
-    from scenedetect.detectors.content_detector import FlashFilter
+    from scenedetect.detectors.content_detector import FlashFilter  # type: ignore[import-untyped]
 
     weights = ContentDetector.Components(
         delta_hue=delta_hue, delta_sat=delta_sat, delta_lum=delta_lum, delta_edges=delta_edges
@@ -1148,7 +1149,7 @@ def scene_detect_threshold(
     fade_bias: float = 0.0,
     add_final_scene: bool = False,
     method: Literal['ceiling', 'floor'] = 'floor',
-) -> list[float]:
+) -> list[dict]:
     """
     Detect fade-in and fade-out transitions in a video using PySceneDetect's
     [ThresholdDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.threshold_detector.ThresholdDetector).
@@ -1227,7 +1228,7 @@ def scene_detect_threshold(
 @pxt.udf(is_method=True)
 def scene_detect_histogram(
     video: pxt.Video, *, fps: float | None = None, threshold: float = 0.05, bins: int = 256, min_scene_len: int = 15
-) -> list[float]:
+) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's
     [HistogramDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.histogram_detector.HistogramDetector).
@@ -1302,7 +1303,7 @@ def scene_detect_hash(
     size: int = 16,
     lowpass: int = 2,
     min_scene_len: int = 15,
-) -> list[float]:
+) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's
     [HashDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.hash_detector.HashDetector).
@@ -1372,32 +1373,46 @@ def scene_detect_hash(
         raise pxt.Error(f'scene_detect_hash(): failed to detect scenes: {e}') from e
 
 
-def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[float]:
-    from scenedetect import FrameTimecode
+class _SceneDetectFrameInfo(NamedTuple):
+    frame_idx: int
+    frame_pts: int
+    frame_time: float
+
+
+def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dict[str, int | float]]:
+    from scenedetect import FrameTimecode  # type: ignore[import-untyped]
 
     with av_utils.VideoFrames(pathlib.Path(video), fps=fps) as frame_iter:
         video_fps = float(frame_iter.video_framerate)
 
-        scene_cuts: list[float] = []
+        scene_cuts: list[dict[str, int | float]] = []
         frame_idx: int | None = None
+        start_time: float | None = None  # of current scene
+        start_pts: int | None = None  # of current scene
 
         # in order to determine the cut frame times, we need to record frame times (chronologically) and look them
-        # up by index; trying to derive frame times from the cut frame indices isn't possible due to variable frame
-        # rates
-        frame_info: list[tuple[int, float]] = []  # (frame_idx, frame_time)
+        # up by index; trying to derive frame times from frame indices isn't possible due to variable frame rates
+        frame_info: list[_SceneDetectFrameInfo] = []
 
         def process_cuts(cuts: list[FrameTimecode]) -> None:
-            nonlocal frame_info
+            nonlocal frame_info, start_time, start_pts
             for cut_timecode in cuts:
                 cut_frame_idx = cut_timecode.get_frames()
-                info_offset = next((i for i, (idx, _) in enumerate(frame_info) if idx == cut_frame_idx), None)
+                info_offset = next((i for i, info in enumerate(frame_info) if info.frame_idx == cut_frame_idx), None)
                 assert info_offset is not None
-                cut_frame_time = frame_info[info_offset][1]
-                scene_cuts.append(cut_frame_time)
+                info = frame_info[info_offset]
+                scene_cuts.append(
+                    {'start_time': start_time, 'start_pts': start_pts, 'duration': info.frame_time - start_time}
+                )
+                start_time = info.frame_time
+                start_pts = info.frame_pts
                 frame_info = frame_info[info_offset + 1 :]
 
         for item in frame_iter:
-            frame_info.append((item.frame_idx, item.time))
+            if start_time is None:
+                start_time = item.time
+                start_pts = item.pts
+            frame_info.append(_SceneDetectFrameInfo(item.frame_idx, item.pts, item.time))
             frame_array = np.array(item.frame.convert('RGB'))
             frame_idx = item.frame_idx
             timecode = FrameTimecode(item.frame_idx, video_fps)

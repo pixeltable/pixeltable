@@ -1019,52 +1019,24 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
-    def test_scene_detect(self, reset_db: None) -> None:
+    @pytest.mark.parametrize(
+        'udf',
+        [
+            pxtf.video.scene_detect_adaptive,
+            pxtf.video.scene_detect_content,
+            pxtf.video.scene_detect_threshold,
+            pxtf.video.scene_detect_histogram,
+            pxtf.video.scene_detect_hash,
+        ],
+    )
+    def test_scene_detect(self, udf: pxt.Function, reset_db: None) -> None:
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.insert({'video': p} for p in video_filepaths)
-        _ = t.select(scenes=t.video.scene_detect_adaptive(fps=2.0)).collect()
-        pass
-
-    def test_scene_detect_content(self, reset_db: None) -> None:
-        video_filepaths = get_video_files()
-        t = pxt.create_table('videos', {'video': pxt.Video})
-        t.insert({'video': p} for p in video_filepaths)
-        # Test with default parameters
-        _ = t.select(scenes=t.video.scene_detect_content(fps=2.0)).collect()
-        # Test with custom weight parameters
-        _ = t.select(scenes=t.video.scene_detect_content(fps=2.0, delta_edges=1.0, threshold=20.0)).collect()
-        pass
-
-    def test_scene_detect_threshold(self, reset_db: None) -> None:
-        video_filepaths = get_video_files()
-        t = pxt.create_table('videos', {'video': pxt.Video})
-        t.insert({'video': p} for p in video_filepaths)
-        # Test with default parameters (floor method)
-        _ = t.select(scenes=t.video.scene_detect_threshold(fps=2.0)).collect()
-        # Test with absolute method
-        _ = t.select(scenes=t.video.scene_detect_threshold(fps=2.0, method='absolute')).collect()
-        pass
-
-    def test_scene_detect_histogram(self, reset_db: None) -> None:
-        video_filepaths = get_video_files()
-        t = pxt.create_table('videos', {'video': pxt.Video})
-        t.insert({'video': p} for p in video_filepaths)
-        # Test with default parameters
-        _ = t.select(scenes=t.video.scene_detect_histogram(fps=2.0)).collect()
-        # Test with custom bins
-        _ = t.select(scenes=t.video.scene_detect_histogram(fps=2.0, bins=64)).collect()
-        pass
-
-    def test_scene_detect_hash(self, reset_db: None) -> None:
-        video_filepaths = get_video_files()
-        t = pxt.create_table('videos', {'video': pxt.Video})
-        t.insert({'video': p} for p in video_filepaths)
-        # Test with default parameters
-        _ = t.select(scenes=t.video.scene_detect_hash(fps=2.0)).collect()
-        # Test with custom size
-        _ = t.select(scenes=t.video.scene_detect_hash(fps=2.0, size=32)).collect()
-        pass
+        status = t.add_computed_column(scenes=udf(t.video, fps=2.0))
+        assert status.num_excs == 0
+        res = t.select(t.scenes).collect()
+        assert len(res) == len(video_filepaths)
 
     def test_default_video_codec(self, reset_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
