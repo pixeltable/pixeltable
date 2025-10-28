@@ -6,9 +6,9 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Iterator
 
-import PIL.Image
 import av
 import av.stream
+import PIL.Image
 
 from pixeltable.env import Env
 
@@ -265,11 +265,10 @@ class VideoFrames:
 
     def __exit__(
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
-    ) -> bool | None:
+    ) -> None:
         # Clean up
         if self.container:
             self.container.close()
-        return False
 
     def __iter__(self) -> Iterator[Item]:
         num_returned = 0
