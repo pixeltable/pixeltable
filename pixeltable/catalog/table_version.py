@@ -1414,10 +1414,10 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
 
     @property
-    def cloud_uri(self) -> Optional[str]:
+    def cloud_uri(self) -> str | None:
         return self._tbl_md.additional_md.get('cloud_uri')
 
-    def update_cloud_uri(self, cloud_uri: Optional[str]) -> None:
+    def update_cloud_uri(self, cloud_uri: str | None) -> None:
         if self._tbl_md.additional_md.get('cloud_uri') == cloud_uri:
             return  # Nothing to do
 

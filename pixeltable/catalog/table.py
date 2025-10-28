@@ -1623,7 +1623,7 @@ class Table(SchemaObject):
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
-    def push(self, *, version: Optional[int] = None) -> None:
+    def push(self, *, version: int | None = None) -> None:
         from pixeltable.share import push_replica
 
         tbl_version = self._tbl_version.get()
@@ -1652,7 +1652,7 @@ class Table(SchemaObject):
             assert versioned_tbl._id == self._id
             push_replica(uuid_uri, versioned_tbl)
 
-    def pull(self, *, version: Optional[int] = None) -> None:
+    def pull(self, *, version: int | None = None) -> None:
         from pixeltable.share import pull_replica
 
         if version is not None:
