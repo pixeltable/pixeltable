@@ -1023,7 +1023,7 @@ class TestVideo:
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.insert({'video': p} for p in video_filepaths)
-        _ = t.select(scenes=t.video.scene_detect_adaptive()).collect()
+        _ = t.select(scenes=t.video.scene_detect_adaptive(fps=2.0)).collect()
         pass
 
     def test_default_video_codec(self, reset_db: None) -> None:

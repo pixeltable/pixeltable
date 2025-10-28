@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+from types import TracebackType
 from typing import Any, Iterator
 
 import PIL.Image
 import av
 import av.stream
-import pandas as pd
 
 from pixeltable.env import Env
 
@@ -230,13 +229,11 @@ class VideoFrames:
     """
 
     path: Path
-    fps: float | None
+    fps: float
     container: av.container.input.InputContainer | None
     video_framerate: Fraction | None
     video_time_base: Fraction | None
     video_start_time: int | None
-    video_frame_count: int | None
-    frames_to_extract: list[int] | None
 
     @dataclass
     class Item:
@@ -252,95 +249,45 @@ class VideoFrames:
 
     def __init__(self, path: Path, fps: float | None = None) -> None:
         self.path = path
-        self.fps = fps
+        self.fps = 0.0 if fps is None else fps
         self.container = None
         self.video_framerate = None
         self.video_time_base = None
         self.video_start_time = None
-        self.video_frame_count = None
-        self.frames_to_extract = None
 
-    def __enter__(self) -> VideoFrames:
+    def __enter__(self) -> VideoFrames:  # noqa: PYI034; importing Self breaks the mypy plugin
         self.container = av.open(self.path)
-        video_stream = self.container.streams.video[0]
-        self.video_framerate = video_stream.average_rate
-        self.video_time_base = video_stream.time_base
-        self.video_start_time = video_stream.start_time or 0
-
-        self.video_frame_count = video_stream.frames
-        if self.video_frame_count == 0:
-            # The video codec does not provide a frame count in the standard `frames` field
-            metadata = video_stream.metadata
-            if 'NUMBER_OF_FRAMES' in metadata:
-                self.video_frame_count = int(metadata['NUMBER_OF_FRAMES'])
-            elif 'DURATION' in metadata:
-                # Calculate the frame count from the stream duration
-                duration = metadata['DURATION']
-                assert isinstance(duration, str)
-                seconds = pd.to_timedelta(duration).total_seconds()
-                self.video_frame_count = round(seconds * self.video_framerate)
-            else:
-                raise ValueError(f'Video {self.path}: failed to get number of frames')
-
-        # Calculate which frames to extract based on fps
-        if self.fps is None:
-            # Extract all frames
-            self.frames_to_extract = None
-        elif self.fps > float(self.video_framerate):
-            raise ValueError(
-                f'Video {self.path}: requested fps ({self.fps}) exceeds video framerate ({float(self.video_framerate)})'
-            )
-        else:
-            # Extract frames at the specified frequency
-            freq = self.fps / float(self.video_framerate)
-            n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
-            self.frames_to_extract = [round(i / freq) for i in range(n)]
-
+        stream = self.container.streams.video[0]
+        self.video_framerate = stream.average_rate
+        self.video_time_base = stream.time_base
+        self.video_start_time = stream.start_time or 0
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> bool | None:
         # Clean up
         if self.container:
             self.container.close()
         return False
 
     def __iter__(self) -> Iterator[Item]:
-        import PIL.Image
-
-        next_pos = next_video_idx = 0
+        num_returned = 0
+        frame_idx = -1
         while True:
-            # Determine the frame index in the video corresponding to next_pos
-            if self.frames_to_extract is None:
-                next_video_idx = next_pos  # extracting all frames
-            elif next_pos >= len(self.frames_to_extract):
+            try:
+                frame = next(self.container.decode(video=0))
+            except StopIteration:
                 return
-            else:
-                next_video_idx = self.frames_to_extract[next_pos]
+            except EOFError:
+                return
 
-            # decode frames until we hit next_video_idx
-            while True:
-                try:
-                    frame = next(self.container.decode(video=0))
-                except StopIteration:
-                    return
-                except EOFError:
-                    return
-
-                pts = frame.pts - self.video_start_time
-                video_idx = round(pts * self.video_time_base * self.video_framerate)
-                if video_idx < next_video_idx:
-                    # Haven't reached the desired frame yet
-                    continue
-                # Sanity check that we're at the right frame
-                if video_idx != next_video_idx:
-                    raise ValueError(f'Frame {next_video_idx} is missing from the video (video file may be corrupt)')
-
+            frame_idx += 1
+            if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
                 img = frame.to_image()
                 assert isinstance(img, PIL.Image.Image)
-
-                # Build result dict with frame and all frame attributes
-                result = VideoFrames.Item(
-                    frame_idx=next_pos,
+                yield VideoFrames.Item(
+                    frame_idx=frame_idx,
                     pts=frame.pts,
                     dts=frame.dts,
                     time=frame.time,
@@ -350,7 +297,4 @@ class VideoFrames:
                     interlaced_frame=frame.interlaced_frame,
                     frame=img,
                 )
-
-                next_pos += 1
-                yield result
-                break
+                num_returned += 1
