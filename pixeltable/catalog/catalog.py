@@ -2049,10 +2049,6 @@ class Catalog:
 
         # load mutable view ids for mutable TableVersions
         mutable_view_ids: list[UUID] = []
-        # If this is a replica, effective_version should not be None. We see this today, because
-        # the replica's TV instance's Column instances contain value_expr_dicts that reference the live version.
-        # This is presumably a source of bugs, because it ignores schema version changes (eg, column renames).
-        # TODO: retarget the value_expr_dict when instantiating Columns for a particular TV instance.
         if effective_version is None and not tbl_md.is_replica:
             q = (
                 sql.select(schema.Table.id)
