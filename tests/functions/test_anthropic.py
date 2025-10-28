@@ -17,12 +17,12 @@ class TestAnthropic:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
-            output=anthropic.messages(messages=messages, model='claude-3-haiku-20240307', max_tokens=1024)
+            output=anthropic.messages(messages=messages, model='claude-haiku-4-5', max_tokens=1024)
         )
         t.add_computed_column(
             output2=anthropic.messages(
                 messages=messages,
-                model='claude-3-haiku-20240307',
+                model='claude-haiku-4-5',
                 max_tokens=300,
                 model_kwargs={
                     'metadata': {'user_id': 'pixeltable'},
@@ -30,7 +30,6 @@ class TestAnthropic:
                     'system': 'You are an ordinary person walking down the street.',
                     'temperature': 0.7,
                     'top_k': 40,
-                    'top_p': 0.9,
                 },
             )
         )
@@ -50,7 +49,7 @@ class TestAnthropic:
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=anthropic.messages(
-                    model='claude-3-5-sonnet-20241022',
+                    model='claude-haiku-4-5',
                     messages=messages,
                     max_tokens=1024,
                     tools=tools,
