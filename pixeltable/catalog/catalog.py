@@ -1716,11 +1716,19 @@ class Catalog:
         tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
+        tvp = self.reconstruct_tvp(tbl_id, version, tbl_md, version_md)
 
+        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
+        self._tbls[tbl_id, version] = view
+        return view
+
+    def reconstruct_tvp(self, tbl_id: UUID, version: int, tbl_md: schema.TableMd, version_md: schema.TableVersionMd) -> TableVersionPath:
         # Reconstruct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
         # timestamps of this table and all its ancestors.
         # TODO: Store the relevant TableVersionPaths in the database, so that we don't need to rely on timestamps
         #     (which might be nondeterministic in the future).
+
+        assert Env.get().conn is not None
 
         # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
         # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
@@ -1735,7 +1743,7 @@ class Catalog:
                     .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                     .limit(1)
                 )
-                row = conn.execute(q).one_or_none()
+                row = Env.get().conn.execute(q).one_or_none()
                 if row is None:
                     # This can happen if an ancestor version is garbage collected; it can also happen in
                     # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
@@ -1756,9 +1764,7 @@ class Catalog:
         for anc_id, anc_version in ancestors[::-1]:
             tvp = TableVersionPath(TableVersionHandle(anc_id, anc_version), base=tvp)
 
-        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
-        self._tbls[tbl_id, version] = view
-        return view
+        return tvp
 
     @retry_loop(for_write=False)
     def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:

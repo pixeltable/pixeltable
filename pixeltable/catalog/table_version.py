@@ -437,6 +437,8 @@ class TableVersion:
     def _init_schema(self) -> None:
         from pixeltable.store import StoreComponentView, StoreTable, StoreView
 
+        from .catalog import Catalog
+
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
         val_col_idxs: dict[int, index.IndexBase] = {}  # key: id of value column
@@ -529,8 +531,9 @@ class TableVersion:
                 self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
 
         # create value exprs, now that we have all lookup structures in place
+        tvp = None if self.effective_version is None else Catalog.get().reconstruct_tvp(self.id, self.effective_version, self.tbl_md, self.version_md)
         for col in self.cols_by_id.values():
-            col.init_value_expr()
+            col.init_value_expr(tvp)
 
         # create the sqlalchemy schema, after instantiating all Columns
         if self.is_component_view:
