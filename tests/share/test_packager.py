@@ -357,6 +357,14 @@ class TestPackager:
         snapshot = pxt.create_snapshot('snapshot', v2)
         self.__do_round_trip(snapshot)
 
+    def test_restricted_view_round_trip(self, reset_db: None) -> None:
+        """Tests a view that only selects a subset of the columns from its base table."""
+        t = pxt.create_table('base_tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(100))
+        v = pxt.create_view('view', t.select(t.icol))
+
+        self.__do_round_trip(v)
+
     def test_iterator_view_round_trip(self, reset_db: None) -> None:
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
         t.insert({'video': video} for video in get_video_files()[:2])
