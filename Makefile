@@ -85,10 +85,10 @@ endif
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
-	@echo 'Installing ffmpeg ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' awscli google-cloud-sdk
-	@echo 'Installing quarto ...'
-	@conda install -q -y -c conda-forge quarto
+	@echo 'Installing conda packages ...'
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs
+	@echo 'Installing mintlify ...'
+	@npm install --silent -g @mintlify/cli
 	@echo 'Fixing quarto conda packaging bugs ...'
 	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
@@ -107,8 +107,6 @@ endif
 .make-install/others:
 	@echo 'Installing Jupyter kernel ...'
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
-	@echo 'Installing pixeltable-doctools ...'
-	@python -m pip install -q git+https://github.com/pixeltable/pixeltable-doctools.git
 	@$(TOUCH) .make-install/others
 
 .PHONY: install

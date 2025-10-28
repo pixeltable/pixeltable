@@ -157,6 +157,13 @@ def create_table(
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
     data_source: TableDataConduit | None = None
     if source is not None:
+        if isinstance(source, str) and source.strip().startswith('pxt://'):
+            raise excs.Error(
+                'create_table(): Creating a table directly from a cloud URI is not supported.'
+                ' Please replicate the table locally first using `pxt.replicate()`:\n'
+                "replica_tbl = pxt.replicate('pxt://path/to/remote_table', 'local_replica_name')\n"
+                "pxt.create_table('new_table_name', source=replica_tbl)"
+            )
         tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
         tds.check_source_format()
         data_source = tds.specialize()

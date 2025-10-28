@@ -854,7 +854,11 @@ class Catalog:
         for p in sorted(dir_paths):
             dir = self._get_dir(p, lock_dir=True)
             if dir is None:
-                raise excs.Error(f'Directory {p!r} does not exist.')
+                # Dir does not exist; raise an appropriate error.
+                if add_dir_path is not None or add_name is not None:
+                    raise excs.Error(f'Directory {p!r} does not exist. Create it first with:\npxt.create_dir({p!r})')
+                else:
+                    raise excs.Error(f'Directory {p!r} does not exist.')
             if p == add_dir_path:
                 add_dir = dir
             if p == drop_dir_path:
@@ -1898,6 +1902,7 @@ class Catalog:
                     .values({schema.Table.md: dataclasses.asdict(tbl_md)})
                     .where(schema.Table.id == tbl_id)
                 )
+                assert isinstance(result, sql.CursorResult)
                 assert result.rowcount == 1, result.rowcount
 
         # Construct and insert new table version record if requested.
@@ -1927,6 +1932,7 @@ class Catalog:
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
                     .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
                 )
+                assert isinstance(result, sql.CursorResult)
                 assert result.rowcount == 1, result.rowcount
 
         # Construct and insert a new schema version record if requested.

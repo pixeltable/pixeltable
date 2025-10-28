@@ -42,7 +42,7 @@ class TestDirs:
         _ = pxt.get_table('dir1.t1')
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_dir('dir1.t1')
-        with pytest.raises(pxt.Error, match='does not exist'):
+        with pytest.raises(pxt.Error, match=r'does not exist. Create it first with:'):
             pxt.create_dir('dir2.sub2')
         make_tbl('t2')
         with pytest.raises(pxt.Error, match="Directory 't2' does not exist"):
