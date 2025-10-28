@@ -972,14 +972,14 @@ class TestView:
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
                 expected_schema = {
                     'c1': ('Int', 0, None),
                     'c2': ('String', 3, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c3': ('Int', 1, 'c1 // 2'),
                     'c4': ('Int', 2, None),
                 }
                 expected_schema_version = 2
@@ -1046,13 +1046,13 @@ class TestView:
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
                 expected_schema_version = 0
                 expected_base_version = 1
             elif i == 1:
                 expected_schema = {
                     'c1': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c3': ('Int', 1, 'c1 // 2'),
                     'c4': ('Int', 2, None),
                     'c5': ('Float', 1, None),
                 }
