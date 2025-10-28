@@ -667,6 +667,10 @@ class TestView:
         res = reload_tester.run_query(v3.select(v3.foo2).order_by(v2.c2).limit(5))
         assert res._col_names == ['foo2']
 
+        # Test a snapshot over views with selected columns
+        snap = pxt.create_snapshot('test_snap', v3)
+        reload_tester.run_query(snap.order_by(v2.c2).limit(5))
+
         res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
 
