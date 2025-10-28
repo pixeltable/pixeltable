@@ -974,7 +974,7 @@ def scene_detect_adaptive(
         window_width: Size of window (number of frames) before and after each frame to average together in order to
             detect deviations from the mean. Must be at least 1.
         min_content_val: Minimum threshold (float) that the content_val must exceed in order to register as a new scene.
-            This is calculated the same way that [`scene_detect_content()`](#scene_detect_content) calculates frame
+            This is calculated the same way that `scene_detect_content()` calculates frame
             score based on weights/luma_only/kernel_size.
         delta_hue: Weight for hue component changes. Higher values make hue changes more important.
         delta_sat: Weight for saturation component changes. Higher values make saturation changes more important.
