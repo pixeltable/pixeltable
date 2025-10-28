@@ -87,6 +87,8 @@ class Env:
     _log_to_stdout: bool
     _module_log_level: dict[str, int]  # module name -> log level
     _file_cache_size_g: float
+    _default_input_media_dest: str | None
+    _default_output_media_dest: str | None
     _pxt_api_key: str | None
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None

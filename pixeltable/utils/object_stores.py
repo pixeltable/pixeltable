@@ -460,18 +460,25 @@ class ObjectOps:
         return store.delete(tbl_id, tbl_version)
 
     @classmethod
-    def count_default_input_dest(cls, tbl_id: UUID, tbl_version: int | None = None) -> int:
-        """Return the count of objects in the default input destination for a given table ID"""
-        return cls.count(env.Env.get().default_input_media_dest, tbl_id, tbl_version)
+    def count(cls, tbl_id: UUID, tbl_version: int | None = None, dest: str | None = None, default_input_dest: bool = False, default_output_dest: bool = False) -> int:
+        """
+        Return the count of objects in the destination for a given table ID.
 
-    @classmethod
-    def count_default_output_dest(cls, tbl_id: UUID, tbl_version: int | None = None) -> int:
-        """Return the count of objects in the default output destination for a given table ID"""
-        return cls.count(env.Env.get().default_output_media_dest, tbl_id, tbl_version)
+        At most one of dest, default_input, default_output may be specified. If none are specified, the fallback is the
+        local media directory.
 
-    @classmethod
-    def count(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int:
-        """Return the count of objects in the destination for a given table ID"""
+        Args:
+            tbl_id: Table ID for which to count objects
+            tbl_version: If specified, only counts objects for a specific table version
+            dest: The destination to count objects in
+            default_input_dest: If `True`, use the default input media destination
+            default_output_dest: If `True`, use the default output media destination
+        """
+        assert sum((dest is not None, default_input_dest, default_output_dest)) <= 1, 'At most one of dest, default_input, default_output may be specified'
+        if default_input_dest:
+            dest = env.Env.get().default_input_media_dest
+        if default_output_dest:
+            dest = env.Env.get().default_output_media_dest
         store = cls.get_store(dest, False)
         return store.count(tbl_id, tbl_version)
 

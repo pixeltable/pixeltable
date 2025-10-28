@@ -164,20 +164,20 @@ class TestDestination:
 
         n = len(r)
         assert n == 2
-        assert n == ObjectOps.count_default_output_dest(t._id)
-        assert n == ObjectOps.count(dest1_uri, t._id)
-        assert n == ObjectOps.count(dest2_uri, t._id)
+        assert n == ObjectOps.count(t._id, default_output_dest=True)
+        assert n == ObjectOps.count(t._id, dest=dest1_uri)
+        assert n == ObjectOps.count(t._id, dest=dest2_uri)
 
         n = 1
-        assert n == ObjectOps.count_default_output_dest(t._id, 2)
-        assert n == ObjectOps.count(dest1_uri, t._id, 3)
-        assert n == ObjectOps.count(dest2_uri, t._id, 4)
+        assert n == ObjectOps.count(t._id, 2, default_output_dest=True)
+        assert n == ObjectOps.count(t._id, 3, dest=dest1_uri)
+        assert n == ObjectOps.count(t._id, 4, dest=dest2_uri)
 
         version = 5
         n = 1
-        assert n == ObjectOps.count_default_output_dest(t._id, version)
-        assert n == ObjectOps.count(dest1_uri, t._id, version)
-        assert n == ObjectOps.count(dest2_uri, t._id, version)
+        assert n == ObjectOps.count(t._id, version, default_output_dest=True)
+        assert n == ObjectOps.count(t._id, version, dest=dest1_uri)
+        assert n == ObjectOps.count(t._id, version, dest=dest2_uri)
 
         # Test that we can list objects in the destination
         olist = ObjectOps.list_uris(dest1_uri, n_max=10)
@@ -190,9 +190,9 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        assert ObjectOps.count_default_output_dest(save_id) == 0
-        assert ObjectOps.count(dest1_uri, save_id) == 0
-        assert ObjectOps.count(dest2_uri, save_id) == 0
+        assert ObjectOps.count(save_id, default_output_dest=True) == 0
+        assert ObjectOps.count(save_id, dest=dest1_uri) == 0
+        assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_dest_two_copies(self, reset_db: None, dest_id: StorageTarget) -> None:
@@ -217,15 +217,15 @@ class TestDestination:
         print(r_dest)
 
         assert len(r) == 2
-        assert len(r) == ObjectOps.count_default_output_dest(t._id)
-        assert len(r) == ObjectOps.count(dest1_uri, t._id)
+        assert len(r) == ObjectOps.count(t._id, default_output_dest=True)
+        assert len(r) == ObjectOps.count(t._id, dest=dest1_uri)
 
         # The outcome of this test is unusual:
         # When the column img_rot4 is ADDED, the computed result for existing rows is not identified
         # as a duplicate, so it is double copied to the destination.
         # When new rows are INSERTED, the results and destinations for img_rot3 and img_rot4 are identified
         # as duplicates, so they are not double copied to the destination.
-        assert len(r) + 1 == ObjectOps.count(dest2_uri, t._id)
+        assert len(r) + 1 == ObjectOps.count(t._id, dest=dest2_uri)
 
     def test_dest_local_copy(self, reset_db: None) -> None:
         """Test destination attempting to copy a local file to another destination"""
@@ -251,12 +251,12 @@ class TestDestination:
 
         if Env.get().default_output_media_dest is None:
             # Copying a local file to the LocalStore is not allowed
-            assert ObjectOps.count_default_output_dest(t._id) == 0
+            assert ObjectOps.count(t._id, default_output_dest=True) == 0
         else:
-            assert ObjectOps.count_default_output_dest(t._id) == len(r)
+            assert ObjectOps.count(t._id, default_output_dest=True) == len(r)
 
         # Ensure that local file is copied to a specified destination
-        assert ObjectOps.count(dest1_uri, t._id) == len(r)
+        assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
     def test_dest_all(self, reset_db: None) -> None:
         """Test destination with all available storage targets"""
@@ -274,8 +274,8 @@ class TestDestination:
         ).collect()
         print(r_dest)
         for uri in dest_uris:
-            print(f'Count for {uri}: {ObjectOps.count(uri, t._id)}')
-            assert ObjectOps.count(uri, t._id) == 2
+            print(f'Count for {uri}: {ObjectOps.count(t._id, dest=uri)}')
+            assert ObjectOps.count(t._id, dest=uri) == 2
 
         for uri in dest_uris:
             object_list = ObjectOps.list_uris(uri, n_max=20)
@@ -283,7 +283,7 @@ class TestDestination:
 
         pxt.drop_table(t)
         for uri in dest_uris:
-            assert ObjectOps.count(uri, t._id) == 0
+            assert ObjectOps.count(t._id, dest=uri) == 0
 
     def __download_object(self, src_base: str, src_obj: str) -> None:
         """Test downloading a media object from a public Store"""
