@@ -54,7 +54,7 @@ class Column:
     stored: bool
     is_pk: bool
     is_iterator_col: bool
-    destination: str | None  # An object store reference for computed files
+    _explicit_destination: str | None  # An object store reference for computed files
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
     schema_version_add: int | None
     schema_version_drop: int | None
@@ -137,7 +137,7 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
-        self.destination = destination
+        self._explicit_destination = destination
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -150,7 +150,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
-            destination=self.destination,
+            destination=self._explicit_destination,
         )
         if pos is None:
             return col_md, None
@@ -188,9 +188,13 @@ class Column:
         return tv
 
     @property
-    def resolved_destination(self) -> str | None:
-        if self.destination is not None:
-            return self.destination
+    def destination(self) -> str | None:
+        if self._explicit_destination is not None:
+            # An expilicit destination was set as part of the column definition
+            return self._explicit_destination
+
+        # Otherwise, if this is a stored media column, use the default destination if one is configured (input
+        #     destination or output destination, depending on whether this is a computed column)
         # TODO: The `self.name is not None` clause is necessary because index columns currently follow the type of
         #     the underlying media column. We should move to using pxt.String as the col_type of index columns; this
         #     would be a more robust solution, and then `self.name is not None` could be removed.
@@ -199,6 +203,7 @@ class Column:
                 return Env.get().default_output_media_dest
             else:
                 return Env.get().default_input_media_dest
+
         return None
 
     @property

@@ -400,7 +400,7 @@ class TableVersion:
     def delete_media(self, tbl_version: int | None = None) -> None:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
-        destinations = {col.resolved_destination for col in self.cols if col.is_stored}
+        destinations = {col.destination for col in self.cols if col.is_stored}
         for dest in destinations:
             ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 

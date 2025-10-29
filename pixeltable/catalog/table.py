@@ -791,7 +791,7 @@ class Table(SchemaObject):
             )
             # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
             # media destination, it gets validated at this time.
-            ObjectOps.validate_destination(column.resolved_destination, column.name)
+            ObjectOps.validate_destination(column.destination, column.name)
             columns.append(column)
 
         return columns
@@ -817,9 +817,9 @@ class Table(SchemaObject):
                     f'streaming function'
                 )
             )
-        if col.destination is not None and not (col.stored and col.is_computed):
+        if col._explicit_destination is not None and not (col.stored and col.is_computed):
             raise excs.Error(
-                f'Column {col.name!r}: `destination={col.destination!r}` only applies to stored computed columns'
+                f'Column {col.name!r}: `destination` property only applies to stored computed columns'
             )
 
     @classmethod
