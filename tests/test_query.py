@@ -26,7 +26,7 @@ from .utils import (
 )
 
 
-class TestDataFrame:
+class TestQuery:
     def create_join_tbls(self, num_rows: int) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
         t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int, 'a': pxt.Array})
         validate_update_status(
