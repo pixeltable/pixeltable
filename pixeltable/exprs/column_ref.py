@@ -180,7 +180,7 @@ class ColumnRef(Expr):
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.perform_validation == other.perform_validation
 
-    def _df(self) -> 'Query':
+    def select(self) -> 'Query':
         import pixeltable.plan as plan
         from pixeltable._query import Query
 
@@ -193,20 +193,20 @@ class ColumnRef(Expr):
             return Query(plan.FromClause([self.reference_tbl])).select(self)
 
     def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
-        return self._df().show(*args, **kwargs)
+        return self.select().show(*args, **kwargs)
 
     def head(self, *args: Any, **kwargs: Any) -> 'ResultSet':
-        return self._df().head(*args, **kwargs)
+        return self.select().head(*args, **kwargs)
 
     def tail(self, *args: Any, **kwargs: Any) -> 'ResultSet':
-        return self._df().tail(*args, **kwargs)
+        return self.select().tail(*args, **kwargs)
 
     def count(self) -> int:
-        return self._df().count()
+        return self.select().count()
 
     def distinct(self) -> 'Query':
         """Return distinct values in this column."""
-        return self._df().distinct()
+        return self.select().distinct()
 
     def __str__(self) -> str:
         if self.col.name is None:

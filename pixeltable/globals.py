@@ -14,7 +14,7 @@ from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.io.table_data_conduit import DFTableDataConduit, TableDataConduit
+from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.iterators import ComponentIterator
 
 if TYPE_CHECKING:
@@ -179,9 +179,9 @@ def create_table(
         data_source.infer_schema()
         schema = data_source.pxt_schema
         primary_key = data_source.pxt_pk
-        is_direct_df = data_source.is_direct_df()
+        is_direct_query = data_source.is_direct_query()
     else:
-        is_direct_df = False
+        is_direct_query = False
 
     if len(schema) == 0 or not isinstance(schema, dict):
         raise excs.Error(
@@ -202,11 +202,11 @@ def create_table(
     # TODO: combine data loading with table creation into a single transaction
     if was_created:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        if isinstance(data_source, DFTableDataConduit):
-            df = data_source.pxt_query
+        if isinstance(data_source, QueryTableDataConduit):
+            query = data_source.pxt_query
             with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
-                tbl._tbl_version.get().insert(None, df, fail_on_exception=fail_on_exception)
-        elif data_source is not None and not is_direct_df:
+                tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+        elif data_source is not None and not is_direct_query:
             tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
     return tbl
@@ -233,7 +233,7 @@ def create_view(
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the view on.
         additional_columns: If specified, will add these columns to the view once it is created. The format
-            of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
+            of the `additional_columns` parameter is identical to the format of the `schema` parameter in
             [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
@@ -357,7 +357,7 @@ def create_snapshot(
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the snapshot on.
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
-            of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
+            of the `additional_columns` parameter is identical to the format of the `schema` parameter in
             [`create_table`][pixeltable.create_table].
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.

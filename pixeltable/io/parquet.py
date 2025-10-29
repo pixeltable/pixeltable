@@ -18,7 +18,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 def export_parquet(
-    table_or_df: pxt.Table | pxt.Query,
+    table_or_query: pxt.Table | pxt.Query,
     parquet_path: Path,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,
@@ -30,37 +30,37 @@ def export_parquet(
     not be available in the parquet format.
 
     Args:
-        table_or_df : Table or Dataframe to export.
+        table_or_query : Table or Query to export.
         parquet_path : Path to directory to write the parquet files to.
         partition_size_bytes : The maximum target size for each chunk. Default 100_000_000 bytes.
         inline_images : If True, images are stored inline in the parquet file. This is useful
                         for small images, to be imported as pytorch dataset. But can be inefficient
                         for large images, and cannot be imported into pixeltable.
-                        If False, will raise an error if the Dataframe has any image column.
+                        If False, will raise an error if the Query has any image column.
                         Default False.
     """
     import pyarrow as pa
 
     from pixeltable.utils.arrow import to_record_batches
 
-    df: pxt.Query
-    if isinstance(table_or_df, pxt.catalog.Table):
-        df = table_or_df.select()
+    query: pxt.Query
+    if isinstance(table_or_query, pxt.catalog.Table):
+        query = table_or_query.select()
     else:
-        df = table_or_df
+        query = table_or_query
 
-    if not inline_images and any(col_type.is_image_type() for col_type in df.schema.values()):
-        raise excs.Error('Cannot export Dataframe with image columns when inline_images is False')
+    if not inline_images and any(col_type.is_image_type() for col_type in query.schema.values()):
+        raise excs.Error('Cannot export Query with image columns when inline_images is False')
 
     # store the changes atomically
     with transactional_directory(parquet_path) as temp_path:
         # dump metadata json file so we can inspect what was the source of the parquet file later on.
-        json.dump(df.as_dict(), (temp_path / '.pixeltable.json').open('w'))
-        type_dict = {k: v.as_dict() for k, v in df.schema.items()}
+        json.dump(query.as_dict(), (temp_path / '.pixeltable.json').open('w'))
+        type_dict = {k: v.as_dict() for k, v in query.schema.items()}
         json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
         batch_num = 0
         with Catalog.get().begin_xact(for_write=False):
-            for record_batch in to_record_batches(df, partition_size_bytes):
+            for record_batch in to_record_batches(query, partition_size_bytes):
                 output_path = temp_path / f'part-{batch_num:05d}.parquet'
                 arrow_tbl = pa.Table.from_batches([record_batch])
                 pa.parquet.write_table(arrow_tbl, str(output_path))

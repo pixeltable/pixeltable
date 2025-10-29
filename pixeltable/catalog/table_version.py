@@ -961,7 +961,7 @@ class TableVersion:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
 
         else:
-            plan = Planner.create_df_insert_plan(self, query, ignore_errors=not fail_on_exception)
+            plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
 
         # this is a base table; we generate rowids during the insert
         def rowids() -> Iterator[int]:

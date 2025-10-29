@@ -413,13 +413,13 @@ class Planner:
         return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
 
     @classmethod
-    def create_df_insert_plan(cls, tbl: catalog.TableVersion, df: 'pxt.Query', ignore_errors: bool) -> exec.ExecNode:
+    def create_query_insert_plan(cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool) -> exec.ExecNode:
         assert not tbl.is_view
-        plan = df._create_query_plan()  # ExecNode constructed by the Query
+        plan = query._create_query_plan()  # ExecNode constructed by the Query
 
         # Modify the plan RowBuilder to register the output columns
         needs_cell_materialization = False
-        for col_name, expr in zip(df.schema.keys(), df._select_list_exprs):
+        for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)

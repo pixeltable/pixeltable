@@ -109,18 +109,18 @@ def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa
     return pa.RecordBatch.from_arrays(pa_arrays, schema=schema)
 
 
-def to_record_batches(df: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
-    arrow_schema = to_arrow_schema(df.schema)
-    batch_columns: dict[str, list[Any]] = {k: [] for k in df.schema}
+def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
+    arrow_schema = to_arrow_schema(query.schema)
+    batch_columns: dict[str, list[Any]] = {k: [] for k in query.schema}
     current_byte_estimate = 0
     num_batch_rows = 0
 
     # TODO: in order to avoid having to deal with ExprEvalError here, ResultSet should be an iterator
     # over _exec()
     try:
-        for data_row in df._exec():
+        for data_row in query._exec():
             num_batch_rows += 1
-            for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
+            for (col_name, col_type), e in zip(query.schema.items(), query._select_list_exprs):
                 val = data_row[e.slot_idx]
                 val_size_bytes: int
                 if val is None:
@@ -171,12 +171,12 @@ def to_record_batches(df: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.Rec
             if current_byte_estimate > batch_size_bytes and num_batch_rows > 0:
                 record_batch = _to_record_batch(batch_columns, arrow_schema)
                 yield record_batch
-                batch_columns = {k: [] for k in df.schema}
+                batch_columns = {k: [] for k in query.schema}
                 current_byte_estimate = 0
                 num_batch_rows = 0
 
     except excs.ExprEvalError as e:
-        df._raise_expr_eval_err(e)
+        query._raise_expr_eval_err(e)
 
     if num_batch_rows > 0:
         record_batch = _to_record_batch(batch_columns, arrow_schema)

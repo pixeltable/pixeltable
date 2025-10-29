@@ -180,10 +180,10 @@ class InsertableTable(Table):
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
         from pixeltable.catalog import Catalog
-        from pixeltable.io.table_data_conduit import DFTableDataConduit
+        from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if isinstance(data_source, DFTableDataConduit):
+            if isinstance(data_source, QueryTableDataConduit):
                 status = pxt.UpdateStatus()
                 status += self._tbl_version.get().insert(
                     rows=None, query=data_source.pxt_query, print_stats=print_stats, fail_on_exception=fail_on_exception

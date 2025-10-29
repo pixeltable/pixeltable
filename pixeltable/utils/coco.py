@@ -50,11 +50,11 @@ def _verify_input_dict(input_dict: dict[str, Any]) -> None:
             raise excs.Error(f'Value for "category" is not a str or int: {annotation}{format_msg}')
 
 
-def write_coco_dataset(df: pxt.Query, dest_path: Path) -> Path:
+def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     """Export a ResultSet as a COCO dataset in dest_path and return the path of the data.json file."""
     # TODO: validate schema
-    if len(df._select_list_exprs) != 1 or not df._select_list_exprs[0].col_type.is_json_type():
-        raise excs.Error(f'Expected exactly one json-typed column in select list: {df._select_list_exprs}')
+    if len(query._select_list_exprs) != 1 or not query._select_list_exprs[0].col_type.is_json_type():
+        raise excs.Error(f'Expected exactly one json-typed column in select list: {query._select_list_exprs}')
     input_dict_slot_idx = -1  # df._select_list_exprs[0].slot_idx isn't valid until _exec()
 
     # create output dir
@@ -68,9 +68,9 @@ def write_coco_dataset(df: pxt.Query, dest_path: Path) -> Path:
     annotations: list[dict[str, Any]] = []
     ann_id = -1
     categories: set[Any] = set()
-    for input_row in df._exec():
+    for input_row in query._exec():
         if input_dict_slot_idx == -1:
-            input_dict_expr = df._select_list_exprs[0]
+            input_dict_expr = query._select_list_exprs[0]
             input_dict_slot_idx = input_dict_expr.slot_idx
             input_dict = input_row[input_dict_slot_idx]
             _verify_input_dict(input_dict)

@@ -980,7 +980,7 @@ class Query:
         """
         Remove duplicate rows from this Query.
 
-        Note that grouping will be applied to the rows based on the select clause of this Dataframe.
+        Note that grouping will be applied to the rows based on the select clause of this Query.
         In the absence of a select clause, by default, all columns are selected in the grouping.
 
         Examples:
@@ -1267,7 +1267,7 @@ class Query:
 
         Args:
             op_name: The name of the operation for which the test is being performed.
-            allow_select: If True, allow a select() specification in the Dataframe.
+            allow_select: If True, allow a select() specification in the Query.
         """
         self._validate_mutable_op_sequence(op_name, allow_select)
 

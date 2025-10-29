@@ -82,7 +82,7 @@ class TableDataConduit:
             return False
         return all(isinstance(row, dict) for row in d)
 
-    def is_direct_df(self) -> bool:
+    def is_direct_query(self) -> bool:
         return isinstance(self.source, pxt.Query) and self.source_column_map is None
 
     def normalize_pxt_schema_types(self) -> None:
@@ -127,11 +127,11 @@ class TableDataConduit:
             raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)})')
 
 
-class DFTableDataConduit(TableDataConduit):
+class QueryTableDataConduit(TableDataConduit):
     pxt_query: pxt.Query = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'DFTableDataConduit':
+    def from_tds(cls, tds: TableDataConduit) -> 'QueryTableDataConduit':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
@@ -543,7 +543,7 @@ class UnkTableDataConduit(TableDataConduit):
 
     def specialize(self) -> TableDataConduit:
         if isinstance(self.source, pxt.Query):
-            return DFTableDataConduit.from_tds(self)
+            return QueryTableDataConduit.from_tds(self)
         if isinstance(self.source, pd.DataFrame):
             return PandasTableDataConduit.from_tds(self)
         if HFTableDataConduit.is_applicable(self):

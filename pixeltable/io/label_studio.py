@@ -273,7 +273,7 @@ class LabelStudioProject(Project):
                     # and we can just use the localpath
                     expr_refs[col_name] = t[col_name].localpath
 
-        df = t.select(*[t[col.get().name] for col in t_rl_cols], **expr_refs)
+        query = t.select(*[t[col.get().name] for col in t_rl_cols], **expr_refs)
         # The following buffers will hold `DataRow` indices that correspond to each of the selected
         # columns. `rl_col_idxs` holds the indices for the columns that map to RectangleLabels
         # preannotations; `data_col_idxs` holds the indices for the columns that map to data fields.
@@ -310,10 +310,10 @@ class LabelStudioProject(Project):
                 'predictions': predictions,
             }
 
-        for row in df._exec():
+        for row in query._exec():
             if rl_col_idxs is None:
-                rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[: len(t_rl_cols)]]
-                data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols) :]]
+                rl_col_idxs = [expr.slot_idx for expr in query._select_list_exprs[: len(t_rl_cols)]]
+                data_col_idxs = [expr.slot_idx for expr in query._select_list_exprs[len(t_rl_cols) :]]
             row_ids_in_pxt.add(row.rowid)
             task_info = create_task_info(row)
             # TODO(aaron-siegel): Implement more efficient update logic (currently involves a full table scan)
