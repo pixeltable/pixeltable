@@ -226,17 +226,17 @@ def detr_for_object_detection(
         model_id: The pretrained model to use for object detection.
 
     Returns:
-        A dictionary containing the output of the object detection model, in the following format:
+        dict: A dictionary containing the output of the object detection model, in the following format:
 
-            ```python
-            {
-                'scores': [0.99, 0.999],  # list of confidence scores for each detected object
-                'labels': [25, 25],  # list of COCO class labels for each detected object
-                'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
-                'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
-                    # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
-            }
-            ```
+        ```python
+        {
+            'scores': [0.99, 0.999],  # list of confidence scores for each detected object
+            'labels': [25, 25],  # list of COCO class labels for each detected object
+            'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
+            'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
+                # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
+        }
+        ```
 
     Examples:
         Add a computed column that applies the model `facebook/detr-resnet-50` to an existing
@@ -301,7 +301,7 @@ def vit_for_image_classification(
         top_k: The number of classes to return.
 
     Returns:
-        A dictionary containing the output of the image classification model, in the following format:
+        dict: A dictionary containing the output of the image classification model, in the following format:
 
         ```python
         {
