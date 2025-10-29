@@ -5,7 +5,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions import reve
 
-from ..utils import rerun, validate_update_status
+from ..utils import rerun, skip_test_if_no_client, validate_update_status
 
 _logger = logging.getLogger('pixeltable')
 
@@ -15,6 +15,8 @@ _logger = logging.getLogger('pixeltable')
 @rerun(reruns=3, reruns_delay=8)
 class TestReve:
     def test_create_edit_remix(self, reset_db: None) -> None:
+        skip_test_if_no_client('reve')
+
         t = pxt.create_table('test_tbl', {'pixeltable_logo': pxt.Image})
         t.add_computed_column(just_logo=(reve.edit(t.pixeltable_logo, 'extract the company logo and drop the name')))
         t.add_computed_column(
