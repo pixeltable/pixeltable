@@ -90,7 +90,7 @@ class QueryTemplateFunction(Function):
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
-        from pixeltable.dataframe import DataFrame
+        from pixeltable._query import DataFrame
 
         return cls(DataFrame.from_dict(d['df']), Signature.from_dict(d['signature']), name=d['name'])
 

@@ -17,7 +17,7 @@ from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
 if TYPE_CHECKING:
-    from pixeltable.dataframe import DataFrame, DataFrameResultSet
+    from pixeltable._query import DataFrame, DataFrameResultSet
 
 
 class ColumnRef(Expr):
@@ -182,7 +182,7 @@ class ColumnRef(Expr):
 
     def _df(self) -> 'DataFrame':
         import pixeltable.plan as plan
-        from pixeltable.dataframe import DataFrame
+        from pixeltable._query import DataFrame
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs

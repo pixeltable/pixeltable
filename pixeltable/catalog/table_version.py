@@ -33,7 +33,7 @@ from .update_status import RowCountStats, UpdateStatus
 if TYPE_CHECKING:
     from pixeltable import exec, store
     from pixeltable.catalog.table_version_handle import TableVersionHandle
-    from pixeltable.dataframe import DataFrame
+    from pixeltable._query import DataFrame
     from pixeltable.io import ExternalStore
     from pixeltable.plan import SampleClause
 

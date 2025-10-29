@@ -16,7 +16,7 @@ from .catalog import (
     VersionMetadata,
     View,
 )
-from .dataframe import DataFrame
+from ._query import DataFrame
 from .exceptions import Error, ExprEvalError, PixeltableWarning
 from .func import Aggregator, Function, Tool, ToolChoice, Tools, expr_udf, mcp_udfs, query, retrieval_udf, uda, udf
 from .globals import (

@@ -215,7 +215,7 @@ class Table(SchemaObject):
             views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
-    def _df(self) -> 'pxt.dataframe.DataFrame':
+    def _df(self) -> 'pxt._query.DataFrame':
         """Return a DataFrame for this table."""
         # local import: avoid circular imports
         from pixeltable.plan import FromClause
@@ -294,19 +294,19 @@ class Table(SchemaObject):
             n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
         )
 
-    def collect(self) -> 'pxt.dataframe.DataFrameResultSet':
+    def collect(self) -> 'pxt._query.DataFrameResultSet':
         """Return rows from this table."""
         return self._df().collect()
 
-    def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.DataFrameResultSet':
         """Return rows from this table."""
         return self._df().show(*args, **kwargs)
 
-    def head(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
         return self._df().head(*args, **kwargs)
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
         return self._df().tail(*args, **kwargs)
 

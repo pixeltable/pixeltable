@@ -58,7 +58,7 @@ class View(Table):
         The source is the list of expressions from a select() statement on a DataFrame.
         If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
         """
-        from pixeltable.dataframe import DataFrame
+        from pixeltable._query import DataFrame
 
         r: dict[str, dict] = {}
         exps, names = DataFrame._normalize_select_list([], select_list)
