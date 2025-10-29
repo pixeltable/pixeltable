@@ -9,6 +9,7 @@ from typing import Any, Iterator
 import av
 import av.stream
 import PIL.Image
+from typing_extensions import Self
 
 from pixeltable.env import Env
 
@@ -255,7 +256,7 @@ class VideoFrames:
         self.video_time_base = None
         self.video_start_time = None
 
-    def __enter__(self) -> VideoFrames:  # noqa: PYI034; importing Self breaks the mypy plugin
+    def __enter__(self) -> Self:
         self.container = av.open(self.path)
         stream = self.container.streams.video[0]
         self.video_framerate = stream.average_rate

@@ -987,12 +987,13 @@ def scene_detect_adaptive(
             resolution.
 
     Returns:
-        A list of dictionaries, one for each detected scene cut, with the following keys:
+        A list of dictionaries, one for each detected scene, with the following keys:
 
-        - `frame_idx` (int): The frame index (0-based) where the scene cut was detected
-        - `frame_time` (float): The timestamp in seconds where the scene cut was detected
+        - `start_time` (float): The start time of the scene in seconds.
+        - `start_pts` (int): The pts of the start of the scene.
+        - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered by frame index. If no scene cuts are detected, returns an empty list.
+        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -1022,6 +1023,7 @@ def scene_detect_adaptive(
 
         >>> tbl.select(tbl.video.scene_detect_adaptive(fps=2.0)).collect()
     """
+    Env.get().require_package('scenedetect')
     from scenedetect.detectors import AdaptiveDetector, ContentDetector
 
     weights = ContentDetector.Components(
@@ -1085,8 +1087,13 @@ def scene_detect_content(
         filter_mode: How to handle fast cuts/flashes. 'merge' combines quick cuts, 'suppress' filters them out.
 
     Returns:
-        A list of timestamps (in seconds) where scene cuts were detected, ordered chronologically.
-        If no scene cuts are detected, returns an empty list.
+        A list of dictionaries, one for each detected scene, with the following keys:
+
+        - `start_time` (float): The start time of the scene in seconds.
+        - `start_pts` (int): The pts of the start of the scene.
+        - `duration` (float): The duration of the scene in seconds.
+
+        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -1117,6 +1124,7 @@ def scene_detect_content(
         ...     scene_cuts=tbl.video.scene_detect_content(threshold=20.0)
         ... )
     """
+    Env.get().require_package('scenedetect')
     from scenedetect.detectors import ContentDetector
     from scenedetect.detectors.content_detector import FlashFilter  # type: ignore[import-untyped]
 
@@ -1178,9 +1186,15 @@ def scene_detect_threshold(
             - 'ceiling': Fade out happens when frame brightness rises above threshold.
             - 'floor': Fade out happens when frame brightness falls below threshold.
 
+
     Returns:
-        A list of timestamps (in seconds) where fade transitions were detected, ordered chronologically.
-        If no transitions are detected, returns an empty list.
+        A list of dictionaries, one for each detected scene, with the following keys:
+
+        - `start_time` (float): The start time of the scene in seconds.
+        - `start_pts` (int): The pts of the start of the scene.
+        - `duration` (float): The duration of the scene in seconds.
+
+        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
 
     Examples:
         Detect fade-to-black transitions with default parameters:
@@ -1209,6 +1223,7 @@ def scene_detect_threshold(
         ...     fade_cuts=tbl.video.scene_detect_threshold(threshold=15.0)
         ... )
     """
+    Env.get().require_package('scenedetect')
     from scenedetect.detectors import ThresholdDetector
 
     method_enum = ThresholdDetector.Method.FLOOR if method == 'floor' else ThresholdDetector.Method.CEILING
@@ -1254,9 +1269,15 @@ def scene_detect_histogram(
         min_scene_len: Once a cut is detected, this many frames must pass before a new one can be added to the scene
             list.
 
+
     Returns:
-        A list of timestamps (in seconds) where scene cuts were detected, ordered chronologically.
-        If no scene cuts are detected, returns an empty list.
+        A list of dictionaries, one for each detected scene, with the following keys:
+
+        - `start_time` (float): The start time of the scene in seconds.
+        - `start_pts` (int): The pts of the start of the scene.
+        - `duration` (float): The duration of the scene in seconds.
+
+        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -1285,6 +1306,7 @@ def scene_detect_histogram(
         ...     scene_cuts=tbl.video.scene_detect_histogram(threshold=0.04)
         ... )
     """
+    Env.get().require_package('scenedetect')
     from scenedetect.detectors import HistogramDetector
 
     try:
@@ -1332,9 +1354,15 @@ def scene_detect_hash(
         min_scene_len: Once a cut is detected, this many frames must pass before a new one can be added to the scene
             list.
 
+
     Returns:
-        A list of timestamps (in seconds) where scene cuts were detected, ordered chronologically.
-        If no scene cuts are detected, returns an empty list.
+        A list of dictionaries, one for each detected scene, with the following keys:
+
+        - `start_time` (float): The start time of the scene in seconds.
+        - `start_pts` (int): The pts of the start of the scene.
+        - `duration` (float): The duration of the scene in seconds.
+
+        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -1364,6 +1392,7 @@ def scene_detect_hash(
         ...     scene_cuts=tbl.video.scene_detect_hash()
         ... )
     """
+    Env.get().require_package('scenedetect')
     from scenedetect.detectors import HashDetector
 
     try:
@@ -1385,7 +1414,7 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
     with av_utils.VideoFrames(pathlib.Path(video), fps=fps) as frame_iter:
         video_fps = float(frame_iter.video_framerate)
 
-        scene_cuts: list[dict[str, int | float]] = []
+        scenes: list[dict[str, int | float]] = []
         frame_idx: int | None = None
         start_time: float | None = None  # of current scene
         start_pts: int | None = None  # of current scene
@@ -1398,10 +1427,12 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
             nonlocal frame_info, start_time, start_pts
             for cut_timecode in cuts:
                 cut_frame_idx = cut_timecode.get_frames()
+                # we expect cuts to come back in chronological order
+                assert cut_frame_idx >= frame_info[0].frame_idx
                 info_offset = next((i for i, info in enumerate(frame_info) if info.frame_idx == cut_frame_idx), None)
-                assert info_offset is not None
+                assert info_offset is not None  # the cut is at a previously reported frame idx
                 info = frame_info[info_offset]
-                scene_cuts.append(
+                scenes.append(
                     {'start_time': start_time, 'start_pts': start_pts, 'duration': info.frame_time - start_time}
                 )
                 start_time = info.frame_time
@@ -1425,7 +1456,7 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
             final_cuts = detector.post_process(final_timecode)
             process_cuts(final_cuts)
 
-        return scene_cuts
+        return scenes
 
 
 __all__ = local_public_names(__name__)
