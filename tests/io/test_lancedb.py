@@ -95,7 +95,7 @@ class TestLanceDb:
         # export query result containing PIL image, with if_exists='overwrite'
         t2 = pxt.create_table('test2', schema)
         t2.insert(rows[:100])
-        df = t2.order_by(t2.row_id, asc=False).select(
+        query = t2.order_by(t2.row_id, asc=False).select(
             t2.row_id,
             t2.c_int,
             t2.c_float,
@@ -107,12 +107,12 @@ class TestLanceDb:
             t2.c_array,
             c_image=t2.c_image.rotate(180),
         )
-        pxt.io.export_lancedb(df, db_path, 'test', if_exists='overwrite')
-        validate_data('test', list(df.collect()))
+        pxt.io.export_lancedb(query, db_path, 'test', if_exists='overwrite')
+        validate_data('test', list(query.collect()))
 
         # if_exists='append'
         pxt.io.export_lancedb(t, db_path, 'test', if_exists='append', batch_size_bytes=1024)
-        validate_data('test', list(df.collect()) + list(t.collect()))
+        validate_data('test', list(query.collect()) + list(t.collect()))
 
         # error during export
         error_db_path = tmp_path / 'error_db'

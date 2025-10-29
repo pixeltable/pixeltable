@@ -82,8 +82,8 @@ class TestHfDatasets:
                 assert split_column_name in tab._get_schema()
 
                 for dataset_name in hf_dataset:
-                    df = tab.where(tab.my_split_col == dataset_name)
-                    self._assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
+                    query = tab.where(tab.my_split_col == dataset_name)
+                    self._assert_hf_dataset_equal(hf_dataset[dataset_name], query, split_column_name)
             else:
                 raise AssertionError()
 
@@ -138,8 +138,8 @@ class TestHfDatasets:
                 assert split_column_name in tab._get_schema()
 
                 for dataset_name in hf_dataset:
-                    df = tab.where(tab.my_split_col == dataset_name)
-                    self._assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
+                    query = tab.where(tab.my_split_col == dataset_name)
+                    self._assert_hf_dataset_equal(hf_dataset[dataset_name], query, split_column_name)
             else:
                 raise AssertionError()
             len1 = tab.count()
@@ -149,11 +149,11 @@ class TestHfDatasets:
             assert tab.count() == len1 * 2
 
     @classmethod
-    def _assert_hf_dataset_equal(cls, hf_dataset: 'datasets.Dataset', df: pxt.Query, split_column_name: str) -> None:
+    def _assert_hf_dataset_equal(cls, hf_dataset: 'datasets.Dataset', query: pxt.Query, split_column_name: str) -> None:
         import datasets
 
-        assert df.count() == hf_dataset.num_rows
-        assert set(df.schema.keys()) == (set(hf_dataset.features.keys()) | {split_column_name})
+        assert query.count() == hf_dataset.num_rows
+        assert set(query.schema.keys()) == (set(hf_dataset.features.keys()) | {split_column_name})
 
         # immutable so we can use it as in a set
         DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))  # type: ignore[misc]  # noqa: PYI024
@@ -168,7 +168,7 @@ class TestHfDatasets:
 
             acc_dataset.add(DatasetTuple(**immutable_tup))
 
-        for tup in df.collect():
+        for tup in query.collect():
             assert tup[split_column_name] in hf_dataset.split._name
 
             encoded_tup = {}

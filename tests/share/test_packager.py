@@ -375,8 +375,8 @@ class TestPackager:
         assert snapshot_replica.count() == snapshot_row_count
         # We can't query the base table directly via snapshot_replica.get_base_table(), because it doesn't exist as a
         # visible catalog object (it's hidden in _system). But we can manually construct the Query and check that.
-        t_replica_df = pxt.Query(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
-        assert t_replica_df.count() == 2
+        t_replica_query = pxt.Query(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
+        assert t_replica_query.count() == 2
 
     def test_multi_view_round_trip_1(self, reset_db: None) -> None:
         """

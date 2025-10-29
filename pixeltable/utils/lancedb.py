@@ -14,7 +14,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 def export_lancedb(
-    query_or_table: pxt.Table | pxt.Query,
+    table_or_query: pxt.Table | pxt.Query,
     db_uri: Path,
     table_name: str,
     batch_size_bytes: int = 128 * 2**20,
@@ -31,7 +31,7 @@ def export_lancedb(
     - `pip install lancedb`
 
     Args:
-        table_or_df : Table or Query to export.
+        table_or_query : Table or Query to export.
         db_uri: Local Path to the LanceDB database.
         table_name : Name of the table in the LanceDB database.
         batch_size_bytes : Maximum size in bytes for each batch.
@@ -51,10 +51,10 @@ def export_lancedb(
         raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']")
 
     query: pxt.Query
-    if isinstance(query_or_table, pxt.catalog.Table):
-        query = query_or_table.select()
+    if isinstance(table_or_query, pxt.catalog.Table):
+        query = table_or_query.select()
     else:
-        query = query_or_table
+        query = table_or_query
 
     db_exists = False
     if db_uri.exists():

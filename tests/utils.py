@@ -693,30 +693,30 @@ SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main
 class ReloadTester:
     """Utility to verify that queries return identical results after a catalog reload"""
 
-    df_info: list[tuple[dict[str, Any], ResultSet]]  # list of (df.as_dict(), df.collect())
+    query_info: list[tuple[dict[str, Any], ResultSet]]  # list of (query.as_dict(), query.collect())
 
     def __init__(self) -> None:
-        self.df_info = []
+        self.query_info = []
 
     def clear(self) -> None:
-        self.df_info = []
+        self.query_info = []
 
-    def run_query(self, df: pxt.Query) -> ResultSet:
-        df_dict = df.as_dict()
-        result_set = df.collect()
-        self.df_info.append((df_dict, result_set))
+    def run_query(self, query: pxt.Query) -> ResultSet:
+        query_dict = query.as_dict()
+        result_set = query.collect()
+        self.query_info.append((query_dict, result_set))
         return result_set
 
     def run_reload_test(self, clear: bool = True) -> None:
         reload_catalog()
         # enumerate(): the list index is useful for debugging
-        for _idx, (df_dict, result_set) in enumerate(self.df_info):
-            df = pxt.Query.from_dict(df_dict)
-            new_result_set = df.collect()
+        for _idx, (query_dict, result_set) in enumerate(self.query_info):
+            query = pxt.Query.from_dict(query_dict)
+            new_result_set = query.collect()
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
             except Exception as e:
-                s = f'Reload test failed for query:\n{df}\n{e}'
+                s = f'Reload test failed for query:\n{query}\n{e}'
                 raise RuntimeError(s) from e
         if clear:
             self.clear()
