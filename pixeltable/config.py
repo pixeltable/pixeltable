@@ -161,6 +161,8 @@ KNOWN_CONFIG_OPTIONS = {
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',
         'api_key': 'API key for Pixeltable cloud',
+        'input_media_dest': 'Default destination URI for input media data',
+        'output_media_dest': 'Default destination URI for output (computed) media data',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'S3-compatible profile name used to access Backblaze B2 storage',
@@ -174,7 +176,6 @@ KNOWN_CONFIG_OPTIONS = {
     'gemini': {'api_key': 'Gemini API key', 'rate_limits': 'Per-model rate limits for Gemini API requests'},
     'hf': {'auth_token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
-    'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
@@ -195,6 +196,7 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'Together API key',
         'rate_limits': 'Per-model category rate limits for Together API requests',
     },
+    'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
 

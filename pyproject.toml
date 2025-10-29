@@ -183,6 +183,12 @@ extra-dev = [
     # This is for dependencies that will be installed locally for devs (via `make install`), but not in CI.
     "llama-cpp-python>=0.3.16 ; sys_platform != 'win32'"
 ]
+storage-sdks = [
+    # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
+    "boto3==1.36.23",
+    "botocore==1.36.23",
+    "google-cloud-storage>=2.18.0",
+]
 
 [tool.hatch.build.hooks.version]
 path = "pixeltable/_version.py"
