@@ -1030,6 +1030,7 @@ class TestVideo:
         ],
     )
     def test_scene_detect(self, udf: pxt.Function, reset_db: None) -> None:
+        skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.insert({'video': p} for p in video_filepaths)
