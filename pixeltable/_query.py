@@ -653,13 +653,13 @@ class Query:
 
             Select the columns 'name' and 'age' (referenced in table t) from the Query person:
 
-            >>> df = person.select(t.name, t.age)
+            >>> query = person.select(t.name, t.age)
 
             Select the columns 'name' (referenced in table t) from the Query person,
             and a named column 'is_adult' from the expression `age >= 18` where 'age' is
             another column in table t:
 
-            >>> df = person.select(t.name, is_adult=(t.age >= 18))
+            >>> query = person.select(t.name, is_adult=(t.age >= 18))
 
         """
         if self.select_list is not None:
@@ -739,7 +739,7 @@ class Query:
             Filter the above Query person to only include rows where the column 'age'
             (referenced in table t) is greater than 30:
 
-            >>> df = person.where(t.age > 30)
+            >>> query = person.where(t.age > 30)
         """
         if self.where_clause is not None:
             raise excs.Error('where() clause already specified')
@@ -872,7 +872,7 @@ class Query:
             Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
             key columns d1 and d2 in t):
 
-            >>> df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
+            >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
@@ -929,17 +929,17 @@ class Query:
 
             Group the above Query book by the 'genre' column (referenced in table t):
 
-            >>> df = book.group_by(t.genre)
+            >>> query = book.group_by(t.genre)
 
             Use the above Query df grouped by genre to count the number of
             books for each 'genre':
 
-            >>> df = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+            >>> query = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
 
             Use the above Query df grouped by genre to the total price of
             books for each 'genre':
 
-            >>> df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
+            >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
         if self.group_by_clause is not None:
             raise excs.Error('group_by() already specified')
@@ -1022,12 +1022,12 @@ class Query:
 
             Order the above Query book by two columns (price, pages) in descending order:
 
-            >>> df = book.order_by(t.price, t.pages, asc=False)
+            >>> query = book.order_by(t.price, t.pages, asc=False)
 
             Order the above Query book by price in descending order, but order the pages
             in ascending order:
 
-            >>> df = book.order_by(t.price, asc=False).order_by(t.pages)
+            >>> query = book.order_by(t.price, asc=False).order_by(t.pages)
         """
         if self.sample_clause is not None:
             raise excs.Error('order_by() cannot be used with sample()')
@@ -1108,23 +1108,23 @@ class Query:
 
             Sample 100 rows from the above Table:
 
-            >>> df = person.sample(n=100)
+            >>> query = person.sample(n=100)
 
             Sample 10% of the rows from the above Table:
 
-            >>> df = person.sample(fraction=0.1)
+            >>> query = person.sample(fraction=0.1)
 
             Sample 10% of the rows from the above Table, stratified by the column 'age':
 
-            >>> df = person.sample(fraction=0.1, stratify_by=t.age)
+            >>> query = person.sample(fraction=0.1, stratify_by=t.age)
 
             Equal allocation sampling: Sample 2 rows from each age present in the above Table:
 
-            >>> df = person.sample(n_per_stratum=2, stratify_by=t.age)
+            >>> query = person.sample(n_per_stratum=2, stratify_by=t.age)
 
             Sampling is compatible with the where clause, so we can also sample from a filtered Query:
 
-            >>> df = person.where(t.age > 30).sample(n=100)
+            >>> query = person.where(t.age > 30).sample(n=100)
         """
         # Check context of usage
         if self.sample_clause is not None:
@@ -1236,7 +1236,7 @@ class Query:
             For table `person` with column `age` and computed column `height`, recompute the value of `height` for all
             rows where `age` is less than 18:
 
-            >>> df = person.where(t.age < 18).recompute_columns(person.height)
+            >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
@@ -1367,8 +1367,8 @@ class Query:
         return hashlib.sha256(summary_string.encode()).hexdigest()
 
     def to_coco_dataset(self) -> Path:
-        """Convert the dataframe to a COCO dataset.
-        This dataframe must return a single json-typed output column in the following format:
+        """Convert the Query to a COCO dataset.
+        This Query must return a single json-typed output column in the following format:
         {
             'image': PIL.Image.Image,
             'annotations': [
@@ -1400,7 +1400,7 @@ class Query:
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
-        Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
+        Convert the Query to a pytorch IterableDataset suitable for parallel loading
         with torch.utils.data.DataLoader.
 
         This method requires pyarrow >= 13, torch and torchvision to work.
