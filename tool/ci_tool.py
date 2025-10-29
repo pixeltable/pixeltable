@@ -71,7 +71,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
     ]
 
     # Full test suite on basic platforms on Python 3.10
-    configs.extend(MatrixConfig('full', 'py', os, '3.10', pytest_options='-m not expensive') for os in BASIC_PLATFORMS)
+    # Exclude expensive tests on everything except Ubuntu
+    configs.extend(
+        MatrixConfig(
+            'full', 'py', os, '3.10', pytest_options="-m ''" if os.startswith('ubuntu') else "-m 'not expensive'"
+        )
+        for os in BASIC_PLATFORMS
+    )
 
     if force_all or trigger != 'pull_request':
         # Full test suite on basic platforms on Python 3.13
