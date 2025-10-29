@@ -27,12 +27,12 @@ if TYPE_CHECKING:
     import torch
     import torch.utils.data
 
-__all__ = ['DataFrame']
+__all__ = ['Query']
 
 _logger = logging.getLogger('pixeltable')
 
 
-class DataFrameResultSet:
+class ResultSet:
     _rows: list[list[Any]]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
@@ -134,7 +134,7 @@ class DataFrameResultSet:
         return (self._row_to_dict(i) for i in range(len(self)))
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, DataFrameResultSet):
+        if not isinstance(other, ResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
 
@@ -174,7 +174,7 @@ class DataFrameResultSet:
 #             self.filter.release()
 
 
-class DataFrame:
+class Query:
     """Represents a query for retrieving and transforming data from Pixeltable tables."""
 
     _from_clause: plan.FromClause
@@ -203,7 +203,7 @@ class DataFrame:
 
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
-        select_list_exprs, column_names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
+        select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, select_list)
         # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
         assert len(column_names) == len(select_list_exprs)
@@ -383,13 +383,13 @@ class DataFrame:
     def _has_joins(self) -> bool:
         return len(self._from_clause.join_clauses) > 0
 
-    def show(self, n: int = 20) -> DataFrameResultSet:
+    def show(self, n: int = 20) -> ResultSet:
         if self.sample_clause is not None:
             raise excs.Error('show() cannot be used with sample()')
         assert n is not None
         return self.limit(n).collect()
 
-    def head(self, n: int = 10) -> DataFrameResultSet:
+    def head(self, n: int = 10) -> ResultSet:
         """Return the first n rows of the DataFrame, in insertion order of the underlying Table.
 
         head() is not supported for joins.
@@ -416,7 +416,7 @@ class DataFrame:
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
-    def tail(self, n: int = 10) -> DataFrameResultSet:
+    def tail(self, n: int = 10) -> ResultSet:
         """Return the last n rows of the DataFrame, in insertion order of the underlying Table.
 
         tail() is not supported for joins.
@@ -450,7 +450,7 @@ class DataFrame:
         """Column names and types in this DataFrame."""
         return self._schema
 
-    def bind(self, args: dict[str, Any]) -> DataFrame:
+    def bind(self, args: dict[str, Any]) -> Query:
         """Bind arguments to parameters and return a new DataFrame."""
         # substitute Variables with the corresponding values according to 'args', converted to Literals
         select_list_exprs = copy.deepcopy(self._select_list_exprs)
@@ -494,7 +494,7 @@ class DataFrame:
             if limit_val is not None and not isinstance(limit_val, exprs.Literal):
                 raise excs.Error(f'limit(): parameter must be a constant; got: {limit_val}')
 
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=select_list,
             where_clause=where_clause,
@@ -534,14 +534,14 @@ class DataFrame:
                 Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
                 raise  # just re-raise if not converted to a Pixeltable error
 
-    def collect(self) -> DataFrameResultSet:
-        return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
+    def collect(self) -> ResultSet:
+        return ResultSet(list(self._output_row_iterator()), self.schema)
 
-    async def _acollect(self) -> DataFrameResultSet:
+    async def _acollect(self) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         try:
             result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
-            return DataFrameResultSet(result, self.schema)
+            return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -631,7 +631,7 @@ class DataFrame:
     def _repr_html_(self) -> str:
         return self._descriptors().to_html()
 
-    def select(self, *items: Any, **named_items: Any) -> DataFrame:
+    def select(self, *items: Any, **named_items: Any) -> Query:
         """Select columns or expressions from the DataFrame.
 
         Args:
@@ -699,7 +699,7 @@ class DataFrame:
 
         # check user provided names do not conflict among themselves or with auto-generated ones
         seen: set[str] = set()
-        _, names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
+        _, names = Query._normalize_select_list(self._from_clause.tbls, select_list)
         for name in names:
             if name in seen:
                 repeated_names = [j for j, x in enumerate(names) if x == name]
@@ -707,7 +707,7 @@ class DataFrame:
                 raise excs.Error(f'Repeated column name {name!r} in select() at positions: {pretty}')
             seen.add(name)
 
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=select_list,
             where_clause=self.where_clause,
@@ -717,7 +717,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def where(self, pred: exprs.Expr) -> DataFrame:
+    def where(self, pred: exprs.Expr) -> Query:
         """Filter rows based on a predicate.
 
         Args:
@@ -749,7 +749,7 @@ class DataFrame:
             raise excs.Error(f'where() expects a Pixeltable expression; got: {pred}')
         if not pred.col_type.is_bool_type():
             raise excs.Error(f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`')
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=pred,
@@ -827,7 +827,7 @@ class DataFrame:
         other: catalog.Table,
         on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: plan.JoinType.LiteralType = 'inner',
-    ) -> DataFrame:
+    ) -> Query:
         """
         Join this DataFrame with a table.
 
@@ -890,7 +890,7 @@ class DataFrame:
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
             join_clauses=[*self._from_clause.join_clauses, join_clause],
         )
-        return DataFrame(
+        return Query(
             from_clause=from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -900,7 +900,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def group_by(self, *grouping_items: Any) -> DataFrame:
+    def group_by(self, *grouping_items: Any) -> Query:
         """Add a group-by clause to this DataFrame.
 
         Variants:
@@ -966,7 +966,7 @@ class DataFrame:
                 raise excs.Error(f'Invalid expression in group_by(): {item}')
         if grouping_tbl is None:
             group_by_clause = list(grouping_items)
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -976,7 +976,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def distinct(self) -> DataFrame:
+    def distinct(self) -> Query:
         """
         Remove duplicate rows from this DataFrame.
 
@@ -999,7 +999,7 @@ class DataFrame:
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
 
-    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
+    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> Query:
         """Add an order-by clause to this DataFrame.
 
         Args:
@@ -1036,7 +1036,7 @@ class DataFrame:
                 raise excs.Error(f'Invalid expression in order_by(): {e}')
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1046,7 +1046,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def limit(self, n: int) -> DataFrame:
+    def limit(self, n: int) -> Query:
         """Limit the number of rows in the DataFrame.
 
         Args:
@@ -1059,7 +1059,7 @@ class DataFrame:
             raise excs.Error('limit() cannot be used with sample()')
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1076,7 +1076,7 @@ class DataFrame:
         fraction: float | None = None,
         seed: int | None = None,
         stratify_by: Any = None,
-    ) -> DataFrame:
+    ) -> Query:
         """
         Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.
 
@@ -1175,7 +1175,7 @@ class DataFrame:
 
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
 
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1320,7 +1320,7 @@ class DataFrame:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
+    def from_dict(cls, d: dict[str, Any]) -> 'Query':
         # we need to wrap the construction with a transaction, because it might need to load metadata
         with Catalog.get().begin_xact(for_write=False):
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
@@ -1344,7 +1344,7 @@ class DataFrame:
             limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
             sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
-            return DataFrame(
+            return Query(
                 from_clause=from_clause,
                 select_list=select_list,
                 where_clause=where_clause,

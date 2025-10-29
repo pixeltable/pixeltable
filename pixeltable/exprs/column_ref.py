@@ -17,7 +17,7 @@ from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
 if TYPE_CHECKING:
-    from pixeltable._query import DataFrame, DataFrameResultSet
+    from pixeltable._query import Query, ResultSet
 
 
 class ColumnRef(Expr):
@@ -180,9 +180,9 @@ class ColumnRef(Expr):
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.perform_validation == other.perform_validation
 
-    def _df(self) -> 'DataFrame':
+    def _df(self) -> 'Query':
         import pixeltable.plan as plan
-        from pixeltable._query import DataFrame
+        from pixeltable._query import Query
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
@@ -190,21 +190,21 @@ class ColumnRef(Expr):
             return tbl.select(self)
         else:
             # Explicit reference table; construct a DataFrame directly from it
-            return DataFrame(plan.FromClause([self.reference_tbl])).select(self)
+            return Query(plan.FromClause([self.reference_tbl])).select(self)
 
-    def show(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
+    def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
         return self._df().show(*args, **kwargs)
 
-    def head(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
+    def head(self, *args: Any, **kwargs: Any) -> 'ResultSet':
         return self._df().head(*args, **kwargs)
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
+    def tail(self, *args: Any, **kwargs: Any) -> 'ResultSet':
         return self._df().tail(*args, **kwargs)
 
     def count(self) -> int:
         return self._df().count()
 
-    def distinct(self) -> 'DataFrame':
+    def distinct(self) -> 'Query':
         """Return distinct values in this column."""
         return self._df().distinct()
 

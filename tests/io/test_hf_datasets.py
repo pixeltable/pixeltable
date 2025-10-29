@@ -150,7 +150,7 @@ class TestHfDatasets:
 
     @classmethod
     def _assert_hf_dataset_equal(
-        cls, hf_dataset: 'datasets.Dataset', df: pxt.DataFrame, split_column_name: str
+        cls, hf_dataset: 'datasets.Dataset', df: pxt.Query, split_column_name: str
     ) -> None:
         import datasets
 

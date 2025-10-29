@@ -14,7 +14,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 def export_lancedb(
-    table_or_df: pxt.Table | pxt.DataFrame,
+    table_or_df: pxt.Table | pxt.Query,
     db_uri: Path,
     table_name: str,
     batch_size_bytes: int = 128 * 2**20,
@@ -50,7 +50,7 @@ def export_lancedb(
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']")
 
-    df: pxt.DataFrame
+    df: pxt.Query
     if isinstance(table_or_df, pxt.catalog.Table):
         df = table_or_df._df()
     else:

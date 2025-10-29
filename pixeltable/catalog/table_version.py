@@ -33,7 +33,7 @@ from .update_status import RowCountStats, UpdateStatus
 if TYPE_CHECKING:
     from pixeltable import exec, store
     from pixeltable.catalog.table_version_handle import TableVersionHandle
-    from pixeltable._query import DataFrame
+    from pixeltable._query import Query
     from pixeltable.io import ExternalStore
     from pixeltable.plan import SampleClause
 
@@ -946,7 +946,7 @@ class TableVersion:
     def insert(
         self,
         rows: list[dict[str, Any]] | None,
-        df: DataFrame | None,
+        df: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
     ) -> UpdateStatus:

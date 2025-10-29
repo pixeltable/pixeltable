@@ -9,7 +9,7 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         Path,  # OS paths, filenames, URLs
         Iterable[dict[str, Any]],  # dictionaries of values
         Iterable[pydantic.BaseModel],  # Pydantic model instances
-        DataFrame,  # Pixeltable DataFrame
+        Query,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
         datasets.Dataset,
         datasets.DatasetDict,  # Huggingface datasets
@@ -214,7 +214,7 @@ def create_table(
 
 def create_view(
     path: str,
-    base: catalog.Table | DataFrame,
+    base: catalog.Table | Query,
     *,
     additional_columns: dict[str, Any] | None = None,
     is_snapshot: bool = False,
@@ -294,7 +294,7 @@ def create_view(
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
         sample_clause = None
-    elif isinstance(base, DataFrame):
+    elif isinstance(base, Query):
         base._validate_mutable_op_sequence('create_view', allow_select=True)
         tbl_version_path = base._from_clause.tbls[0]
         where = base.where_clause
@@ -304,7 +304,7 @@ def create_view(
             raise excs.Error('Non-snapshot views cannot be created with non-fractional or stratified sampling')
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
-    assert isinstance(base, (catalog.Table, DataFrame))
+    assert isinstance(base, (catalog.Table, Query))
 
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -340,7 +340,7 @@ def create_view(
 
 def create_snapshot(
     path_str: str,
-    base: catalog.Table | DataFrame,
+    base: catalog.Table | Query,
     *,
     additional_columns: dict[str, Any] | None = None,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,

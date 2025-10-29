@@ -21,7 +21,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.catalog import Catalog
-from pixeltable._query import DataFrameResultSet
+from pixeltable._query import ResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.object_stores import ObjectOps
@@ -432,7 +432,7 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_col_names: bool = False) -> None:
+def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = False) -> None:
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
     assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
@@ -693,7 +693,7 @@ SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main
 class ReloadTester:
     """Utility to verify that queries return identical results after a catalog reload"""
 
-    df_info: list[tuple[dict[str, Any], DataFrameResultSet]]  # list of (df.as_dict(), df.collect())
+    df_info: list[tuple[dict[str, Any], ResultSet]]  # list of (df.as_dict(), df.collect())
 
     def __init__(self) -> None:
         self.df_info = []
@@ -701,7 +701,7 @@ class ReloadTester:
     def clear(self) -> None:
         self.df_info = []
 
-    def run_query(self, df: pxt.DataFrame) -> DataFrameResultSet:
+    def run_query(self, df: pxt.Query) -> ResultSet:
         df_dict = df.as_dict()
         result_set = df.collect()
         self.df_info.append((df_dict, result_set))
@@ -711,7 +711,7 @@ class ReloadTester:
         reload_catalog()
         # enumerate(): the list index is useful for debugging
         for _idx, (df_dict, result_set) in enumerate(self.df_info):
-            df = pxt.DataFrame.from_dict(df_dict)
+            df = pxt.Query.from_dict(df_dict)
             new_result_set = df.collect()
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)

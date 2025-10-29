@@ -58,10 +58,10 @@ class View(Table):
         The source is the list of expressions from a select() statement on a DataFrame.
         If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
         """
-        from pixeltable._query import DataFrame
+        from pixeltable._query import Query
 
         r: dict[str, dict] = {}
-        exps, names = DataFrame._normalize_select_list([], select_list)
+        exps, names = Query._normalize_select_list([], select_list)
         for expr, name in zip(exps, names):
             stored = not isinstance(expr, exprs.ColumnRef)
             r[name] = {'value': expr, 'stored': stored}

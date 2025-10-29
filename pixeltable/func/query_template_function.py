@@ -10,13 +10,13 @@ from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
-    from pixeltable import DataFrame
+    from pixeltable import Query
 
 
 class QueryTemplateFunction(Function):
     """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
 
-    template_df: 'DataFrame' | None
+    template_df: 'Query' | None
     self_name: str | None
     _comment: str | None
 
@@ -31,16 +31,16 @@ class QueryTemplateFunction(Function):
         # invoke template_callable with parameter expressions to construct a DataFrame with parameters
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_df = template_callable(*var_exprs)
-        from pixeltable import DataFrame
+        from pixeltable import Query
 
-        assert isinstance(template_df, DataFrame)
+        assert isinstance(template_df, Query)
         # we take params and return json
         sig = Signature(return_type=ts.JsonType(), parameters=params)
         return QueryTemplateFunction(template_df, sig, path=path, name=name, comment=inspect.getdoc(template_callable))
 
     def __init__(
         self,
-        template_df: 'DataFrame' | None,
+        template_df: 'Query' | None,
         sig: Signature,
         path: str | None = None,
         name: str | None = None,
@@ -90,9 +90,9 @@ class QueryTemplateFunction(Function):
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
-        from pixeltable._query import DataFrame
+        from pixeltable._query import Query
 
-        return cls(DataFrame.from_dict(d['df']), Signature.from_dict(d['signature']), name=d['name'])
+        return cls(Query.from_dict(d['df']), Signature.from_dict(d['signature']), name=d['name'])
 
 
 @overload

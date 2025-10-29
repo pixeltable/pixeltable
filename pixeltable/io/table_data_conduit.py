@@ -83,7 +83,7 @@ class TableDataConduit:
         return all(isinstance(row, dict) for row in d)
 
     def is_direct_df(self) -> bool:
-        return isinstance(self.source, pxt.DataFrame) and self.source_column_map is None
+        return isinstance(self.source, pxt.Query) and self.source_column_map is None
 
     def normalize_pxt_schema_types(self) -> None:
         for name, coltype in self.pxt_schema.items():
@@ -128,14 +128,14 @@ class TableDataConduit:
 
 
 class DFTableDataConduit(TableDataConduit):
-    pxt_df: pxt.DataFrame = None
+    pxt_df: pxt.Query = None
 
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'DFTableDataConduit':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
-        assert isinstance(tds.source, pxt.DataFrame)
+        assert isinstance(tds.source, pxt.Query)
         t.pxt_df = tds.source
         return t
 
@@ -542,7 +542,7 @@ class UnkTableDataConduit(TableDataConduit):
     """Source type is not known at the time of creation"""
 
     def specialize(self) -> TableDataConduit:
-        if isinstance(self.source, pxt.DataFrame):
+        if isinstance(self.source, pxt.Query):
             return DFTableDataConduit.from_tds(self)
         if isinstance(self.source, pd.DataFrame):
             return PandasTableDataConduit.from_tds(self)

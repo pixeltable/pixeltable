@@ -140,7 +140,7 @@ class TestIndex:
         chunks.add_embedding_index(column='text', string_embed=clip_embed)
 
         @pxt.query
-        def top_k_chunks(query_text: str) -> pxt.DataFrame:
+        def top_k_chunks(query_text: str) -> pxt.Query:
             return (
                 chunks.select(chunks.text, sim=chunks.text.similarity(query_text))
                 .order_by(chunks.text.similarity(query_text), asc=False)
@@ -168,7 +168,7 @@ class TestIndex:
         _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
 
         @pxt.query
-        def img_matches(img: PIL.Image.Image) -> pxt.DataFrame:
+        def img_matches(img: PIL.Image.Image) -> pxt.Query:
             return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
 
         _ = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))

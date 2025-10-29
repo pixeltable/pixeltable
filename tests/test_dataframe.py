@@ -310,7 +310,7 @@ class TestDataFrame:
         assert len(res) == nrows
 
         @pxt.query
-        def get_lim(n: int) -> pxt.DataFrame:
+        def get_lim(n: int) -> pxt.Query:
             return t.select(t.c4).limit(n)
 
         res = t.select(t.c4, get_lim(2)).collect()
@@ -334,7 +334,7 @@ class TestDataFrame:
         assert len(res) == nrows
 
         @pxt.query
-        def get_lim(n: int) -> pxt.DataFrame:
+        def get_lim(n: int) -> pxt.Query:
             return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
 
         res = t.select(t.c4, get_lim(1)).collect()
@@ -347,7 +347,7 @@ class TestDataFrame:
         t = test_tbl
 
         @pxt.query
-        def get_lim(n: float) -> pxt.DataFrame:
+        def get_lim(n: float) -> pxt.Query:
             return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
 
         res = t.select(t.c4, get_lim(2.2)).collect()
@@ -360,7 +360,7 @@ class TestDataFrame:
         assert res[0]['foo'] == [2, 3, 4]
 
         @pxt.query
-        def get_val(n: int) -> pxt.DataFrame:
+        def get_val(n: int) -> pxt.Query:
             return t.select(foo=[2, 3, n]).limit(2)
 
         res = t.select(t.c4, get_val(4)).limit(2).collect()
@@ -564,7 +564,7 @@ class TestDataFrame:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot use `delete` on a snapshot.' in str(exc_info.value)
 
-    def __check_constant_query(self, df: pxt.DataFrame, v: Any) -> None:
+    def __check_constant_query(self, df: pxt.Query, v: Any) -> None:
         r = df.limit(5).collect()
         assert all(r[i, 0] == v for i in range(len(r)))
 

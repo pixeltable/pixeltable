@@ -18,7 +18,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 def export_parquet(
-    table_or_df: pxt.Table | pxt.DataFrame,
+    table_or_df: pxt.Table | pxt.Query,
     parquet_path: Path,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,
@@ -43,7 +43,7 @@ def export_parquet(
 
     from pixeltable.utils.arrow import to_record_batches
 
-    df: pxt.DataFrame
+    df: pxt.Query
     if isinstance(table_or_df, pxt.catalog.Table):
         df = table_or_df._df()
     else:

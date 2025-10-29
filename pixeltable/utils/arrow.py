@@ -109,7 +109,7 @@ def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa
     return pa.RecordBatch.from_arrays(pa_arrays, schema=schema)
 
 
-def to_record_batches(df: 'pxt.DataFrame', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
+def to_record_batches(df: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
     arrow_schema = to_arrow_schema(df.schema)
     batch_columns: dict[str, list[Any]] = {k: [] for k in df.schema}
     current_byte_estimate = 0

@@ -130,7 +130,7 @@ class TestSample:
         assert abs(expected - actual) / actual < 0.25
 
     @classmethod
-    def _check_sample(cls, df: pxt.DataFrame, expected: int | float) -> None:
+    def _check_sample(cls, df: pxt.Query, expected: int | float) -> None:
         r = df.collect()
         print(r)
         cls._check_sample_count(expected, len(r))
@@ -190,7 +190,7 @@ class TestSample:
         print(r)
 
     def validate_snapshot(
-        self, df: pxt.DataFrame, t_rows: int, allow_mutable_view: bool = False, seeded: bool = False
+        self, df: pxt.Query, t_rows: int, allow_mutable_view: bool = False, seeded: bool = False
     ) -> None:
         snap = pxt.create_snapshot('sampled_snap', df, if_exists='replace')
 
@@ -233,7 +233,7 @@ class TestSample:
         df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=seed)
         self.validate_snapshot(df, t_rows, seeded=(seed is not None))
 
-    def check_create_insert(self, t: pxt.Table, df: pxt.DataFrame, n_sample: int) -> None:
+    def check_create_insert(self, t: pxt.Table, df: pxt.Query, n_sample: int) -> None:
         r = df.collect()
         print(r)
         assert len(r) == n_sample
