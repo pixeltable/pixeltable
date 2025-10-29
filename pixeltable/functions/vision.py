@@ -180,7 +180,8 @@ def eval_detections(
             considered a true positive.
 
     Returns:
-        A list of dictionaries, one per label class, with the following structure:
+        list[dict]: A list of dictionaries, one per label class, with the following structure:
+
         ```python
         {
             'min_iou': float,  # The value of `min_iou` used for the detections
