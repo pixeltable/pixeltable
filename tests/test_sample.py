@@ -170,7 +170,9 @@ class TestSample:
     def test_sample_stratified_n(self, reset_db: None) -> None:
         t = self.create_sample_data(4, 6, True)
 
-        query = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
+        query = (
+            t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
+        )
         r = query.collect()
         assert len(r) == 2 * 5 * 6
 

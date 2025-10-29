@@ -413,7 +413,9 @@ class Planner:
         return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
 
     @classmethod
-    def create_query_insert_plan(cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool) -> exec.ExecNode:
+    def create_query_insert_plan(
+        cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
+    ) -> exec.ExecNode:
         assert not tbl.is_view
         plan = query._create_query_plan()  # ExecNode constructed by the Query
 

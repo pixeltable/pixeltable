@@ -77,7 +77,9 @@ def export_lancedb(
             if lance_tbl is None or if_exists == 'overwrite':
                 mode = 'overwrite' if lance_tbl is not None else 'create'
                 arrow_schema = to_arrow_schema(query.schema)
-                _ = db.create_table(table_name, to_record_batches(query, batch_size_bytes), schema=arrow_schema, mode=mode)
+                _ = db.create_table(
+                    table_name, to_record_batches(query, batch_size_bytes), schema=arrow_schema, mode=mode
+                )
             else:
                 lance_tbl.add(to_record_batches(query, batch_size_bytes))
 

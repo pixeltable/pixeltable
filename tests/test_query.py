@@ -613,7 +613,9 @@ class TestQuery:
 
         w, h = 220, 224  # make different from each other
         t = all_datatypes_tbl
-        query = t.select(t.row_id, t.c_image, c_image_xformed=t.c_image.resize([w, h]).convert('RGB')).where(t.row_id < 1)
+        query = t.select(t.row_id, t.c_image, c_image_xformed=t.c_image.resize([w, h]).convert('RGB')).where(
+            t.row_id < 1
+        )
 
         pandas_df = query.show().to_pandas()
         im_plain = pandas_df['c_image'].values[0]
