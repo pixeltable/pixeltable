@@ -52,7 +52,7 @@ def export_lancedb(
 
     df: pxt.Query
     if isinstance(table_or_df, pxt.catalog.Table):
-        df = table_or_df._df()
+        df = table_or_df.select()
     else:
         df = table_or_df
 

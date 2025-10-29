@@ -931,12 +931,12 @@ class Query:
 
             >>> query = book.group_by(t.genre)
 
-            Use the above Query df grouped by genre to count the number of
+            Use the above Query grouped by genre to count the number of
             books for each 'genre':
 
             >>> query = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
 
-            Use the above Query df grouped by genre to the total price of
+            Use the above Query grouped by genre to the total price of
             books for each 'genre':
 
             >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()

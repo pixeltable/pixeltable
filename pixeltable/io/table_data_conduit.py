@@ -128,7 +128,7 @@ class TableDataConduit:
 
 
 class DFTableDataConduit(TableDataConduit):
-    pxt_df: pxt.Query = None
+    pxt_query: pxt.Query = None
 
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'DFTableDataConduit':
@@ -136,18 +136,18 @@ class DFTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(tds.source, pxt.Query)
-        t.pxt_df = tds.source
+        t.pxt_query = tds.source
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
-        self.pxt_schema = self.pxt_df.schema
+        self.pxt_schema = self.pxt_query.schema
         self.pxt_pk = self.src_pk
         return self.pxt_schema
 
     def prepare_for_insert_into_table(self) -> None:
         if self.source_column_map is None:
             self.source_column_map = {}
-        self.check_source_columns_are_insertable(self.pxt_df.schema.keys())
+        self.check_source_columns_are_insertable(self.pxt_query.schema.keys())
 
 
 class RowDataTableDataConduit(TableDataConduit):

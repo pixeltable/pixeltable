@@ -203,7 +203,7 @@ def create_table(
     if was_created:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         if isinstance(data_source, DFTableDataConduit):
-            df = data_source.pxt_df
+            df = data_source.pxt_query
             with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
                 tbl._tbl_version.get().insert(None, df, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_df:

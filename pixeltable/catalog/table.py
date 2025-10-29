@@ -215,22 +215,20 @@ class Table(SchemaObject):
             views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
-    def _df(self) -> 'pxt._query.Query':
-        """Return a Query for this table."""
-        # local import: avoid circular imports
-        from pixeltable.plan import FromClause
-
-        return pxt.Query(FromClause(tbls=[self._tbl_version_path]))
-
     def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
         """Select columns or expressions from this table.
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
         from pixeltable.catalog import Catalog
+        from pixeltable.plan import FromClause
+
+        query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
+        if len(items) == 0 and len(named_items) == 0:
+            return query  # Select(*); no further processing is necessary
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().select(*items, **named_items)
+            return query.select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
@@ -240,7 +238,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().where(pred)
+            return self.select().where(pred)
 
     def join(
         self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
@@ -249,7 +247,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().join(other, on=on, how=how)
+            return self.select().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
         """Order the rows of this table based on the expression.
@@ -259,7 +257,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().order_by(*items, asc=asc)
+            return self.select().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
         """Group the rows of this table based on the expression.
@@ -269,14 +267,14 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().group_by(*items)
+            return self.select().group_by(*items)
 
     def distinct(self) -> 'pxt.Query':
         """Remove duplicate rows from table."""
-        return self._df().distinct()
+        return self.select().distinct()
 
     def limit(self, n: int) -> 'pxt.Query':
-        return self._df().limit(n)
+        return self.select().limit(n)
 
     def sample(
         self,
@@ -290,29 +288,29 @@ class Table(SchemaObject):
 
         See [`Query.sample`][pixeltable.Query.sample] for more details.
         """
-        return self._df().sample(
+        return self.select().sample(
             n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
         )
 
     def collect(self) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
-        return self._df().collect()
+        return self.select().collect()
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
-        return self._df().show(*args, **kwargs)
+        return self.select().show(*args, **kwargs)
 
     def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return the first n rows inserted into this table."""
-        return self._df().head(*args, **kwargs)
+        return self.select().head(*args, **kwargs)
 
     def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return the last n rows inserted into this table."""
-        return self._df().tail(*args, **kwargs)
+        return self.select().tail(*args, **kwargs)
 
     def count(self) -> int:
         """Return the number of rows in this table."""
-        return self._df().count()
+        return self.select().count()
 
     def columns(self) -> list[str]:
         """Return the names of the columns in this table."""
@@ -436,13 +434,13 @@ class Table(SchemaObject):
         """Return a PyTorch Dataset for this table.
         See Query.to_pytorch_dataset()
         """
-        return self._df().to_pytorch_dataset(image_format=image_format)
+        return self.select().to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
         See Query.to_coco_dataset()
         """
-        return self._df().to_coco_dataset()
+        return self.select().to_coco_dataset()
 
     def _column_has_dependents(self, col: Column) -> bool:
         """Returns True if the column has dependents, False otherwise."""
