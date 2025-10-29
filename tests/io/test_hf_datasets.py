@@ -149,9 +149,7 @@ class TestHfDatasets:
             assert tab.count() == len1 * 2
 
     @classmethod
-    def _assert_hf_dataset_equal(
-        cls, hf_dataset: 'datasets.Dataset', df: pxt.Query, split_column_name: str
-    ) -> None:
+    def _assert_hf_dataset_equal(cls, hf_dataset: 'datasets.Dataset', df: pxt.Query, split_column_name: str) -> None:
         import datasets
 
         assert df.count() == hf_dataset.num_rows

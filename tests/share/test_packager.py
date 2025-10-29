@@ -17,8 +17,8 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog import Catalog
 from pixeltable._query import ResultSet
+from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.plan import FromClause

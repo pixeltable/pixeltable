@@ -20,8 +20,8 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.catalog import Catalog
 from pixeltable._query import ResultSet
+from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.object_stores import ObjectOps
