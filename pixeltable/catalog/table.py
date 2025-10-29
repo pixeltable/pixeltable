@@ -216,7 +216,7 @@ class Table(SchemaObject):
         return views
 
     def _df(self) -> 'pxt._query.Query':
-        """Return a DataFrame for this table."""
+        """Return a Query for this table."""
         # local import: avoid circular imports
         from pixeltable.plan import FromClause
 
@@ -225,7 +225,7 @@ class Table(SchemaObject):
     def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
         """Select columns or expressions from this table.
 
-        See [`DataFrame.select`][pixeltable.DataFrame.select] for more details.
+        See [`Query.select`][pixeltable.Query.select] for more details.
         """
         from pixeltable.catalog import Catalog
 
@@ -235,7 +235,7 @@ class Table(SchemaObject):
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
 
-        See [`DataFrame.where`][pixeltable.DataFrame.where] for more details.
+        See [`Query.where`][pixeltable.Query.where] for more details.
         """
         from pixeltable.catalog import Catalog
 
@@ -254,7 +254,7 @@ class Table(SchemaObject):
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
         """Order the rows of this table based on the expression.
 
-        See [`DataFrame.order_by`][pixeltable.DataFrame.order_by] for more details.
+        See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
         from pixeltable.catalog import Catalog
 
@@ -264,7 +264,7 @@ class Table(SchemaObject):
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
         """Group the rows of this table based on the expression.
 
-        See [`DataFrame.group_by`][pixeltable.DataFrame.group_by] for more details.
+        See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
         from pixeltable.catalog import Catalog
 
@@ -288,7 +288,7 @@ class Table(SchemaObject):
     ) -> pxt.Query:
         """Choose a shuffled sample of rows
 
-        See [`DataFrame.sample`][pixeltable.DataFrame.sample] for more details.
+        See [`Query.sample`][pixeltable.Query.sample] for more details.
         """
         return self._df().sample(
             n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
@@ -434,13 +434,13 @@ class Table(SchemaObject):
     # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """Return a PyTorch Dataset for this table.
-        See DataFrame.to_pytorch_dataset()
+        See Query.to_pytorch_dataset()
         """
         return self._df().to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
-        See DataFrame.to_coco_dataset()
+        See Query.to_coco_dataset()
         """
         return self._df().to_coco_dataset()
 

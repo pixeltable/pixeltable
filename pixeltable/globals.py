@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         Path,  # OS paths, filenames, URLs
         Iterable[dict[str, Any]],  # dictionaries of values
         Iterable[pydantic.BaseModel],  # Pydantic model instances
-        Query,  # Pixeltable DataFrame
+        Query,  # Pixeltable Query
         pd.DataFrame,  # pandas DataFrame
         datasets.Dataset,
         datasets.DatasetDict,  # Huggingface datasets
@@ -72,7 +72,7 @@ def create_table(
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir.my_subdir.my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types.
-        source: A data source (file, URL, DataFrame, or list of rows) to import from.
+        source: A data source (file, URL, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
             Pixeltable will attempt to infer the format from the source data.)
@@ -230,7 +230,7 @@ def create_view(
     Args:
         path: A name for the view; can be either a simple name such as `my_view`, or a pathname such as
             `dir1.my_view`.
-        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
+        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the view on.
         additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
@@ -303,7 +303,7 @@ def create_view(
         if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
             raise excs.Error('Non-snapshot views cannot be created with non-fractional or stratified sampling')
     else:
-        raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
+        raise excs.Error('`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
 
     path_obj = catalog.Path.parse(path)
@@ -354,7 +354,7 @@ def create_snapshot(
     Args:
         path_str: A name for the snapshot; can be either a simple name such as `my_snapshot`, or a pathname such as
             `dir1.my_snapshot`.
-        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
+        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the snapshot on.
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in

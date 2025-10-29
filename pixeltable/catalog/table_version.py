@@ -951,7 +951,7 @@ class TableVersion:
         fail_on_exception: bool = True,
     ) -> UpdateStatus:
         """
-        Insert rows into this table, either from an explicit list of dicts or from a `DataFrame`.
+        Insert rows into this table, either from an explicit list of dicts or from a `Query`.
         """
         from pixeltable.plan import Planner
 

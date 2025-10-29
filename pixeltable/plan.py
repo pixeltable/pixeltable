@@ -417,7 +417,7 @@ class Planner:
         cls, tbl: catalog.TableVersion, df: 'pxt.Query', ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view
-        plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
+        plan = df._create_query_plan()  # ExecNode constructed by the Query
 
         # Modify the plan RowBuilder to register the output columns
         needs_cell_materialization = False

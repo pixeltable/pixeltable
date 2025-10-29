@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class QueryTemplateFunction(Function):
-    """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
+    """A parameterized query from which an executable Query is created with a function call."""
 
     template_df: 'Query' | None
     self_name: str | None
@@ -28,7 +28,7 @@ class QueryTemplateFunction(Function):
         py_sig = inspect.signature(template_callable)
         py_params = list(py_sig.parameters.values())
         params = Signature.create_parameters(py_params=py_params, param_types=param_types)
-        # invoke template_callable with parameter expressions to construct a DataFrame with parameters
+        # invoke template_callable with parameter expressions to construct a Query with parameters
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_df = template_callable(*var_exprs)
         from pixeltable import Query

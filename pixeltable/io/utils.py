@@ -8,7 +8,7 @@ from pixeltable.catalog.globals import is_system_column_name
 
 def normalize_pxt_col_name(name: str) -> str:
     """
-    Normalizes an arbitrary DataFrame column name into a valid Pixeltable identifier by:
+    Normalizes an arbitrary column name into a valid Pixeltable identifier by:
     - replacing any non-ascii or non-alphanumeric characters with an underscore _
     - prefixing the result with the letter 'c' if it starts with an underscore or a number
     """

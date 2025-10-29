@@ -189,7 +189,7 @@ class ColumnRef(Expr):
             tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
             return tbl.select(self)
         else:
-            # Explicit reference table; construct a DataFrame directly from it
+            # Explicit reference table; construct a Query directly from it
             return Query(plan.FromClause([self.reference_tbl])).select(self)
 
     def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':

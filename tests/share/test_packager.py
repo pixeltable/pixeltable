@@ -374,7 +374,7 @@ class TestPackager:
         assert snapshot_replica._snapshot_only
         assert snapshot_replica.count() == snapshot_row_count
         # We can't query the base table directly via snapshot_replica.get_base_table(), because it doesn't exist as a
-        # visible catalog object (it's hidden in _system). But we can manually construct the DataFrame and check that.
+        # visible catalog object (it's hidden in _system). But we can manually construct the Query and check that.
         t_replica_df = pxt.Query(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
         assert t_replica_df.count() == 2
 
@@ -629,7 +629,7 @@ class TestPackager:
             with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a replica.'):
                 s.revert()
 
-            # TODO: Align these DataFrame error messages with Table error messages
+            # TODO: Align these Query error messages with Table error messages
             with pytest.raises(pxt.Error, match=r'Cannot use `update` on a replica.'):
                 s.where(s.icol < 5).update({'icol': 100})
             with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):

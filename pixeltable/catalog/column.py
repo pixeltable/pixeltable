@@ -23,7 +23,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Column:
-    """Representation of a column in the schema of a Table/DataFrame.
+    """Representation of a column in the schema of a Table/Query.
 
     A Column contains all the metadata necessary for executing queries and updates against a particular version of a
     table/view.

@@ -115,7 +115,7 @@ def to_record_batches(df: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.Rec
     current_byte_estimate = 0
     num_batch_rows = 0
 
-    # TODO: in order to avoid having to deal with ExprEvalError here, DataFrameResultSet should be an iterator
+    # TODO: in order to avoid having to deal with ExprEvalError here, ResultSet should be an iterator
     # over _exec()
     try:
         for data_row in df._exec():

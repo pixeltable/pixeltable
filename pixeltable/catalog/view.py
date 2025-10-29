@@ -55,7 +55,7 @@ class View(Table):
     @classmethod
     def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, str | None]]) -> dict[str, dict]:
         """Returns a list of columns in the same format as the additional_columns parameter of View.create.
-        The source is the list of expressions from a select() statement on a DataFrame.
+        The source is the list of expressions from a select() statement on a Query.
         If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
         """
         from pixeltable._query import Query

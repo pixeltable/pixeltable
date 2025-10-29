@@ -2605,7 +2605,7 @@ class TestTable:
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         validate(1, 1)
 
-        # recompute with propagation and predicate, via a DataFrame
+        # recompute with propagation and predicate, via a Query
         TestTable.recompute_udf_increment = 0
         status = t.where(t.i < 10).recompute_columns(t.i1, cascade=True)
         assert status.num_rows == 10 + 10

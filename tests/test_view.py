@@ -128,7 +128,7 @@ class TestView:
         assert t.count() == 110
         check_view(t, v)
 
-        # check alternate view creation syntax (via a DataFrame)
+        # check alternate view creation syntax (via a Query)
         v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), additional_columns=schema)
         validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=10)
         validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=10)
