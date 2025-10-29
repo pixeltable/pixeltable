@@ -168,6 +168,7 @@ KNOWN_CONFIG_OPTIONS = {
         'b2_profile': 'S3-compatible profile name used to access Backblaze B2 storage',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
+    'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
     'bedrock': {'api_key': 'AWS Bedrock API key'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},

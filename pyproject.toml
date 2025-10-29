@@ -168,6 +168,8 @@ dev = [
     "psycopg2-binary>=2.9.10",
     "diffusers>=0.34",
     "accelerate>=1.10",
+    "azure-storage-blob>=12.20.0",
+    "azure-identity>=1.16.0",
     "twelvelabs>=1.0",
 ]
 test = [

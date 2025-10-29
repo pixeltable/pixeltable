@@ -16,6 +16,7 @@ from .utils import skip_test_if_not_installed
 
 class TestDestination:
     TESTED_DESTINATIONS = (
+        StorageTarget.AZURE_STORE,
         StorageTarget.B2_STORE,
         StorageTarget.GCS_STORE,
         StorageTarget.LOCAL_STORE,
@@ -28,6 +29,8 @@ class TestDestination:
         assert dest_id in cls.TESTED_DESTINATIONS
         uri: str
         match dest_id:
+            case StorageTarget.AZURE_STORE:
+                uri = 'https://pixeltable1.blob.core.windows.net/pytest'
             case StorageTarget.B2_STORE:
                 uri = 'https://s3.us-east-005.backblazeb2.com/pixeltable/pytest'
             case StorageTarget.GCS_STORE:
