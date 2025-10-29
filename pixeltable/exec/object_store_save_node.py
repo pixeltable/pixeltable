@@ -44,7 +44,7 @@ class ObjectStoreSaveNode(ExecNode):
         """Specify the source and destination for a WorkItem"""
 
         src_path: str  # source of the file to be processed
-        destination: str | None  # destination URI for the file to be processed
+        destination: str  # destination URI for the file to be processed
 
     class WorkItem(NamedTuple):
         src_path: Path
@@ -209,14 +209,11 @@ class ObjectStoreSaveNode(ExecNode):
             assert col.col_type.is_media_type()
 
             destination = info.col.destination
-            soa = None if destination is None else ObjectPath.parse_object_storage_addr(destination, False)
-            if (
-                soa is not None
-                and soa.storage_target == StorageTarget.LOCAL_STORE
-                and LocalStore(soa).resolve_url(url) is not None
-            ):
-                # A local non-default destination was specified, and the url already points there
-                continue
+            if destination is not None:
+                soa = ObjectPath.parse_object_storage_addr(destination, False)
+                if soa.storage_target == StorageTarget.LOCAL_STORE and LocalStore(soa).resolve_url(url) is not None:
+                    # A local non-default destination was specified, and the url already points there
+                    continue
 
             src_path = LocalStore.file_url_to_path(url)
             if src_path is None:

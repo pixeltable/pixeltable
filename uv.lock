@@ -4930,6 +4930,11 @@ dev = [
 extra-dev = [
     { name = "llama-cpp-python", marker = "sys_platform != 'win32'" },
 ]
+storage-sdks = [
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "google-cloud-storage" },
+]
 test = [
     { name = "coverage" },
     { name = "filelock" },
@@ -5046,6 +5051,11 @@ dev = [
     { name = "whisperx", marker = "python_full_version < '3.14'", specifier = ">=3.7" },
 ]
 extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" }]
+storage-sdks = [
+    { name = "boto3", specifier = "==1.36.23" },
+    { name = "botocore", specifier = "==1.36.23" },
+    { name = "google-cloud-storage", specifier = ">=2.18.0" },
+]
 test = [
     { name = "coverage", specifier = ">=7.9" },
     { name = "filelock", specifier = ">=3.13" },
