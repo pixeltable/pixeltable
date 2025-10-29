@@ -29,7 +29,10 @@ class Dbms(abc.ABC):
     def default_system_db_url(self) -> str: ...
 
     @abc.abstractmethod
-    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index: ...
+    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Index | None: ...
+
+    @abc.abstractmethod
+    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Executable: ...
 
 
 class PostgresqlDbms(Dbms):
@@ -50,7 +53,7 @@ class PostgresqlDbms(Dbms):
         a = self.db_url.set(database='postgres').render_as_string(hide_password=False)
         return a
 
-    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index:
+    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Index | None:
         return sql.Index(
             store_index_name,
             sa_value_col,
@@ -58,6 +61,11 @@ class PostgresqlDbms(Dbms):
             postgresql_with={'m': 16, 'ef_construction': 64},
             postgresql_ops={sa_value_col.name: metric},
         )
+
+    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Executable:
+        sa_idx = self.sa_vector_index(store_index_name, sa_value_col, metric)
+        dialect = sql.dialects.postgresql.dialect()
+        return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=dialect)
 
 
 class CockroachDbms(Dbms):
@@ -77,12 +85,12 @@ class CockroachDbms(Dbms):
     def default_system_db_url(self) -> str:
         return self.db_url.set(database='defaultdb').render_as_string(hide_password=False)
 
-    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index:
-        # TODO: can the Create Index statement be generated via sqlalchemy?
-        # if not, change this method to create_vector_index_stmt(...) -> str
-        # original code:
-        # create_index_sql = sql.text(
-        #     f"""CREATE VECTOR INDEX {store_index_name} ON {sa_value_col.table.name}
-        #      ({sa_value_col.name} {metric})"""
-        # )
+    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index | None:
         return None
+
+    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Executable:
+        # TODO Apply metric
+        return sql.text(
+            f'CREATE VECTOR INDEX IF NOT EXISTS {store_index_name} ON {sa_value_col.table.name}'
+            f'({sa_value_col.name} vector_l2_ops)'  # TODO Use `metric` when cosine ops are properly supported
+        )
