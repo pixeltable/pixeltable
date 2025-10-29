@@ -32,7 +32,9 @@ class Dbms(abc.ABC):
     def sa_vector_index(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Index | None: ...
 
     @abc.abstractmethod
-    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Executable: ...
+    def create_vector_index_stmt(
+        self, store_index_name: str, sa_value_col: sql.Column, metric: str
+    ) -> sql.Compiled: ...
 
 
 class PostgresqlDbms(Dbms):
@@ -62,10 +64,11 @@ class PostgresqlDbms(Dbms):
             postgresql_ops={sa_value_col.name: metric},
         )
 
-    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Executable:
+    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Compiled:
+        from sqlalchemy.dialects import postgresql
+
         sa_idx = self.sa_vector_index(store_index_name, sa_value_col, metric)
-        dialect = sql.dialects.postgresql.dialect()
-        return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=dialect)
+        return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=postgresql.dialect())
 
 
 class CockroachDbms(Dbms):
@@ -88,8 +91,8 @@ class CockroachDbms(Dbms):
     def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index | None:
         return None
 
-    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Executable:
+    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Compiled:
         return sql.text(
             f'CREATE VECTOR INDEX IF NOT EXISTS {store_index_name} ON {sa_value_col.table.name}'
             f'({sa_value_col.name} {metric})'
-        )
+        ).compile()

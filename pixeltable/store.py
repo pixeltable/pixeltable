@@ -227,11 +227,13 @@ class StoreBase:
         from pixeltable import index
 
         idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt: sql.Executable
+        stmt: sql.Compiled
 
         if isinstance(idx_info.idx, index.EmbeddingIndex):
             stmt = Env.get().dbms.create_vector_index_stmt(
-                self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col, index.EmbeddingIndex.PGVECTOR_OPS[idx_info.idx.metric]
+                self.tbl_version.get()._store_idx_name(idx_id),
+                idx_info.val_col.sa_col,
+                index.EmbeddingIndex.PGVECTOR_OPS[idx_info.idx.metric],
             )
         else:
             sa_idx = idx_info.idx.sa_index(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col)
