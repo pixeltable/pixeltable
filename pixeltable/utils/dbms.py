@@ -89,8 +89,7 @@ class CockroachDbms(Dbms):
         return None
 
     def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Executable:
-        # TODO Apply metric
         return sql.text(
             f'CREATE VECTOR INDEX IF NOT EXISTS {store_index_name} ON {sa_value_col.table.name}'
-            f'({sa_value_col.name} vector_l2_ops)'  # TODO Use `metric` when cosine ops are properly supported
+            f'({sa_value_col.name} {metric})'
         )
