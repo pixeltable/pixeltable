@@ -389,6 +389,11 @@ class ObjectOps:
             from pixeltable.utils.gcs_store import GCSStore
 
             return GCSStore(soa)
+        if soa.storage_target == StorageTarget.AZURE_STORE:
+            env.Env.get().require_package('azure.storage.blob')
+            from pixeltable.utils.azure_store import AzureBlobStore
+
+            return AzureBlobStore(soa)
         if soa.storage_target == StorageTarget.HTTP_STORE and soa.is_http_readable:
             return HTTPStore(soa)
         error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
