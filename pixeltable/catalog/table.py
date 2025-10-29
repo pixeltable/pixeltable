@@ -818,9 +818,7 @@ class Table(SchemaObject):
                 )
             )
         if col._explicit_destination is not None and not (col.stored and col.is_computed):
-            raise excs.Error(
-                f'Column {col.name!r}: `destination` property only applies to stored computed columns'
-            )
+            raise excs.Error(f'Column {col.name!r}: `destination` property only applies to stored computed columns')
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
