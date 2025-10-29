@@ -52,8 +52,8 @@ from . import functions, io, iterators  # isort: skip
 
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
 __removed_symbols = {
+    '_query',
     'catalog',
-    'dataframe',
     'env',
     'exceptions',
     'exec',

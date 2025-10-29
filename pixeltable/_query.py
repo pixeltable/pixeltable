@@ -1295,7 +1295,7 @@ class Query:
     def as_dict(self) -> dict[str, Any]:
         """
         Returns:
-            Dictionary representing this dataframe.
+            Dictionary representing this Query.
         """
         d = {
             '_classname': 'Query',

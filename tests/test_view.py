@@ -328,7 +328,7 @@ class TestView:
             with pytest.raises(pxt.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
-    def test_from_dataframe(self, reset_db: None) -> None:
+    def test_from_query(self, reset_db: None) -> None:
         t = self.create_tbl()
 
         with pytest.raises(pxt.Error) as exc_info:

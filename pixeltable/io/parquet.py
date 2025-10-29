@@ -24,7 +24,7 @@ def export_parquet(
     inline_images: bool = False,
 ) -> None:
     """
-    Exports a dataframe's data to one or more Parquet files. Requires pyarrow to be installed.
+    Exports a Query's data to one or more Parquet files. Requires pyarrow to be installed.
 
     It additionally writes the pixeltable metadata in a json file, which would otherwise
     not be available in the parquet format.

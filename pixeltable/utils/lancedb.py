@@ -21,7 +21,7 @@ def export_lancedb(
     if_exists: Literal['error', 'overwrite', 'append'] = 'error',
 ) -> None:
     """
-    Exports a dataframe's data to a LanceDB table.
+    Exports a Query's data to a LanceDB table.
 
     This utilizes LanceDB's streaming interface for efficient table creation, via a sequence of in-memory pyarrow
     `RecordBatches`, the size of which can be controlled with the `batch_size_bytes` parameter.

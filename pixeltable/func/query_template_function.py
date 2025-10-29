@@ -170,7 +170,7 @@ def retrieval_udf(
     if len(col_refs) == 0:
         raise excs.Error('Parameter list cannot be empty.')
 
-    # Construct the dataframe
+    # Construct the Query
     predicates = [col_ref == exprs.Variable(col_ref.col.name, col_ref.col.col_type) for col_ref in col_refs]
     where_clause = reduce(lambda c1, c2: c1 & c2, predicates)
     df = table.select().where(where_clause)
