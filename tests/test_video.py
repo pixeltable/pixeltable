@@ -1025,6 +1025,11 @@ class TestVideo:
         video_filepaths = get_video_files()
 
         test_params: list[tuple[pxt.Function, dict[str, Any]]] = [
+            (pxtf.video.scene_detect_adaptive,{}),
+            (pxtf.video.scene_detect_content,{}),
+            (pxtf.video.scene_detect_threshold,{}),
+            (pxtf.video.scene_detect_histogram,{}),
+            (pxtf.video.scene_detect_hash,{}),
             (
                 pxtf.video.scene_detect_adaptive,
                 {
