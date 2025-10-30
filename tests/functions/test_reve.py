@@ -31,7 +31,7 @@ class TestReve:
         t.add_computed_column(
             city_skyline_with_pxt=(
                 reve.remix(
-                    'Put a company logo from $0 on the skyscraper from $1',
+                    'Put a company logo from <img>0</img> on the skyscraper from <img>1</img>',
                     images=[t.just_logo, t.city_skyline],
                     output_format='jpeg',
                     aspect_ratio='16:9',

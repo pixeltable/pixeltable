@@ -195,7 +195,7 @@ async def remix(
     """
     Creates images based on a text prompt and reference images.
 
-    The prompt can include tags like `$0`, `$1`, etc. to refer to the images in the `images` argument.
+    The prompt may include `<img>0</img>`, `<img>1</img>`, etc. tags to refer to the images in the `images` argument.
 
     This UDF wraps the `https://api.reve.com/v1/image/remix` endpoint. For more information, refer to the official
     [API documentation](https://api.reve.com/console/docs/remix)
@@ -225,10 +225,6 @@ async def remix(
     """
     if len(images) == 0:
         raise pxt.Error('Must include at least 1 reference image')
-
-    # Replace $0, $1, etc. with <img>0</img>, ...
-    for i in range(0, len(images)):
-        prompt = re.sub(f'\\${i}', f'<img>{i}</img>', prompt)
 
     payload = {'prompt': prompt, 'reference_images': [_to_base64(img) for img in images]}
     if version is not None:
