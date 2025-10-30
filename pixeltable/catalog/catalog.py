@@ -1220,6 +1220,11 @@ class Catalog:
                 # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
                 # in place in the DB.
                 new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+            elif not md.version_md.is_fragment:
+                # We are publishing a non fragment replica and new metadata version is either same or
+                # older than current version, replace only additional md that tracks replica's location and stats
+                existing_tbl_md = schema.md_from_dict(schema.TableMd, existing_md_row.md)
+                new_tbl_md = dataclasses.replace(existing_tbl_md, additional_md=md.tbl_md.additional_md)
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.
@@ -1234,9 +1239,16 @@ class Catalog:
             is_new_tbl_version = True
         else:
             existing_version_md = schema.md_from_dict(schema.TableVersionMd, existing_version_md_row.md)
-            # Validate that the existing metadata are identical to the new metadata, except that their is_fragment
-            # flags may differ.
-            if dataclasses.replace(existing_version_md, is_fragment=md.version_md.is_fragment) != md.version_md:
+            # Validate that the existing metadata are identical to the new metadata, except is_fragment
+            # and additional_md which may differ.
+            if (
+                dataclasses.replace(
+                    existing_version_md,
+                    is_fragment=md.version_md.is_fragment,
+                    additional_md=md.version_md.additional_md,
+                )
+                != md.version_md
+            ):
                 raise excs.Error(
                     f'The version metadata for the replica {path!r}:{md.version_md.version} is inconsistent with '
                     'the metadata recorded from a prior replica.\n'
@@ -1245,6 +1257,7 @@ class Catalog:
             if existing_version_md.is_fragment and not md.version_md.is_fragment:
                 # This version exists in the DB as a fragment, but we're importing a complete copy of the same version;
                 # set the is_fragment flag to False in the DB.
+                # This will also copy additional_md.
                 new_version_md = md.version_md
 
         # Do the same thing for TableSchemaVersion.
@@ -1926,7 +1939,11 @@ class Catalog:
                 assert len(tv_rows) == 1  # must be unique
                 tv = tv_rows[0]
                 # Validate that the only field that can change is 'is_fragment'.
-                assert tv.md == dataclasses.asdict(dataclasses.replace(version_md, is_fragment=tv.md['is_fragment']))
+                assert tv.md == dataclasses.asdict(
+                    dataclasses.replace(
+                        version_md, is_fragment=tv.md['is_fragment'], additional_md=tv.md['additional_md']
+                    )
+                )
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})

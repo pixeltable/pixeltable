@@ -1,3 +1,5 @@
+import uuid
+
 import pixeltable as pxt
 from pixeltable.catalog import Catalog
 from pixeltable.catalog.path import Path
@@ -117,3 +119,98 @@ class TestReplica:
         with cat.begin_xact(for_write=False):
             assert r51._tbl_version_path.path_len() == 5
             assert r61._tbl_version_path.path_len() == 6
+
+    def test_replica_additional_md(self, reset_db: None) -> None:
+        cat = Catalog.get()
+
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})  # Base table
+        t.insert({'c1': i} for i in range(10))
+        assert t._tbl_version.get().version == 1
+        v1 = pxt.create_view('v1', t.where(t.c1 % 2 == 0), additional_columns={'c2': pxt.Int})
+        v1.update({'c2': v1.c1 * 10})
+
+        with cat.begin_xact(for_write=False):
+            view_md = cat.load_replica_md(v1)
+            base_md = cat.load_replica_md(t)
+
+        view_md[0].tbl_md.additional_md = {'is_public': False}
+        view_md[0].version_md.additional_md = {'location': 'view_replica_data'}
+
+        base_md[0].tbl_md.additional_md = {'is_public': True}
+        base_md[0].version_md.additional_md = {'location': 'base_replica_data'}
+
+        base_table_id = base_md[0].tbl_md.tbl_id
+        view_id = view_md[0].tbl_md.tbl_id
+
+        pxt.drop_table('base_tbl', force=True)
+        reload_catalog()
+        cat = Catalog.get()
+
+        # Create view replica first
+        with cat.begin_xact(for_write=True):
+            cat.create_replica(Path.parse('replica_view'), view_md)
+
+        replica_view = pxt.get_table('replica_view')
+        with cat.begin_xact(for_write=False):
+            view_md_1 = cat.load_replica_md(replica_view)
+            assert view_md_1[0].tbl_md.tbl_id == view_id
+            assert view_md_1[0].tbl_md.additional_md == view_md[0].tbl_md.additional_md
+            assert view_md_1[0].version_md.additional_md == view_md[0].version_md.additional_md
+
+            assert view_md_1[1].tbl_md.tbl_id == base_table_id
+            assert not view_md_1[1].tbl_md.additional_md
+            assert not view_md_1[1].version_md.additional_md
+
+        # Create base table replica
+        with cat.begin_xact(for_write=True):
+            cat.create_replica(Path.parse('replica_base'), base_md)
+
+        replica_view = pxt.get_table('replica_view')
+        base = pxt.get_table('replica_base')
+
+        with cat.begin_xact(for_write=False):
+            view_md_2 = cat.load_replica_md(replica_view)
+            assert view_md_2[0].tbl_md.tbl_id == view_id
+            assert view_md_2[0].tbl_md.additional_md == view_md[0].tbl_md.additional_md
+            assert view_md_2[0].version_md.additional_md == view_md[0].version_md.additional_md
+
+            assert view_md_2[1].tbl_md.tbl_id == base_table_id
+            assert view_md_2[1].tbl_md.additional_md == base_md[0].tbl_md.additional_md
+            assert view_md_2[1].version_md.additional_md == base_md[0].version_md.additional_md
+
+            base_md_1 = cat.load_replica_md(base)
+            assert len(base_md_1) == 1
+            assert base_md_1[0].tbl_md.tbl_id == base_table_id
+            assert base_md_1[0].tbl_md.additional_md == base_md[0].tbl_md.additional_md
+            assert base_md_1[0].version_md.additional_md == base_md[0].version_md.additional_md
+
+        # drop base table which goes to system table now
+        pxt.drop_table('replica_base')
+        # check if table id still exists
+        with cat.begin_xact(for_write=False):
+            assert cat.get_table_by_id(uuid.UUID(base_table_id))
+
+        # publish same version 2nd time with is_public false
+        # note since we already have a full copy we can still use non fragment table version/replica location
+        base_md[0].tbl_md.additional_md = {'is_public': False}
+
+        with cat.begin_xact(for_write=True):
+            cat.create_replica(Path.parse('replica_base'), base_md)
+
+        replica_view = pxt.get_table('replica_view')
+        base = pxt.get_table('replica_base')
+        with cat.begin_xact(for_write=False):
+            view_md_3 = cat.load_replica_md(replica_view)
+            assert view_md_3[0].tbl_md.tbl_id == view_id
+            assert view_md_3[0].tbl_md.additional_md == view_md[0].tbl_md.additional_md
+            assert view_md_3[0].version_md.additional_md == view_md[0].version_md.additional_md
+
+            assert view_md_3[1].tbl_md.tbl_id == base_table_id
+            assert view_md_3[1].tbl_md.additional_md == base_md[0].tbl_md.additional_md
+            assert view_md_3[1].version_md.additional_md == base_md[0].version_md.additional_md
+
+            base_md_2 = cat.load_replica_md(base)
+            assert len(base_md_2) == 1
+            assert base_md_2[0].tbl_md.tbl_id == base_table_id
+            assert base_md_2[0].tbl_md.additional_md == base_md[0].tbl_md.additional_md
+            assert base_md_2[0].version_md.additional_md == base_md[0].version_md.additional_md
