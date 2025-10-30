@@ -367,7 +367,7 @@ class TableRestorer:
     """
 
     tbl_path: str
-    bundle_md: Optional[dict[str, Any]]
+    bundle_md: dict[str, Any] | None
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
