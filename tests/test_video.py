@@ -2,6 +2,7 @@ import math
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import PIL
 import pytest
@@ -11,7 +12,6 @@ import pixeltable.functions as pxtf
 from pixeltable.env import Env
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.object_stores import ObjectOps
-
 from .utils import (
     generate_test_video,
     get_audio_files,
@@ -1019,25 +1019,61 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
-    @pytest.mark.parametrize(
-        'udf',
-        [
-            pxtf.video.scene_detect_adaptive,
-            pxtf.video.scene_detect_content,
-            pxtf.video.scene_detect_threshold,
-            pxtf.video.scene_detect_histogram,
-            pxtf.video.scene_detect_hash,
-        ],
-    )
-    def test_scene_detect(self, udf: pxt.Function, reset_db: None) -> None:
+    def test_scene_detect(self, reset_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
-        t = pxt.create_table('videos', {'video': pxt.Video})
-        t.insert({'video': p} for p in video_filepaths)
-        status = t.add_computed_column(scenes=udf(t.video, fps=2.0))
-        assert status.num_excs == 0
-        res = t.select(t.scenes).collect()
-        assert len(res) == len(video_filepaths)
+
+        test_params: list[tuple[pxt.Function, dict[str, Any]]] = [
+            (
+                pxtf.video.scene_detect_adaptive,
+                {
+                    'adaptive_threshold': 4.0,
+                    'min_scene_len': 20,
+                    'window_width': 3,
+                    'min_content_val': 15.0,
+                    'delta_hue': 2.0,
+                    'delta_sat': 2.0,
+                    'delta_lum': 2.0,
+                    'delta_edges': 1.0,
+                    'luma_only': True,
+                    'kernel_size': None,
+                },
+            ),
+            (
+                pxtf.video.scene_detect_content,
+                {
+                    'threshold': 27.0,
+                    'min_scene_len': 15,
+                    'delta_hue': 2.0,
+                    'delta_sat': 2.0,
+                    'delta_lum': 2.0,
+                    'delta_edges': 1.0,
+                    'luma_only': True,
+                    'kernel_size': None,
+                    'filter_mode': 'suppress',
+                },
+            ),
+            (
+                pxtf.video.scene_detect_threshold,
+                {
+                    'threshold': 12.0,
+                    'min_scene_len': 15,
+                    'fade_bias': 1.0,
+                    'add_final_scene': True,
+                    'method': 'ceiling',
+                },
+            ),
+            (pxtf.video.scene_detect_histogram, {'threshold': 0.1, 'bins': 256, 'min_scene_len': 15}),
+            (pxtf.video.scene_detect_hash, {'threshold': 0.595, 'size': 24, 'lowpass': 3, 'min_scene_len': 15}),
+        ]
+        for udf, params in test_params:
+            t = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace')
+            t.insert({'video': p} for p in video_filepaths)
+            status = t.add_computed_column(scenes=udf(t.video, fps=2.0, **params))
+            assert status.num_excs == 0
+            res = t.select(t.scenes).collect()
+            assert len(res) == len(video_filepaths)
+            assert all(len(row['scenes']) > 0 for row in res)
 
     def test_default_video_codec(self, reset_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)

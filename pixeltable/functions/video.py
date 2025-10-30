@@ -957,7 +957,7 @@ def scene_detect_adaptive(
 ) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's
-    [AdaptiveDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.adaptive_detector.AdaptiveDetector).
+    [AdaptiveDetector](https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.adaptive_detector.AdaptiveDetector).
 
     __Requirements:__
 
@@ -1061,7 +1061,7 @@ def scene_detect_content(
 ) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's
-    [ContentDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.content_detector.ContentDetector).
+    [ContentDetector](https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.content_detector.ContentDetector).
 
     __Requirements:__
 
@@ -1160,7 +1160,7 @@ def scene_detect_threshold(
 ) -> list[dict]:
     """
     Detect fade-in and fade-out transitions in a video using PySceneDetect's
-    [ThresholdDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.threshold_detector.ThresholdDetector).
+    [ThresholdDetector](https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.threshold_detector.ThresholdDetector).
 
     ThresholdDetector identifies scenes by detecting when pixel brightness falls below or rises above
     a threshold value, suitable for detecting fade-to-black, fade-to-white, and similar transitions.
@@ -1246,7 +1246,7 @@ def scene_detect_histogram(
 ) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's
-    [HistogramDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.histogram_detector.HistogramDetector).
+    [HistogramDetector](https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.histogram_detector.HistogramDetector).
 
     HistogramDetector compares frame histograms on the Y (luminance) channel after YUV conversion.
     It detects scenes based on relative histogram differences and is more robust to gradual lighting
@@ -1328,7 +1328,7 @@ def scene_detect_hash(
 ) -> list[dict]:
     """
     Detect scene cuts in a video using PySceneDetect's
-    [HashDetector](https://www.scenedetect.com/docs/0.6.7/api/detectors.html#scenedetect.detectors.hash_detector.HashDetector).
+    [HashDetector](https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.hash_detector.HashDetector).
 
     HashDetector uses perceptual hashing for very fast scene detection. It computes a hash of each
     frame at reduced resolution and compares hash distances.
@@ -1455,6 +1455,16 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
             final_timecode = FrameTimecode(frame_idx, video_fps)
             final_cuts = detector.post_process(final_timecode)
             process_cuts(final_cuts)
+
+            # if we didn't detect any cuts but the video has content, add the full video as a single scene
+            if len(scenes) == 0:
+                scenes.append(
+                    {
+                        'start_time': start_time,
+                        'start_pts': start_pts,
+                        'duration': frame_info[-1].frame_time - start_time,
+                    }
+                )
 
         return scenes
 

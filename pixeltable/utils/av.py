@@ -277,9 +277,7 @@ class VideoFrames:
         while True:
             try:
                 frame = next(self.container.decode(video=0))
-            except StopIteration:
-                return
-            except EOFError:
+            except (StopIteration, EOFError):
                 return
 
             frame_idx += 1
