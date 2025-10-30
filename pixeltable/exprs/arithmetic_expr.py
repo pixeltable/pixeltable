@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs, type_system as ts
+from pixeltable import env, exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -58,29 +58,36 @@ class ArithmeticExpr(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('operator', self.operator.value)]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
         left = sql_elements.get(self._op1)
         right = sql_elements.get(self._op2)
         if left is None or right is None:
             return None
-        if self.operator == ArithmeticOperator.ADD:
-            return left + right
-        if self.operator == ArithmeticOperator.SUB:
-            return left - right
-        if self.operator == ArithmeticOperator.MUL:
-            return left * right
+        if self.operator in (ArithmeticOperator.ADD, ArithmeticOperator.SUB, ArithmeticOperator.MUL):
+            if env.Env.get().is_using_cockroachdb and self._op1.col_type != self._op2.col_type:
+                if self._op1.col_type != self.col_type:
+                    left = sql.cast(left, self.col_type.to_sa_type())
+                if self._op2.col_type != self.col_type:
+                    right = sql.cast(right, self.col_type.to_sa_type())
+            if self.operator == ArithmeticOperator.ADD:
+                return left + right
+            if self.operator == ArithmeticOperator.SUB:
+                return left - right
+            if self.operator == ArithmeticOperator.MUL:
+                return left * right
         if self.operator == ArithmeticOperator.DIV:
             assert self.col_type.is_float_type()
-            # Avoid DivisionByZero: if right is 0, make this a NULL
+            # Avoid division by zero errors by converting any zero divisor to NULL.
             # TODO: Should we cast the NULLs to NaNs when they are retrieved back into Python?
-            nullif = sql.sql.func.nullif(right, 0)
-            # We have to cast to a `float`, or else we'll get a `Decimal`
-            return sql.sql.expression.cast(left / nullif, self.col_type.to_sa_type())
+            # These casts cause the computation to take place in float units, rather than DECIMAL.
+            nullif = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+            return sql.cast(left, self.col_type.to_sa_type()) / nullif
         if self.operator == ArithmeticOperator.MOD:
             if self.col_type.is_int_type():
-                nullif = sql.sql.func.nullif(right, 0)
-                return left % nullif
+                # Avoid division by zero errors by converting any zero divisor to NULL.
+                nullif1 = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+                return left % nullif1
             if self.col_type.is_float_type():
                 # Postgres does not support modulus for floats
                 return None
@@ -90,11 +97,9 @@ class ArithmeticExpr(Expr):
             # We need the behavior to be consistent, so that expressions will evaluate the same way
             # whether or not their operands can be translated to SQL. These SQL clauses should
             # mimic the behavior of Python's // operator.
-            nullif = sql.sql.func.nullif(right, 0)
-            if self.col_type.is_int_type():
-                return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
-            if self.col_type.is_float_type():
-                return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
+            # Avoid division by zero errors by converting any zero divisor to NULL.
+            nullif = sql.cast(sql.func.nullif(right, 0), self.col_type.to_sa_type())
+            return sql.func.floor(sql.cast(left, self.col_type.to_sa_type()) / nullif)
         raise AssertionError()
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -113,7 +118,7 @@ class ArithmeticExpr(Expr):
 
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
-    def eval_nullable(self, op1_val: Optional[float], op2_val: Optional[float]) -> Optional[float]:
+    def eval_nullable(self, op1_val: float | None, op2_val: float | None) -> float | None:
         """
         Return the result of evaluating the expression on two nullable int/float operands,
         None is interpreted as SQL NULL
@@ -139,7 +144,7 @@ class ArithmeticExpr(Expr):
         elif self.operator == ArithmeticOperator.FLOORDIV:
             return op1_val // op2_val
 
-    def as_literal(self) -> Optional[Literal]:
+    def as_literal(self) -> Literal | None:
         op1_lit = self._op1.as_literal()
         if op1_lit is None:
             return None

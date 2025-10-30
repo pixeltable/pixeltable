@@ -16,15 +16,18 @@ class TestReplica:
         with cat.begin_xact(for_write=False):
             md1 = cat.load_replica_md(pure_snapshot)
             md2 = cat.load_replica_md(snapshot_view)
+            md3 = cat.load_replica_md(test_tbl)
 
         assert len(md1) == 2
         assert len(md2) == 2
+        assert len(md3) == 1
 
         for i, md in enumerate(md1):
             print(f'\n{i}: {md}')
 
         pxt.drop_table(test_tbl, force=True)
         reload_catalog()
+        cat = Catalog.get()
 
         with cat.begin_xact(for_write=True):
             cat.create_replica(Path.parse('replica_1'), md1)
@@ -93,6 +96,7 @@ class TestReplica:
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()
+        cat = Catalog.get()
 
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')

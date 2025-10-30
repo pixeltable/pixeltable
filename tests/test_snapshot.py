@@ -198,8 +198,8 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, reset_db: None, clip_embed: pxt.Function) -> None:
-        tbl = create_test_tbl()
+    def test_errors(self, test_tbl: pxt.Table, clip_embed: pxt.Function) -> None:
+        tbl = test_tbl
         snap = pxt.create_snapshot('snap', tbl)
         display_str = "snapshot 'snap'"
 
@@ -229,6 +229,9 @@ class TestSnapshot:
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
             snap.add_embedding_index('img', image_embed=clip_embed)
+
+        with pytest.raises(pxt.Error, match='Cannot create default indexes on a snapshot'):
+            _ = pxt.create_view('default_snap', tbl, is_snapshot=True, create_default_idxs=True)
 
     @pytest.mark.parametrize('anonymous', [True, False])
     def test_views_of_snapshots(self, anonymous: bool, reset_db: None) -> None:
@@ -357,21 +360,21 @@ class TestSnapshot:
         _ = pxt.create_view('view_snap2', v2s.where(v2s.c2 % 4 == 0))
 
         # Delete first column, only mutable tables will show up in error
-        with pytest.raises(pxt.Error, match='Cannot drop column `c1` because the following views depend on it') as e:
+        with pytest.raises(pxt.Error, match="Cannot drop column 'c1' because the following views depend on it") as e:
             t.drop_column('c1')
         assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()  # v2_snap uses c1
         assert 'view_snap1' not in str(e.value).lower()
 
         # Delete 2nd column
-        with pytest.raises(pxt.Error, match='Cannot drop column `c2` because the following views depend on it') as e:
+        with pytest.raises(pxt.Error, match="Cannot drop column 'c2' because the following views depend on it") as e:
             t.drop_column('c2')
         assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v1_snap' not in str(e.value).lower()  # v1_snap uses c2
         assert 'view_snap2' not in str(e.value).lower()
 
         # Delete view's column
-        with pytest.raises(pxt.Error, match='Cannot drop column `vc1` because the following views depend on it') as e:
+        with pytest.raises(pxt.Error, match="Cannot drop column 'vc1' because the following views depend on it") as e:
             v1.drop_column('vc1')
         assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()

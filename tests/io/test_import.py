@@ -48,7 +48,7 @@ class TestImport:
             pxt.io.import_rows('example5', [{'col': 1}, {'col': 'value'}])
         assert (
             'Could not infer type of column `col`; '
-            "the value in row 1 does not match preceding type Optional[Int]: 'value'" in str(exc_info.value)
+            "the value in row 1 does not match preceding type Int | None: 'value'" in str(exc_info.value)
         )
 
         with pytest.raises(pxt.Error) as exc_info:

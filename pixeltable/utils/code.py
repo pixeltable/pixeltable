@@ -1,12 +1,11 @@
 import types
-from typing import Optional
 
 from pixeltable.func import Function
 
 # Utilities related to the organization of the Pixeltable codebase.
 
 
-def local_public_names(mod_name: str, exclude: Optional[list[str]] = None) -> list[str]:
+def local_public_names(mod_name: str, exclude: list[str] | None = None) -> list[str]:
     """
     Returns a list of all functions and submodules that are local to the specified module and are
     publicly accessible. Intended to facilitate implementation of module __dir__() methods for

@@ -1,5 +1,5 @@
 from keyword import iskeyword as is_python_keyword
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -40,7 +40,7 @@ def normalize_schema_names(
     primary_key: list[str],
     schema_overrides: dict[str, Any],
     require_valid_pxt_column_names: bool = False,
-) -> tuple[dict[str, Any], list[str], Optional[dict[str, str]]]:
+) -> tuple[dict[str, Any], list[str], dict[str, str] | None]:
     """
     Convert all names in the input schema from source names to valid Pixeltable identifiers
     - Ensure that all names are unique.

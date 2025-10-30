@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, ClassVar, Optional, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 import toml
 
@@ -21,7 +21,7 @@ class Config:
     configuration values, which can be set in the config file or as environment variables.
     """
 
-    __instance: ClassVar[Optional[Config]] = None
+    __instance: ClassVar[Config | None] = None
 
     __home: Path
     __config_file: Path
@@ -110,7 +110,7 @@ class Config:
             return os.environ[env_var]
         return default
 
-    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
+    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None:
         value: Any = self.lookup_env(section, key)  # Try to get from environment first
         # Next try the config file
         if value is None:
@@ -131,22 +131,22 @@ class Config:
         try:
             if expected_type is bool and isinstance(value, str):
                 if value.lower() not in ('true', 'false'):
-                    raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
+                    raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}")
                 return value.lower() == 'true'  # type: ignore[return-value]
             return expected_type(value)  # type: ignore[call-arg]
         except (ValueError, TypeError) as exc:
-            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
+            raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}") from exc
 
-    def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
+    def get_string_value(self, key: str, section: str = 'pixeltable') -> str | None:
         return self.get_value(key, str, section)
 
-    def get_int_value(self, key: str, section: str = 'pixeltable') -> Optional[int]:
+    def get_int_value(self, key: str, section: str = 'pixeltable') -> int | None:
         return self.get_value(key, int, section)
 
-    def get_float_value(self, key: str, section: str = 'pixeltable') -> Optional[float]:
+    def get_float_value(self, key: str, section: str = 'pixeltable') -> float | None:
         return self.get_value(key, float, section)
 
-    def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
+    def get_bool_value(self, key: str, section: str = 'pixeltable') -> bool | None:
         return self.get_value(key, bool, section)
 
 
@@ -163,11 +163,13 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'API key for Pixeltable cloud',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
+        'b2_profile': 'S3-compatible profile name used to access Backblaze B2 storage',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'bedrock': {'api_key': 'AWS Bedrock API key'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
+    'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
     'gemini': {'api_key': 'Gemini API key', 'rate_limits': 'Per-model rate limits for Gemini API requests'},
     'hf': {'auth_token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},

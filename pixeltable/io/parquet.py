@@ -4,7 +4,7 @@ import json
 import logging
 import typing
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -62,7 +62,7 @@ def export_parquet(
         with Catalog.get().begin_xact(for_write=False):
             for record_batch in to_record_batches(df, partition_size_bytes):
                 output_path = temp_path / f'part-{batch_num:05d}.parquet'
-                arrow_tbl = pa.Table.from_batches([record_batch])  # type: ignore
+                arrow_tbl = pa.Table.from_batches([record_batch])
                 pa.parquet.write_table(arrow_tbl, str(output_path))
                 batch_num += 1
 
@@ -71,7 +71,7 @@ def import_parquet(
     table: str,
     *,
     parquet_path: str,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:

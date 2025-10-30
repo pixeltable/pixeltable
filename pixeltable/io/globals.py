@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -15,12 +15,12 @@ if TYPE_CHECKING:
 def create_label_studio_project(
     t: Table,
     label_config: str,
-    name: Optional[str] = None,
-    title: Optional[str] = None,
+    name: str | None = None,
+    title: str | None = None,
     media_import_method: Literal['post', 'file', 'url'] = 'post',
-    col_mapping: Optional[dict[str, str]] = None,
+    col_mapping: dict[str, str] | None = None,
     sync_immediately: bool = True,
-    s3_configuration: Optional[dict[str, Any]] = None,
+    s3_configuration: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> UpdateStatus:
     """
@@ -152,7 +152,7 @@ def export_images_as_fo_dataset(
     (or expression) containing image data, along with optional additional columns containing labels. Currently, only
     classification and detection labels are supported.
 
-    The [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial contains a
+    The [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/examples/vision/voxel51) tutorial contains a
     fully worked example showing how to export data from a Pixeltable table and load it into Voxel51.
 
     Images in the dataset that already exist on disk will be exported directly, in whatever format they
@@ -211,7 +211,7 @@ def export_images_as_fo_dataset(
         ...     classifications=tbl.classifications
         ... )
 
-        See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial
+        See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/examples/vision/voxel51) tutorial
         for a fully worked example.
     """
     Env.get().require_package('fiftyone')

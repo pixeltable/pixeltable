@@ -3,8 +3,9 @@ import itertools
 import json
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -30,7 +31,7 @@ def normalize(text: str) -> str:
     return res
 
 
-def diff_snippet(text1: str, text2: str, diff_line_limit: Optional[int] = 20) -> str:
+def diff_snippet(text1: str, text2: str, diff_line_limit: int | None = 20) -> str:
     diff = difflib.unified_diff(text1.splitlines(), text2.splitlines(), lineterm='')
     if diff_line_limit is not None:
         snippet = [line for i, line in enumerate(diff) if i < diff_line_limit]
@@ -88,9 +89,8 @@ class TestDocument:
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
-    def test_invalid_arguments(self, reset_db: None) -> None:
-        """Test input parsing provides useful error messages"""
-        example_file = next(p for p in self.valid_doc_paths() if p.endswith('.pdf'))
+    def test_doc_splitter_errors(self, reset_db: None) -> None:
+        t = pxt.create_table('docs', {'doc': pxt.Document})
 
         # test invalid separators, or combinations of separators
         invalid_separators = [
@@ -99,21 +99,22 @@ class TestDocument:
             'page, block',  # block does not exist
         ]
         for sep in invalid_separators:
-            with pytest.raises(pxt.Error) as exc_info:
-                _ = DocumentSplitter(document=example_file, separators=sep)
-            assert 'Invalid separator' in str(exc_info.value)
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = DocumentSplitter(document=example_file, separators='char_limit, token_limit', limit=10)
-        assert 'both' in str(exc_info.value)
+            with pytest.raises(pxt.Error, match='Invalid separator'):
+                _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep))
+
+        with pytest.raises(pxt.Error, match='both'):
+            _ = pxt.create_view(
+                'chunks',
+                t,
+                iterator=DocumentSplitter.create(document=t.doc, separators='char_limit, token_limit', limit=10),
+            )
 
         # test that limit is required for char_limit and token_limit
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = DocumentSplitter(document=example_file, separators='char_limit')
-        assert 'limit' in str(exc_info.value)
+        with pytest.raises(pxt.Error, match='limit'):
+            _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='char_limit'))
 
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = DocumentSplitter(document=example_file, separators='token_limit')
-        assert 'limit' in str(exc_info.value)
+        with pytest.raises(pxt.Error, match='limit'):
+            _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='token_limit'))
 
         # test invalid metadata
         invalid_metadata = [
@@ -122,9 +123,17 @@ class TestDocument:
             'page bounding_box',  # separator
         ]
         for md in invalid_metadata:
-            with pytest.raises(pxt.Error) as exc_info:
-                _ = DocumentSplitter(document=example_file, separators='', metadata=md)
-            assert 'Invalid metadata' in str(exc_info.value)
+            with pytest.raises(pxt.Error, match='Invalid metadata'):
+                _ = pxt.create_view(
+                    'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='', metadata=md)
+                )
+
+        invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
+        for sep in invalid_separators:
+            with pytest.raises(pxt.Error, match='Image elements are only supported for the "page" separator'):
+                _ = pxt.create_view(
+                    'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep, elements=['image'])
+                )
 
     def test_doc_splitter(self, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
@@ -156,7 +165,7 @@ class TestDocument:
             )
         ]
 
-        all_text_reference: Optional[str] = None  # all text as a single string; normalized
+        all_text_reference: str | None = None  # all text as a single string; normalized
         headings_reference: set[str] = set()  # headings metadata as a json-serialized string
         for sep1, sep2, limit, metadata in combinations:
             # Intentionally omit args that are not specified in this combination, to test that the iterator
@@ -346,3 +355,20 @@ class TestDocument:
             assert r['doc'].endswith('pxtbrief.txt')
 
         pxt.drop_table('chunks')
+
+    def test_doc_splitter_images(self, reset_db: None) -> None:
+        file_paths = [p for p in get_documents() if p.endswith('.pdf')]
+        t = pxt.create_table('docs', {'doc': pxt.Document})
+
+        chunks = pxt.create_view(
+            'chunks',
+            t,
+            iterator=DocumentSplitter.create(
+                document=t.doc, separators='page', elements=['image'], metadata='title,page'
+            ),
+        )
+        status = t.insert({'doc': p} for p in file_paths)
+        assert status.num_excs == 0
+
+        res = chunks.collect()
+        assert all(isinstance(r['image'], PIL.Image.Image) for r in res)

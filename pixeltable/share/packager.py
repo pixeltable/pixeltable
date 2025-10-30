@@ -1,6 +1,5 @@
 import base64
 import dataclasses
-import datetime
 import io
 import json
 import logging
@@ -9,11 +8,12 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 from uuid import UUID
 
 import more_itertools
 import numpy as np
+import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
 import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -23,6 +23,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.catalog.table_version import TableVersionCompleteMd
 from pixeltable.env import Env
+from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
@@ -58,7 +59,7 @@ class TablePackager:
     preview_header: dict[str, str]
     preview: list[list[Any]]
 
-    def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, table: catalog.Table, additional_md: dict[str, Any] | None = None) -> None:
         self.table = table
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
@@ -111,9 +112,12 @@ class TablePackager:
         assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
+        cellmd_cols: set[str] = set()
         for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
                 media_cols.add(col.store_name())
+            if col.stores_cellmd:
+                cellmd_cols.add(col.cellmd_store_name())
 
         parquet_schema = self.__to_parquet_schema(tv.store_tbl.sa_tbl)
         # TODO: Partition larger tables into multiple parquet files. (The parquet file naming scheme anticipates
@@ -128,10 +132,10 @@ class TablePackager:
         # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Parquet table on disk.
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
-        parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
+        parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='snappy')
         filter_tv = self.table._tbl_version_path.tbl_version.get()
         row_iter = tv.store_tbl.dump_rows(tv.version, filter_tv.store_tbl, filter_tv.version)
-        for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, parquet_schema):
+        for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, cellmd_cols, parquet_schema):
             parquet_writer.write_table(pa_table)
         parquet_writer.close()
 
@@ -140,7 +144,7 @@ class TablePackager:
     @classmethod
     def __to_parquet_schema(cls, store_tbl: sql.Table) -> pa.Schema:
         entries = [(col_name, cls.__to_parquet_type(col.type)) for col_name, col in store_tbl.columns.items()]
-        return pa.schema(entries)  # type: ignore[arg-type]
+        return pa.schema(entries)
 
     @classmethod
     def __to_parquet_type(cls, col_type: sql.types.TypeEngine[Any]) -> pa.DataType:
@@ -153,13 +157,17 @@ class TablePackager:
         if isinstance(col_type, sql.Float):
             return pa.float32()
         if isinstance(col_type, sql.TIMESTAMP):
-            return pa.timestamp('us', tz=datetime.timezone.utc)
+            return pa.timestamp('us', tz='UTC')
         if isinstance(col_type, sql.Date):
             return pa.date32()
         if isinstance(col_type, sql.JSON):
             return pa.string()  # JSON will be exported as strings
         if isinstance(col_type, sql.LargeBinary):
             return pa.binary()
+        if isinstance(col_type, sql_vector.Vector):
+            # Parquet/pyarrow do not handle null values properly for fixed_shape_tensor(), so we have to use list_()
+            # here instead.
+            return pa.list_(pa.float32())
         raise AssertionError(f'Unrecognized SQL type: {col_type} (type {type(col_type)})')
 
     def __to_pa_tables(
@@ -167,6 +175,7 @@ class TablePackager:
         row_iter: Iterator[dict[str, Any]],
         sql_types: dict[str, sql.types.TypeEngine[Any]],
         media_cols: set[str],
+        cellmd_cols: set[str],
         arrow_schema: pa.Schema,
         batch_size: int = 1_000,
     ) -> Iterator[pa.Table]:
@@ -178,14 +187,21 @@ class TablePackager:
         for rows in more_itertools.batched(row_iter, batch_size):
             cols = {}
             for name, sql_type in sql_types.items():
-                is_media_col = name in media_cols
-                values = [self.__to_pa_value(row.get(name), sql_type, is_media_col) for row in rows]
+                values = [
+                    self.__to_pa_value(row.get(name), sql_type, name in media_cols, name in cellmd_cols) for row in rows
+                ]
                 cols[name] = values
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
-    def __to_pa_value(self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool) -> Any:
+    def __to_pa_value(
+        self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool, is_cellmd_col: bool
+    ) -> Any:
         if val is None:
             return None
+        if is_cellmd_col:
+            assert isinstance(val, dict)
+            # Export JSON as strings
+            return json.dumps(self.__process_cellmd(val))
         if isinstance(sql_type, sql.JSON):
             # Export JSON as strings
             return json.dumps(val)
@@ -196,6 +212,10 @@ class TablePackager:
         return val
 
     def __process_media_url(self, url: str) -> str:
+        """
+        Process a media URL for export. If it's a local file URL (file://), then replace it with a pxtmedia:// URI,
+        copying the file into the tarball if necessary. If it's any other type of URL, return it unchanged.
+        """
         parsed_url = urllib.parse.urlparse(url)
         if parsed_url.scheme == 'file':
             # It's the URL of a local file. Replace it with a pxtmedia:// URI.
@@ -215,6 +235,21 @@ class TablePackager:
             return f'pxtmedia://{self.media_files[path]}'
         # For any type of URL other than a local file, just return the URL as-is.
         return url
+
+    def __process_cellmd(self, cellmd: dict[str, Any]) -> dict[str, Any]:
+        """
+        Process a cellmd dictionary for export. This involves replacing any local file references
+        with pxtmedia:// URIs, as described above.
+        """
+        cellmd_ = CellMd.from_dict(cellmd)
+        if cellmd_.file_urls is None:
+            return cellmd  # No changes
+
+        updated_urls: list[str] = []
+        for url in cellmd_.file_urls:
+            updated_urls.append(self.__process_media_url(url))
+        cellmd_.file_urls = updated_urls
+        return cellmd_.as_dict()
 
     def __build_tarball(self) -> Path:
         bundle_path = self.tmp_dir / 'bundle.tar.bz2'
@@ -309,11 +344,11 @@ class TablePackager:
             scaled_img.save(buffer, 'webp')
             return base64.b64encode(buffer.getvalue()).decode()
 
-    def __encode_video(self, video_path: str) -> Optional[str]:
+    def __encode_video(self, video_path: str) -> str | None:
         thumb = Formatter.extract_first_video_frame(video_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
-    def __encode_document(self, doc_path: str) -> Optional[str]:
+    def __encode_document(self, doc_path: str) -> str | None:
         thumb = Formatter.make_document_thumbnail(doc_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
@@ -336,7 +371,8 @@ class TableRestorer:
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
-    def __init__(self, tbl_path: str, bundle_md: Optional[dict[str, Any]] = None) -> None:
+
+    def __init__(self, tbl_path: str, bundle_md: dict[str, Any] | None = None) -> None:
         self.tbl_path = tbl_path
         self.bundle_md = bundle_md
         self.tmp_dir = TempStore.create_path()
@@ -413,6 +449,9 @@ class TableRestorer:
         # 2. "rectify" the v_max values in both the temporary table and the existing table (more on this below);
         # 3. Delete any row instances from the temporary table that are already present in the existing table;
         # 4. Copy the remaining rows from the temporary table into the existing table.
+        # 5. Rectify any index columns.
+
+        # STEP 1: Import the parquet data into a temporary table.
 
         # Create a temporary table for the initial data load, containing columns for all columns present in the
         # parquet table. The parquet columns have identical names to those in the store table, so we can use the
@@ -420,7 +459,7 @@ class TableRestorer:
         # e.g., pa.string() may hold either VARCHAR or serialized JSONB).
         temp_cols: dict[str, sql.Column] = {}
         for field in parquet_table.schema:
-            assert field.name in store_sa_tbl.columns
+            assert field.name in store_sa_tbl.columns, f'{field.name} not in {list(store_sa_tbl.columns)}'
             col_type = store_sa_tbl.columns[field.name].type
             temp_cols[field.name] = sql.Column(field.name, col_type)
         temp_sa_tbl_name = f'temp_{uuid.uuid4().hex}'
@@ -435,6 +474,8 @@ class TableRestorer:
             pydict = batch.to_pydict()
             rows = self.__from_pa_pydict(tv, pydict)
             conn.execute(sql.insert(temp_sa_tbl), rows)
+
+        # STEP 2: Rectify v_max values.
 
         # Each row version is identified uniquely by its pk, a tuple (row_id, pos_0, pos_1, ..., pos_k, v_min).
         # Conversely, v_max is not part of the primary key, but is simply a bookkeeping device.
@@ -544,6 +585,8 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Rectified {result.rowcount} row(s) in {store_sa_tbl_name!r}.')
 
+        # STEP 3: Delete any row instances from the temporary table that are already present in the existing table.
+
         # Now we need to update rows in the existing table that are also present in the temporary table. This is to
         # account for the scenario where the temporary table has columns that are not present in the existing table.
         # (We can't simply replace the rows with their versions in the temporary table, because the converse scenario
@@ -574,7 +617,9 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Deleted {result.rowcount} row(s) from {temp_sa_tbl_name!r}.')
 
-        # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
+        # STEP 4: Copy the remaining rows from the temporary table into the existing table.
+
+        # Now copy the remaining data (consisting entirely of new row instances) from the temporary table into
         # the actual table.
         q = store_sa_tbl.insert().from_select(
             [store_sa_tbl.c[col_name] for col_name in temp_cols], sql.select(*temp_cols.values())
@@ -583,39 +628,113 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Inserted {result.rowcount} row(s) from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
 
+        # STEP 5: Rectify any index columns.
+
+        # Finally, rectify any index columns in the table. This involves shuffling data between the index's val and
+        # undo columns to ensure they appropriately reflect the most recent replicated version of the table.
+
+        # Get the most recent replicated version of the table. This might be the version we're currently importing,
+        # but it might be a different version of the table that was previously imported.
+        head_version_md = catalog.Catalog.get()._collect_tbl_history(tv.id, n=1)[0]
+        head_version = head_version_md.version_md.version
+        _logger.debug(f'Head version for index rectification is {head_version}.')
+
+        # Get the index info from the table metadata. Here we use the tbl_md that we just collected from the DB.
+        # This is to ensure we pick up ALL indices, including dropped indices and indices that are present in
+        # a previously replicated version of the table, but not in the one currently being imported.
+        index_md = head_version_md.tbl_md.index_md
+
+        # Now update the table. We can do this for all indices together with just two SQL queries. For each index,
+        # at most one of the val or undo columns will be non-NULL in any given row.
+        # For rows where v_min <= head_version < v_max, we set, for all indices:
+        #   val_col = whichever of (val_col, undo_col) is non-NULL (or NULL if both are, e.g., for a dropped index)
+        #   undo_col = NULL
+        # For rows where head_version < v_min or v_max <= head_version, vice versa.
+        val_sql_clauses: dict[str, sql.ColumnElement] = {}
+        undo_sql_clauses: dict[str, sql.ColumnElement] = {}
+        for index in index_md.values():
+            if index.class_fqn.endswith('.EmbeddingIndex'):
+                val_col_name = f'col_{index.index_val_col_id}'
+                undo_col_name = f'col_{index.index_val_undo_col_id}'
+                # Check that the val column for the index is actually present in the store table. We need to do this
+                # to properly handle the case where the replica represents a table version that was *not* the most
+                # recent version at the time it was published. In that case, it is possible for tbl_md to contain
+                # metadata for indices not known to any version that has been replicated. (However, the converse
+                # *does* hold: all replicated indices must have metadata in tbl_md; and that's what's important.)
+                if val_col_name in store_sa_tbl.c:
+                    assert undo_col_name in store_sa_tbl.c
+                    coalesce = sql.func.coalesce(store_sa_tbl.c[val_col_name], store_sa_tbl.c[undo_col_name])
+                    val_sql_clauses[val_col_name] = coalesce
+                    val_sql_clauses[undo_col_name] = sql.null()
+                    undo_sql_clauses[undo_col_name] = coalesce
+                    undo_sql_clauses[val_col_name] = sql.null()
+
+        if len(val_sql_clauses) > 0:
+            q2 = (
+                store_sa_tbl.update()
+                .values(**val_sql_clauses)
+                .where(sql.and_(tv.store_tbl.v_min_col <= head_version, tv.store_tbl.v_max_col > head_version))
+            )
+            _logger.debug(q2.compile())
+            _ = conn.execute(q2)
+            q2 = (
+                store_sa_tbl.update()
+                .values(**undo_sql_clauses)
+                .where(sql.or_(tv.store_tbl.v_min_col > head_version, tv.store_tbl.v_max_col <= head_version))
+            )
+            _logger.debug(q2.compile())
+            _ = conn.execute(q2)
+            _logger.debug(f'Rectified index columns in {store_sa_tbl_name!r}.')
+        else:
+            _logger.debug(f'No index columns to rectify in {store_sa_tbl_name!r}.')
+
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
         sql_types: dict[str, sql.types.TypeEngine[Any]] = {}
         for col_name in pydict:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
-        media_cols: dict[str, catalog.Column] = {}
-        for col in tv.cols:
-            if col.is_stored and col.col_type.is_media_type():
-                assert tv.id == col.tbl.id
-                assert tv.version == col.tbl.version
-                media_cols[col.store_name()] = col
+        stored_cols: dict[str, catalog.Column] = {col.store_name(): col for col in tv.cols if col.is_stored}
+        stored_cols |= {col.cellmd_store_name(): col for col in tv.cols if col.stores_cellmd}
 
         row_count = len(next(iter(pydict.values())))
-        rows: list[dict[str, Any]] = []
-        for i in range(row_count):
-            row = {
-                col_name: self.__from_pa_value(col_vals[i], sql_types[col_name], media_cols.get(col_name))
-                for col_name, col_vals in pydict.items()
-            }
-            rows.append(row)
+        rows: list[dict[str, Any]] = [{} for _ in range(row_count)]
+        for col_name, col_vals in pydict.items():
+            assert len(col_vals) == row_count
+            col = stored_cols.get(col_name)  # Will be None for system columns
+            is_media_col = col is not None and col.is_stored and col.col_type.is_media_type()
+            is_cellmd_col = col is not None and col.stores_cellmd and col_name == col.cellmd_store_name()
+            assert col is None or is_cellmd_col or col_name == col.store_name()
+
+            for i, val in enumerate(col_vals):
+                rows[i][col_name] = self.__from_pa_value(val, sql_types[col_name], col, is_media_col, is_cellmd_col)
 
         return rows
 
     def __from_pa_value(
-        self, val: Any, sql_type: sql.types.TypeEngine[Any], media_col: Optional[catalog.Column]
+        self,
+        val: Any,
+        sql_type: sql.types.TypeEngine[Any],
+        col: catalog.Column | None,
+        is_media_col: bool,
+        is_cellmd_col: bool,
     ) -> Any:
         if val is None:
             return None
+        if isinstance(sql_type, sql_vector.Vector):
+            if isinstance(val, list):
+                val = np.array(val, dtype=np.float32)
+            assert isinstance(val, np.ndarray) and val.dtype == np.float32 and val.ndim == 1
+            return val
+        if is_cellmd_col:
+            assert col is not None
+            assert isinstance(val, str)
+            return self.__restore_cellmd(col, json.loads(val))
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
-        if media_col is not None:
-            return self.__relocate_media_file(media_col, val)
+        if is_media_col:
+            assert col is not None
+            return self.__relocate_media_file(col, val)
         return val
 
     def __relocate_media_file(self, media_col: catalog.Column, url: str) -> str:
@@ -633,3 +752,14 @@ class TableRestorer:
             return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url
+
+    def __restore_cellmd(self, col: catalog.Column, cellmd: dict[str, Any]) -> dict[str, Any]:
+        cellmd_ = CellMd.from_dict(cellmd)
+        if cellmd_.file_urls is None:
+            return cellmd  # No changes
+
+        updated_urls: list[str] = []
+        for url in cellmd_.file_urls:
+            updated_urls.append(self.__relocate_media_file(col, url))
+        cellmd_.file_urls = updated_urls
+        return cellmd_.as_dict()

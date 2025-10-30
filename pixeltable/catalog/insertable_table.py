@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
 from uuid import UUID
 
 import pydantic
@@ -16,9 +16,10 @@ from pixeltable.utils.pydantic import is_json_convertible
 
 from .globals import MediaValidation
 from .table import Table
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .tbl_ops import CreateStoreTableOp, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -65,15 +66,14 @@ class InsertableTable(Table):
     @classmethod
     def _create(
         cls,
-        dir_id: UUID,
         name: str,
         schema: dict[str, ts.ColumnType],
-        df: Optional[pxt.DataFrame],
         primary_key: list[str],
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-    ) -> InsertableTable:
+        create_default_idxs: bool,
+    ) -> tuple[TableVersionMd, list[TableOp]]:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -85,38 +85,35 @@ class InsertableTable(Table):
                 raise excs.Error(f'Primary key column {pk_col!r} cannot be nullable.')
             col.is_pk = True
 
-        _, tbl_version = TableVersion.create(
-            dir_id,
+        md = TableVersion.create_initial_md(
             name,
             columns,
-            num_retained_versions=num_retained_versions,
-            comment=comment,
-            media_validation=media_validation,
+            num_retained_versions,
+            comment,
+            media_validation,
+            create_default_idxs=create_default_idxs,
+            view_md=None,
         )
-        tbl = cls(dir_id, TableVersionHandle.create(tbl_version))
-        # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
-        #   when the table metadata gets updated. Once we have a notion of user-defined transactions in
-        #   Pixeltable, we can wrap the create/insert in a transaction to avoid this.
-        session = Env.get().session
-        session.commit()
-        if df is not None:
-            # A DataFrame was provided, so insert its contents into the table
-            # (using the same DB session as the table creation)
-            tbl_version.insert(None, df, fail_on_exception=True)
-        session.commit()
 
-        _logger.info(f'Created table {name!r}, id={tbl_version.id}')
-        Env.get().console_logger.info(f'Created table {name!r}.')
-        return tbl
+        ops = [
+            TableOp(
+                tbl_id=md.tbl_md.tbl_id,
+                op_sn=0,
+                num_ops=1,
+                needs_xact=False,
+                create_store_table_op=CreateStoreTableOp(),
+            )
+        ]
+        return md, ops
 
     @overload
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         **kwargs: Any,
@@ -129,11 +126,11 @@ class InsertableTable(Table):
 
     def insert(
         self,
-        source: Optional[TableDataSource] = None,
+        source: TableDataSource | None = None,
         /,
         *,
-        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+        source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+        schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         **kwargs: Any,
@@ -142,7 +139,7 @@ class InsertableTable(Table):
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
-            raise excs.Error('Cannot insert an empty sequence')
+            raise excs.Error('Cannot insert an empty sequence.')
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
@@ -214,7 +211,7 @@ class InsertableTable(Table):
             try:
                 pxt_rows.append(row.model_dump(mode='json'))
             except pydantic_core.PydanticSerializationError as e:
-                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e!s}') from e
+                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e}') from e
 
         # explicitly check that all required columns are present and non-None in the rows,
         # because we ignore nullability when validating the pydantic model
@@ -222,7 +219,7 @@ class InsertableTable(Table):
         for i, pxt_row in enumerate(pxt_rows):
             if type(rows[i]) is not model_class:
                 raise excs.Error(
-                    f'Expected {model_class.__name__!r} instance, got {type(rows[i]).__name__!r} (in row {i})'
+                    f'Expected an instance of `{model_class.__name__}`; got `{type(rows[i]).__name__}` (in row {i})'
                 )
             for col_name in reqd_col_names:
                 if pxt_row.get(col_name) is None:
@@ -253,22 +250,20 @@ class InsertableTable(Table):
         missing_required = required_cols - model_field_names
         if missing_required:
             raise excs.Error(
-                f'Pydantic model {model.__name__!r} is missing required columns: '
-                f'{", ".join(f"{col_name!r}" for col_name in missing_required)}'
+                f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(missing_required)
             )
 
         computed_in_model = computed_cols & model_field_names
         if computed_in_model:
             raise excs.Error(
-                f'Pydantic model {model.__name__!r} has fields for computed columns: '
-                f'{", ".join(f"{col_name!r}" for col_name in computed_in_model)}'
+                f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(computed_in_model)
             )
 
         # validate type compatibility
         common_fields = model_field_names & set(schema.keys())
         if len(common_fields) == 0:
             raise excs.Error(
-                f'Pydantic model {model.__name__!r} has no fields that map to columns in table {self._name!r}'
+                f'Pydantic model `{model.__name__}` has no fields that map to columns in table {self._name!r}'
             )
         for field_name in common_fields:
             pxt_col_type = schema[field_name]
@@ -281,21 +276,21 @@ class InsertableTable(Table):
             inferred_pxt_type = ts.ColumnType.from_python_type(model_type, infer_pydantic_json=True)
             if inferred_pxt_type is None:
                 raise excs.Error(
-                    f'Pydantic model {model.__name__!r}: cannot infer Pixeltable type for column {field_name!r}'
+                    f'Pydantic model `{model.__name__}`: cannot infer Pixeltable type for column {field_name!r}'
                 )
 
             if pxt_col_type.is_media_type():
                 # media types require file paths, either as str or Path
                 if not inferred_pxt_type.is_string_type():
                     raise excs.Error(
-                        f"Column {field_name!r} requires a 'str' or 'Path' field in {model.__name__!r}, but it is "
-                        f'{model_type.__name__!r}'
+                        f'Column {field_name!r} requires a `str` or `Path` field in `{model.__name__}`, but it is '
+                        f'`{model_type.__name__}`'
                     )
             else:
                 if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Pydantic model {model.__name__!r} has incompatible type ({model_type.__name__}) '
-                        f'for column {field_name!r} ({pxt_col_type})'
+                        f'Pydantic model `{model.__name__}` has incompatible type `{model_type.__name__}` '
+                        f'for column {field_name!r} (of Pixeltable type `{pxt_col_type}`)'
                     )
 
                 if (
@@ -304,11 +299,11 @@ class InsertableTable(Table):
                     and not is_json_convertible(model_type)
                 ):
                     raise excs.Error(
-                        f'Pydantic model {model.__name__!r} has field {field_name!r} with nested model '
-                        f'{model_type.__name__!r}, which is not JSON-convertible'
+                        f'Pydantic model `{model.__name__}` has field {field_name!r} with nested model '
+                        f'`{model_type.__name__}`, which is not JSON-convertible'
                     )
 
-    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
@@ -328,11 +323,11 @@ class InsertableTable(Table):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             return self._tbl_version.get().delete(where=where)
 
-    def _get_base_table(self) -> Optional['Table']:
+    def _get_base_table(self) -> 'Table' | None:
         return None
 
     @property
-    def _effective_base_versions(self) -> list[Optional[int]]:
+    def _effective_base_versions(self) -> list[int | None]:
         return []
 
     def _table_descriptor(self) -> str:

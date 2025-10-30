@@ -5,7 +5,7 @@ first `pip install fireworks-ai` and configure your Fireworks AI credentials, as
 the [Working with Fireworks](https://pixeltable.readme.io/docs/working-with-fireworks) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import env
@@ -29,7 +29,7 @@ def _fireworks_client() -> 'fireworks.client.Fireworks':
 
 @pxt.udf(resource_pool='request-rate:fireworks')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
+    messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
     """
     Creates a model response for the given chat conversation.

@@ -1,12 +1,12 @@
 import logging
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, TypeVar
 
 R = TypeVar('R')
 
 logger = logging.getLogger('pixeltable')
 
 
-def run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = True, **kwargs: Any) -> Optional[R]:
+def run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = True, **kwargs: Any) -> R | None:
     """
     Runs a cleanup function. If interrupted, retry cleanup.
     The `run_cleanup()` function ensures that the `cleanup_func()` function executes at least once.

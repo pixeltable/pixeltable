@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -11,7 +11,7 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
-def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     import pixeltable.type_system as ts
     from pixeltable.exprs.literal import Literal
 

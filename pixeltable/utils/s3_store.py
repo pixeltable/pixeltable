@@ -4,7 +4,7 @@ import threading
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
 
 import boto3
 import botocore
@@ -24,24 +24,37 @@ _logger = logging.getLogger('pixeltable')
 client_lock = threading.Lock()
 
 
-class R2ClientDict(NamedTuple):
-    """Container for actual R2 access objects (clients, resources)
-    Thread-safe, protected by the module lock 'client_lock'"""
+class S3CompatClientDict(NamedTuple):
+    """Container for S3-compatible storage access objects (R2, B2, etc.).
+    Thread-safe via the module-level 'client_lock'.
+    """
 
-    profile: Optional[str]  # profile used to find credentials
-    clients: dict[str, Any]  # Dictionary of URI to client object attached to the URI
+    profile: str | None  # AWS-style profile used to locate credentials
+    clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
 
 
 @env.register_client('r2')
 def _() -> Any:
     profile_name = Config.get().get_string_value('r2_profile')
-    return R2ClientDict(profile=profile_name, clients={})
+    return S3CompatClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('r2_resource')
 def _() -> Any:
     profile_name = Config.get().get_string_value('r2_profile')
-    return R2ClientDict(profile=profile_name, clients={})
+    return S3CompatClientDict(profile=profile_name, clients={})
+
+
+@env.register_client('b2')
+def _() -> Any:
+    profile_name = Config.get().get_string_value('b2_profile')
+    return S3CompatClientDict(profile=profile_name, clients={})
+
+
+@env.register_client('b2_resource')
+def _() -> Any:
+    profile_name = Config.get().get_string_value('b2_profile')
+    return S3CompatClientDict(profile=profile_name, clients={})
 
 
 @env.register_client('s3')
@@ -75,8 +88,8 @@ class S3Store(ObjectStoreBase):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
-        assert self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.S3_STORE}, (
-            f'Expected storage_target "s3" or "r2", got {self.soa.storage_target}'
+        assert self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.S3_STORE, StorageTarget.B2_STORE}, (
+            f'Expected storage_target "s3", "r2", or "b2", got {self.soa.storage_target}'
         )
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
@@ -84,6 +97,15 @@ class S3Store(ObjectStoreBase):
         """Return a client to access the store."""
         if self.soa.storage_target == StorageTarget.R2_STORE:
             cd = env.Env.get().get_client('r2')
+            with client_lock:
+                if self.soa.container_free_uri not in cd.clients:
+                    cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
+                        profile_name=cd.profile,
+                        extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
+                    )
+                return cd.clients[self.soa.container_free_uri]
+        if self.soa.storage_target == StorageTarget.B2_STORE:
+            cd = env.Env.get().get_client('b2')
             with client_lock:
                 if self.soa.container_free_uri not in cd.clients:
                     cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
@@ -105,6 +127,15 @@ class S3Store(ObjectStoreBase):
                         extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
                     )
                 return cd.clients[self.soa.container_free_uri]
+        if self.soa.storage_target == StorageTarget.B2_STORE:
+            cd = env.Env.get().get_client('b2_resource')
+            with client_lock:
+                if self.soa.container_free_uri not in cd.clients:
+                    cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
+                        profile_name=cd.profile,
+                        extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
+                    )
+                return cd.clients[self.soa.container_free_uri]
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return env.Env.get().get_client('s3_resource')
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
@@ -119,7 +150,7 @@ class S3Store(ObjectStoreBase):
         """Return the prefix from the base URI."""
         return self.__prefix_name
 
-    def validate(self, error_col_name: str) -> Optional[str]:
+    def validate(self, error_col_name: str) -> str | None:
         """
         Checks if the URI exists.
 
@@ -133,7 +164,7 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, self.bucket_name, f'validate bucket {error_col_name}')
         return None
 
-    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> str:
+    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
@@ -141,12 +172,12 @@ class S3Store(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_uri(self, col: 'Column', ext: Optional[str] = None) -> str:
+    def _prepare_uri(self, col: 'Column', ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
-        assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
+        assert col.get_tbl() is not None, 'Column must be associated with a table'
+        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
@@ -161,8 +192,8 @@ class S3Store(ObjectStoreBase):
         new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
-        if self.soa.storage_target == StorageTarget.R2_STORE:
-            key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2
+        if self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.B2_STORE}:
+            key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
             self.client().upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key)
@@ -172,7 +203,7 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
-    def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> tuple[Iterator, Any]:
+    def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> tuple[Iterator, Any]:
         """Private method to get filtered objects for a table, optionally filtered by version.
 
         Args:
@@ -211,7 +242,7 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
-    def count(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Count the number of files belonging to tbl_id. If tbl_version is not None,
         count only those files belonging to the specified tbl_version.
 
@@ -228,7 +259,7 @@ class S3Store(ObjectStoreBase):
 
         return sum(1 for _ in object_iterator)
 
-    def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version.
 
@@ -311,7 +342,7 @@ class S3Store(ObjectStoreBase):
             raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_code} - {error_message}')
 
     @classmethod
-    def create_boto_session(cls, profile_name: Optional[str] = None) -> Any:
+    def create_boto_session(cls, profile_name: str | None = None) -> Any:
         """Create a boto session using the defined profile"""
         if profile_name:
             try:
@@ -323,12 +354,14 @@ class S3Store(ObjectStoreBase):
         return boto3.Session()
 
     @classmethod
-    def create_boto_client(cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
+    def create_boto_client(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
             'connect_timeout': 15,
             'read_timeout': 30,
             'retries': {'max_attempts': 3, 'mode': 'adaptive'},
+            's3': {'addressing_style': 'path'},  # Use path-style addressing for S3-compatible services
+            'user_agent_extra': 'pixeltable',  # Marks requests as coming from Pixeltable for tracking and debugging
         }
 
         session = cls.create_boto_session(profile_name)
@@ -347,8 +380,6 @@ class S3Store(ObjectStoreBase):
             return boto3.client('s3', config=config)
 
     @classmethod
-    def create_boto_resource(
-        cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None
-    ) -> Any:
+    def create_boto_resource(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         # Create a session using the defined profile
         return cls.create_boto_session(profile_name).resource('s3', **(extra_args or {}))
