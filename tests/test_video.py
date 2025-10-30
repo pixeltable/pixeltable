@@ -12,6 +12,7 @@ import pixeltable.functions as pxtf
 from pixeltable.env import Env
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.object_stores import ObjectOps
+
 from .utils import (
     generate_test_video,
     get_audio_files,
