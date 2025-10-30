@@ -37,7 +37,7 @@ class TestVideo:
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
         base_t, view_t = self.create_tbls()
-        _ = ObjectOps.count(None, view_t._id)
+        _ = ObjectOps.count(view_t._id, default_output_dest=True)
 
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
@@ -68,16 +68,16 @@ class TestVideo:
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths)
-        assert ObjectOps.count(None, view._id) == 0
+        assert ObjectOps.count(view._id, default_output_dest=True) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths)
-        assert ObjectOps.count(None, view._id) == view.count()
+        assert ObjectOps.count(view._id, default_output_dest=True) == view.count()
 
         # revert() also removes computed images
         tbl.insert({'video': p} for p in video_filepaths)
         tbl.revert()
-        assert ObjectOps.count(None, view._id) == view.count()
+        assert ObjectOps.count(view._id, default_output_dest=True) == view.count()
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
