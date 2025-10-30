@@ -125,11 +125,10 @@ async def create(
 
     Examples:
         Add a computed column with generated square images to a table with text prompts:
-        ```
-        t.add_computed_column(
-            img=(reve.create(t.prompt, format='jpeg', aspect_ratio='1:1'))
-        )
-        ```
+
+        >>> t.add_computed_column(
+        ...     img=reve.create(t.prompt, format='jpeg', aspect_ratio='1:1')
+        ... )
     """
     payload = {'prompt': prompt}
     if aspect_ratio is not None:
@@ -163,15 +162,13 @@ async def edit(
 
     Examples:
         Add a computed column with catalog-ready images to the table with product pictures:
-        ```
-        t.add_computed_column(
-            catalog_img=(
-                reve.edit(
-                    t.product_img, 'Remove background and distractions from the product picture, improve lighting.'
-                )
-            )
-        )
-        ```
+
+        >>> t.add_computed_column(
+        ...     catalog_img=reve.edit(
+        ...         t.product_img,
+        ...         'Remove background and distractions from the product picture, improve lighting.'
+        ...     )
+        ... )
     """
     if image.format is None or image.format.lower() not in _SUPPORTED_FORMATS:
         raise pxt.Error(f'Input image format {image.format} is not supported. Supported formats: {_SUPPORTED_FORMATS}')
@@ -215,19 +212,16 @@ async def remix(
 
     Examples:
         Add a computed column with promotional collages to a table with original images:
-        ```
-        t.add_computed_column(
-            collage=(
-                reve.remix(
-                    'Create a promotional collage by combining the picture of a hotel room from $0'
-                    ' with city attractions from $1 and $2',
-                    images=[t.room_img, t.city_attraction, t.city_skyline],
-                    output_format='jpeg',
-                    aspect_ratio='16:9',
-                )
-            )
-        )
-        ```
+
+        >>> t.add_computed_column(
+        ...     collage=reve.remix(
+        ...         'Create a promotional collage by combining the picture of a hotel room from $0'
+        ...         ' with city attractions from $1 and $2',
+        ...         images=[t.room_img, t.city_attraction, t.city_skyline],
+        ...         output_format='jpeg',
+        ...         aspect_ratio='16:9',
+        ...     )
+        ... )
     """
     if len(images) == 0:
         raise pxt.Error('Must include at least 1 reference image')
