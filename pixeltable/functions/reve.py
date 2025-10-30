@@ -85,7 +85,7 @@ class _ReveClient:
                         f'{retry_after_seconds}'
                     )
                 case _:
-                    _logger.error(
+                    _logger.info(
                         f'Reve request {request_id} failed with status code {resp.status} and error code {error_code}'
                     )
                     raise pxt.Error(f'Reve request failed with status code {resp.status} and error code {error_code}')
