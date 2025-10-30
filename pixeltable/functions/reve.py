@@ -17,6 +17,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.image import to_base64
 
 _logger = logging.getLogger('pixeltable')
 _SUPPORTED_FORMATS = ('png', 'jpeg', 'webp')
@@ -175,7 +176,7 @@ async def edit(
     if output_format is None:
         output_format = image.format.lower()
 
-    payload = {'edit_instruction': edit_instruction, 'reference_image': _to_base64(image)}
+    payload = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
     if version is not None:
         payload['version'] = version
 
@@ -226,20 +227,13 @@ async def remix(
     if len(images) == 0:
         raise pxt.Error('Must include at least 1 reference image')
 
-    payload = {'prompt': prompt, 'reference_images': [_to_base64(img) for img in images]}
+    payload = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
     if version is not None:
         payload['version'] = version
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
     result = await _client()._post('/v1/image/remix', payload=payload, format=output_format)
     return result
-
-
-def _to_base64(image: PIL.Image.Image) -> str:
-    buffer = BytesIO()
-    image.save(buffer, format=image.format)
-    image_bytes = buffer.getvalue()
-    return base64.b64encode(image_bytes).decode('utf-8')
 
 
 __all__ = local_public_names(__name__)

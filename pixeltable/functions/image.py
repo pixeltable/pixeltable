@@ -18,6 +18,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.exprs import Expr
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.image import to_base64
 
 
 @pxt.udf(is_method=True)
@@ -29,12 +30,7 @@ def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
         img: image
         image_format: image format [supported by PIL](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#fully-supported-formats)
     """
-    import io
-
-    bytes_arr = io.BytesIO()
-    img.save(bytes_arr, format=image_format)
-    b64_bytes = base64.b64encode(bytes_arr.getvalue())
-    return b64_bytes.decode('utf-8')
+    return to_base64(img, format=image_format)
 
 
 @pxt.udf(substitute_fn=PIL.Image.alpha_composite, is_method=True)
