@@ -29,8 +29,11 @@ class _ReveClient:
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.session = aiohttp.ClientSession(base_url='https://api.reve.com', loop=Env.get().event_loop)
+        self.session = Env.get().event_loop.run_until_complete(self._init_session())
         atexit.register(lambda: asyncio.run(self.session.close()))
+
+    async def _init_session(self) -> aiohttp.ClientSession:
+        return aiohttp.ClientSession(base_url='https://api.reve.com')
 
     async def _post(self, endpoint: str, *, payload: dict, format: str) -> PIL.Image.Image:
         if format not in _SUPPORTED_FORMATS:
