@@ -115,10 +115,10 @@ async def create(
     [API documentation](https://api.reve.com/console/docs/create).
 
     Args:
-        prompt (str): prompt describing the desired image
-        format (str): desired output image format
-        aspect_ratio (str | None, optional): desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
-        version (str | None, optional): specific model version to use. Latest if not specified.
+        prompt: prompt describing the desired image
+        format: desired output image format
+        aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
+        version: specific model version to use. Latest if not specified.
 
     Returns:
         A generated image
@@ -152,11 +152,11 @@ async def edit(
     [API documentation](https://api.reve.com/console/docs/edit)
 
     Args:
-        image (PIL.Image.Image): image to edit
-        edit_instruction (str): text prompt describing the desired edit
-        output_format (str | None, optional): desired output image format. If not specified, uses the input image
+        image: image to edit
+        edit_instruction: text prompt describing the desired edit
+        output_format: desired output image format. If not specified, uses the input image
             format.
-        version (str | None, optional): specific model version to use. Latest if not specified.
+        version: specific model version to use. Latest if not specified.
 
     Returns:
         A generated image
@@ -204,11 +204,11 @@ async def remix(
     [API documentation](https://api.reve.com/console/docs/remix)
 
     Args:
-        prompt (str): prompt describing the desired image
-        images (list[PIL.Image.Image]): list of reference images
-        output_format (str): desired output image format
-        aspect_ratio (str | None, optional): desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
-        version (str | None, optional): specific model version to use. Latest by default.
+        prompt: prompt describing the desired image
+        images: list of reference images
+        output_format: desired output image format
+        aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
+        version: specific model version to use. Latest by default.
 
     Returns:
         A generated image
