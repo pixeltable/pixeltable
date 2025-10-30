@@ -1,9 +1,6 @@
 # Query
 
-`Query` represents a query against a specific table. Unlike containers such as Pandas DataFrames,
-Pixeltable Queries do not hold data or allow you to update data
-(use [insert][pixeltable.Table.insert]/[update][pixeltable.Table.update]/[delete][pixeltable.Table.delete]
-for that purpose).
+`Query` represents a query against a specific table or tables.
 
 ## Overview
 
@@ -24,6 +21,9 @@ for that purpose).
 | [`show`][pixeltable.Query.show]       | Return a number of output rows      |
 | [`head`][pixeltable.Query.head]       | Return the oldest rows              |
 | [`tail`][pixeltable.Query.tail]       | Return the most recently added rows |
+| [`update`][pixeltable.Query.update]   | Update all rows selected by the query |
+| [`delete`][pixeltable.Query.delete]   | Delete all rows selected by the query |
+| [`recompute_columns`][pixeltable.Query.recompute_columns] | Recompute columns for rows selected by the query |
 
 | Data Export                                                     |                                                                                                                                      |
 |-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
@@ -35,16 +35,19 @@ for that purpose).
     options:
       members:
       - collect
+      - delete
+      - distinct
       - group_by
       - head
+      - join
       - limit
       - order_by
+      - recompute_columns
+      - sample
       - select
-      - join
       - show
       - tail
       - to_pytorch_dataset
       - to_coco_dataset
+      - update
       - where
-      - distinct
-      - sample
