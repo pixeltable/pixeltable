@@ -218,12 +218,14 @@ async def remix(
         Add a computed column with promotional collages to a table with original images:
 
         >>> t.add_computed_column(
-        ...     collage=reve.remix(
-        ...         'Create a promotional collage by combining the picture of a hotel room from $0'
-        ...         ' with city attractions from $1 and $2',
-        ...         images=[t.room_img, t.city_attraction, t.city_skyline],
-        ...         output_format='jpeg',
-        ...         aspect_ratio='16:9',
+        ...     promo_img=(
+        ...         reve.remix(
+        ...             'Generate a product promotional image by combining the image of the product'
+        ...             ' from <img>0</img> with the landmark scene from <img>1</img>',
+        ...             images=[t.product_img, t.local_landmark_img],
+        ...             output_format='jpeg',
+        ...             aspect_ratio='16:9',
+        ...         )
         ...     )
         ... )
     """
