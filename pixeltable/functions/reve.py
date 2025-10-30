@@ -28,7 +28,7 @@ class _ReveClient:
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.session = aiohttp.ClientSession(base_url='https://api.reve.com')
+        self.session = aiohttp.ClientSession(base_url='https://api.reve.com', loop=Env.get().event_loop)
         atexit.register(lambda: asyncio.run(self.session.close()))
 
     async def _post(self, endpoint: str, *, payload: dict, format: str) -> PIL.Image.Image:
