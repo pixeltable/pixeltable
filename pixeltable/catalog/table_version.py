@@ -43,16 +43,24 @@ _logger = logging.getLogger('pixeltable')
 
 
 @dataclasses.dataclass(frozen=True)
-class TableVersionMd:
+class TableVersionCompleteMd:
     """
     Complete set of md records for a specific TableVersion instance.
-
-    TODO: subsume schema.FullTableMd
     """
 
     tbl_md: schema.TableMd
     version_md: schema.TableVersionMd
     schema_version_md: schema.TableSchemaVersionMd
+
+    @property
+    def is_pure_snapshot(self) -> bool:
+        return (
+            self.tbl_md is not None
+            and self.tbl_md.view_md is not None
+            and self.tbl_md.view_md.is_snapshot
+            and self.tbl_md.view_md.predicate is None
+            and len(self.schema_version_md.columns) == 0
+        )
 
 
 class TableVersion:
@@ -240,7 +248,7 @@ class TableVersion:
         media_validation: MediaValidation,
         create_default_idxs: bool,
         view_md: schema.ViewMd | None = None,
-    ) -> TableVersionMd:
+    ) -> TableVersionCompleteMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
@@ -337,7 +345,7 @@ class TableVersion:
             media_validation=media_validation.name.lower(),
             additional_md={},
         )
-        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
+        return TableVersionCompleteMd(tbl_md, table_version_md, schema_version_md)
 
     def exec_op(self, op: TableOp) -> None:
         if op.create_store_table_op is not None:
@@ -365,7 +373,7 @@ class TableVersion:
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
     @classmethod
-    def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
+    def create_replica(cls, md: TableVersionCompleteMd) -> TableVersion:
         from .catalog import Catalog, TableVersionPath
 
         assert Env.get().in_xact

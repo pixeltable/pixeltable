@@ -27,7 +27,7 @@ from .insertable_table import InsertableTable
 from .path import Path
 from .schema_object import SchemaObject
 from .table import Table
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionCompleteMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import TableOp
@@ -1102,7 +1102,7 @@ class Catalog:
             tv.is_validated = False
             del self._tbl_versions[tbl_id, effective_version]
 
-    def create_replica(self, path: Path, md: list[schema.FullTableMd]) -> None:
+    def create_replica(self, path: Path, md: list[TableVersionCompleteMd]) -> None:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
@@ -1184,7 +1184,7 @@ class Catalog:
         system_path = Path.parse('_system', allow_system_path=True)
         return self._create_dir(system_path, if_exists=IfExistsParam.IGNORE, parents=False)
 
-    def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
+    def __store_replica_md(self, path: Path, md: TableVersionCompleteMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
@@ -1761,10 +1761,10 @@ class Catalog:
         return view
 
     @retry_loop(for_write=False)
-    def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
+    def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[TableVersionCompleteMd]:
         return self._collect_tbl_history(tbl_id, n)
 
-    def _collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
+    def _collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[TableVersionCompleteMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 
@@ -1792,15 +1792,15 @@ class Catalog:
             q = q.limit(n)
         src_rows = Env.get().session.execute(q).fetchall()
         return [
-            schema.FullTableMd(
-                schema.md_from_dict(schema.TableMd, row.Table.md),
-                schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
-                schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
+            TableVersionCompleteMd(
+                tbl_md=schema.md_from_dict(schema.TableMd, row.Table.md),
+                version_md=schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
+                schema_version_md=schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
             )
             for row in src_rows
         ]
 
-    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> schema.FullTableMd:
+    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
@@ -1851,7 +1851,7 @@ class Catalog:
         version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
 
-        return schema.FullTableMd(tbl_md, version_md, schema_version_md)
+        return TableVersionCompleteMd(tbl_md, version_md, schema_version_md)
 
     def store_tbl_md(
         self,
@@ -1977,7 +1977,7 @@ class Catalog:
         conn.execute(sql.delete(schema.PendingTableOp.__table__).where(schema.PendingTableOp.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
 
-    def load_replica_md(self, tbl: Table) -> list[schema.FullTableMd]:
+    def load_replica_md(self, tbl: Table) -> list[TableVersionCompleteMd]:
         """
         Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
         TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
@@ -1998,7 +1998,7 @@ class Catalog:
             # Set the `is_replica` flag on every ancestor's TableMd.
             ancestor_md.tbl_md.is_replica = True
             # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
-            # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
+            # match the corresponding values in TableVersionCompleteMd and TableSchemaVersionMd. This is to ensure that,
             # when the metadata is later stored in the catalog of a different Pixeltable instance, the values of
             # current_version and current_schema_version will always point to versions that are known to the
             # destination catalog.
@@ -2017,7 +2017,10 @@ class Catalog:
         self, tbl_id: UUID, effective_version: int | None, check_pending_ops: bool = True
     ) -> TableVersion | None:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
-        tbl_md, version_md, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
+        table_version_md = self.load_tbl_md(tbl_id, effective_version)
+        tbl_md = table_version_md.tbl_md
+        version_md = table_version_md.version_md
+        schema_version_md = table_version_md.schema_version_md
         view_md = tbl_md.view_md
 
         conn = Env.get().conn
@@ -2061,7 +2064,7 @@ class Catalog:
             tbl_version = TableVersion(tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
-            # TODO: add TableVersionMd.is_pure_snapshot() and use that
+            # TODO: add TableVersionCompleteMd.is_pure_snapshot() and use that
             pure_snapshot = (
                 view_md.is_snapshot
                 and view_md.predicate is None
