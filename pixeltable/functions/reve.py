@@ -22,6 +22,10 @@ _logger = logging.getLogger('pixeltable')
 
 
 class _ReveClient:
+    """
+    Client for interacting with the Reve API. Maintains a long-lived HTTP session to the service.
+    """
+
     api_key: str
     session: aiohttp.ClientSession
 
@@ -31,6 +35,7 @@ class _ReveClient:
         atexit.register(lambda: asyncio.run(self.session.close()))
 
     async def _start_session(self) -> aiohttp.ClientSession:
+        # Maintains a long-lived TPC connection. The default keepalive timeout is 15 seconds.
         return aiohttp.ClientSession(base_url='https://api.reve.com')
 
     async def _post(self, endpoint: str, *, payload: dict) -> PIL.Image.Image:
