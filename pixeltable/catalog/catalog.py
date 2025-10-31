@@ -1722,9 +1722,7 @@ class Catalog:
         self._tbls[tbl_id, version] = view
         return view
 
-    def construct_tvp(
-        self, tbl_id: UUID, version: int, ancestor_ids: list[str], created_at: float
-    ) -> TableVersionPath:
+    def construct_tvp(self, tbl_id: UUID, version: int, ancestor_ids: list[str], created_at: float) -> TableVersionPath:
         # Construct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
         # timestamps of this table and all its ancestors.
         # TODO: Store the relevant TableVersionPaths in the database, so that we don't need to rely on timestamps
@@ -1735,7 +1733,7 @@ class Catalog:
         # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
         # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
         # given TableVersion's created_at timestamp.
-        ancestors: schema.TableVersionPath = [(tbl_id, version)]
+        ancestors: list[tuple[UUID, int]] = [(tbl_id, version)]
         for ancestor_id in ancestor_ids:
             q = (
                 sql.select(schema.TableVersion)
