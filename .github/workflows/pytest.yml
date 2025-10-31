@@ -188,9 +188,9 @@ jobs:
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         run: |
-          echo "Running tests with options : ${{ matrix.pytest-options }}"
-          echo "Extra environment variables: ${{ matrix.extra-env }}"
-          ${{ matrix.extra-env }}
+          echo 'Running tests with options : ${{ matrix.pytest-options }}'
+          echo 'Extra environment variables: ${{ matrix.extra-env }}'
+          export ${{ matrix.extra-env }}
           coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
       - name: Run the notebook tests
