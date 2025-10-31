@@ -54,7 +54,7 @@ class TestAudio:
         status = video_t.insert({'video': p} for p in video_filepaths)
         assert status.num_rows == len(video_filepaths)
         assert status.num_excs == 0
-        assert ObjectOps.count(None, video_t._id) == len(video_filepaths) - 1
+        assert ObjectOps.count(video_t._id, default_output_dest=True) == len(video_filepaths) - 1
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
         tmp_files_before = TempStore.count()
 
@@ -169,15 +169,15 @@ class TestAudio:
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.insert({'video': p} for p in video_filepaths)
 
-        pre_count = ObjectOps.count(None, video_t._id)
+        pre_count = ObjectOps.count(video_t._id, default_output_dest=True)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        post_count = ObjectOps.count(None, video_t._id)
+        post_count = ObjectOps.count(video_t._id, default_output_dest=True)
         assert post_count > pre_count  # Some files should have been added
 
         print(video_t.history())
         video_t.revert()
-        final_count = ObjectOps.count(None, video_t._id)
+        final_count = ObjectOps.count(video_t._id, default_output_dest=True)
         assert final_count == pre_count  # Reverting should remove the added files
 
     def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
