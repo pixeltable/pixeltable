@@ -1624,6 +1624,55 @@ class Table(SchemaObject):
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
+    def push(self, *, version: int | None = None) -> None:
+        from pixeltable.share import push_replica
+
+        tbl_version = self._tbl_version.get()
+        cloud_uri = tbl_version.cloud_uri
+
+        if tbl_version.is_replica:
+            raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)')
+        if cloud_uri is None:
+            raise excs.Error(
+                f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
+                'To publish it, use `pxt.publish()` instead.'
+            )
+
+        # TODO: Unify URI parsing logic when protocol is checked in (this is temporary)
+        orgdb = cloud_uri.removeprefix('pxt://').split('/')[0]
+        uuid_uri = f'pxt://{orgdb}/{self._id}'
+
+        if version is None:
+            # Push this version
+            push_replica(uuid_uri, self)
+        else:
+            versioned_path = catalog.Path.parse(self._path())._replace(version=version)
+            versioned_tbl = catalog.Catalog.get().get_table(versioned_path, IfNotExistsParam.IGNORE)
+            if versioned_tbl is None:
+                raise excs.Error(f'Table {self._name!r} has no known version {version}')
+            assert versioned_tbl._id == self._id
+            push_replica(uuid_uri, versioned_tbl)
+
+    def pull(self, *, version: int | None = None) -> None:
+        from pixeltable.share import pull_replica
+
+        if version is not None:
+            raise excs.Error('pull(): versioned pull is not yet supported; only the latest version can be pulled.')
+
+        tbl_version = self._tbl_version.get()
+        cloud_uri = tbl_version.cloud_uri
+
+        if not tbl_version.is_replica:
+            raise excs.Error(
+                f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
+            )
+        assert cloud_uri is not None
+
+        orgdb = cloud_uri.removeprefix('pxt://').split('/')[0]
+        uuid_uri = f'pxt://{orgdb}/{self._id}'
+
+        pull_replica(self._path(), uuid_uri)
+
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())
 
