@@ -1,7 +1,15 @@
-from typing import Any
+from __future__ import annotations
+
+from dataclasses import dataclass
+from fractions import Fraction
+from pathlib import Path
+from types import TracebackType
+from typing import Any, Iterator
 
 import av
 import av.stream
+import PIL.Image
+from typing_extensions import Self
 
 from pixeltable.env import Env
 
@@ -210,3 +218,81 @@ def ffmpeg_segment_cmd(
         ]
     )
     return cmd
+
+
+class VideoFrames:
+    """
+    Context manager for iterating over video frames at a specified frame rate.
+
+    Args:
+        path: Path to the video file
+        fps: Number of frames to extract per second. If None or 0.0, extracts all frames.
+    """
+
+    path: Path
+    fps: float
+    container: av.container.input.InputContainer | None
+    video_framerate: Fraction | None
+    video_time_base: Fraction | None
+    video_start_time: int | None
+
+    @dataclass
+    class Item:
+        frame_idx: int
+        pts: int
+        dts: int
+        time: float
+        is_corrupt: bool
+        key_frame: bool
+        pict_type: int
+        interlaced_frame: bool
+        frame: PIL.Image.Image
+
+    def __init__(self, path: Path, fps: float | None = None) -> None:
+        self.path = path
+        self.fps = 0.0 if fps is None else fps
+        self.container = None
+        self.video_framerate = None
+        self.video_time_base = None
+        self.video_start_time = None
+
+    def __enter__(self) -> Self:
+        self.container = av.open(self.path)
+        stream = self.container.streams.video[0]
+        self.video_framerate = stream.average_rate
+        self.video_time_base = stream.time_base
+        self.video_start_time = stream.start_time or 0
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
+        # Clean up
+        if self.container:
+            self.container.close()
+
+    def __iter__(self) -> Iterator[Item]:
+        num_returned = 0
+        frame_idx = -1
+        while True:
+            try:
+                frame = next(self.container.decode(video=0))
+            except (StopIteration, EOFError):
+                return
+
+            frame_idx += 1
+            if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
+                img = frame.to_image()
+                assert isinstance(img, PIL.Image.Image)
+                yield VideoFrames.Item(
+                    frame_idx=frame_idx,
+                    pts=frame.pts,
+                    dts=frame.dts,
+                    time=frame.time,
+                    is_corrupt=frame.is_corrupt,
+                    key_frame=frame.key_frame,
+                    pict_type=frame.pict_type,
+                    interlaced_frame=frame.interlaced_frame,
+                    frame=img,
+                )
+                num_returned += 1

@@ -7,6 +7,7 @@ Command-line utility for CI/CD operations.
 
 import argparse
 import json
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -19,6 +20,7 @@ class MatrixConfig(NamedTuple):
     os: str
     python_version: str
     uv_options: str = ''
+    pytest_options: str = "-m 'not expensive'"
     extra_env: str = ''
 
     @property
@@ -33,6 +35,7 @@ class MatrixConfig(NamedTuple):
             'os': self.os,
             'python-version': self.python_version,
             'uv-options': self.uv_options,
+            'pytest-options': self.pytest_options,
             'extra-env': self.extra_env,
         }
 
@@ -68,7 +71,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
     ]
 
     # Full test suite on basic platforms on Python 3.10
-    configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in BASIC_PLATFORMS)
+    # Exclude expensive tests on everything except Ubuntu
+    configs.extend(
+        MatrixConfig(
+            'full', 'py', os, '3.10', pytest_options="-m ''" if os.startswith('ubuntu') else "-m 'not expensive'"
+        )
+        for os in BASIC_PLATFORMS
+    )
 
     if force_all or trigger != 'pull_request':
         # Full test suite on basic platforms on Python 3.13
@@ -84,18 +93,37 @@ def generate_matrix(args: argparse.Namespace) -> None:
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
+        # tests_table.py only, against CockroachDB backend
+        if trigger != 'merge_group':
+            # TODO For now, skip this in merge queue, until we're confident we can run multiple concurrent instances.
+            #     It will still run in the weekly suite or on-demand.
+            cockroachdb_connect_str = os.environ.get('PXTTEST_COCKROACHDB_CONNECT_STR')
+            if cockroachdb_connect_str:
+                configs.append(
+                    MatrixConfig(
+                        'cockroach',
+                        'py',
+                        'ubuntu-24.04',
+                        '3.10',
+                        uv_options='--no-dev',
+                        pytest_options='tests/test_table.py',
+                        extra_env=f'PIXELTABLE_DB_CONNECT_STR={cockroachdb_connect_str}',
+                    )
+                )
+
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.
-        configs.append(
-            MatrixConfig(
-                's3-output-dest',
-                'py',
-                'ubuntu-24.04',
-                '3.10',
-                uv_options='--no-dev --group storage-sdks',
-                extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
+        if os.environ.get('AWS_ACCESS_KEY_ID'):
+            configs.append(
+                MatrixConfig(
+                    's3-output-dest',
+                    'py',
+                    'ubuntu-24.04',
+                    '3.10',
+                    uv_options='--no-dev --group storage-sdks',
+                    extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
+                )
             )
-        )
 
     if force_all or trigger == 'schedule':
         # Expensive tests on special hardware on Python 3.10
