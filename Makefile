@@ -24,8 +24,6 @@ else
     ULIMIT_CMD := ulimit -n 4000;
 endif
 
-UV_ARGS := --group extra-dev
-
 # Common test parameters
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
 	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
@@ -67,10 +65,6 @@ help:
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
-	@echo ''
-	@echo 'Other useful commands:'
-	@echo '  make install UV_ARGS=--no-dev   Minimal Pixeltable installation (no dev packages)'
-	@echo '  make test UV_ARGS=--no-dev      Run tests with minimal installation'
 
 .PHONY: setup-install
 setup-install:
@@ -87,8 +81,7 @@ else
 	$(error Pixeltable must be installed from a conda environment)
 endif
 
-# Environment installation, prior to running `uv sync`
-.make-install/env:
+.make-install/uv:
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
@@ -104,21 +97,20 @@ endif
 		target=$$(basename $$dir); \
 		ln -sf $$dir $(CONDA_PREFIX)/share/$$target 2>/dev/null || true; \
 	done
-	@$(TOUCH) .make-install/env
+	@$(TOUCH) .make-install/uv
 
-.PHONY: install-deps
-install-deps:
+.make-install/deps: pyproject.toml uv.lock
 	@echo 'Installing dependencies from uv ...'
-	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS)
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
+	@$(TOUCH) .make-install/deps
 
-# After running `uv sync`
 .make-install/others:
 	@echo 'Installing Jupyter kernel ...'
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@$(TOUCH) .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/uv install-deps .make-install/others
+install: setup-install .make-install/uv .make-install/deps .make-install/others
 
 .PHONY: test
 test: pytest check
