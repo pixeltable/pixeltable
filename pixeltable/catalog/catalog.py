@@ -104,6 +104,8 @@ def retry_loop(
                 except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(
+                        # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
+                        #     which is supposed to be deadlock-free.
                         e.orig,
                         (
                             psycopg.errors.SerializationFailure,
@@ -459,6 +461,8 @@ class Catalog:
             _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
             raise excs.Error(f'Table was dropped: {tbl_name}') from None
         elif (
+            # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
+            #     which is supposed to be deadlock-free.
             isinstance(
                 e.orig,
                 (
