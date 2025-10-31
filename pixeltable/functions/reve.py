@@ -83,6 +83,7 @@ class _ReveClient:
                     if len(img_data) == 0:
                         raise ReveUnexpectedError(f'Reve request {request_id} resulted in an empty image')
                     img = PIL.Image.open(BytesIO(img_data))
+                    img.load()
                     _logger.debug(
                         f'Reve request {request_id} successful. Image bytes: {len(img_data)}, size: {img.size}'
                         f', format: {img.format}, mode: {img.mode}'
