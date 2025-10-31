@@ -97,10 +97,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
         if trigger != 'merge_group':
             # TODO For now, skip this in merge queue, until we're confident we can run multiple concurrent instances.
             #     It will still run in the weekly suite or on-demand.
-            cockroachdb_connect_str = os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR')
-            if cockroachdb_connect_str:
-                cockroachdb_root_cert = os.environ.get('PXTTEST_COCKROACH_DB_ROOT_CERT')
-                full_connect_str = f'{cockroachdb_connect_str}/?sslmode=verify-full&sslrootcert=/tmp/pxt-dev-testing-ca.crt'
+            if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
                 configs.append(
                     MatrixConfig(
                         'cockroach',
@@ -109,7 +106,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
                         '3.10',
                         uv_options='--no-dev',
                         pytest_options='tests/test_table.py',
-                        extra_env=f"PIXELTABLE_DB_CONNECT_STR='{full_connect_str}'",
+                        extra_env=f'PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                     )
                 )
 

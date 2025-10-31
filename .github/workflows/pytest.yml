@@ -190,7 +190,8 @@ jobs:
         run: |
           echo "Running tests with options : ${{ matrix.pytest-options }}"
           echo "Extra environment variables: ${{ matrix.extra-env }}"
-          ${{ matrix.extra-env }} coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
+          ${{ matrix.extra-env }}
+          coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
