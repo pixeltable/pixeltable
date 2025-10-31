@@ -88,14 +88,14 @@ def push_replica(
     if finalize_response_json.status_code != 200:
         raise excs.Error(f'Error finalizing snapshot: {finalize_response_json.text}')
     
-    finalize_response = FinalizeResponse.model_validate_json(finalize_response.json())
+    finalize_response = FinalizeResponse.model_validate_json(finalize_response_json.json())
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
     Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
 
     with Catalog.get().begin_xact(tbl_id=src_tbl._tbl_version_path.tbl_id, for_write=True):
-        src_tbl._tbl_version_path.tbl_version.get().update_cloud_uri(confirmed_tbl_uri)
+        src_tbl._tbl_version_path.tbl_version.get().update_cloud_uri(str(confirmed_tbl_uri))
 
-    return confirmed_tbl_uri
+    return str(confirmed_tbl_uri)
 
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
