@@ -22,9 +22,7 @@ class TestReve:
         t.add_computed_column(
             city_skyline=(
                 reve.create(
-                    'A futuristic city skyline with at night with a skyscraper featured prominently',
-                    format='jpeg',
-                    aspect_ratio='1:1',
+                    'A futuristic city skyline with at night with a skyscraper featured prominently', aspect_ratio='1:1'
                 )
             )
         )
@@ -33,7 +31,6 @@ class TestReve:
                 reve.remix(
                     'Put a company logo from <img>0</img> on the skyscraper from <img>1</img>',
                     images=[t.just_logo, t.city_skyline],
-                    output_format='jpeg',
                     aspect_ratio='16:9',
                 )
             )

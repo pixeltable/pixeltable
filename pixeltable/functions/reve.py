@@ -20,7 +20,6 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 _logger = logging.getLogger('pixeltable')
-_SUPPORTED_FORMATS = ('png', 'jpeg', 'webp')
 
 
 class _ReveClient:
@@ -35,10 +34,9 @@ class _ReveClient:
     async def _init_session(self) -> aiohttp.ClientSession:
         return aiohttp.ClientSession(base_url='https://api.reve.com')
 
-    async def _post(self, endpoint: str, *, payload: dict, format: str) -> PIL.Image.Image:
-        if format not in _SUPPORTED_FORMATS:
-            raise pxt.Error(f'Unsupported image format: {format}. Supported formats: {_SUPPORTED_FORMATS}')
-        requested_content_type = 'image/' + format
+    async def _post(self, endpoint: str, *, payload: dict) -> PIL.Image.Image:
+        # Reve supports other formats as well, but we only use PNG for now
+        requested_content_type = 'image/png'
         request_headers = {
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
@@ -109,9 +107,7 @@ def _client() -> _ReveClient:
 # strategies is a perfect match, but "request-rate" is the closest. Reve does not currently enforce the rate limits,
 # but when it does, we can revisit this choice.
 @pxt.udf(resource_pool='request-rate:reve')
-async def create(
-    prompt: str, *, format: str, aspect_ratio: str | None = None, version: str | None = None
-) -> PIL.Image.Image:
+async def create(prompt: str, *, aspect_ratio: str | None = None, version: str | None = None) -> PIL.Image.Image:
     """
     Creates an image from a text prompt.
 
@@ -120,7 +116,6 @@ async def create(
 
     Args:
         prompt: prompt describing the desired image
-        format: desired output image format
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest if not specified.
 
@@ -131,7 +126,7 @@ async def create(
         Add a computed column with generated square images to a table with text prompts:
 
         >>> t.add_computed_column(
-        ...     img=reve.create(t.prompt, format='jpeg', aspect_ratio='1:1')
+        ...     img=reve.create(t.prompt, aspect_ratio='1:1')
         ... )
     """
     payload = {'prompt': prompt}
@@ -140,14 +135,12 @@ async def create(
     if version is not None:
         payload['version'] = version
 
-    result = await _client()._post('/v1/image/create', payload=payload, format=format)
+    result = await _client()._post('/v1/image/create', payload=payload)
     return result
 
 
 @pxt.udf(resource_pool='request-rate:reve')
-async def edit(
-    image: PIL.Image.Image, edit_instruction: str, *, output_format: str | None = None, version: str | None = None
-) -> PIL.Image.Image:
+async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None) -> PIL.Image.Image:
     """
     Edits images based on a text prompt.
 
@@ -157,8 +150,6 @@ async def edit(
     Args:
         image: image to edit
         edit_instruction: text prompt describing the desired edit
-        output_format: desired output image format. If not specified, uses the input image
-            format.
         version: specific model version to use. Latest if not specified.
 
     Returns:
@@ -174,27 +165,17 @@ async def edit(
         ...     )
         ... )
     """
-    if image.format is None or image.format.lower() not in _SUPPORTED_FORMATS:
-        raise pxt.Error(f'Input image format {image.format} is not supported. Supported formats: {_SUPPORTED_FORMATS}')
-    if output_format is None:
-        output_format = image.format.lower()
-
     payload = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
     if version is not None:
         payload['version'] = version
 
-    result = await _client()._post('/v1/image/edit', payload=payload, format=output_format)
+    result = await _client()._post('/v1/image/edit', payload=payload)
     return result
 
 
 @pxt.udf(resource_pool='request-rate:reve')
 async def remix(
-    prompt: str,
-    images: list[PIL.Image.Image],
-    *,
-    output_format: str,
-    aspect_ratio: str | None = None,
-    version: str | None = None,
+    prompt: str, images: list[PIL.Image.Image], *, aspect_ratio: str | None = None, version: str | None = None
 ) -> PIL.Image.Image:
     """
     Creates images based on a text prompt and reference images.
@@ -207,7 +188,6 @@ async def remix(
     Args:
         prompt: prompt describing the desired image
         images: list of reference images
-        output_format: desired output image format
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest by default.
 
@@ -223,7 +203,6 @@ async def remix(
         ...             'Generate a product promotional image by combining the image of the product'
         ...             ' from <img>0</img> with the landmark scene from <img>1</img>',
         ...             images=[t.product_img, t.local_landmark_img],
-        ...             output_format='jpeg',
         ...             aspect_ratio='16:9',
         ...         )
         ...     )
@@ -237,7 +216,7 @@ async def remix(
         payload['version'] = version
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
-    result = await _client()._post('/v1/image/remix', payload=payload, format=output_format)
+    result = await _client()._post('/v1/image/remix', payload=payload)
     return result
 
 
