@@ -56,9 +56,7 @@ class BtreeIndex(IndexBase):
     def sa_index(self, store_index_name: str, index_value_col: 'catalog.Column') -> sql.Index:
         return sql.Index(store_index_name, index_value_col.sa_col, postgresql_using='btree')
 
-    def sa_create_stmt(
-        self, store_index_name: str, sa_value_col: sql.Column
-    ) -> sql.Compiled:
+    def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
         from sqlalchemy.dialects import postgresql
 

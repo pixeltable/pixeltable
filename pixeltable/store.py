@@ -116,7 +116,10 @@ class StoreBase:
         # we only capture indices visible in this version
         for idx_info in tbl_version.idxs.values():
             idx = idx_info.idx.sa_index(tbl_version._store_idx_name(idx_info.id), idx_info.val_col)
-            idxs.append(idx)
+            if idx is not None:
+                # Depending on the configured DBMS, some indices might not be representable as SQLAlchemy
+                # Index objects.
+                idxs.append(idx)
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
@@ -218,13 +221,11 @@ class StoreBase:
         # ensure that all visible indices exist by running Create Index If Not Exists
         for id in self.tbl_version.get().idxs:
             self.create_index(id)
-            
+
     def create_index(self, idx_id: int) -> None:
         """Create If Not Exists for this index"""
         idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt = idx_info.idx.sa_create_stmt(
-            self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col
-        )
+        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
         self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
     def validate(self) -> None:

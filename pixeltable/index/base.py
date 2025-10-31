@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-from typing import Any
 
 import sqlalchemy as sql
 
@@ -34,13 +33,11 @@ class IndexBase(abc.ABC):
         """Return the sqlalchemy type of the index value column"""
 
     @abc.abstractmethod
-    def sa_index(self, index_name: str, index_value_col: catalog.Column) -> sql.Index:
-        """Return a sqlalchemy Index instance"""
+    def sa_index(self, index_name: str, index_value_col: catalog.Column) -> sql.Index | None:
+        """Return a sqlalchemy Index instance, or `None` if this index is not representable as one"""
 
     @abc.abstractmethod
-    def sa_create_stmt(
-        self, store_index_name: str, sa_value_col: sql.Column
-    ) -> sql.Compiled:
+    def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
 
     @abc.abstractmethod
