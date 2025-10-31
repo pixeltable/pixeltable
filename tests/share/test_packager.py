@@ -17,12 +17,12 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog.table_version import TableVersionCompleteMd
-from pixeltable.metadata import schema
 from pixeltable.catalog import Catalog
+from pixeltable.catalog.table_version import TableVersionCompleteMd
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
+from pixeltable.metadata import schema
 from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import LocalStore, TempStore

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -34,6 +36,12 @@ class PxtUri(BaseModel):
     db_slug: Optional[str]  # Database slug from the URI (optional)
     table_identifier: str  # The table identifier (path or UUID)
     is_uuid: bool  # True if table_identifier is a UUID, False if it's a path
+
+    def __init__(self, uri: str | None = None, **kwargs: Any) -> None:
+        if uri is not None:
+            # If uri is provided as positional argument, use it
+            kwargs['uri'] = uri
+        super().__init__(**kwargs)
 
     @model_validator(mode='before')
     @classmethod

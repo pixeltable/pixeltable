@@ -2,8 +2,7 @@ import dataclasses
 import types
 import typing
 import uuid
-
-from typing import Any, NamedTuple, TypeVar, Union, get_type_hints
+from typing import Any, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm

@@ -70,7 +70,7 @@ class TablePackager:
             self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
-                'md': [dataclasses.asdict(md) for md in tbl_md]
+                'md': [dataclasses.asdict(md) for md in tbl_md],
             }
         if additional_md is not None:
             self.bundle_md.update(additional_md)
@@ -370,7 +370,6 @@ class TableRestorer:
     bundle_md: dict[str, Any] | None
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
-
 
     def __init__(self, tbl_path: str, bundle_md: dict[str, Any] | None = None) -> None:
         self.tbl_path = tbl_path

@@ -48,7 +48,7 @@ class TableVersionCompleteMd:
     Complete set of md records for a specific TableVersion instance.
     """
 
-    tbl_md: Optional[schema.TableMd]
+    tbl_md: schema.TableMd | None
     version_md: schema.TableVersionMd
     schema_version_md: schema.TableSchemaVersionMd
 
@@ -373,7 +373,6 @@ class TableVersion:
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
     @classmethod
-
     def create_replica(cls, md: TableVersionCompleteMd) -> TableVersion:
         from .catalog import Catalog, TableVersionPath
 

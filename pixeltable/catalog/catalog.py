@@ -1761,11 +1761,10 @@ class Catalog:
         return view
 
     @retry_loop(for_write=False)
-
-    def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
+    def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[TableVersionCompleteMd]:
         return self._collect_tbl_history(tbl_id, n)
 
-    def _collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
+    def _collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[TableVersionCompleteMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 
@@ -1801,8 +1800,7 @@ class Catalog:
             for row in src_rows
         ]
 
-
-    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> schema.FullTableMd:
+    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """

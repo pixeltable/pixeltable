@@ -5,6 +5,8 @@ This module contains the core table protocol structures that can be shared
 between pixeltable core and cloud implementations.
 """
 
+from __future__ import annotations
+
 from typing import Any, Literal, Optional
 from uuid import UUID
 
