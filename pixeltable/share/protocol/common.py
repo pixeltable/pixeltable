@@ -86,6 +86,14 @@ class PxtUri(BaseModel):
 
         return {'org_slug': org_slug, 'db_slug': db_slug, 'table_identifier': table_identifier, 'is_uuid': is_uuid}
 
+    @classmethod
+    def from_components(cls, org_slug: str, table_identifier: str, db_slug: Optional[str] = None) -> PxtUri:
+        """Construct a PxtUri from its components."""
+        # Build the URI string from components
+        netloc = org_slug if db_slug is None else f'{org_slug}:{db_slug}'
+        uri = f'pxt://{netloc}/{table_identifier}'
+        return cls(uri=uri)
+
 
 class RequestBaseModel(BaseModel, ABC):
     """Abstract base model for protocol requests that must have a PxtUri."""

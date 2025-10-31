@@ -1626,6 +1626,7 @@ class Table(SchemaObject):
 
     def push(self, *, version: int | None = None) -> None:
         from pixeltable.share import push_replica
+        from pixeltable.share.protocol import PxtUri
 
         tbl_version = self._tbl_version.get()
         cloud_uri = tbl_version.cloud_uri
@@ -1638,9 +1639,12 @@ class Table(SchemaObject):
                 'To publish it, use `pxt.publish()` instead.'
             )
 
-        # TODO: Unify URI parsing logic when protocol is checked in (this is temporary)
-        orgdb = cloud_uri.removeprefix('pxt://').split('/')[0]
-        uuid_uri = f'pxt://{orgdb}/{self._id}'
+        # Parse the cloud URI to extract org/db and create a UUID-based URI for pushing
+        parsed_uri = PxtUri(uri=cloud_uri)
+        uuid_uri_obj = PxtUri.from_components(
+            org_slug=parsed_uri.org_slug, table_identifier=str(self._id), db_slug=parsed_uri.db_slug
+        )
+        uuid_uri = str(uuid_uri_obj)
 
         if version is None:
             # Push this version
@@ -1655,6 +1659,7 @@ class Table(SchemaObject):
 
     def pull(self, *, version: int | None = None) -> None:
         from pixeltable.share import pull_replica
+        from pixeltable.share.protocol import PxtUri
 
         if version is not None:
             raise excs.Error('pull(): versioned pull is not yet supported; only the latest version can be pulled.')
@@ -1668,8 +1673,12 @@ class Table(SchemaObject):
             )
         assert cloud_uri is not None
 
-        orgdb = cloud_uri.removeprefix('pxt://').split('/')[0]
-        uuid_uri = f'pxt://{orgdb}/{self._id}'
+        # Parse the cloud URI to extract org/db and create a UUID-based URI for pulling
+        parsed_uri = PxtUri(cloud_uri)
+        uuid_uri_obj = PxtUri.from_components(
+            org_slug=parsed_uri.org_slug, table_identifier=str(self._id), db_slug=parsed_uri.db_slug
+        )
+        uuid_uri = str(uuid_uri_obj)
 
         pull_replica(self._path(), uuid_uri)
 

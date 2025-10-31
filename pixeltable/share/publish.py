@@ -87,7 +87,7 @@ def push_replica(
     )
     if finalize_response_json.status_code != 200:
         raise excs.Error(f'Error finalizing snapshot: {finalize_response_json.text}')
-    
+
     finalize_response = FinalizeResponse.model_validate_json(finalize_response_json.json())
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
     Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
@@ -143,9 +143,10 @@ def pull_replica(dest_path: str, src_tbl_uri: str, version: int | None = None) -
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
     primary_tbl_additional_md['cloud_uri'] = src_tbl_uri
-    restorer = TableRestorer(dest_path,{'pxt_version': pxt.__version__,
-                                        'pxt_md_version': clone_response.pxt_md_version,
-                                        'md': clone_response.md})
+    restorer = TableRestorer(
+        dest_path,
+        {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': clone_response.md},
+    )
 
     tbl = restorer.restore(bundle_path)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
