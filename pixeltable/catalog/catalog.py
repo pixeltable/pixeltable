@@ -1221,8 +1221,8 @@ class Catalog:
                 # in place in the DB.
                 new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
             elif not md.version_md.is_fragment:
-                # We are publishing a non fragment replica and new metadata version is either same or
-                # older than current version, replace only additional md that tracks replica's location and stats
+                # Publishing a non-fragment replica where the new table version is same/older than current;
+                # replace only the additional metadata that tracks public/private visibility
                 existing_tbl_md = schema.md_from_dict(schema.TableMd, existing_md_row.md)
                 new_tbl_md = dataclasses.replace(existing_tbl_md, additional_md=md.tbl_md.additional_md)
 
@@ -1257,7 +1257,7 @@ class Catalog:
             if existing_version_md.is_fragment and not md.version_md.is_fragment:
                 # This version exists in the DB as a fragment, but we're importing a complete copy of the same version;
                 # set the is_fragment flag to False in the DB.
-                # This will also copy additional_md.
+                # This will also copy additional_md that tracks replica location and stats.
                 new_version_md = md.version_md
 
         # Do the same thing for TableSchemaVersion.
