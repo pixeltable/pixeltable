@@ -48,7 +48,7 @@ class TableVersionCompleteMd:
     Complete set of md records for a specific TableVersion instance.
     """
 
-    tbl_md: schema.TableMd | None
+    tbl_md: schema.TableMd
     version_md: schema.TableVersionMd
     schema_version_md: schema.TableSchemaVersionMd
 

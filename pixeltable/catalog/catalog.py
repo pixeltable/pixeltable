@@ -1793,7 +1793,7 @@ class Catalog:
         src_rows = Env.get().session.execute(q).fetchall()
         return [
             TableVersionCompleteMd(
-                tbl_md=None,
+                tbl_md=schema.md_from_dict(schema.TableMd, row.Table.md),
                 version_md=schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
                 schema_version_md=schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
             )
