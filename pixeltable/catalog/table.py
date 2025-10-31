@@ -1661,10 +1661,7 @@ class Table(SchemaObject):
         from pixeltable.share import pull_replica
         from pixeltable.share.protocol import PxtUri
 
-        if version is not None:
-            raise excs.Error('pull(): versioned pull is not yet supported; only the latest version can be pulled.')
-
-        tbl_version = self._tbl_version.get()
+        tbl_version = self._tbl_version_path.tbl_version.get()
         cloud_uri = tbl_version.cloud_uri
 
         if not tbl_version.is_replica:
@@ -1674,13 +1671,13 @@ class Table(SchemaObject):
         assert cloud_uri is not None
 
         # Parse the cloud URI to extract org/db and create a UUID-based URI for pulling
-        parsed_uri = PxtUri(cloud_uri)
+        parsed_uri = PxtUri(uri=cloud_uri)
         uuid_uri_obj = PxtUri.from_components(
             org_slug=parsed_uri.org_slug, table_identifier=str(self._id), db_slug=parsed_uri.db_slug
         )
         uuid_uri = str(uuid_uri_obj)
 
-        pull_replica(self._path(), uuid_uri)
+        pull_replica(self._path(), uuid_uri, version)
 
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())
