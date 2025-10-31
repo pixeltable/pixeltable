@@ -218,6 +218,12 @@ class TableMd:
             and len(self.column_md) == 0
         )
 
+    @property
+    def ancestor_ids(self) -> list[str]:
+        if self.view_md is None:
+            return []
+        return [id for id, _ in self.view_md.base_versions]
+
 
 class Table(Base):
     """
