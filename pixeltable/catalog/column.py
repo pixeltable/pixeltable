@@ -104,7 +104,7 @@ class Column:
                     f'but it is a {type(computed_with)}'
                 )
             else:
-                self._value_expr = value_expr
+                self._value_expr = value_expr.copy()
                 self.col_type = self._value_expr.col_type
         if self._value_expr is not None and self.value_expr_dict is None:
             self.value_expr_dict = self._value_expr.as_dict()

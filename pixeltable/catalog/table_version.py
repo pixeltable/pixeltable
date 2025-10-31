@@ -531,11 +531,12 @@ class TableVersion:
                 self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
 
         # create value exprs, now that we have all lookup structures in place
-        tvp = (
-            None
-            if self.effective_version is None
-            else Catalog.get().reconstruct_tvp(self.id, self.effective_version, self.tbl_md, self.version_md)
-        )
+        tvp: TableVersionPath | None = None
+        if self.effective_version is not None:
+            # for snapshot TableVersion instances, we need to retarget the column value_exprs to the snapshot;
+            # otherwise they'll incorrectly refer to the live table. So, construct a full TableVersionPath to
+            # use for retargeting.
+            tvp = Catalog.get().construct_tvp(self.id, self.effective_version, self.tbl_md.ancestor_ids, self.version_md.created_at)
         for col in self.cols_by_id.values():
             col.init_value_expr(tvp)
 
