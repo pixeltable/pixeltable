@@ -44,9 +44,12 @@ fi
 chmod a+r ~/.aws/config
 chmod a+r ~/.aws/credentials || true
 
-# Setup GCS if credentials are provided
+# Set up GCS if credentials are provided
 if [ -n "${GCS_SERVICE_ACCOUNT_KEY}" ]; then
     echo "Found GCS service account key."
     echo "${GCS_SERVICE_ACCOUNT_KEY}" > /tmp/gcs-key.json
     chmod a+r /tmp/gcs-key.json
 fi
+
+# Cockroach DB root certificate
+echo "${PXTTEST_COCKROACH_DB_ROOT_CERT}" > /tmp/pxt-dev-testing-ca.crt

@@ -46,6 +46,8 @@ env:
   PIXELTABLE_B2_PROFILE: b2_profile
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   PIXELTABLE_R2_PROFILE: r2_profile
+  PXTTEST_COCKROACH_DB_CONNECT_STR: ${{ secrets.PXTTEST_COCKROACH_DB_CONNECT_STR }}
+  PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
   UV_VERSION: 0.9.3
 
