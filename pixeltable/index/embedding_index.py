@@ -137,6 +137,12 @@ class EmbeddingIndex(IndexBase):
             store_index_name, index_value_col.sa_col, metric=self.PGVECTOR_OPS[self.metric]
         )
 
+    def sa_create_stmt(self, store_index_name, sa_value_col):
+        """Return a sqlalchemy statement for creating the index"""
+        return Env.get().dbms.create_vector_index_stmt(
+            store_index_name, sa_value_col, metric=self.PGVECTOR_OPS[self.metric]
+        )
+
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Drop the index on the index value column"""
         # TODO: implement

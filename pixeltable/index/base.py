@@ -20,46 +20,40 @@ class IndexBase(abc.ABC):
     """
 
     @abc.abstractmethod
-    def __init__(self, **kwargs: Any):
-        pass
-
-    @abc.abstractmethod
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
         """
         Validates that the index can be created on column c and returns an expression that computes the index value.
         """
-        pass
 
     @abc.abstractmethod
     def records_value_errors(self) -> bool:
         """True if index_value_expr() can raise errors"""
-        pass
 
     @abc.abstractmethod
     def get_index_sa_type(self, value_col_type: ts.ColumnType) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
-        pass
 
     @abc.abstractmethod
     def sa_index(self, index_name: str, index_value_col: catalog.Column) -> sql.Index:
         """Return a sqlalchemy Index instance"""
-        pass
+
+    @abc.abstractmethod
+    def sa_create_stmt(
+        self, store_index_name: str, sa_value_col: sql.Column
+    ) -> sql.Compiled:
+        """Return a sqlalchemy statement for creating the index"""
 
     @abc.abstractmethod
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Drop the index on the index value column"""
-        pass
 
     @classmethod
     @abc.abstractmethod
-    def display_name(cls) -> str:
-        pass
+    def display_name(cls) -> str: ...
 
     @abc.abstractmethod
-    def as_dict(self) -> dict:
-        pass
+    def as_dict(self) -> dict: ...
 
     @classmethod
     @abc.abstractmethod
-    def from_dict(cls, d: dict) -> IndexBase:
-        pass
+    def from_dict(cls, d: dict) -> IndexBase: ...
