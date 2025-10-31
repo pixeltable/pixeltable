@@ -10,8 +10,6 @@ t.select(t.img_col.convert('L')).collect()
 ```
 """
 
-import base64
-
 import PIL.Image
 
 import pixeltable as pxt

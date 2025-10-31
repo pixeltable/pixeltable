@@ -6,7 +6,6 @@ or as `api_key` in the `reve` section of the Pixeltable config file.
 
 import asyncio
 import atexit
-import base64
 import logging
 import re
 from io import BytesIO
