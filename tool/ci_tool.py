@@ -104,7 +104,6 @@ def generate_matrix(args: argparse.Namespace) -> None:
                         'py',
                         'ubuntu-24.04',
                         '3.10',
-                        uv_options='--no-dev',
                         pytest_options='tests/test_table.py',
                         extra_env=f'PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                     )
