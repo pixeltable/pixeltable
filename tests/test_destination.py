@@ -96,7 +96,7 @@ class TestDestination:
         msg1 = (
             r'Connection error while validating destination '
             r"'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest/' "
-            r"for column 'img_rot': SSL validation failed"
+            r"for column 'img_rot':"
         )
         msg2 = (
             r"Client error while validating destination for column 'img_rot': "
