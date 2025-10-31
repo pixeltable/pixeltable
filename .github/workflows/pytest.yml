@@ -190,7 +190,9 @@ jobs:
         run: |
           echo 'Running tests with options : ${{ matrix.pytest-options }}'
           echo 'Extra environment variables: ${{ matrix.extra-env }}'
-          export ${{ matrix.extra-env }}
+          if [ -n '${{ matrix.extra-env }}' ]; then
+            export ${{ matrix.extra-env }}
+          fi
           coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
       - name: Run the notebook tests
