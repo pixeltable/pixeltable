@@ -103,7 +103,16 @@ def retry_loop(
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
                 except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
-                    if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
+                    if isinstance(
+                        # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
+                        #     which is supposed to be deadlock-free.
+                        e.orig,
+                        (
+                            psycopg.errors.SerializationFailure,
+                            psycopg.errors.LockNotAvailable,
+                            psycopg.errors.DeadlockDetected,
+                        ),
+                    ):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
@@ -452,12 +461,15 @@ class Catalog:
             _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
             raise excs.Error(f'Table was dropped: {tbl_name}') from None
         elif (
+            # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
+            #     which is supposed to be deadlock-free.
             isinstance(
                 e.orig,
                 (
                     psycopg.errors.SerializationFailure,  # serialization error despite getting x-locks
                     psycopg.errors.InFailedSqlTransaction,  # can happen after tx fails for another reason
                     psycopg.errors.DuplicateColumn,  # if a different process added a column concurrently
+                    psycopg.errors.DeadlockDetected,  # locking protocol contention
                 ),
             )
             and convert_db_excs
