@@ -21,6 +21,18 @@ from pixeltable.utils.image import to_base64
 _logger = logging.getLogger('pixeltable')
 
 
+class ReveRateLimitedError(Exception):
+    pass
+
+
+class ReveContentViolationError(Exception):
+    pass
+
+
+class ReveUnexpectedError(Exception):
+    pass
+
+
 class _ReveClient:
     """
     Client for interacting with the Reve API. Maintains a long-lived HTTP session to the service.
@@ -53,19 +65,23 @@ class _ReveClient:
             match resp.status:
                 case 200:
                     if error_code is not None:
-                        raise pxt.Error(f'Reve request {request_id} returned an unexpected error {error_code}')
+                        raise ReveUnexpectedError(
+                            f'Reve request {request_id} returned an unexpected error {error_code}'
+                        )
                     content_violation = resp.headers.get('X-Reve-Content-Violation', 'false')
                     if content_violation.lower() != 'false':
-                        raise pxt.Error(f'Reve request {request_id} resulted in a content violation error')
+                        raise ReveContentViolationError(
+                            f'Reve request {request_id} resulted in a content violation error'
+                        )
                     if resp.content_type != requested_content_type:
-                        raise pxt.Error(
+                        raise ReveUnexpectedError(
                             f'Reve request {request_id} expected content type {requested_content_type}, '
                             f'got {resp.content_type}'
                         )
 
                     img_data = await resp.read()
                     if len(img_data) == 0:
-                        raise pxt.Error(f'Reve request {request_id} resulted in an empty image')
+                        raise ReveUnexpectedError(f'Reve request {request_id} resulted in an empty image')
                     img = PIL.Image.open(BytesIO(img_data))
                     _logger.debug(
                         f'Reve request {request_id} successful. Image bytes: {len(img_data)}, size: {img.size}'
@@ -86,7 +102,7 @@ class _ReveClient:
                     )
                     # This error message is formatted specifically so that RequestRateScheduler can extract the retry
                     # delay from it
-                    raise pxt.Error(
+                    raise ReveRateLimitedError(
                         f'Reve request {request_id} failed due to rate limiting (429). retry-after:'
                         f'{retry_after_seconds}'
                     )
@@ -94,7 +110,9 @@ class _ReveClient:
                     _logger.info(
                         f'Reve request {request_id} failed with status code {resp.status} and error code {error_code}'
                     )
-                    raise pxt.Error(f'Reve request failed with status code {resp.status} and error code {error_code}')
+                    raise ReveUnexpectedError(
+                        f'Reve request failed with status code {resp.status} and error code {error_code}'
+                    )
 
 
 @register_client('reve')
