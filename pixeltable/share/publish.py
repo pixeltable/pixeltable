@@ -144,8 +144,8 @@ def pull_replica(dest_path: str, src_tbl_uri: str, version: int | None = None) -
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
-    # Set cloud_uri in the table metadata
-    clone_response.md[0].tbl_md.additional_md['cloud_uri'] = src_tbl_uri
+    # Set cloud_uri in the table metadata; use table_uri from ReplicateResponse
+    clone_response.md[0].tbl_md.additional_md['cloud_uri'] = clone_response.table_uri
     md_list = [dataclasses.asdict(md) for md in clone_response.md]
     restorer = TableRestorer(
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
