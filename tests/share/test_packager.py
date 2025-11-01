@@ -19,8 +19,10 @@ import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
 from pixeltable._query import ResultSet
 from pixeltable.catalog import Catalog
+from pixeltable.catalog.table_version import TableVersionCompleteMd
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
+from pixeltable.metadata import schema
 from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import LocalStore, TempStore
@@ -97,9 +99,9 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._get_base_tables()) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._get_base_tables())):
-            assert t_md['table_id'] == str(t._tbl_version.id)
+        assert len(md['md']) == len(tbl._get_base_tables()) + 1
+        for t_md, t in zip(md['md'], (tbl, *tbl._get_base_tables())):
+            assert schema.md_from_dict(TableVersionCompleteMd, t_md).version_md.tbl_id == str(t._tbl_version.id)
 
     def __check_parquet_tbl(
         self,
@@ -356,6 +358,14 @@ class TestPackager:
         v2.update({'x2': v1.x1 + 8})
         snapshot = pxt.create_snapshot('snapshot', v2)
         self.__do_round_trip(snapshot)
+
+    def test_restricted_view_round_trip(self, reset_db: None) -> None:
+        """Tests a view that only selects a subset of the columns from its base table."""
+        t = pxt.create_table('base_tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(100))
+        v = pxt.create_view('view', t.select(t.icol))
+
+        self.__do_round_trip(v)
 
     def test_iterator_view_round_trip(self, reset_db: None) -> None:
         t = pxt.create_table('base_tbl', {'video': pxt.Video})

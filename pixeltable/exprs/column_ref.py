@@ -221,7 +221,8 @@ class ColumnRef(Expr):
         return self._descriptors().to_html()
 
     def _descriptors(self) -> DescriptionHelper:
-        tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
+        with catalog.Catalog.get().begin_xact():
+            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
         helper = DescriptionHelper()
         helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         helper.append(tbl._col_descriptor([self.col.name]))

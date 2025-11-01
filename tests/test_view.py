@@ -667,6 +667,10 @@ class TestView:
         res = reload_tester.run_query(v3.select(v3.foo2).order_by(v2.c2).limit(5))
         assert res._col_names == ['foo2']
 
+        # Test a snapshot over views with selected columns
+        snap = pxt.create_snapshot('test_snap', v3)
+        reload_tester.run_query(snap.order_by(v2.c2).limit(5))
+
         res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
 
@@ -972,14 +976,14 @@ class TestView:
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
                 expected_schema = {
                     'c1': ('Int', 0, None),
                     'c2': ('String', 3, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c3': ('Int', 1, 'c1 // 2'),
                     'c4': ('Int', 2, None),
                 }
                 expected_schema_version = 2
@@ -1046,13 +1050,13 @@ class TestView:
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
                 expected_schema_version = 0
                 expected_base_version = 1
             elif i == 1:
                 expected_schema = {
                     'c1': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c3': ('Int', 1, 'c1 // 2'),
                     'c4': ('Int', 2, None),
                     'c5': ('Float', 1, None),
                 }

@@ -806,6 +806,7 @@ class Env:
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
         self.__register_package('lancedb')
+        self.__register_package('scenedetect')
 
     def __register_package(self, package_name: str, library_name: str | None = None) -> None:
         is_installed: bool
