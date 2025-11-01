@@ -21,6 +21,7 @@ from . import (
     openai,
     openrouter,
     replicate,
+    reve,
     string,
     timestamp,
     together,
