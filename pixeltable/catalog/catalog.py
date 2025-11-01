@@ -1220,16 +1220,6 @@ class Catalog:
                 # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
                 # in place in the DB.
                 new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
-            elif not md.version_md.is_fragment:
-                # For non-fragment replicas with same/older versions: directly update table record for additional_md
-                # which tracks public/private visibility.
-                stmt = (
-                    sql.update(schema.Table)
-                    .where(schema.Table.id == tbl_id)
-                    .values(md=schema.Table.md.op('||')({'additional_md': md.tbl_md.additional_md}))
-                )
-                conn.execute(stmt)
-
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.
         q = (
@@ -1261,7 +1251,6 @@ class Catalog:
             if existing_version_md.is_fragment and not md.version_md.is_fragment:
                 # This version exists in the DB as a fragment, but we're importing a complete copy of the same version;
                 # set the is_fragment flag to False in the DB.
-                # This will also copy additional_md that tracks replica location and stats.
                 new_version_md = md.version_md
 
         # Do the same thing for TableSchemaVersion.
@@ -1947,7 +1936,7 @@ class Catalog:
                 # This table version already exists; update it.
                 assert len(tv_rows) == 1  # must be unique
                 tv = tv_rows[0]
-                # Validate that the only field that can change is 'is_fragment'.
+                # Validate that the only fields that can change are 'is_fragment' and 'additional_md'.
                 assert tv.md == dataclasses.asdict(
                     dataclasses.replace(
                         version_md, is_fragment=tv.md['is_fragment'], additional_md=tv.md['additional_md']
