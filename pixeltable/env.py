@@ -8,6 +8,7 @@ import importlib
 import importlib.util
 import inspect
 import logging
+import math
 import os
 import platform
 import shutil
@@ -1047,7 +1048,10 @@ class PackageInfo:
     version: list[int] | None = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
 
 
-TIME_FORMAT = '%H:%M.%S %f'
+TIME_FORMAT = '%m/%d/%Y, %H:%M:%S.%f %Z'
+# As far as rate limiting goes, we try not go lower than 5% of the capacity because we don't have perfect information
+# about the rate limits and the usage
+TARGET_RATE_LIMIT_RESOURCE_FRACT = 0.05
 
 
 @dataclass
@@ -1081,16 +1085,19 @@ class RateLimitsInfo:
     def reset(self) -> None:
         self.resource_limits.clear()
 
-    def record(self, reset_exc: bool = False, **kwargs: Any) -> None:
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
+    def record(self, request_timestamp: datetime.datetime, reset_exc: bool = False, **kwargs: Any) -> None:
+        """Update self.resource_limits with the provided rate limit info.
+        Args:
+            - request_timestamp: time at which the request was made
+            - reset_exc: if True, reset the has_exc flag
+        """
         if len(self.resource_limits) == 0:
-            self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items() if v is not None}
+            self.resource_limits = {
+                k: RateLimitInfo(k, request_timestamp, *v) for k, v in kwargs.items() if v is not None
+            }
             # TODO: remove
             for info in self.resource_limits.values():
-                _logger.debug(
-                    f'Init {info.resource} rate limit: rem={info.remaining} '
-                    f'reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}'
-                )
+                _logger.debug(f'Updated resource state: {info}')
         else:
             if self.has_exc and not reset_exc:
                 # ignore updates until we're asked to reset
@@ -1099,23 +1106,27 @@ class RateLimitsInfo:
             self.has_exc = False
             for k, v in kwargs.items():
                 if v is not None:
-                    self.resource_limits[k].update(now, *v)
+                    self.resource_limits[k].update(request_timestamp, *v)
+                    _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
 
-    def record_exc(self, exc: Exception) -> None:
-        """Update self.resource_limits based on the exception headers"""
+    def record_exc(self, request_timestamp: datetime.datetime, exc: Exception) -> None:
+        """Update self.resource_limits based on the exception headers
+        Args:
+            - request_timestamp: time at which the request that caused the exception was made
+            - exc: the exception raised"""
         self.has_exc = True
 
-    def get_retry_delay(self, exc: Exception) -> float | None:
+    def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
         """Returns number of seconds to wait before retry, or None if not retryable"""
-        if len(self.resource_limits) == 0:
-            return 1.0
-        # we're looking for the maximum delay across all depleted resources
-        max_delay = 0.0
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        # Find the highest wait until at least 5% availability of all resources
+        max_wait = 0.0
         for limit_info in self.resource_limits.values():
-            if limit_info.remaining < 0.05 * limit_info.limit:
-                max_delay = max(max_delay, (limit_info.reset_at - now).total_seconds())
-        return max_delay if max_delay > 0 else None
+            time_until = limit_info.estimated_time_until_balance(
+                math.ceil(TARGET_RATE_LIMIT_RESOURCE_FRACT * limit_info.limit)
+            )
+            if time_until is not None:
+                max_wait = max(max_wait, time_until)
+        return max_wait if max_wait > 0 else 2.0 ** min(attempt, 4)
 
 
 @dataclass
@@ -1135,18 +1146,44 @@ class RateLimitInfo:
         )
 
     def update(self, recorded_at: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None:
-        # we always update everything, even though responses may come back out-of-order: we can't use reset_at to
-        # determine order, because it doesn't increase monotonically (the reset duration shortens as output_tokens
-        # are freed up - going from max to actual)
+        if self.recorded_at > recorded_at:
+            # The current state is more up-to-date than the update
+            _logger.debug(
+                f'Ignoring out-of-date update for {self.resource}. Current recorded_at: '
+                f'{self.recorded_at.strftime(TIME_FORMAT)}, update: {recorded_at.strftime(TIME_FORMAT)}'
+            )
+            return
         self.recorded_at = recorded_at
         self.limit = limit
         self.remaining = remaining
-        reset_delta = reset_at - self.reset_at
         self.reset_at = reset_at
-        # TODO: remove
-        _logger.debug(
-            f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} '
-            f'reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}'
+
+    def estimated_time_until_balance(self, target_remaining: int) -> float | None:
+        """Estimate time in seconds until remaining resources reaches target_remaining.
+        Assumes linear replenishment of resources over time.
+        Returns None if unable to estimate.
+        """
+        if self.remaining >= target_remaining:
+            return 0
+        if self.recorded_at >= self.reset_at:
+            return 0
+        if self.limit < target_remaining:
+            return None
+
+        # Estimate resource refill rate based on the recorded state and timestamps. Assumes linear refill.
+        refill_rate = (self.limit - self.remaining) / (self.reset_at - self.recorded_at).total_seconds()
+        if refill_rate <= 0:
+            return None
+
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        time_until = (target_remaining - self.remaining) / refill_rate - (now - self.recorded_at).total_seconds()
+        return max(0, math.ceil(time_until))
+
+    def __repr__(self) -> str:
+        return (
+            f'RateLimitInfo(resource={self.resource}, recorded_at={self.recorded_at}, '
+            f'remaining={self.remaining}/{self.limit} ({(100 * self.remaining / self.limit):.1f}%), '
+            f'reset_at={self.reset_at})'
         )
 
 

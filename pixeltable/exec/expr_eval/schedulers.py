@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import inspect
 import logging
+import math
 import re
 import sys
 import time
@@ -86,7 +87,6 @@ class RateLimitsScheduler(Scheduler):
                 if item.num_retries > 0:
                     self.total_retried += 1
 
-            now = datetime.datetime.now(tz=datetime.timezone.utc)
             if self.pool_info is None or not self.pool_info.is_initialized():
                 # wait for a single request to get rate limits
                 _logger.debug(f'initializing rate limits for {self.resource_pool}')
@@ -100,12 +100,12 @@ class RateLimitsScheduler(Scheduler):
 
             # check rate limits
             request_resources = self._get_request_resources(item.request)
-            limits_info = self._check_resource_limits(request_resources)
+            sleep_dur = self._sleep_duration_for_resources(request_resources)
             aws: list[Awaitable[None]] = []
             completed_aw: asyncio.Task | None = None
             wait_for_reset: asyncio.Task | None = None
-            if limits_info is not None:
-                # limits_info's resource is depleted, wait for capacity to free up
+            if sleep_dur > 0:
+                # Some resource or resources are nearing depletion
 
                 if self.num_in_flight > 0:
                     # a completed request can free up capacity
@@ -114,40 +114,24 @@ class RateLimitsScheduler(Scheduler):
                     aws.append(completed_aw)
                     _logger.debug(f'waiting for completed request for {self.resource_pool}')
 
-                reset_at = limits_info.reset_at
-                if reset_at > now:
-                    # we're waiting for the rate limit to reset
-                    wait_duration = (reset_at - now).total_seconds()
-                    wait_for_reset = asyncio.create_task(asyncio.sleep(wait_duration))
-                    aws.append(wait_for_reset)
-                    _logger.debug(
-                        f'waiting {wait_duration:.2f}s for rate limit reset of '
-                        f'{self.resource_pool}:{limits_info.resource} (remaining={limits_info.remaining})'
-                    )
+                # Schedule a sleep until sufficient resources are available
+                wait_for_reset = asyncio.create_task(asyncio.sleep(sleep_dur))
+                aws.append(wait_for_reset)
+                _logger.debug(f'waiting {sleep_dur:.2f}s for resource availability')
 
             if len(aws) > 0:
                 # we have something to wait for
-                report_ts = limits_info.recorded_at
                 done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
                 for task in pending:
                     task.cancel()
                 if completed_aw in done:
                     _logger.debug(f'wait(): completed request for {self.resource_pool}')
-                if wait_for_reset in done:
-                    _logger.debug(f'wait(): rate limit reset for {self.resource_pool}:{limits_info.resource}')
-                    last_report_ts = self.pool_info.resource_limits[limits_info.resource].recorded_at
-                    if report_ts == last_report_ts:
-                        # if we haven't seen a new report since we started waiting, force waiting for another rate limit
-                        # report before making any scheduling decisions
-                        # TODO: is it a good idea to discard the information we have?
-                        _logger.debug(f'resetting {self.resource_pool}: currently at {self.pool_info.debug_str()}')
-                        self.pool_info.reset()
                 # re-evaluate current capacity for current item
                 continue
 
             # we have a new in-flight request
             for resource, val in request_resources.items():
-                self.est_usage[resource] += val
+                self.est_usage[resource] = self.est_usage.get(resource, 0) + val
             _logger.debug(f'creating task for {self.resource_pool}')
             self.num_in_flight += 1
             task = asyncio.create_task(self._exec(item.request, item.exec_ctx, item.num_retries, is_task=True))
@@ -167,31 +151,30 @@ class RateLimitsScheduler(Scheduler):
             constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
             return self.pool_info.get_request_resources(**constant_kwargs, **batch_kwargs)
 
-    def _check_resource_limits(self, request_resources: dict[str, int]) -> env.RateLimitInfo | None:
-        """Returns the most depleted resource, relative to its limit, or None if all resources are within limits"""
-        candidates: list[tuple[env.RateLimitInfo, float]] = []  # (info, relative remaining)
+    def _sleep_duration_for_resources(self, request_resources: dict[str, int]) -> float:
+        """For the provided resources and usage, attempts to estimate the time to wait until sufficient resources are
+        available."""
+        highest_wait = 0.0
+        highest_wait_resource = None
         for resource, usage in request_resources.items():
             info = self.pool_info.resource_limits[resource]
-            est_remaining = info.remaining - self.est_usage[resource] - usage
-            candidates.append((info, est_remaining / info.limit))
-        assert len(candidates) > 0
-        candidates.sort(key=lambda x: x[1])  # most depleted first
-        most_depleted = candidates[0]
-        _logger.debug(
-            f'check_resource_limits({request_resources}): '
-            f'most_depleted={most_depleted[0].resource}, rel_remaining={most_depleted[1]}'
-        )
-        # 0.05: leave some headroom, we don't have perfect information
-        if most_depleted[1] < 0.05:
-            return most_depleted[0]
-        return None
+            # Note: usage is an estimated cost of the new request before it is executed, and it may be way off (for
+            # example, if max tokens is unspecified for an openAI request).
+            time_until = info.estimated_time_until_balance(
+                math.ceil(info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT + usage)
+            )
+            if time_until is not None and highest_wait < time_until:
+                highest_wait = time_until
+                highest_wait_resource = resource
+        _logger.debug(f'Determined wait time of {highest_wait:.1f}s for resource {highest_wait_resource}')
+        return highest_wait
 
     async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 
+        start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
         try:
-            start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             pxt_fn = request.fn_call.fn
             assert isinstance(pxt_fn, func.CallableFunction)
             _logger.debug(
@@ -226,13 +209,16 @@ class RateLimitsScheduler(Scheduler):
                 # our pool info should be available at this point
                 self._set_pool_info()
             assert self.pool_info is not None
-            self.pool_info.record_exc(exc)
+            self.pool_info.record_exc(start_ts, exc)
 
             if num_retries < self.MAX_RETRIES:
-                retry_delay = self.pool_info.get_retry_delay(exc)
+                retry_delay = self.pool_info.get_retry_delay(exc, num_retries)
                 if retry_delay is not None:
                     self.total_retried += 1
-                    _logger.debug(f'scheduler {self.resource_pool}: retrying in {retry_delay} seconds')
+                    _logger.debug(
+                        f'scheduler {self.resource_pool}: sleeping {retry_delay}s before retrying attempt {num_retries}'
+                        ' based on the information in the error'
+                    )
                     await asyncio.sleep(retry_delay)
                     self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
                     return
