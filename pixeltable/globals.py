@@ -457,7 +457,7 @@ def replicate(remote_uri: str, local_path: str, version: int | None = None) -> c
 
     Args:
         remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
-        version: Remote version of the table to be replicated, such as `1`.
+        version: Remote version of the table to be replicated.
         local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
             the same or different from the cloud table name.
 
