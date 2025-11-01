@@ -21,7 +21,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
-from pixeltable.catalog.table_version import TableVersionCompleteMd
+from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
@@ -397,7 +397,7 @@ class TableRestorer:
                 'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
             )
         # Convert tables metadata from dict to list of TableVersionCompleteMd
-        tbl_md = [schema.md_from_dict(TableVersionCompleteMd, t) for t in self.bundle_md['md']]
+        tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
 
         for md in tbl_md:
             md.tbl_md.is_replica = True
@@ -425,7 +425,7 @@ class TableRestorer:
 
             return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
 
-    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionCompleteMd) -> None:
+    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None:
         """
         Import the Parquet table into the Pixeltable catalog.
         """

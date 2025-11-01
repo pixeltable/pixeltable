@@ -3,6 +3,7 @@ import types
 import typing
 import uuid
 from typing import Any, TypeVar, Union, get_type_hints
+from enum import Enum
 
 import sqlalchemy as sql
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
@@ -163,6 +164,24 @@ class ViewMd:
     iterator_args: dict[str, Any] | None
 
 
+class TableState(Enum):
+    """The operational state of the table"""
+    LIVE = 0
+    FINALIZING = 1  # finalizing pending table ops
+    ABORTING = 2  # rolling back pending table ops
+
+
+class TableStatement(Enum):
+    """The top-level DDL/DML operation (corresponding to a statement in SQL; not: a TableOp) currently being executed"""
+    CREATE_TABLE = 0
+    CREATE_VIEW = 1
+    DROP_TABLE = 2
+    ADD_COLUMNS = 3
+    DROP_COLUMNS = 4
+    ADD_INDEX = 5
+    DROP_INDEX = 6
+
+
 @dataclasses.dataclass
 class TableMd:
     tbl_id: str  # uuid.UUID
@@ -198,7 +217,11 @@ class TableMd:
     view_md: ViewMd | None
     additional_md: dict[str, Any]
 
+    # deprecated
     has_pending_ops: bool = False
+
+    tbl_state: TableState = TableState.LIVE
+    pending_stmt: TableStatement | None = None
 
     @property
     def is_snapshot(self) -> bool:
