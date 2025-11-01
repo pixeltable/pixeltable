@@ -1221,10 +1221,14 @@ class Catalog:
                 # in place in the DB.
                 new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
             elif not md.version_md.is_fragment:
-                # Publishing a non-fragment replica where the new table version is same/older than current;
-                # replace only the additional metadata that tracks public/private visibility
-                existing_tbl_md = schema.md_from_dict(schema.TableMd, existing_md_row.md)
-                new_tbl_md = dataclasses.replace(existing_tbl_md, additional_md=md.tbl_md.additional_md)
+                # For non-fragment replicas with same/older versions: directly update table record for additional_md
+                # which tracks public/private visibility.
+                stmt = (
+                    sql.update(schema.Table)
+                    .where(schema.Table.id == tbl_id)
+                    .values(md=schema.Table.md.op('||')({'additional_md': md.tbl_md.additional_md}))
+                )
+                conn.execute(stmt)
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.
