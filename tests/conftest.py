@@ -3,14 +3,15 @@ import logging
 import os
 import pathlib
 import shutil
-from typing import Callable
+from typing import Callable, Iterator
 
 import pytest
 import requests
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
-from sqlalchemy import orm
+import sqlalchemy as sql
+from sqlalchemy import orm, text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
@@ -62,7 +63,7 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
+def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterator[None]:
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
@@ -78,9 +79,24 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
+    schema_name = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
         print('Using external database connection for test configuration')
         reinit_db = False
+
+        # Create unique schema name based on worker ID
+        schema_name = f'test_{worker_id}'
+
+        # Create the schema before initializing Env
+        db_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
+        engine = sql.create_engine(db_connect_str)
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS {schema_name}'))
+                conn.commit()
+            os.environ['PIXELTABLE_SCHEMA'] = schema_name
+        finally:
+            engine.dispose()
 
     for var in (
         'PIXELTABLE_HOME',
@@ -90,6 +106,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
         'PIXELTABLE_API_URL',
         'FIFTYONE_DATABASE_DIR',
         'PIXELTABLE_DB_CONNECT_STR',
+        'PIXELTABLE_SCHEMA',
     ):
         print(f'{var:25} = {os.environ.get(var)}')
 
@@ -107,6 +124,24 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
+
+    # Cleanup: Drop schema on fixture teardown
+    yield
+
+    if schema_name:
+        try:
+            db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
+            if db_connect_str:
+                engine = sql.create_engine(db_connect_str)
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text(f'DROP SCHEMA IF EXISTS {schema_name} CASCADE'))
+                        conn.commit()
+                    print(f'Dropped test schema: {schema_name}')
+                finally:
+                    engine.dispose()
+        except Exception as e:
+            _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
 
 
 @pytest.fixture(scope='function')
@@ -181,21 +216,63 @@ def _clear_hf_caches() -> None:
 def clean_db(restore_md_tables: bool = True) -> None:
     from pixeltable.env import Env
 
-    # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
-    # such as test_db_migration, that may lead to UUID collisions if interrupted.
     engine = Env.get().engine
-    sql_md = orm.declarative_base().metadata
-    sql_md.reflect(engine)
-    sql_md.drop_all(bind=engine)
+    schema_name = os.environ.get('PIXELTABLE_SCHEMA')
 
-    # The following lines may be uncommented as a replacement for the above, if one wishes to drop only metadata
-    # tables for testing purposes.
-    # SystemInfo.__table__.drop(engine, checkfirst=True)
-    # TableSchemaVersion.__table__.drop(engine, checkfirst=True)
-    # TableVersion.__table__.drop(engine, checkfirst=True)
-    # Table.__table__.drop(engine, checkfirst=True)
-    # Function.__table__.drop(engine, checkfirst=True)
-    # Dir.__table__.drop(engine, checkfirst=True)
+    if schema_name:
+        # When using schema isolation, drop all tables in the schema
+        # First explicitly drop metadata tables in reverse dependency order (as per comment)
+        # Then drop all remaining tables
+        with engine.begin() as conn:
+            # Get all table names in the schema first
+            result = conn.execute(
+                text(
+                    """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = :schema_name
+            """
+                ),
+                {'schema_name': schema_name},
+            )
+            all_table_names = {row[0] for row in result}
+
+            # Drop metadata tables in dependency order (most dependent first)
+            # Dependencies: TableSchemaVersion->Table, TableVersion->Table, Table->Dir, Function->Dir
+            # Drop order: TableSchemaVersion, TableVersion, PendingTableOp, Table, Function, Dir, SystemInfo
+            metadata_table_names = [
+                'tableschemaversions',  # depends on tables
+                'tableversions',  # depends on tables
+                'pendingtableops',  # may depend on tables
+                'tables',  # depends on dirs
+                'functions',  # depends on dirs
+                'dirs',  # no dependencies
+                'systeminfo',  # standalone
+            ]
+            for table_name in metadata_table_names:
+                if table_name in all_table_names:
+                    conn.execute(text(f'DROP TABLE IF EXISTS "{schema_name}"."{table_name}" CASCADE'))
+
+            # Drop all remaining tables (data tables) with CASCADE
+            metadata_table_set = set(metadata_table_names)
+            for table_name in all_table_names:
+                if table_name not in metadata_table_set:
+                    conn.execute(text(f'DROP TABLE IF EXISTS "{schema_name}"."{table_name}" CASCADE'))
+    else:
+        # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
+        # such as test_db_migration, that may lead to UUID collisions if interrupted.
+        sql_md = orm.declarative_base().metadata
+        sql_md.reflect(engine)
+        sql_md.drop_all(bind=engine)
+
+        # The following lines may be uncommented as a replacement for the above, if one wishes to drop only metadata
+        # tables for testing purposes.
+        # SystemInfo.__table__.drop(engine, checkfirst=True)
+        # TableSchemaVersion.__table__.drop(engine, checkfirst=True)
+        # TableVersion.__table__.drop(engine, checkfirst=True)
+        # Table.__table__.drop(engine, checkfirst=True)
+        # Function.__table__.drop(engine, checkfirst=True)
+        # Dir.__table__.drop(engine, checkfirst=True)
 
     if restore_md_tables:
         # Restore metadata tables and system info
