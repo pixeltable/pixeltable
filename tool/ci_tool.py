@@ -21,7 +21,7 @@ class MatrixConfig(NamedTuple):
     python_version: str
     uv_options: str = ''
     pytest_options: str = "-m 'not expensive'"
-    extra_env: str = ''
+    pre_test_cmd: str = ''  # Extra bash command to be run just before tests
 
     @property
     def display_name(self) -> str:
@@ -36,7 +36,7 @@ class MatrixConfig(NamedTuple):
             'python-version': self.python_version,
             'uv-options': self.uv_options,
             'pytest-options': self.pytest_options,
-            'extra-env': self.extra_env,
+            'pre-test-cmd': self.pre_test_cmd,
         }
 
 
@@ -104,7 +104,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
                     'ubuntu-24.04',
                     '3.10',
                     pytest_options='tests/test_table.py',
-                    extra_env='PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+                    pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                 )
             )
 
@@ -118,7 +118,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
                     'ubuntu-24.04',
                     '3.10',
                     uv_options='--no-dev --group storage-sdks',
-                    extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
+                    pre_test_cmd=f'export PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
                 )
             )
 
