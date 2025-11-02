@@ -62,7 +62,7 @@ help:
 	@echo '  clean         Remove generated files and temp files'
 	@echo '  pytest        Run `pytest`'
 	@echo '  fullpytest    Run `pytest`, including expensive tests'
-	@echo '  slimpytest    Run a minimal pytest configuration'
+	@echo '  slimpytest    Run `pytest` with a minimal set of tests'
 	@echo '  nbtest        Run `pytest` on notebooks'
 	@echo '  stresstest    Run stress tests such as random-tbl-ops'
 	@echo '  typecheck     Run `mypy`'
@@ -70,9 +70,13 @@ help:
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo ''
-	@echo 'Other useful commands:'
-	@echo '  make install UV_ARGS=--no-dev   Minimal Pixeltable installation (no dev packages)'
-	@echo '  make test UV_ARGS=--no-dev      Run tests with minimal installation'
+	@echo 'Parameters:'
+	@echo '  UV_ARGS       Additional arguments to pass to `uv sync`'
+	@echo '  VERSION       Version to use for docs deployment'
+	@echo ''
+	@echo 'Example commands:'
+	@echo '  make install UV_ARGS=--no-dev   Switch to minimal Pixeltable installation (no dev packages)'
+	@echo '  make test UV_ARGS=--no-dev      Run tests with minimal Pixeltable installation'
 
 .PHONY: setup-install
 setup-install:
