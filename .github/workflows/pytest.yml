@@ -201,9 +201,10 @@ jobs:
           if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
             exit 1
           fi
-      - name: Run random table ops
-        if: ${{ matrix.test-category == 'random-ops' }}
-        run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
+      - name: Run random ops
+        run: |
+          python tool/random_ops.py 12 1800 --exclude rename_view -Drandom_img_freq=0 -Drandom_json_freq=0 -Drandom_array_freq=0
+          python tool/print_random_ops_stats.py
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool

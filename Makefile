@@ -64,7 +64,7 @@ help:
 	@echo '  fullpytest    Run `pytest`, including expensive tests'
 	@echo '  slimpytest    Run `pytest` with a minimal set of tests'
 	@echo '  nbtest        Run `pytest` on notebooks'
-	@echo '  stresstest    Run stress tests such as random-tbl-ops'
+	@echo '  stresstest    Run stress tests such as random-ops'
 	@echo '  typecheck     Run `mypy`'
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
