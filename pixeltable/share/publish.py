@@ -96,7 +96,7 @@ def push_replica(
     Env.get().console_logger.info(f'The published table is now available at: {confirmed_tbl_uri}')
 
     with Catalog.get().begin_xact(tbl_id=src_tbl._tbl_version_path.tbl_id, for_write=True):
-        src_tbl._tbl_version_path.tbl_version.get().update_cloud_uri(str(confirmed_tbl_uri))
+        src_tbl._tbl_version_path.tbl_version.get().update_pxt_uri(str(confirmed_tbl_uri))
 
     return str(confirmed_tbl_uri)
 
@@ -144,8 +144,8 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
-    # Set cloud_uri in the table metadata; use table_uri from ReplicateResponse
-    clone_response.md[0].tbl_md.additional_md['cloud_uri'] = clone_response.table_uri
+    # Set pxt_uri in the table metadata; use table_uri from ReplicateResponse
+    clone_response.md[0].tbl_md.additional_md['pxt_uri'] = clone_response.table_uri
     md_list = [dataclasses.asdict(md) for md in clone_response.md]
     restorer = TableRestorer(
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}

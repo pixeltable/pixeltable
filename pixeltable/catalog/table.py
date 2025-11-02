@@ -1629,18 +1629,18 @@ class Table(SchemaObject):
         from pixeltable.share.protocol import PxtUri
 
         tbl_version = self._tbl_version.get()
-        cloud_uri = tbl_version.cloud_uri
+        pxt_uri = tbl_version.pxt_uri
 
         if tbl_version.is_replica:
             raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)')
-        if cloud_uri is None:
+        if pxt_uri is None:
             raise excs.Error(
                 f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
                 'To publish it, use `pxt.publish()` instead.'
             )
 
-        # Parse the cloud URI to extract org/db and create a UUID-based URI for pushing
-        parsed_uri = PxtUri(uri=cloud_uri)
+        # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
+        parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(
             org_slug=parsed_uri.org_slug, tbl_path_or_id=str(self._id), db_slug=parsed_uri.db_slug
         )
@@ -1662,16 +1662,16 @@ class Table(SchemaObject):
         from pixeltable.share.protocol import PxtUri
 
         tbl_version = self._tbl_version_path.tbl_version.get()
-        cloud_uri = tbl_version.cloud_uri
+        pxt_uri = tbl_version.pxt_uri
 
         if not tbl_version.is_replica:
             raise excs.Error(
                 f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
             )
-        assert cloud_uri is not None
+        assert pxt_uri is not None
 
-        # Parse the cloud URI to extract org/db and create a UUID-based URI for pulling
-        parsed_uri = PxtUri(uri=cloud_uri)
+        # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
+        parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(
             org_slug=parsed_uri.org_slug, tbl_path_or_id=str(self._id), db_slug=parsed_uri.db_slug, version=version
         )
