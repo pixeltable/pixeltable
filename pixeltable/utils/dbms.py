@@ -29,9 +29,6 @@ class Dbms(abc.ABC):
     def default_system_db_url(self) -> str: ...
 
     @abc.abstractmethod
-    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Index | None: ...
-
-    @abc.abstractmethod
     def create_vector_index_stmt(
         self, store_index_name: str, sa_value_col: sql.Column, metric: str
     ) -> sql.Compiled: ...
@@ -55,19 +52,16 @@ class PostgresqlDbms(Dbms):
         a = self.db_url.set(database='postgres').render_as_string(hide_password=False)
         return a
 
-    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Index | None:
-        return sql.Index(
+    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Compiled:
+        from sqlalchemy.dialects import postgresql
+
+        sa_idx = sql.Index(
             store_index_name,
             sa_value_col,
             postgresql_using='hnsw',
             postgresql_with={'m': 16, 'ef_construction': 64},
             postgresql_ops={sa_value_col.name: metric},
         )
-
-    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Compiled:
-        from sqlalchemy.dialects import postgresql
-
-        sa_idx = self.sa_vector_index(store_index_name, sa_value_col, metric)
         return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=postgresql.dialect())
 
 
