@@ -52,4 +52,8 @@ if [ -n "${GCS_SERVICE_ACCOUNT_KEY}" ]; then
 fi
 
 # Cockroach DB root certificate
-echo "${PXTTEST_COCKROACH_DB_ROOT_CERT}" > /tmp/pxt-dev-testing-ca.crt
+if [ -n "${PXTTEST_COCKROACH_DB_ROOT_CERT}" ]; then
+    echo "Found Cockroach DB root certificate."
+    echo "${PXTTEST_COCKROACH_DB_ROOT_CERT}" > /tmp/pxt-dev-testing-ca.crt
+    chmod a+r /tmp/pxt-dev-testing-ca.crt
+fi
