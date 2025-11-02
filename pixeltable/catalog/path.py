@@ -46,6 +46,7 @@ class Path(NamedTuple):
         if version is not None and not allow_versioned_path:
             raise excs.Error(f'Versioned path not allowed here: {path}')
 
+        assert len(components) > 0
         return Path(components, version)
 
     @property

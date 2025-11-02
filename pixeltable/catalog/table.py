@@ -1642,7 +1642,7 @@ class Table(SchemaObject):
         # Parse the cloud URI to extract org/db and create a UUID-based URI for pushing
         parsed_uri = PxtUri(uri=cloud_uri)
         uuid_uri_obj = PxtUri.from_components(
-            org_slug=parsed_uri.org_slug, table_identifier=str(self._id), db_slug=parsed_uri.db_slug
+            org_slug=parsed_uri.org_slug, tbl_path_or_id=str(self._id), db_slug=parsed_uri.db_slug
         )
         uuid_uri = str(uuid_uri_obj)
 
@@ -1673,11 +1673,11 @@ class Table(SchemaObject):
         # Parse the cloud URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=cloud_uri)
         uuid_uri_obj = PxtUri.from_components(
-            org_slug=parsed_uri.org_slug, table_identifier=str(self._id), db_slug=parsed_uri.db_slug
+            org_slug=parsed_uri.org_slug, tbl_path_or_id=str(self._id), db_slug=parsed_uri.db_slug, version=version
         )
         uuid_uri = str(uuid_uri_obj)
 
-        pull_replica(self._path(), uuid_uri, version)
+        pull_replica(self._path(), uuid_uri)
 
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())

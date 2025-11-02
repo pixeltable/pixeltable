@@ -449,15 +449,15 @@ def publish(
     share.push_replica(destination_uri, source, bucket_name, access)
 
 
-def replicate(remote_uri: str, local_path: str, version: int | None = None) -> catalog.Table:
+def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     """
     Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of the replica in a
     way that preserves the table structure of the original source data. Once replicated, the local table can be
     queried offline just as any other Pixeltable table.
 
     Args:
-        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
-        version: Remote version of the table to be replicated.
+        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
+            `'pxt://org_name/my_dir/my_table:5'` (with version 5).
         local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
             the same or different from the cloud table name.
 
@@ -467,7 +467,7 @@ def replicate(remote_uri: str, local_path: str, version: int | None = None) -> c
     if not remote_uri.startswith('pxt://'):
         raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
 
-    return share.pull_replica(local_path, remote_uri, version)
+    return share.pull_replica(local_path, remote_uri)
 
 
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:

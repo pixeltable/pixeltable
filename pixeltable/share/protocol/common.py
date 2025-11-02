@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, model_validator
@@ -33,9 +33,10 @@ class PxtUri(BaseModel):
 
     # Parsed components
     org_slug: str  # Organization slug from the URI
-    db_slug: Optional[str]  # Database slug from the URI (optional)
-    table_identifier: str  # The table identifier (path or UUID)
-    is_uuid: bool  # True if table_identifier is a UUID, False if it's a path
+    db_slug: str | None  # Database slug from the URI (optional)
+    tbl_path_or_id: str  # The table path or UUID
+    is_uuid: bool  # True if tbl_path_or_id is a UUID, False if it's a path
+    version: int | None = None  # Optional version number parsed from URI (format: tbl_path_or_id:<version>)
 
     def __init__(self, uri: str | None = None, **kwargs: Any) -> None:
         if uri is not None:
@@ -79,19 +80,38 @@ class PxtUri(BaseModel):
             raise ValueError('URI must have a path')
 
         # Get path and remove leading slash (but keep empty string for root path)
-        table_identifier = parsed.path.lstrip('/') if parsed.path else ''
+        path_part = parsed.path.lstrip('/') if parsed.path else ''
+
+        # Handle version parsing (format: tbl_path_or_id:version)
+        if ':' in path_part:
+            parts = path_part.rsplit(':', 1)  # Split from right, only once
+            if len(parts) == 2 and parts[1].isdigit():
+                tbl_path_or_id, version = parts[0], int(parts[1])
+            else:
+                tbl_path_or_id, version = path_part, None
+        else:
+            tbl_path_or_id, version = path_part, None
 
         # Determine if the path part is a UUID
-        is_uuid = is_valid_uuid(table_identifier) if table_identifier else False
+        is_uuid = is_valid_uuid(tbl_path_or_id) if tbl_path_or_id else False
 
-        return {'org_slug': org_slug, 'db_slug': db_slug, 'table_identifier': table_identifier, 'is_uuid': is_uuid}
+        return {
+            'org_slug': org_slug,
+            'db_slug': db_slug,
+            'tbl_path_or_id': tbl_path_or_id,
+            'is_uuid': is_uuid,
+            'version': version,
+        }
 
     @classmethod
-    def from_components(cls, org_slug: str, table_identifier: str, db_slug: Optional[str] = None) -> PxtUri:
+    def from_components(
+        cls, org_slug: str, tbl_path_or_id: str, db_slug: str | None = None, version: int | None = None
+    ) -> PxtUri:
         """Construct a PxtUri from its components."""
         # Build the URI string from components
         netloc = org_slug if db_slug is None else f'{org_slug}:{db_slug}'
-        uri = f'pxt://{netloc}/{table_identifier}'
+        path_part = f'{tbl_path_or_id}:{version}' if version is not None else tbl_path_or_id
+        uri = f'pxt://{netloc}/{path_part}'
         return cls(uri=uri)
 
 
