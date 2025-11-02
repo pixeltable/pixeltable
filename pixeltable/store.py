@@ -113,11 +113,6 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
-        # we only capture indices visible in this version
-        for idx_info in tbl_version.idxs.values():
-            idx = idx_info.idx.sa_index(tbl_version._store_idx_name(idx_info.id), idx_info.val_col)
-            idxs.append(idx)
-
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 
@@ -215,30 +210,19 @@ class StoreBase:
             # TODO: do we also need to ensure that these columns are now visible (ie, is there another potential race
             # condition here?)
 
-        # ensure that all visible indices exist by running Create Index If Not Exists
-        if not Env.get().is_using_cockroachdb:
-            # TODO: This approach doesn't work on CockroachDB. (Do we need it to?)
-            for index in self.sa_tbl.indexes:
-                create_stmt = sql.schema.CreateIndex(index, if_not_exists=True).compile(dialect=postgres_dialect)
-                self._exec_if_not_exists(str(create_stmt), wait_for_table=True)
+        # ensure that all system indices exist by running Create Index If Not Exists
+        for idx in self.sa_tbl.indexes:
+            create_idx_stmt = sql.schema.CreateIndex(idx, if_not_exists=True).compile(dialect=postgres_dialect)
+            self._exec_if_not_exists(str(create_idx_stmt), wait_for_table=True)
+
+        # ensure that all visible non-system indices exist by running appropriate create statements
+        for id in self.tbl_version.get().idxs:
+            self.create_index(id)
 
     def create_index(self, idx_id: int) -> None:
         """Create If Not Exists for this index"""
-        from pixeltable import index
-
         idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt: sql.Compiled
-
-        if isinstance(idx_info.idx, index.EmbeddingIndex):
-            stmt = Env.get().dbms.create_vector_index_stmt(
-                self.tbl_version.get()._store_idx_name(idx_id),
-                idx_info.val_col.sa_col,
-                index.EmbeddingIndex.PGVECTOR_OPS[idx_info.idx.metric],
-            )
-        else:
-            sa_idx = idx_info.idx.sa_index(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col)
-            stmt = sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=sql.dialects.postgresql.dialect())
-
+        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
         self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
     def validate(self) -> None:

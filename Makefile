@@ -24,6 +24,8 @@ else
     ULIMIT_CMD := ulimit -n 4000;
 endif
 
+UV_ARGS := --group extra-dev
+
 # Common test parameters
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
 	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
@@ -47,6 +49,7 @@ help:
 	@echo '  install       Install the development environment'
 	@echo '  test          Run pytest, stresstest, and check'
 	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
+	@echo '  slimtest      Run a slimpytest and check'
 	@echo '  check         Run typecheck, docscheck, lint, and formatcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
@@ -59,12 +62,21 @@ help:
 	@echo '  clean         Remove generated files and temp files'
 	@echo '  pytest        Run `pytest`'
 	@echo '  fullpytest    Run `pytest`, including expensive tests'
+	@echo '  slimpytest    Run `pytest` with a minimal set of tests'
 	@echo '  nbtest        Run `pytest` on notebooks'
 	@echo '  stresstest    Run stress tests such as random-tbl-ops'
 	@echo '  typecheck     Run `mypy`'
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
+	@echo ''
+	@echo 'Parameters:'
+	@echo '  UV_ARGS       Additional arguments to pass to `uv sync`'
+	@echo '  VERSION       Version to use for docs deployment'
+	@echo ''
+	@echo 'Example commands:'
+	@echo '  make install UV_ARGS=--no-dev   Switch to minimal Pixeltable installation (no dev packages)'
+	@echo '  make test UV_ARGS=--no-dev      Run tests with minimal Pixeltable installation'
 
 .PHONY: setup-install
 setup-install:
@@ -81,7 +93,8 @@ else
 	$(error Pixeltable must be installed from a conda environment)
 endif
 
-.make-install/uv:
+# Environment installation, prior to running `uv sync`
+.make-install/env:
 	@echo 'Installing uv ...'
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
@@ -97,20 +110,21 @@ endif
 		target=$$(basename $$dir); \
 		ln -sf $$dir $(CONDA_PREFIX)/share/$$target 2>/dev/null || true; \
 	done
-	@$(TOUCH) .make-install/uv
+	@$(TOUCH) .make-install/env
 
-.make-install/deps: pyproject.toml uv.lock
+.PHONY: install-deps
+install-deps:
 	@echo 'Installing dependencies from uv ...'
-	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --group extra-dev --active
-	@$(TOUCH) .make-install/deps
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS)
 
+# After running `uv sync`
 .make-install/others:
 	@echo 'Installing Jupyter kernel ...'
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@$(TOUCH) .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/uv .make-install/deps .make-install/others
+install: setup-install .make-install/uv install-deps .make-install/others
 
 .PHONY: test
 test: pytest check
@@ -118,6 +132,10 @@ test: pytest check
 
 .PHONY: fulltest
 fulltest: fullpytest nbtest check
+	@echo 'All tests passed.'
+
+.PHONY: slimtest
+slimtest: slimpytest check
 	@echo 'All tests passed.'
 
 .PHONY: check
@@ -133,6 +151,11 @@ pytest: install
 fullpytest: install
 	@echo 'Running `pytest`, including expensive tests ...'
 	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m '' tests
+
+.PHONY: slimpytest
+slimpytest: install
+	@echo 'Running `pytest` on a slim configuration ...'
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,view}.py
 
 .PHONY: nbtest
 nbtest: install
