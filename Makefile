@@ -165,7 +165,7 @@ nbtest: install
 
 .PHONY: stresstest
 stresstest: install
-	@$(SHELL_PREFIX) scripts/stress-tests.sh
+	@$(SHELL_PREFIX) scripts/stress-tests.sh 120
 
 .PHONY: typecheck
 typecheck: install

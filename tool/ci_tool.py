@@ -67,7 +67,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
         MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
         MatrixConfig('notebooks', 'ipynb', 'ubuntu-24.04', '3.10'),  # Notebook tests
         MatrixConfig('static-checks', 'lint', 'ubuntu-24.04', '3.10'),  # Linting, type checking, etc.
-        MatrixConfig('random-ops', 'random-ops', 'ubuntu-24.04', '3.10'),  # Random operations tests
+        MatrixConfig('random-ops', 'random-ops', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Random operations
     ]
 
     # Full test suite on basic platforms on Python 3.10

@@ -53,21 +53,8 @@ jobs:
         run: |
           export VIRTUAL_ENV="$CONDA_PREFIX"
           ./scripts/retry.sh 3 60 uv sync --active --no-dev
-      - name: Run the stress tests
-        run: |
-          python tool/random_ops.py 12 18000 --exclude rename_view -Drandom_img_freq=0 -Drandom_json_freq=0 -Drandom_array_freq=0
-          python tool/print_random_ops_stats.py
-      - name: Check for errors
-        run: |
-          echo "Checking for errors."
-          IGNORE_ERRORS='That Pixeltable operation could not be completed|Table was dropped|Path.*does not exist'
-          if [ -n "$(grep ERROR random-ops.log | grep -vP "$IGNORE_ERRORS")" ]; then
-            echo "Errors occurred during the stress test, such as:"
-            echo "$(grep ERROR random-ops.log | grep -vP "$IGNORE_ERRORS" | head -5)"
-            echo "See the logs for more details."
-            exit 1
-          fi
-          echo "No errors."
+      - name: Run stress tests
+        run: ./scripts/stress-tests.sh 18000
       - name: Archive log files
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
