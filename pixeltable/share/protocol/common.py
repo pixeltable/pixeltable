@@ -33,8 +33,8 @@ class PxtUri(BaseModel):
     uri: str  # The full URI string
 
     # Parsed components
-    org_slug: str  # Organization slug from the URI
-    db_slug: str | None  # Database slug from the URI (optional)
+    org: str  # Organization slug from the URI
+    db: str | None  # Database slug from the URI (optional)
     path: str | None = None  # The table or directory path (None if using UUID)
     id: UUID | None = None  # The table UUID (None if using path)
     version: int | None = None  # Optional version number parsed from URI (format: identifier:<version>)
@@ -83,15 +83,15 @@ class PxtUri(BaseModel):
             raise ValueError('URI must use pxt:// scheme')
 
         if not parsed.netloc:
-            raise ValueError('URI must have a hostname (org_slug)')
+            raise ValueError('URI must have an organization')
 
-        # Parse netloc for org_slug and optional db_slug
+        # Parse netloc for org and optional db
         netloc_parts = parsed.netloc.split(':')
-        org_slug = netloc_parts[0]
-        if not org_slug:
-            raise ValueError('URI must have an org_slug')
+        org = netloc_parts[0]
+        if not org:
+            raise ValueError('URI must have an organization')
 
-        db_slug = netloc_parts[1] if len(netloc_parts) > 1 else None
+        db = netloc_parts[1] if len(netloc_parts) > 1 else None
 
         # Allow root path (/) as valid, but reject missing path
         if parsed.path is None:
@@ -127,15 +127,15 @@ class PxtUri(BaseModel):
             # Empty identifier means root path
             path = ''
 
-        return {'org_slug': org_slug, 'db_slug': db_slug, 'path': path, 'id': id, 'version': version}
+        return {'org': org, 'db': db, 'path': path, 'id': id, 'version': version}
 
     @classmethod
     def from_components(
         cls,
-        org_slug: str,
+        org: str,
         path: str | None = None,
         id: UUID | None = None,
-        db_slug: str | None = None,
+        db: str | None = None,
         version: int | None = None,
     ) -> PxtUri:
         """Construct a PxtUri from its components."""
@@ -145,7 +145,7 @@ class PxtUri(BaseModel):
             raise ValueError('Cannot specify both path and id')
 
         # Build the URI string from components
-        netloc = org_slug if db_slug is None else f'{org_slug}:{db_slug}'
+        netloc = org if db is None else f'{org}:{db}'
 
         # Use path or UUID as identifier
         if id is not None:
