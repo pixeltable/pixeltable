@@ -76,14 +76,16 @@ class PxtUri(BaseModel):
         db_slug = netloc_parts[1] if len(netloc_parts) > 1 else None
 
         # Allow root path (/) as valid, but reject missing path
-        if parsed.path is None or parsed.path == '':
+        if parsed.path is None:
             raise ValueError('URI must have a path')
 
         # Get path and remove leading slash (but keep empty string for root path)
+        # path will be '/' for root directory or '/path/to/table' for regular paths
         path_part = parsed.path.lstrip('/') if parsed.path else ''
 
         # Handle version parsing (format: tbl_path_or_id:version)
-        if ':' in path_part:
+        # For root path, path_part will be empty string after lstrip
+        if path_part and ':' in path_part:
             parts = path_part.rsplit(':', 1)  # Split from right, only once
             if len(parts) == 2 and parts[1].isdigit():
                 tbl_path_or_id, version = parts[0], int(parts[1])
