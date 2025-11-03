@@ -1670,9 +1670,7 @@ class Table(SchemaObject):
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(
-            org=parsed_uri.org, id=self._id, db=parsed_uri.db, version=version
-        )
+        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db, version=version)
         uuid_uri = str(uuid_uri_obj)
 
         pull_replica(self._path(), uuid_uri)
