@@ -49,11 +49,11 @@ class TestOpenai:
         )
         # The audio generation -> transcription loop on these examples should be simple and clear enough
         # that the unit test can reliably expect the output closely enough to pass these checks.
-        results = t.head()
-        assert results[0]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
-        assert results[0]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
-        assert len(results[1]['translation']['text']) > 0
-        assert len(results[1]['translation_2']['text']) > 0
+        results = t.order_by(t.input).collect()
+        assert len(results[0]['translation']['text']) > 0
+        assert len(results[0]['translation_2']['text']) > 0
+        assert results[1]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
+        assert results[1]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
 
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
