@@ -175,12 +175,9 @@ class TestTable:
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         )
 
-        # scenario 1: a table exists at the path already
+        # scenario 1: a table already exists at the path
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_table('test', schema)
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_table('test', schema)
-        assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 5
         # if_exists='ignore' should return the existing table
         tbl2 = pxt.create_table('test', schema, if_exists='ignore')

@@ -2,8 +2,8 @@ import dataclasses
 import types
 import typing
 import uuid
-from typing import Any, TypeVar, Union, get_type_hints
 from enum import Enum
+from typing import Any, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
@@ -22,15 +22,15 @@ base_metadata = Base.metadata
 T = TypeVar('T')
 
 
-def md_from_dict(data_class_type: type[T], data: Any) -> T:
+def md_from_dict(type_: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
-    if dataclasses.is_dataclass(data_class_type):
-        fieldtypes = get_type_hints(data_class_type)
-        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
+    if dataclasses.is_dataclass(type_):
+        fieldtypes = get_type_hints(type_)
+        return type_(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
 
-    origin = typing.get_origin(data_class_type)
+    origin = typing.get_origin(type_)
     if origin is not None:
-        type_args = typing.get_args(data_class_type)
+        type_args = typing.get_args(type_)
         if (origin is Union or origin is types.UnionType) and type(None) in type_args:
             # handling T | None, T | None
             non_none_args = [arg for arg in type_args if arg is not type(None)]
@@ -46,8 +46,16 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
             return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
         else:
             raise AssertionError(origin)
+    elif isinstance(type_, type) and issubclass(type_, Enum):
+        return type_(data)
     else:
         return data
+
+
+def _md_dict_factory(data: list[tuple[str, Any]]) -> dict:
+    """Use this to serialize <>Md instances with dataclasses.asdict()"""
+    # serialize enums to their values
+    return {k: v.value if isinstance(v, Enum) else v for k, v in data}
 
 
 # structure of the stored metadata:
@@ -166,13 +174,15 @@ class ViewMd:
 
 class TableState(Enum):
     """The operational state of the table"""
+
     LIVE = 0
-    FINALIZING = 1  # finalizing pending table ops
-    ABORTING = 2  # rolling back pending table ops
+    ROLLFORWARD = 1  # finalizing pending table ops
+    ROLLBACK = 2  # rolling back pending table ops
 
 
 class TableStatement(Enum):
     """The top-level DDL/DML operation (corresponding to a statement in SQL; not: a TableOp) currently being executed"""
+
     CREATE_TABLE = 0
     CREATE_VIEW = 1
     DROP_TABLE = 2

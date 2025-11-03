@@ -7,6 +7,7 @@ import random
 import time
 from collections import defaultdict
 from contextlib import contextmanager
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
 from uuid import UUID
 
@@ -30,7 +31,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import TableOp, DeleteTableMdOp
+from .tbl_ops import TableOp
 from .update_status import UpdateStatus
 from .view import View
 
@@ -62,6 +63,12 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
         column_offset += num_cols
 
     return result
+
+
+def md_dict_factory(data: list[tuple[str, Any]]) -> dict:
+    """Use this to serialize TableMd instances with asdict()"""
+    # serialize enums to their values
+    return {k: v.value if isinstance(v, Enum) else v for k, v in data}
 
 
 # -1: unlimited
@@ -176,6 +183,7 @@ class Catalog:
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
+    _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
     _in_retry_loop: bool
 
@@ -209,6 +217,7 @@ class Catalog:
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._modified_tvs = set()
+        self._roll_forward_ids = set()
         self._undo_actions = []
         self._in_retry_loop = False
         self._column_dependencies = {}
@@ -598,6 +607,11 @@ class Catalog:
                 )
         return TableVersionHandle(tbl_id, effective_version)
 
+    def _roll_forward(self) -> None:
+        """Finalize pending ops for all tables in self._roll_forward_ids."""
+        for tbl_id in self._roll_forward_ids:
+            self._finalize_pending_ops(tbl_id)
+
     def _finalize_pending_ops(self, tbl_id: UUID) -> None:
         """Finalizes all pending ops for the given table."""
         num_retries = 0
@@ -634,19 +648,25 @@ class Catalog:
                     reset_state_stmt = (
                         sql.update(schema.Table)
                         .where(schema.Table.id == tbl_id)
-                        .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}))
+                        .values(
+                            md=schema.Table.md.op('||')(
+                                {'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}
+                            )
+                        )
                     )
 
                     if op.needs_xact:
-                        if isinstance(op, DeleteTableMdOp):
-                            continue
-                        tv = self.get_tbl_version(
-                            tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True
-                        )
-                        tv.exec_op(op)
+                        if op.delete_table_md_op is not None:
+                            self.delete_tbl_md(tbl_id)
+                        else:
+                            tv = self.get_tbl_version(
+                                tbl_id, tbl_version, check_pending_ops=False, validate_initialized=True
+                            )
+                            tv.exec_op(op)
                         conn.execute(delete_next_op_stmt)
                         if op.op_sn == op.num_ops - 1:
                             conn.execute(reset_state_stmt)
+                            return
                         continue
 
                 # this op runs outside of a transaction
@@ -1007,6 +1027,8 @@ class Catalog:
 
         @retry_loop(for_write=True)
         def create_fn() -> tuple[UUID, bool]:
+            import pixeltable.metadata.schema
+
             existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
             if existing is not None:
                 assert isinstance(existing, Table)
@@ -1025,12 +1047,14 @@ class Catalog:
                 create_default_idxs=create_default_idxs,
             )
             tbl_id = UUID(md.tbl_md.tbl_id)
+            md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
             self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
             return tbl_id, True
 
+        self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
-        # finalize pending ops
-        with self.begin_xact(tbl_id=tbl_id, for_write=True, finalize_pending_ops=True):
+        self._roll_forward()
+        with self.begin_xact(tbl_id=tbl_id, for_write=True):
             tbl = self.get_table_by_id(tbl_id)
             _logger.info(f'Created table {tbl._name!r}, id={tbl._id}')
             Env.get().console_logger.info(f'Created table {tbl._name!r}.')
@@ -1062,7 +1086,7 @@ class Catalog:
                 base_tv.tbl_md.view_sn += 1
                 result = Env.get().conn.execute(
                     sql.update(schema.Table)
-                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
+                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=md_dict_factory)})
                     .where(schema.Table.id == base.tbl_id)
                 )
                 assert result.rowcount == 1, result.rowcount
@@ -1095,9 +1119,11 @@ class Catalog:
                 media_validation=media_validation,
             )
             tbl_id = UUID(md.tbl_md.tbl_id)
+            md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
             self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
             return tbl_id
 
+        self._roll_forward_ids.clear()
         view_id = create_fn()
         if not is_snapshot and base.is_mutable():
             # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
@@ -1106,8 +1132,8 @@ class Catalog:
             # view_handle = TableVersionHandle(view_id, effective_version=None)
             # base_tv.mutable_views.add(view_handle)
 
-        # finalize pending ops
-        with self.begin_xact(tbl_id=view_id, for_write=True, finalize_pending_ops=True):
+        self._roll_forward()
+        with self.begin_xact(tbl_id=view_id, for_write=True):
             return self.get_table_by_id(view_id)
 
     def _clear_tv_cache(self, tbl_id: UUID, effective_version: int | None) -> None:
@@ -1224,7 +1250,8 @@ class Catalog:
                 id=tbl_id,
                 dir_id=dir._id,
                 md=dataclasses.asdict(
-                    dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+                    dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True),
+                    dict_factory=md_dict_factory,
                 ),
             )
             conn.execute(q)
@@ -1305,33 +1332,41 @@ class Catalog:
         obj._tbl_version_path.clear_cached_md()
         return obj
 
-    @retry_loop(for_write=True)
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        tbl = self._get_schema_object(
-            path,
-            expected=Table,
-            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
-            lock_parent=True,
-            lock_obj=False,
-        )
-        if tbl is None:
-            _logger.info(f'Skipped table {path!r} (does not exist).')
-            return
-        assert isinstance(tbl, Table)
+        @retry_loop(for_write=True)
+        def drop_fn() -> None:
+            tbl = self._get_schema_object(
+                path,
+                expected=Table,
+                raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
+                lock_parent=True,
+                lock_obj=False,
+            )
+            if tbl is None:
+                _logger.info(f'Skipped table {path!r} (does not exist).')
+                return
+            assert isinstance(tbl, Table)
 
-        if isinstance(tbl, View) and tbl._tbl_version_path.is_mutable() and tbl._tbl_version_path.base.is_mutable():
-            # this is a mutable view of a mutable base;
-            # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
-            base_id = tbl._tbl_version_path.base.tbl_id
-            self._acquire_tbl_lock(tbl_id=base_id, for_write=True, lock_mutable_tree=False)
+            if isinstance(tbl, View) and tbl._tbl_version_path.is_mutable() and tbl._tbl_version_path.base.is_mutable():
+                # this is a mutable view of a mutable base;
+                # lock the base before the view, in order to avoid deadlocks with concurrent inserts/updates
+                base_id = tbl._tbl_version_path.base.tbl_id
+                self._acquire_tbl_lock(tbl_id=base_id, for_write=True, lock_mutable_tree=False)
 
-        self._drop_tbl(tbl, force=force, is_replace=False)
+            self._drop_tbl(tbl, force=force, is_replace=False)
+
+        self._roll_forward_ids.clear()
+        drop_fn()
+        self._roll_forward()
 
     def _drop_tbl(self, tbl: Table | TableVersionPath, force: bool, is_replace: bool) -> None:
         """
         Drop the table (and recursively its views, if force == True).
 
         `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for a hidden (system) table.
+
+        Returns:
+            List of table ids that were dropped.
 
         Locking protocol:
         - X-lock base before X-locking any view
@@ -1398,25 +1433,30 @@ class Catalog:
             self.mark_modified_tvs(base_tv.handle)
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
+                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=md_dict_factory)})
                 .where(schema.Table.id == base_id)
             )
             assert result.rowcount == 1, result.rowcount
 
         if do_drop:
-            if not is_pure_snapshot:
+            if is_pure_snapshot:
+                # there is no physical table, but we still need to delete the Table record; we can do that right now
+                # as part of the current transaction
+                self.delete_tbl_md(tbl_id)
+            else:
                 # invalidate the TableVersion instance when we're done so that existing references to it can find out it
                 # has been dropped
                 self.mark_modified_tvs(tvp.tbl_version)
-            if not is_pure_snapshot:
-                # write TableOps to execute the drop, plus the updated TableRecord
+
+                # write TableOps to execute the drop, plus the updated Table record
                 tv = tvp.tbl_version.get()
-                tv.tbl_md.tbl_state = schema.TableState.FINALIZING
                 tv.tbl_md.pending_stmt = schema.TableStatement.DROP_TABLE
                 drop_ops = tv.drop()
-                self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, drop_ops)
+                self.write_tbl_md(
+                    tv.id, dir_id=None, tbl_md=tv.tbl_md, version_md=None, schema_version_md=None, pending_ops=drop_ops
+                )
+                self._roll_forward_ids.add(tv.id)
 
-            self.delete_tbl_md(tbl_id)
             tvp.clear_cached_md()
 
         assert (
@@ -1909,18 +1949,21 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
-            # if pending_ops is not None:
-            #     tbl_md.has_pending_ops = True
+            if pending_ops is not None:
+                tbl_md.tbl_state = schema.TableState.ROLLFORWARD
+                assert tbl_md.pending_stmt is not None
 
             if dir_id is not None:
                 # We are inserting a record while creating a new table.
-                tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md))
+                tbl_record = schema.Table(
+                    id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)
+                )
                 session.add(tbl_record)
             else:
                 # Update the existing table record.
                 result = session.execute(
                     sql.update(schema.Table.__table__)
-                    .values({schema.Table.md: dataclasses.asdict(tbl_md)})
+                    .values({schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)})
                     .where(schema.Table.id == tbl_id)
                 )
                 assert isinstance(result, sql.CursorResult)
@@ -1931,12 +1974,12 @@ class Catalog:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
                 assert version_md.schema_version == schema_version_md.schema_version
-            tv_rows = (
+            version_rows = (
                 session.query(schema.TableVersion)
                 .filter(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
                 .all()
             )
-            if len(tv_rows) == 0:
+            if len(version_rows) == 0:
                 # It's a new table version; insert a new record in the DB for it.
                 tbl_version_record = schema.TableVersion(
                     tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
@@ -1944,10 +1987,12 @@ class Catalog:
                 session.add(tbl_version_record)
             else:
                 # This table version already exists; update it.
-                assert len(tv_rows) == 1  # must be unique
-                tv = tv_rows[0]
+                assert len(version_rows) == 1  # must be unique
+                version_record = version_rows[0]
                 # Validate that the only field that can change is 'is_fragment'.
-                assert tv.md == dataclasses.asdict(dataclasses.replace(version_md, is_fragment=tv.md['is_fragment']))
+                assert version_record.md == dataclasses.asdict(
+                    dataclasses.replace(version_md, is_fragment=version_record.md['is_fragment'])
+                )
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
@@ -2081,7 +2126,9 @@ class Catalog:
             tbl_version = TableVersion(tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
-            assert not tv_md.is_pure_snapshot  # a pure snapshot doesn't have a physical table backing it, no point in loading it
+            assert (
+                not tv_md.is_pure_snapshot
+            )  # a pure snapshot doesn't have a physical table backing it, no point in loading it
 
             base: TableVersionHandle
             base_path: TableVersionPath | None = None  # needed for live view

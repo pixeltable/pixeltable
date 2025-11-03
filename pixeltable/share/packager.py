@@ -1,5 +1,4 @@
 import base64
-import dataclasses
 import io
 import json
 import logging
@@ -70,7 +69,7 @@ class TablePackager:
             self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
-                'md': [dataclasses.asdict(md) for md in tbl_md],
+                'md': [md.as_dict() for md in tbl_md],
             }
         if additional_md is not None:
             self.bundle_md.update(additional_md)

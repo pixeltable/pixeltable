@@ -27,7 +27,7 @@ from pixeltable.utils.object_stores import ObjectOps
 from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
-from .tbl_ops import TableOp, DropStoreTableOp, DeleteTableMdOp, DeleteTableMediaFilesOp
+from .tbl_ops import DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp, TableOp
 from .update_status import RowCountStats, UpdateStatus
 
 if TYPE_CHECKING:
@@ -60,6 +60,11 @@ class TableVersionMd:
             and self.tbl_md.view_md.predicate is None
             and len(self.schema_version_md.columns) == 0
         )
+
+    def as_dict(self) -> dict:
+        from .catalog import md_dict_factory
+
+        return dataclasses.asdict(self, dict_factory=md_dict_factory)
 
 
 class TableVersion:
@@ -374,7 +379,8 @@ class TableVersion:
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
         elif op.drop_store_table_op is not None:
-            self.store_tbl.drop()
+            with Env.get().begin_xact():
+                self.store_tbl.drop()
 
         elif op.delete_table_media_files_op:
             self.delete_media()
@@ -430,20 +436,8 @@ class TableVersion:
                 needs_xact=False,
                 delete_table_media_files_op=DeleteTableMediaFilesOp(),
             ),
-            TableOp(
-                tbl_id=id_str,
-                op_sn=1,
-                num_ops=2,
-                needs_xact=False,
-                drop_store_table_op=DropStoreTableOp(),
-            ),
-            TableOp(
-                tbl_id=id_str,
-                op_sn=2,
-                num_ops=3,
-                needs_xact=False,
-                delete_table_md_op=DeleteTableMdOp(),
-            )
+            TableOp(tbl_id=id_str, op_sn=1, num_ops=2, needs_xact=False, drop_store_table_op=DropStoreTableOp()),
+            TableOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, delete_table_md_op=DeleteTableMdOp()),
         ]
         return ops
 
