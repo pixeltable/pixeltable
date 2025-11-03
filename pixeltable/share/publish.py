@@ -95,8 +95,9 @@ def push_replica(
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
     Env.get().console_logger.info(f'The published table is now available at: {confirmed_tbl_uri}')
 
-    with Catalog.get().begin_xact(tbl_id=src_tbl._tbl_version_path.tbl_id, for_write=True):
-        src_tbl._tbl_version_path.tbl_version.get().update_pxt_uri(str(confirmed_tbl_uri))
+    # TODO This isn't working properly when publishing a non-head version.
+    # with Catalog.get().begin_xact(tbl_id=src_tbl._tbl_version_path.tbl_id, for_write=True):
+    #     src_tbl._tbl_version_path.tbl_version.get().update_pxt_uri(str(confirmed_tbl_uri))
 
     return str(confirmed_tbl_uri)
 
