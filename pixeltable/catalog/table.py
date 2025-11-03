@@ -1641,9 +1641,7 @@ class Table(SchemaObject):
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
         parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(
-            org_slug=parsed_uri.org_slug, tbl_path_or_id=str(self._id), db_slug=parsed_uri.db_slug
-        )
+        uuid_uri_obj = PxtUri.from_components(org_slug=parsed_uri.org_slug, id=self._id, db_slug=parsed_uri.db_slug)
         uuid_uri = str(uuid_uri_obj)
 
         if version is None:
@@ -1673,7 +1671,7 @@ class Table(SchemaObject):
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(
-            org_slug=parsed_uri.org_slug, tbl_path_or_id=str(self._id), db_slug=parsed_uri.db_slug, version=version
+            org_slug=parsed_uri.org_slug, id=self._id, db_slug=parsed_uri.db_slug, version=version
         )
         uuid_uri = str(uuid_uri_obj)
 

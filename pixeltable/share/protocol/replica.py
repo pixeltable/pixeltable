@@ -22,7 +22,7 @@ class PublishRequest(RequestBaseModel):
     """Request to publish or push table replica."""
 
     operation_type: Literal[ReplicaOperationType.PUBLISH_REPLICA] = ReplicaOperationType.PUBLISH_REPLICA
-    table_uri: PxtUri  # If PxtUri#is_uuid is true then its considered a push replica request
+    table_uri: PxtUri  # If PxtUri#id is not None then it's considered a push replica request
     pxt_version: str
     pxt_md_version: int
     md: list[TableVersionCompleteMd]
