@@ -129,7 +129,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
 def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     clone_request = ReplicateRequest(table_uri=PxtUri(src_tbl_uri))
-    response = requests.post(PIXELTABLE_API_URL, json=clone_request.model_dump_json(), headers=_api_headers())
+    response = requests.post(PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error cloning replica: {response.text}')
     clone_response = ReplicateResponse.model_validate(response.json())
@@ -145,7 +145,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
     # Set pxt_uri in the table metadata; use table_uri from ReplicateResponse
-    clone_response.md[0].tbl_md.additional_md['pxt_uri'] = clone_response.table_uri
+    clone_response.md[0].tbl_md.additional_md['pxt_uri'] = str(clone_response.table_uri)
     md_list = [dataclasses.asdict(md) for md in clone_response.md]
     restorer = TableRestorer(
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
