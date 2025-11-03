@@ -43,16 +43,24 @@ _logger = logging.getLogger('pixeltable')
 
 
 @dataclasses.dataclass(frozen=True)
-class TableVersionMd:
+class TableVersionCompleteMd:
     """
     Complete set of md records for a specific TableVersion instance.
-
-    TODO: subsume schema.FullTableMd
     """
 
     tbl_md: schema.TableMd
     version_md: schema.TableVersionMd
     schema_version_md: schema.TableSchemaVersionMd
+
+    @property
+    def is_pure_snapshot(self) -> bool:
+        return (
+            self.tbl_md is not None
+            and self.tbl_md.view_md is not None
+            and self.tbl_md.view_md.is_snapshot
+            and self.tbl_md.view_md.predicate is None
+            and len(self.schema_version_md.columns) == 0
+        )
 
 
 class TableVersion:
@@ -240,7 +248,7 @@ class TableVersion:
         media_validation: MediaValidation,
         create_default_idxs: bool,
         view_md: schema.ViewMd | None = None,
-    ) -> TableVersionMd:
+    ) -> TableVersionCompleteMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
@@ -337,7 +345,7 @@ class TableVersion:
             media_validation=media_validation.name.lower(),
             additional_md={},
         )
-        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
+        return TableVersionCompleteMd(tbl_md, table_version_md, schema_version_md)
 
     def exec_op(self, op: TableOp) -> None:
         if op.create_store_table_op is not None:
@@ -365,7 +373,7 @@ class TableVersion:
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
     @classmethod
-    def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
+    def create_replica(cls, md: TableVersionCompleteMd) -> TableVersion:
         from .catalog import Catalog, TableVersionPath
 
         assert Env.get().in_xact
@@ -436,6 +444,8 @@ class TableVersion:
 
     def _init_schema(self) -> None:
         from pixeltable.store import StoreComponentView, StoreTable, StoreView
+
+        from .catalog import Catalog
 
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
@@ -529,8 +539,16 @@ class TableVersion:
                 self.idxs_by_col.setdefault(indexed_col_id, []).append(info)
 
         # create value exprs, now that we have all lookup structures in place
+        tvp: TableVersionPath | None = None
+        if self.effective_version is not None:
+            # for snapshot TableVersion instances, we need to retarget the column value_exprs to the snapshot;
+            # otherwise they'll incorrectly refer to the live table. So, construct a full TableVersionPath to
+            # use for retargeting.
+            tvp = Catalog.get().construct_tvp(
+                self.id, self.effective_version, self.tbl_md.ancestor_ids, self.version_md.created_at
+            )
         for col in self.cols_by_id.values():
-            col.init_value_expr()
+            col.init_value_expr(tvp)
 
         # create the sqlalchemy schema, after instantiating all Columns
         if self.is_component_view:
@@ -1412,6 +1430,21 @@ class TableVersion:
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
         self._write_md(new_version=True, new_schema_version=True)
+
+    @property
+    def pxt_uri(self) -> str | None:
+        return self._tbl_md.additional_md.get('pxt_uri')
+
+    def update_pxt_uri(self, pxt_uri: str | None) -> None:
+        if self._tbl_md.additional_md.get('pxt_uri') == pxt_uri:
+            return  # Nothing to do
+
+        if pxt_uri is None:
+            del self._tbl_md.additional_md['pxt_uri']  # must be present due to preceding check
+        else:
+            self._tbl_md.additional_md['pxt_uri'] = pxt_uri
+
+        self._write_md(new_version=False, new_schema_version=False)
 
     @property
     def tbl_md(self) -> schema.TableMd:
