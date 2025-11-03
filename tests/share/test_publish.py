@@ -45,6 +45,11 @@ class TestPublish:
         tbl_replica = pxt.replicate(tbl_remote_uri, 'tbl_replica')
         tbl_replica_data = tbl_replica.head(n=500)
 
+        if ':' in org_slug:
+            # Canonical URI; we expect the URIs to match exactly
+            assert snap_replica._get_pxt_uri() == snap_remote_uri
+            assert tbl_replica._get_pxt_uri() == tbl_remote_uri
+
         pxt.drop_table(snap_remote_uri)
         pxt.drop_table(tbl_remote_uri)
 
