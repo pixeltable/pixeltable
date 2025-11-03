@@ -1432,6 +1432,21 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
 
     @property
+    def pxt_uri(self) -> str | None:
+        return self._tbl_md.additional_md.get('pxt_uri')
+
+    def update_pxt_uri(self, pxt_uri: str | None) -> None:
+        if self._tbl_md.additional_md.get('pxt_uri') == pxt_uri:
+            return  # Nothing to do
+
+        if pxt_uri is None:
+            del self._tbl_md.additional_md['pxt_uri']  # must be present due to preceding check
+        else:
+            self._tbl_md.additional_md['pxt_uri'] = pxt_uri
+
+        self._write_md(new_version=False, new_schema_version=False)
+
+    @property
     def tbl_md(self) -> schema.TableMd:
         return self._tbl_md
 

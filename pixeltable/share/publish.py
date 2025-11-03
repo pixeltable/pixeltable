@@ -1,9 +1,11 @@
+import dataclasses
+import json
 import os
 import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -12,6 +14,7 @@ from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
@@ -20,6 +23,7 @@ from .packager import TablePackager, TableRestorer
 from .protocol import PxtUri
 from .protocol.replica import (
     DeleteRequest,
+    DeleteResponse,
     FinalizeRequest,
     FinalizeResponse,
     PublishRequest,
@@ -41,7 +45,7 @@ def push_replica(
 
     # Create the publish request using packager's bundle_md
     publish_request = PublishRequest(
-        table_uri=PxtUri(dest_tbl_uri),
+        table_uri=PxtUri(uri=dest_tbl_uri),
         pxt_version=packager.bundle_md['pxt_version'],
         pxt_md_version=packager.bundle_md['pxt_md_version'],
         md=packager.bundle_md['md'],
@@ -49,15 +53,15 @@ def push_replica(
         is_public=access == 'public',
     )
 
-    response = requests.post(PIXELTABLE_API_URL, json=publish_request.model_dump_json(), headers=_api_headers())
+    response = requests.post(PIXELTABLE_API_URL, data=publish_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
-        raise excs.Error(f'Error publishing snapshot: {response.text}')
-    publish_response = PublishResponse.model_validate_json(response.json())
+        raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
+    publish_response = PublishResponse.model_validate(response.json())
 
     upload_id = publish_response.upload_id
     destination_uri = publish_response.destination_uri
 
-    Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path()}' at: {dest_tbl_uri}")
+    Env.get().console_logger.info(f"Creating a replica of '{src_tbl._path()}' at: {dest_tbl_uri}")
 
     bundle = packager.package()
 
@@ -69,10 +73,10 @@ def push_replica(
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
-    Env.get().console_logger.info('Finalizing snapshot ...')
+    Env.get().console_logger.info('Finalizing replica ...')
     # Use preview data from packager's bundle_md (set during package())
     finalize_request = FinalizeRequest(
-        table_uri=PxtUri(dest_tbl_uri),
+        table_uri=PxtUri(uri=dest_tbl_uri),
         upload_id=upload_id,
         datafile=bundle.name,
         size=bundle.stat().st_size,
@@ -81,14 +85,20 @@ def push_replica(
         preview_header=packager.bundle_md['preview_header'],
         preview_data=packager.bundle_md['preview_data'],
     )
-    finalize_response = requests.post(
-        PIXELTABLE_API_URL, json=finalize_request.model_dump_json(), headers=_api_headers()
+    finalize_response_json = requests.post(
+        PIXELTABLE_API_URL, data=finalize_request.model_dump_json(), headers=_api_headers()
     )
-    if finalize_response.status_code != 200:
-        raise excs.Error(f'Error finalizing snapshot: {finalize_response.text}')
-    finalize_response = FinalizeResponse.model_validate_json(finalize_response.json())
-    Env.get().console_logger.info(f'The published snapshot is now available at:{finalize_response.confirmed_table_uri}')
-    return str(finalize_response.confirmed_table_uri)
+    if finalize_response_json.status_code != 200:
+        raise excs.Error(f'Error finalizing {src_tbl._display_name()}: {finalize_response_json.text}')
+
+    finalize_response = FinalizeResponse.model_validate(finalize_response_json.json())
+    confirmed_tbl_uri = finalize_response.confirmed_table_uri
+    Env.get().console_logger.info(f'The published table is now available at: {confirmed_tbl_uri}')
+
+    with Catalog.get().begin_xact(tbl_id=src_tbl._tbl_version_path.tbl_id, for_write=True):
+        src_tbl._tbl_version_path.tbl_version.get().update_pxt_uri(str(confirmed_tbl_uri))
+
+    return str(confirmed_tbl_uri)
 
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
@@ -96,7 +106,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
     remote_dir = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_location.path)))
     remote_path = str(remote_dir / bundle.name)[1:]  # Remove initial /
 
-    Env.get().console_logger.info(f'Uploading snapshot to: {bucket}:{remote_path}')
+    Env.get().console_logger.info(f'Uploading replica to: {bucket}:{remote_path}')
 
     s3_client = Env.get().get_client('s3')
 
@@ -117,15 +127,15 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
     )
 
 
-def pull_replica(dest_path: str, src_tbl_uri: str, version: int | None = None) -> pxt.Table:
-    clone_request = ReplicateRequest(table_uri=PxtUri(src_tbl_uri), version=version)
-    response = requests.post(PIXELTABLE_API_URL, json=clone_request.model_dump_json(), headers=_api_headers())
+def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
+    clone_request = ReplicateRequest(table_uri=PxtUri(src_tbl_uri))
+    response = requests.post(PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
-        raise excs.Error(f'Error cloning snapshot: {response.text}')
-    clone_response = ReplicateResponse.model_validate_json(response.json())
-    primary_tbl_additional_md = clone_response.md[0].tbl_md.additional_md
+        raise excs.Error(f'Error cloning replica: {response.text}')
+    clone_response = ReplicateResponse.model_validate(response.json())
+    primary_version_additional_md = clone_response.md[0].version_md.additional_md
     bundle_uri = str(clone_response.destination_uri)
-    bundle_filename = primary_tbl_additional_md['datafile']
+    bundle_filename = primary_version_additional_md['cloud']['datafile']
     parsed_location = urllib.parse.urlparse(bundle_uri)
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
@@ -134,11 +144,13 @@ def pull_replica(dest_path: str, src_tbl_uri: str, version: int | None = None) -
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
-
+    # Set pxt_uri in the table metadata; use table_uri from ReplicateResponse
+    clone_response.md[0].tbl_md.additional_md['pxt_uri'] = str(clone_response.table_uri)
+    md_list = [dataclasses.asdict(md) for md in clone_response.md]
     restorer = TableRestorer(
-        dest_path,
-        {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': clone_response.md},
+        dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
     )
+
     tbl = restorer.restore(bundle_path)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
@@ -149,7 +161,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     remote_dir = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_location.path)))
     remote_path = str(remote_dir / bundle_filename)[1:]  # Remove initial /
 
-    Env.get().console_logger.info(f'Downloading snapshot from: {bucket}:{remote_path}')
+    Env.get().console_logger.info(f'Downloading replica from: {bucket}:{remote_path}')
 
     s3_client = Env.get().get_client('s3')
 
@@ -269,10 +281,22 @@ def _download_from_presigned_url(
 
 def delete_replica(dest_path: str, version: int | None = None) -> None:
     """Delete cloud replica"""
-    delete_request = DeleteRequest(table_uri=PxtUri(dest_path), version=version)
-    response = requests.post(PIXELTABLE_API_URL, json=delete_request.model_dump_json(), headers=_api_headers())
+    delete_request = DeleteRequest(table_uri=PxtUri(uri=dest_path), version=version)
+    response = requests.post(PIXELTABLE_API_URL, data=delete_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error deleting replica: {response.text}')
+    DeleteResponse.model_validate(response.json())
+    Env.get().console_logger.info(f'Deleted replica at: {dest_path}')
+
+
+def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
+    """List versions for a remote table."""
+    request_json = {'operation_type': 'list_table_versions', 'table_uri': {'uri': table_uri}}
+    response = requests.post(PIXELTABLE_API_URL, data=json.dumps(request_json), headers=_api_headers())
+    if response.status_code != 200:
+        raise excs.Error(f'Error listing table versions: {response.text}')
+    response_data = response.json()
+    return response_data.get('versions', [])
 
 
 def _api_headers() -> dict[str, str]:

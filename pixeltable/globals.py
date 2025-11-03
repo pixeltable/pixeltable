@@ -456,7 +456,8 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     queried offline just as any other Pixeltable table.
 
     Args:
-        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
+        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
+            `'pxt://org_name/my_dir/my_table:5'` (with version 5).
         local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
             the same or different from the cloud table name.
 
