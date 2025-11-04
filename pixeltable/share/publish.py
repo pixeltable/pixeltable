@@ -33,7 +33,6 @@ from .protocol.replica import (
     ReplicateResponse,
 )
 
-
 _logger = logging.getLogger('pixeltable')
 
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the

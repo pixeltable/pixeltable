@@ -5,7 +5,7 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable.metadata.schema import Function, Table, TableSchemaVersion, TableVersion
+from pixeltable.metadata.schema import Function, Table, TableSchemaVersion
 
 __logger = logging.getLogger('pixeltable')
 

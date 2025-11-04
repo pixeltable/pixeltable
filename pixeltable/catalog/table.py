@@ -1620,16 +1620,13 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with catalog.Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('revert')
             self._tbl_version.get().revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
     def push(self, *, version: int | None = None) -> None:
-        from pixeltable.catalog import Catalog
         from pixeltable.share import push_replica
         from pixeltable.share.protocol import PxtUri
 
@@ -1647,8 +1644,6 @@ class Table(SchemaObject):
             # Named snapshots never have new versions to push.
             env.Env.get().console_logger.info('push(): Everything up to date.')
             return
-
-        tbl_version = self._tbl_version.get()
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
         parsed_uri = PxtUri(uri=pxt_uri)

@@ -61,7 +61,7 @@ class TestPublish:
         remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
         pxt.publish(tbl, remote_uri)
         result_sets: list[pxt.dataframe.DataFrameResultSet] = []
-        for version in range(1, 3):
+        for version in range(1, 8):
             tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
             result_sets.append(tbl.head(n=500))
             tbl.push()
@@ -77,6 +77,7 @@ class TestPublish:
             tbl_replica = pxt.get_table(f'tbl_replica:{version}')
             assert_resultset_eq(expected_rs, tbl_replica.head(n=500))
 
+        pxt.drop_table(remote_uri)
 
     def test_remote_tbl_ops_errors(self, reset_db: None) -> None:
         with pytest.raises(pxt.Error, match=r'Cannot use `force=True` with a cloud replica URI.'):

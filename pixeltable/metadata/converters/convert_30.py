@@ -1,29 +1,23 @@
 import copy
-from typing import Any
 import uuid
+from typing import Any
 
 import sqlalchemy as sql
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from pixeltable.metadata import register_converter
-from pixeltable.metadata.converters.util import (
-    convert_sql_table_record,
-    convert_table_md,
-)
-from pixeltable.metadata.schema import TableSchemaVersion, TableVersion
+from pixeltable.metadata.converters.util import convert_sql_table_record, convert_table_md
 
 
 @register_converter(version=30)
 def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, table_md_updater=__update_table_md)
     convert_sql_table_record(TableVersionAtV30, engine, record_updater=__update_table_version_record)
-    convert_sql_table_record(TableSchemaVersionAtV30,
-        engine, record_updater=__update_table_schema_version_record
-    )
+    convert_sql_table_record(TableSchemaVersionAtV30, engine, record_updater=__update_table_schema_version_record)
 
 
-def __update_table_md(md: dict, tbl_id: UUID) -> None:
+def __update_table_md(md: dict, tbl_id: uuid.UUID) -> None:
     md['tbl_id'] = str(tbl_id)
 
 
@@ -32,11 +26,10 @@ def __update_table_md(md: dict, tbl_id: UUID) -> None:
 
 Base: type = orm.declarative_base()
 
+
 class TableVersionAtV30(Base):
     __tablename__ = 'tableversions'
-    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
-        UUID(as_uuid=True), primary_key=True, nullable=False
-    )
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     version: orm.Mapped[int] = orm.mapped_column(sql.BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
 
@@ -44,9 +37,7 @@ class TableVersionAtV30(Base):
 class TableSchemaVersionAtV30(Base):
     __tablename__ = 'tableschemaversions'
 
-    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
-        UUID(as_uuid=True), primary_key=True, nullable=False
-    )
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     schema_version: orm.Mapped[int] = orm.mapped_column(sql.BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
 

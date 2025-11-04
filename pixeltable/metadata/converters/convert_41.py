@@ -1,6 +1,7 @@
+import sqlalchemy as sql
+
 from pixeltable.metadata import register_converter
 
-import sqlalchemy as sql
 
 @register_converter(version=41)
 def _(engine: sql.engine.Engine) -> None:
