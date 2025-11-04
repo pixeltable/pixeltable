@@ -611,6 +611,7 @@ class Catalog:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
             self._finalize_pending_ops(tbl_id)
+            self._clear_tv_cache(tbl_id, None)
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> None:
         """Finalizes all pending ops for the given table."""
@@ -678,6 +679,7 @@ class Catalog:
                     conn.execute(delete_next_op_stmt)
                     if op.op_sn == op.num_ops - 1:
                         conn.execute(reset_state_stmt)
+                        return
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
@@ -997,11 +999,12 @@ class Catalog:
             raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.')
         return obj
 
-    def get_table_by_id(self, tbl_id: UUID, version: int | None = None) -> Table | None:
+    def get_table_by_id(self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
+    ) -> Table | None:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
         if (tbl_id, version) not in self._tbls:
             if version is None:
-                return self._load_tbl(tbl_id)
+                return self._load_tbl(tbl_id, ignore_if_dropped=ignore_if_dropped)
             else:
                 return self._load_tbl_at_version(tbl_id, version)
         return self._tbls.get((tbl_id, version))
@@ -1405,8 +1408,9 @@ class Catalog:
             if force:
                 # recursively drop views first
                 for view_id in view_ids:
-                    view = self.get_table_by_id(view_id)
-                    self._drop_tbl(view, force=force, is_replace=is_replace)
+                    view = self.get_table_by_id(view_id, ignore_if_dropped=True)
+                    if view is not None:
+                        self._drop_tbl(view, force=force, is_replace=is_replace)
 
             elif is_replica:
                 # Dropping a replica with dependents and no 'force': just rename it to be a hidden table;
@@ -1461,7 +1465,6 @@ class Catalog:
                 self.write_tbl_md(
                     tv.id, dir_id=None, tbl_md=tv.tbl_md, version_md=None, schema_version_md=None, pending_ops=drop_ops
                 )
-                self._roll_forward_ids.add(tv.id)
 
             tvp.clear_cached_md()
 
@@ -1676,13 +1679,20 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
-    def _load_tbl(self, tbl_id: UUID) -> Table | None:
+    def _load_tbl(self, tbl_id: UUID, ignore_if_dropped: bool = False) -> Table | None:
         """Loads metadata for the table with the given id and caches it."""
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
         from .view import View
 
         conn = Env.get().conn
+
+        if ignore_if_dropped:
+            # check whether this table has already been dropped
+            q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
+            row = conn.execute(q).one()
+            if row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
+                return None
 
         # check for pending ops
         q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == tbl_id)
@@ -1930,7 +1940,7 @@ class Catalog:
         pending_ops: list[TableOp] | None = None,
     ) -> None:
         """
-        Stores metadata to the DB.
+        Stores metadata to the DB and adds tbl_id to self._roll_forward_ids if pending_ops is specified.
 
         Args:
             tbl_id: UUID of the table to store metadata for.
@@ -1957,6 +1967,7 @@ class Catalog:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
             if pending_ops is not None:
                 tbl_md.tbl_state = schema.TableState.ROLLFORWARD
+                self._roll_forward_ids.add(tbl_id)
                 assert tbl_md.pending_stmt is not None
 
             if dir_id is not None:
