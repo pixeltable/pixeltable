@@ -1626,7 +1626,7 @@ class Table(SchemaObject):
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
-    def push(self, *, version: int | None = None) -> None:
+    def push(self) -> None:
         from pixeltable.share import push_replica
         from pixeltable.share.protocol import PxtUri
 
@@ -1650,18 +1650,9 @@ class Table(SchemaObject):
         uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
         uuid_uri = str(uuid_uri_obj)
 
-        if version is None:
-            # Push this version
-            push_replica(uuid_uri, self)
-        else:
-            versioned_path = catalog.Path.parse(self._path())._replace(version=version)
-            versioned_tbl = catalog.Catalog.get().get_table(versioned_path, IfNotExistsParam.IGNORE)
-            if versioned_tbl is None:
-                raise excs.Error(f'Table {self._name!r} has no known version {version}')
-            assert versioned_tbl._id == self._id
-            push_replica(uuid_uri, versioned_tbl)
+        push_replica(uuid_uri, self)
 
-    def pull(self, *, version: int | None = None) -> None:
+    def pull(self) -> None:
         from pixeltable.share import pull_replica
         from pixeltable.share.protocol import PxtUri
 
@@ -1675,7 +1666,7 @@ class Table(SchemaObject):
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db, version=version)
+        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
         uuid_uri = str(uuid_uri_obj)
 
         pull_replica(self._path(), uuid_uri)

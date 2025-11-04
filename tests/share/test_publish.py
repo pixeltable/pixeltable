@@ -71,13 +71,14 @@ class TestPublish:
         clean_db()
         reload_catalog()
 
-        tbl_replica = pxt.replicate(remote_uri, 'tbl_replica')
+        tbl_replica = pxt.replicate(f'{remote_uri}:3', 'tbl_replica')
+        assert tbl_replica.get_metadata()['version'] == 3
+        assert_resultset_eq(result_sets[2], tbl_replica.head(n=500))
+
+        tbl_replica.pull()
+        tbl_replica = pxt.get_table('tbl_replica')
         assert tbl_replica.get_metadata()['version'] == len(result_sets)
         assert_resultset_eq(result_sets[-1], tbl_replica.head(n=500))
-        for version, expected_rs in enumerate(result_sets, start=1):
-            tbl_replica.pull(version=version)
-            tbl_replica = pxt.get_table(f'tbl_replica:{version}')
-            assert_resultset_eq(expected_rs, tbl_replica.head(n=500))
 
         pxt.drop_table(remote_uri)
 
