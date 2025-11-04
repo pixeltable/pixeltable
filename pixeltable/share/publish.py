@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import logging
 import os
 import sys
 import urllib.parse
@@ -32,6 +33,9 @@ from .protocol.replica import (
     ReplicateResponse,
 )
 
+
+_logger = logging.getLogger('pixeltable')
+
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
 
@@ -41,6 +45,8 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 def push_replica(
     dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
 ) -> str:
+    _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
+
     packager = TablePackager(src_tbl)
 
     # Create the publish request using packager's bundle_md
@@ -53,10 +59,14 @@ def push_replica(
         is_public=access == 'public',
     )
 
+    _logger.debug(f'Sending PublishRequest: {publish_request}')
+
     response = requests.post(PIXELTABLE_API_URL, data=publish_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
     publish_response = PublishResponse.model_validate(response.json())
+
+    _logger.debug(f'Received PublishResponse: {publish_response}')
 
     upload_id = publish_response.upload_id
     destination_uri = publish_response.destination_uri

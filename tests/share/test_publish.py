@@ -56,6 +56,28 @@ class TestPublish:
         assert_resultset_eq(snap_data, snap_replica_data, compare_col_names=True)
         assert_resultset_eq(tbl_data, tbl_replica_data, compare_col_names=True)
 
+    def test_push_pull(self, reset_db: None) -> None:
+        tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
+        pxt.publish(tbl, remote_uri)
+        result_sets: list[pxt.dataframe.DataFrameResultSet] = []
+        for version in range(1, 3):
+            tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
+            result_sets.append(tbl.head(n=500))
+            tbl.push()
+
+        clean_db()
+        reload_catalog()
+
+        tbl_replica = pxt.replicate(remote_uri, 'tbl_replica')
+        assert tbl_replica.get_metadata()['version'] == len(result_sets)
+        assert_resultset_eq(result_sets[-1], tbl_replica.head(n=500))
+        for version, expected_rs in enumerate(result_sets, start=1):
+            tbl_replica.pull(version=version)
+            tbl_replica = pxt.get_table(f'tbl_replica:{version}')
+            assert_resultset_eq(expected_rs, tbl_replica.head(n=500))
+
+
     def test_remote_tbl_ops_errors(self, reset_db: None) -> None:
         with pytest.raises(pxt.Error, match=r'Cannot use `force=True` with a cloud replica URI.'):
             pxt.drop_table('pxt://pxt-test/test', force=True)

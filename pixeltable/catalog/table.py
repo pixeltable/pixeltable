@@ -1670,14 +1670,13 @@ class Table(SchemaObject):
         from pixeltable.share import pull_replica
         from pixeltable.share.protocol import PxtUri
 
+        pxt_uri = self._get_pxt_uri()
         tbl_version = self._tbl_version_path.tbl_version.get()
-        pxt_uri = tbl_version.pxt_uri
 
-        if not tbl_version.is_replica:
+        if not tbl_version.is_replica or pxt_uri is None:
             raise excs.Error(
                 f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
             )
-        assert pxt_uri is not None
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
