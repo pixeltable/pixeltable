@@ -76,7 +76,7 @@ class SystemInfo(Base):
 class DirMd:
     name: str
     user: str | None
-    additional_md: dict[str, Any]
+    additional_md: dict[str, Any]  # deprecated
 
 
 class Dir(Base):
@@ -197,7 +197,9 @@ class TableMd:
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: ViewMd | None
-    additional_md: dict[str, Any]
+    # TODO: Remove additional_md from this and other Md dataclasses (and switch to using the separate additional_md
+    #     column in all cases)
+    additional_md: dict[str, Any]  # deprecated
 
     has_pending_ops: bool = False
 
@@ -259,7 +261,7 @@ class TableVersionMd:
     # A version fragment cannot be queried or instantiated via get_table(). A fragment represents a version of a
     # replica table that has incomplete data, and exists only to provide base table support for a dependent view.
     is_fragment: bool = False
-    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
+    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)  # deprecated
 
 
 class TableVersion(Base):
@@ -302,7 +304,7 @@ class TableSchemaVersionMd:
     # default validation strategy for any media column of this table
     # stores column.MediaValiation.name.lower()
     media_validation: str
-    additional_md: dict[str, Any]
+    additional_md: dict[str, Any]  # deprecated
 
 
 # versioning: each table schema change results in a new record
