@@ -29,6 +29,7 @@ Base: type = orm.declarative_base()
 
 class TableVersionAtV30(Base):
     __tablename__ = 'tableversions'
+
     tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     version: orm.Mapped[int] = orm.mapped_column(sql.BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)

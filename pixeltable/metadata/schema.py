@@ -68,6 +68,7 @@ class SystemInfo(Base):
     """A single-row table that contains system-wide metadata."""
 
     __tablename__ = 'systeminfo'
+
     dummy = sql.Column(Integer, primary_key=True, default=0, nullable=False)
     md = sql.Column(JSONB, nullable=False)  # SystemInfoMd
 
@@ -266,6 +267,7 @@ class TableVersionMd:
 
 class TableVersion(Base):
     __tablename__ = 'tableversions'
+
     tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
