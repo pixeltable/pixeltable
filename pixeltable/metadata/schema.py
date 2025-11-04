@@ -87,6 +87,7 @@ class Dir(Base):
     )
     parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # DirMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
     # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
@@ -313,6 +314,7 @@ class TableSchemaVersion(Base):
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
 class PendingTableOp(Base):
