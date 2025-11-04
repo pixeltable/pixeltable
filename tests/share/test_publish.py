@@ -57,6 +57,8 @@ class TestPublish:
         assert_resultset_eq(tbl_data, tbl_replica_data, compare_col_names=True)
 
     def test_push_pull(self, reset_db: None) -> None:
+        skip_test_if_no_pxt_credentials()
+
         tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
         remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
         pxt.publish(tbl, remote_uri)
