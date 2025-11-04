@@ -171,6 +171,10 @@ class Table(SchemaObject):
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
 
+    def _get_pxt_uri(self) -> str | None:
+        with catalog.Catalog.get().begin_xact(tbl_id=self._id):
+            return catalog.Catalog.get().get_additional_md(self._id).get('pxt_uri')
+
     def __hash__(self) -> int:
         return hash(self._tbl_version_path.tbl_id)
 
@@ -1616,61 +1620,53 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with catalog.Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('revert')
             self._tbl_version.get().revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
-    def push(self, *, version: int | None = None) -> None:
+    def push(self) -> None:
         from pixeltable.share import push_replica
         from pixeltable.share.protocol import PxtUri
 
-        tbl_version = self._tbl_version.get()
-        pxt_uri = tbl_version.pxt_uri
-
-        if tbl_version.is_replica:
+        if self._tbl_version_path.tbl_version.get().is_replica:
             raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)')
+
+        pxt_uri = self._get_pxt_uri()
         if pxt_uri is None:
             raise excs.Error(
                 f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
                 'To publish it, use `pxt.publish()` instead.'
             )
 
+        if self._tbl_version is None:
+            # Named snapshots never have new versions to push.
+            env.Env.get().console_logger.info('push(): Everything up to date.')
+            return
+
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
         parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
         uuid_uri = str(uuid_uri_obj)
 
-        if version is None:
-            # Push this version
-            push_replica(uuid_uri, self)
-        else:
-            versioned_path = catalog.Path.parse(self._path())._replace(version=version)
-            versioned_tbl = catalog.Catalog.get().get_table(versioned_path, IfNotExistsParam.IGNORE)
-            if versioned_tbl is None:
-                raise excs.Error(f'Table {self._name!r} has no known version {version}')
-            assert versioned_tbl._id == self._id
-            push_replica(uuid_uri, versioned_tbl)
+        push_replica(uuid_uri, self)
 
-    def pull(self, *, version: int | None = None) -> None:
+    def pull(self) -> None:
         from pixeltable.share import pull_replica
         from pixeltable.share.protocol import PxtUri
 
+        pxt_uri = self._get_pxt_uri()
         tbl_version = self._tbl_version_path.tbl_version.get()
-        pxt_uri = tbl_version.pxt_uri
 
-        if not tbl_version.is_replica:
+        if not tbl_version.is_replica or pxt_uri is None:
             raise excs.Error(
                 f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
             )
-        assert pxt_uri is not None
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
-        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db, version=version)
+        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
         uuid_uri = str(uuid_uri_obj)
 
         pull_replica(self._path(), uuid_uri)

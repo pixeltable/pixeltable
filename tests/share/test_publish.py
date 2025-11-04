@@ -45,11 +45,42 @@ class TestPublish:
         tbl_replica = pxt.replicate(tbl_remote_uri, 'tbl_replica')
         tbl_replica_data = tbl_replica.head(n=500)
 
+        if ':' in org_slug:
+            # Canonical URI; we expect the URIs to match exactly
+            assert snap_replica._get_pxt_uri() == snap_remote_uri
+            assert tbl_replica._get_pxt_uri() == tbl_remote_uri
+
         pxt.drop_table(snap_remote_uri)
         pxt.drop_table(tbl_remote_uri)
 
         assert_resultset_eq(snap_data, snap_replica_data, compare_col_names=True)
         assert_resultset_eq(tbl_data, tbl_replica_data, compare_col_names=True)
+
+    def test_push_pull(self, reset_db: None) -> None:
+        skip_test_if_no_pxt_credentials()
+
+        tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
+        pxt.publish(tbl, remote_uri)
+        result_sets: list[pxt.dataframe.DataFrameResultSet] = []
+        for version in range(1, 8):
+            tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
+            result_sets.append(tbl.head(n=500))
+            tbl.push()
+
+        clean_db()
+        reload_catalog()
+
+        tbl_replica = pxt.replicate(f'{remote_uri}:3', 'tbl_replica')
+        assert tbl_replica.get_metadata()['version'] == 3
+        assert_resultset_eq(result_sets[2], tbl_replica.head(n=500))
+
+        tbl_replica.pull()
+        tbl_replica = pxt.get_table('tbl_replica')
+        assert tbl_replica.get_metadata()['version'] == len(result_sets)
+        assert_resultset_eq(result_sets[-1], tbl_replica.head(n=500))
+
+        pxt.drop_table(remote_uri)
 
     def test_remote_tbl_ops_errors(self, reset_db: None) -> None:
         with pytest.raises(pxt.Error, match=r'Cannot use `force=True` with a cloud replica URI.'):

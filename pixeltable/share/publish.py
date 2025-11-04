@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import logging
 import os
 import sys
 import urllib.parse
@@ -14,6 +15,7 @@ from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
@@ -31,6 +33,8 @@ from .protocol.replica import (
     ReplicateResponse,
 )
 
+_logger = logging.getLogger('pixeltable')
+
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
 
@@ -40,6 +44,8 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 def push_replica(
     dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
 ) -> str:
+    _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
+
     packager = TablePackager(src_tbl)
 
     # Create the publish request using packager's bundle_md
@@ -52,10 +58,14 @@ def push_replica(
         is_public=access == 'public',
     )
 
+    _logger.debug(f'Sending PublishRequest: {publish_request}')
+
     response = requests.post(PIXELTABLE_API_URL, data=publish_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
     publish_response = PublishResponse.model_validate(response.json())
+
+    _logger.debug(f'Received PublishResponse: {publish_response}')
 
     upload_id = publish_response.upload_id
     destination_uri = publish_response.destination_uri
@@ -94,9 +104,8 @@ def push_replica(
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
     Env.get().console_logger.info(f'The published table is now available at: {confirmed_tbl_uri}')
 
-    # TODO This isn't working properly when publishing a non-head version.
-    # with Catalog.get().begin_xact(tbl_id=src_tbl._tbl_version_path.tbl_id, for_write=True):
-    #     src_tbl._tbl_version_path.tbl_version.get().update_pxt_uri(str(confirmed_tbl_uri))
+    with Catalog.get().begin_xact(tbl_id=src_tbl._id, for_write=True):
+        Catalog.get().update_additional_md(src_tbl._id, {'pxt_uri': str(confirmed_tbl_uri)})
 
     return str(confirmed_tbl_uri)
 
@@ -144,14 +153,14 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
-    # Set pxt_uri in the table metadata; use table_uri from ReplicateResponse
-    clone_response.md[0].tbl_md.additional_md['pxt_uri'] = str(clone_response.table_uri)
+
+    pxt_uri = str(clone_response.table_uri)
     md_list = [dataclasses.asdict(md) for md in clone_response.md]
     restorer = TableRestorer(
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
     )
 
-    tbl = restorer.restore(bundle_path)
+    tbl = restorer.restore(bundle_path, pxt_uri)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
 
