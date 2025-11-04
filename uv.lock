@@ -4947,6 +4947,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9" },
     { name = "av", specifier = ">=10.0.0" },
     { name = "beautifulsoup4", specifier = ">=4.10" },
     { name = "cloudpickle", specifier = ">=2.2.1" },

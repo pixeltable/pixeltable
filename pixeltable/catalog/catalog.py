@@ -1327,6 +1327,30 @@ class Catalog:
             # It's a new version of a table that has a physical store, so we need to create a TableVersion instance.
             TableVersion.create_replica(md)
 
+    def get_additional_md(self, tbl_id: UUID) -> dict[str, Any]:
+        """Return the additional_md field of the given table."""
+        assert Env.get().in_xact
+        conn = Env.get().conn
+        q = sql.select(schema.Table.additional_md).where(schema.Table.id == str(tbl_id))
+        row = conn.execute(q).one()
+        assert isinstance(row[0], dict)
+        return row[0]
+
+    def update_additional_md(self, tbl_id: UUID, additional_md: dict[str, Any]) -> None:
+        """
+        Update the additional_md field of the given table. The new additional_md is merged with the
+        existing one via a JSON dictionary merge, giving preference to the new values.
+        """
+        assert self._in_write_xact
+        conn = Env.get().conn
+        q = (
+            sql.update(schema.Table)
+            .where(schema.Table.id == str(tbl_id))
+            .values({schema.Table.additional_md: schema.Table.additional_md.op('||')(additional_md)})
+        )
+        result = conn.execute(q)
+        assert result.rowcount == 1, result.rowcount
+
     @retry_loop(for_write=False)
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
         obj = Catalog.get()._get_schema_object(

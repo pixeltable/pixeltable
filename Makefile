@@ -124,7 +124,7 @@ install-deps:
 	@$(TOUCH) .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/uv install-deps .make-install/others
+install: setup-install .make-install/env install-deps .make-install/others
 
 .PHONY: test
 test: pytest check

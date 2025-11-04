@@ -7,7 +7,7 @@ between pixeltable core and cloud implementations.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import AnyUrl, BaseModel
@@ -22,12 +22,12 @@ class PublishRequest(RequestBaseModel):
     """Request to publish or push table replica."""
 
     operation_type: Literal[ReplicaOperationType.PUBLISH_REPLICA] = ReplicaOperationType.PUBLISH_REPLICA
-    table_uri: PxtUri  # If PxtUri#is_uuid is true then its considered a push replica request
+    table_uri: PxtUri  # If PxtUri#id is not None then it's considered a push replica request
     pxt_version: str
     pxt_md_version: int
     md: list[TableVersionMd]
     is_public: bool = False
-    bucket_name: Optional[str] = None  # Optional bucket name, falls back to org's default bucket if not provided
+    bucket_name: str | None = None  # Optional bucket name, falls back to org's default bucket if not provided
 
     def get_pxt_uri(self) -> PxtUri:
         """Get the PxtUri from this request."""
@@ -40,7 +40,7 @@ class PublishResponse(BaseModel):
     upload_id: UUID
     destination: StorageDestination
     destination_uri: AnyUrl
-    max_size: Optional[int] = None  # Maximum size that can be used by this replica, used for R2 home buckets
+    max_size: int | None = None  # Maximum size that can be used by this replica, used for R2 home buckets
 
 
 class FinalizeRequest(RequestBaseModel):
@@ -65,7 +65,7 @@ class FinalizeResponse(BaseModel):
     """Response from finalizing a table replica."""
 
     confirmed_table_uri: PxtUri
-    version: Optional[int] = None  # Version that was pushed to replica
+    version: int | None = None  # Version that was pushed to replica
 
 
 class DeleteRequest(RequestBaseModel):
@@ -73,7 +73,7 @@ class DeleteRequest(RequestBaseModel):
 
     operation_type: Literal[ReplicaOperationType.DELETE_REPLICA] = ReplicaOperationType.DELETE_REPLICA
     table_uri: PxtUri
-    version: Optional[int] = None  # Delete a version in replica
+    version: int | None = None  # Delete a version in replica
 
     def get_pxt_uri(self) -> PxtUri:
         """Get the PxtUri from this request."""
@@ -84,7 +84,7 @@ class DeleteResponse(BaseModel):
     """Response from deleting a table replica."""
 
     table_uri: PxtUri
-    version: Optional[int] = None
+    version: int | None = None
 
 
 class ReplicateRequest(RequestBaseModel):
@@ -92,7 +92,6 @@ class ReplicateRequest(RequestBaseModel):
 
     operation_type: Literal[ReplicaOperationType.CLONE_REPLICA] = ReplicaOperationType.CLONE_REPLICA
     table_uri: PxtUri
-    version: Optional[int] = None  # Clone a version in replica
 
     def get_pxt_uri(self) -> PxtUri:
         """Get the PxtUri from this request."""
@@ -107,4 +106,5 @@ class ReplicateResponse(BaseModel):
     destination: StorageDestination
     destination_uri: AnyUrl
     md: list[TableVersionMd]
-    version: Optional[int] = None
+    version: int | None = None
+

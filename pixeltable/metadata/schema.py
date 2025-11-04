@@ -77,6 +77,7 @@ class SystemInfo(Base):
     """A single-row table that contains system-wide metadata."""
 
     __tablename__ = 'systeminfo'
+
     dummy = sql.Column(Integer, primary_key=True, default=0, nullable=False)
     md = sql.Column(JSONB, nullable=False)  # SystemInfoMd
 
@@ -85,7 +86,7 @@ class SystemInfo(Base):
 class DirMd:
     name: str
     user: str | None
-    additional_md: dict[str, Any]
+    additional_md: dict[str, Any]  # deprecated
 
 
 class Dir(Base):
@@ -96,6 +97,7 @@ class Dir(Base):
     )
     parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # DirMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
     # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
@@ -225,7 +227,9 @@ class TableMd:
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: ViewMd | None
-    additional_md: dict[str, Any]
+    # TODO: Remove additional_md from this and other Md dataclasses (and switch to using the separate additional_md
+    #     column in all cases)
+    additional_md: dict[str, Any]  # deprecated
 
     # deprecated
     has_pending_ops: bool = False
@@ -276,6 +280,7 @@ class Table(Base):
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
     # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
@@ -292,16 +297,18 @@ class VersionMd:
     # A version fragment cannot be queried or instantiated via get_table(). A fragment represents a version of a
     # replica table that has incomplete data, and exists only to provide base table support for a dependent view.
     is_fragment: bool = False
-    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
+    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)  # deprecated
 
 
 class TableVersion(Base):
     __tablename__ = 'tableversions'
+
     tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
 @dataclasses.dataclass
@@ -334,7 +341,7 @@ class TableSchemaVersionMd:
     # default validation strategy for any media column of this table
     # stores column.MediaValiation.name.lower()
     media_validation: str
-    additional_md: dict[str, Any]
+    additional_md: dict[str, Any]  # deprecated
 
 
 # versioning: each table schema change results in a new record
@@ -346,6 +353,7 @@ class TableSchemaVersion(Base):
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
 class PendingTableOp(Base):
