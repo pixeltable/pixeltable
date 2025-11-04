@@ -1298,7 +1298,7 @@ class Catalog:
         """Return the additional_md field of the given table."""
         assert Env.get().in_xact
         conn = Env.get().conn
-        q = sql.select(schema.Table.md['additional_md']).where(schema.Table.id == str(tbl_id))
+        q = sql.select(schema.Table.additional_md).where(schema.Table.id == str(tbl_id))
         row = conn.execute(q).one()
         assert isinstance(row[0], dict)
         return row[0]
@@ -1313,7 +1313,7 @@ class Catalog:
         q = (
             sql.update(schema.Table)
             .where(schema.Table.id == str(tbl_id))
-            .values({schema.Table.md['additional_md']: schema.Table.md['additional_md'].op('||')(additional_md)})
+            .values({schema.Table.additional_md: schema.Table.additional_md.op('||')(additional_md)})
         )
         result = conn.execute(q)
         assert result.rowcount == 1, result.rowcount

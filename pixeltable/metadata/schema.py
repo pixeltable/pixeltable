@@ -241,6 +241,7 @@ class Table(Base):
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
     # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
@@ -267,6 +268,7 @@ class TableVersion(Base):
     )
     version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
 @dataclasses.dataclass

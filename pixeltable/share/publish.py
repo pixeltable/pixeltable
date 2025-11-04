@@ -144,14 +144,14 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
-    # Set pxt_uri in the table metadata; use table_uri from ReplicateResponse
-    clone_response.md[0].tbl_md.additional_md['pxt_uri'] = str(clone_response.table_uri)
+
+    pxt_uri = str(clone_response.table_uri)
     md_list = [dataclasses.asdict(md) for md in clone_response.md]
     restorer = TableRestorer(
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
     )
 
-    tbl = restorer.restore(bundle_path)
+    tbl = restorer.restore(bundle_path, pxt_uri)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
 
