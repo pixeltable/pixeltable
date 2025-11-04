@@ -645,6 +645,9 @@ class TestPackager:
             with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
                 s.where(s.icol < 5).delete()
 
+            with pytest.raises(pxt.Error, match='Cannot create a view or snapshot on top of a replica'):
+                _ = pxt.create_view(f'subview_of_{name}', s)
+
     def test_drop_replica(self, reset_db: None) -> None:
         """
         Test dropping a replica table.
