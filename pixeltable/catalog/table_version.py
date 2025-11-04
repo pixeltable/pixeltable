@@ -49,7 +49,7 @@ class TableVersionMd:
     """
 
     tbl_md: schema.TableMd
-    version_md: schema.TableVersionMd
+    version_md: schema.VersionMd
     schema_version_md: schema.TableSchemaVersionMd
 
     @property
@@ -92,7 +92,7 @@ class TableVersion:
 
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
-    _version_md: schema.TableVersionMd
+    _version_md: schema.VersionMd
     _schema_version_md: schema.TableSchemaVersionMd
 
     effective_version: int | None
@@ -148,7 +148,7 @@ class TableVersion:
         self,
         id: UUID,
         tbl_md: schema.TableMd,
-        version_md: schema.TableVersionMd,
+        version_md: schema.VersionMd,
         effective_version: int | None,
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
@@ -329,7 +329,7 @@ class TableVersion:
             additional_md={},
         )
 
-        table_version_md = schema.TableVersionMd(
+        table_version_md = schema.VersionMd(
             tbl_id=tbl_id_str,
             created_at=timestamp,
             version=0,
@@ -1451,7 +1451,7 @@ class TableVersion:
         return self._tbl_md
 
     @property
-    def version_md(self) -> schema.TableVersionMd:
+    def version_md(self) -> schema.VersionMd:
         return self._version_md
 
     @property

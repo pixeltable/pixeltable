@@ -655,6 +655,7 @@ class Catalog:
                             )
                         )
                     )
+                    _logger.debug(f'finalize_pending_ops({tbl_id}): finalizing op {op!s}')
 
                     if op.needs_xact:
                         if op.delete_table_md_op is not None:
@@ -1237,7 +1238,7 @@ class Catalog:
         tbl_id = md.tbl_md.tbl_id
 
         new_tbl_md: schema.TableMd | None = None
-        new_version_md: schema.TableVersionMd | None = None
+        new_version_md: schema.VersionMd | None = None
         new_schema_version_md: schema.TableSchemaVersionMd | None = None
         is_new_tbl_version: bool = False
 
@@ -1276,7 +1277,7 @@ class Catalog:
             new_version_md = md.version_md
             is_new_tbl_version = True
         else:
-            existing_version_md = schema.md_from_dict(schema.TableVersionMd, existing_version_md_row.md)
+            existing_version_md = schema.md_from_dict(schema.VersionMd, existing_version_md_row.md)
             # Validate that the existing metadata are identical to the new metadata, except is_fragment
             # and additional_md which may differ.
             if (
@@ -1463,7 +1464,7 @@ class Catalog:
                 tv.tbl_md.pending_stmt = schema.TableStatement.DROP_TABLE
                 drop_ops = tv.drop()
                 self.write_tbl_md(
-                    tv.id, dir_id=None, tbl_md=tv.tbl_md, version_md=None, schema_version_md=None, pending_ops=drop_ops
+                    tv.id, dir_id=None, tbl_md=tv.tbl_md, version_md=None, schema_version_md=None, pending_ops=drop_ops, remove_from_dir=True,
                 )
 
             tvp.clear_cached_md()
@@ -1530,18 +1531,23 @@ class Catalog:
         Env.get().console_logger.info(f'Created directory {path!r}.')
         return dir
 
-    @retry_loop(for_write=True)
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        _, _, schema_obj = self._prepare_dir_op(
-            drop_dir_path=path.parent,
-            drop_name=path.name,
-            drop_expected=Dir,
-            raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
-        )
-        if schema_obj is None:
-            _logger.info(f'Directory {path!r} does not exist; skipped drop_dir().')
-            return
-        self._drop_dir(schema_obj._id, path, force=force)
+        @retry_loop(for_write=True)
+        def drop_fn() -> None:
+            _, _, schema_obj = self._prepare_dir_op(
+                drop_dir_path=path.parent,
+                drop_name=path.name,
+                drop_expected=Dir,
+                raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
+            )
+            if schema_obj is None:
+                _logger.info(f'Directory {path!r} does not exist; skipped drop_dir().')
+                return
+            self._drop_dir(schema_obj._id, path, force=force)
+
+        self._roll_forward_ids.clear()
+        drop_fn()
+        self._roll_forward()
 
     def _drop_dir(self, dir_id: UUID, dir_path: Path, force: bool = False) -> None:
         conn = Env.get().conn
@@ -1787,7 +1793,7 @@ class Catalog:
             return None
         tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-        version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
+        version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
         tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestor_ids, version_md.created_at)
 
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
@@ -1821,7 +1827,7 @@ class Catalog:
                 _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{version}')
                 raise excs.Error('The specified table version is no longer valid and cannot be retrieved.')
             ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
-            ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
+            ancestor_version_md = schema.md_from_dict(schema.VersionMd, ancestor_version_record.md)
             assert ancestor_version_md.created_at <= created_at
             ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
 
@@ -1871,7 +1877,7 @@ class Catalog:
         return [
             TableVersionMd(
                 tbl_md=schema.md_from_dict(schema.TableMd, row.Table.md),
-                version_md=schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
+                version_md=schema.md_from_dict(schema.VersionMd, row.TableVersion.md),
                 schema_version_md=schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
             )
             for row in src_rows
@@ -1925,7 +1931,7 @@ class Catalog:
         )
         assert tbl_record.id == tbl_id
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-        version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
+        version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
 
         return TableVersionMd(tbl_md, version_md, schema_version_md)
@@ -1935,9 +1941,10 @@ class Catalog:
         tbl_id: UUID,
         dir_id: UUID | None,
         tbl_md: schema.TableMd | None,
-        version_md: schema.TableVersionMd | None,
+        version_md: schema.VersionMd | None,
         schema_version_md: schema.TableSchemaVersionMd | None,
         pending_ops: list[TableOp] | None = None,
+        remove_from_dir: bool = False,
     ) -> None:
         """
         Stores metadata to the DB and adds tbl_id to self._roll_forward_ids if pending_ops is specified.
@@ -1978,9 +1985,12 @@ class Catalog:
                 session.add(tbl_record)
             else:
                 # Update the existing table record.
+                values = {schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)}
+                if remove_from_dir:
+                    values[schema.Table.dir_id] = None
                 result = session.execute(
                     sql.update(schema.Table.__table__)
-                    .values({schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)})
+                    .values(values)
                     .where(schema.Table.id == tbl_id)
                 )
                 assert isinstance(result, sql.CursorResult)
@@ -2057,6 +2067,7 @@ class Catalog:
         Deletes all table metadata from the store for the given table UUID.
         """
         conn = Env.get().conn
+        _logger.info(f'delete_tbl_md({tbl_id})')
         conn.execute(sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.PendingTableOp.__table__).where(schema.PendingTableOp.tbl_id == tbl_id))

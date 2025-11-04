@@ -265,6 +265,8 @@ class Table(Base):
     Views are in essence a subclass of tables, because they also store materialized columns. The differences are:
     - views have a base, which is either a (live) table or a snapshot
     - views can have a filter predicate
+
+    dir_id: NULL for dropped tables
     """
 
     __tablename__ = 'tables'
@@ -272,7 +274,7 @@ class Table(Base):
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
 
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
-    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
+    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
 
     # used to force acquisition of an X-lock via an Update stmt
@@ -280,7 +282,7 @@ class Table(Base):
 
 
 @dataclasses.dataclass
-class TableVersionMd:
+class VersionMd:
     tbl_id: str  # uuid.UUID
     created_at: float  # time.time()
     version: int
