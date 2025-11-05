@@ -1,0 +1,23 @@
+{
+  "name": "pixeltable-typescript-sdk",
+  "version": "0.1.0",
+  "description": "Auto-generated TypeScript SDK for Pixeltable",
+  "main": "pixeltable.ts",
+  "types": "pixeltable.d.ts",
+  "scripts": {
+    "test": "tsc --noEmit test_types.ts",
+    "build": "tsc"
+  },
+  "keywords": [
+    "pixeltable",
+    "typescript",
+    "sdk",
+    "multimodal",
+    "ai"
+  ],
+  "author": "Pixeltable",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
