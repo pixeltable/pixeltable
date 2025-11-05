@@ -13,10 +13,10 @@ on:
 
 env:
   PXTTEST_IN_CI: 1
+  PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
-  # in a PR, the secrets will be empty
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_DEFAULT_REGION: us-west-2
