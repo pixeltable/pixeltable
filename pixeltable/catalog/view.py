@@ -248,13 +248,10 @@ class View(Table):
         if tbl_version_path.is_snapshot():
             return tbl_version_path
         tbl_version = tbl_version_path.tbl_version.get()
-        if not tbl_version.is_snapshot:
-            # create and register snapshot version
-            tbl_version = tbl_version.create_snapshot_copy()
-            assert tbl_version.is_snapshot
+        assert not tbl_version.is_snapshot
 
         return TableVersionPath(
-            tbl_version.handle,
+            TableVersionHandle(tbl_version.id, tbl_version.version, None),
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 

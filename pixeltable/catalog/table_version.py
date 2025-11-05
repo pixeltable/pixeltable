@@ -216,12 +216,6 @@ class TableVersion:
     def __hash__(self) -> int:
         return hash(self.id)
 
-    def create_snapshot_copy(self) -> TableVersion:
-        """Create a snapshot copy of this TableVersion"""
-        assert not self.is_snapshot
-        base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(self.id, self.tbl_md, self.version_md, self.version, None, self.schema_version_md, [], base=base)
-
     @property
     def versioned_name(self) -> str:
         if self.effective_version is None:
