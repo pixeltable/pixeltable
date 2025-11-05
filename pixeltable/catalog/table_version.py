@@ -153,6 +153,8 @@ class TableVersion:
         base_path: 'TableVersionPath' | None = None,
         base: TableVersionHandle | None = None,
     ):
+        assert effective_version is None or alignment_tbl_id is None
+
         self.is_validated = True  # a freshly constructed instance is always valid
         self.is_initialized = False
         self.id = id
@@ -438,6 +440,7 @@ class TableVersion:
             cat.record_column_dependencies(self)
         # init external stores; this needs to happen after the schema is created
         self._init_external_stores()
+
         self.is_initialized = True
 
     def _init_schema(self) -> None:
@@ -1477,8 +1480,7 @@ class TableVersion:
 
     @property
     def version(self) -> int:
-        # if this is a snapshot instance, we need to ignore current_version
-        return self._tbl_md.current_version if self.effective_version is None else self.effective_version
+        return self._version_md.version
 
     @property
     def created_at(self) -> float:

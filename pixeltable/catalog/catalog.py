@@ -1849,7 +1849,26 @@ class Catalog:
             for row in src_rows
         ]
 
-    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> TableVersionCompleteMd:
+    def head_version_md(self, tbl_id: UUID) -> schema.TableVersionMd:
+        """
+        Returns the TableVersionMd for the most recent non-fragment version of the given table.
+        """
+        conn = Env.get().conn
+
+        q = (
+            sql.select(schema.TableVersion.md)
+            .where(schema.TableVersion.tbl_id == tbl_id)
+            .where(schema.TableVersion.md['is_fragment'].astext == 'false')
+            .order_by(schema.TableVersion.md['version'].cast(sql.Integer).desc())
+            .limit(1)
+        )
+        row = conn.execute(q).one_or_none()
+        if row is None:
+            return None
+        assert isinstance(row[0], dict)
+        schema.md_from_dict(schema.TableVersionMd, row[0])
+
+    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None, alignment_tbl_id: UUID | None) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
@@ -1876,6 +1895,14 @@ class Catalog:
             q = q.where(
                 schema.TableVersion.md['version'].cast(sql.Integer) == effective_version,
                 schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
+            )
+        elif alignment_tbl_id is not None:
+            # we are loading the version that is aligned to the head version of another table
+            aligned_version_md = self.head_version_md(alignment_tbl_id)
+            q = (
+                q.where(schema.TableVersion.md['created_at'].cast(sql.Float) <= aligned_version_md.created_at)
+                .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
+                .limit(1)
             )
         else:
             # we are loading the current version
@@ -2039,12 +2066,12 @@ class Catalog:
         # TODO: First acquire X-locks for all relevant metadata entries
 
         # Load metadata for every table in the TableVersionPath for `tbl`.
-        md = [self.load_tbl_md(tv.id, tv.effective_version) for tv in tbl._tbl_version_path.get_tbl_versions()]
+        md = [self.load_tbl_md(tv.id, tv.effective_version, None) for tv in tbl._tbl_version_path.get_tbl_versions()]
 
         # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
         # TableVersionPath. We need to prepend it separately.
         if isinstance(tbl, View) and tbl._is_named_pure_snapshot():
-            snapshot_md = self.load_tbl_md(tbl._id, 0)
+            snapshot_md = self.load_tbl_md(tbl._id, 0, None)
             md = [snapshot_md, *md]
 
         for ancestor_md in md:
@@ -2070,7 +2097,7 @@ class Catalog:
         self, tbl_id: UUID, effective_version: int | None, alignment_tbl_id: UUID | None, *, check_pending_ops: bool = True
     ) -> TableVersion | None:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
-        table_version_md = self.load_tbl_md(tbl_id, effective_version)
+        table_version_md = self.load_tbl_md(tbl_id, effective_version, alignment_tbl_id)
         tbl_md = table_version_md.tbl_md
         version_md = table_version_md.version_md
         schema_version_md = table_version_md.schema_version_md
