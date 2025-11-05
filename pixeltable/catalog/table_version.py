@@ -92,6 +92,7 @@ class TableVersion:
     _schema_version_md: schema.TableSchemaVersionMd
 
     effective_version: int | None
+    alignment_tbl_id: UUID | None
     path: 'TableVersionPath' | None  # only set for live tables; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
     predicate: exprs.Expr | None
@@ -146,6 +147,7 @@ class TableVersion:
         tbl_md: schema.TableMd,
         version_md: schema.TableVersionMd,
         effective_version: int | None,
+        alignment_tbl_id: UUID | None,
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: 'TableVersionPath' | None = None,
@@ -158,6 +160,7 @@ class TableVersion:
         self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
         self.effective_version = effective_version
+        self.alignment_tbl_id = alignment_tbl_id
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
@@ -169,7 +172,7 @@ class TableVersion:
         if self.is_snapshot:
             self.path = None
         else:
-            self_handle = TableVersionHandle(id, self.effective_version)
+            self_handle = TableVersionHandle(id, self.effective_version, self.alignment_tbl_id)
             if self.is_view:
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
@@ -217,7 +220,7 @@ class TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
         base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, [], base=base)
+        return TableVersion(self.id, self.tbl_md, self.version_md, self.version, None, self.schema_version_md, [], base=base)
 
     @property
     def versioned_name(self) -> str:
@@ -236,7 +239,7 @@ class TableVersion:
     def handle(self) -> 'TableVersionHandle':
         from .table_version_handle import TableVersionHandle
 
-        return TableVersionHandle(self.id, self.effective_version, self)
+        return TableVersionHandle(self.id, self.effective_version, self.alignment_tbl_id, tbl_version=self)
 
     @classmethod
     def create_initial_md(
@@ -256,9 +259,9 @@ class TableVersion:
 
         tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
-        tbl_handle = TableVersionHandle(tbl_id, None)
-        column_ids = itertools.count(0)
-        index_ids = itertools.count(0)
+        tbl_handle = TableVersionHandle(tbl_id, None, None)
+        column_ids = itertools.count()
+        index_ids = itertools.count()
 
         # assign ids, create metadata
         column_md: dict[int, schema.ColumnMd] = {}
@@ -388,6 +391,7 @@ class TableVersion:
             md.tbl_md,
             md.version_md,
             md.version_md.version,
+            None,
             md.schema_version_md,
             [],
             base_path=base_path,
@@ -399,8 +403,8 @@ class TableVersion:
         # Actually this isn't true, because we might be re-creating a dropped replica.
         # TODO: Understand why old TableVersions are kept around even for a dropped table.
         # assert tbl_version.effective_version is not None
-        # assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
-        cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
+        # assert (tbl_version.id, tbl_version.effective_version, None) not in cat._tbl_versions
+        cat._tbl_versions[tbl_version.id, tbl_version.effective_version, None] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
         return tbl_version
@@ -434,7 +438,7 @@ class TableVersion:
         from .catalog import Catalog
 
         cat = Catalog.get()
-        assert (self.id, self.effective_version) in cat._tbl_versions
+        assert (self.id, self.effective_version, self.alignment_tbl_id) in cat._tbl_versions
         self._init_schema()
         if self.is_mutable:
             cat.record_column_dependencies(self)

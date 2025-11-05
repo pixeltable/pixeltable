@@ -108,7 +108,7 @@ class ColumnRef(Expr):
     # override
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
         target = tbl_versions[self.col.tbl_handle.id]
-        assert self.col.id in target.cols_by_id
+        assert self.col.id in target.cols_by_id, f'{target}: {self.col.id} not in {list(target.cols_by_id.keys())}'
         col = target.cols_by_id[self.col.id]
         return ColumnRef(col, self.reference_tbl)
 
@@ -314,7 +314,7 @@ class ColumnRef(Expr):
     def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         # validate_initialized=False: this gets called as part of TableVersion.init()
-        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version, validate_initialized=False)
+        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version, None, validate_initialized=False)
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
         col = next(col for col in tbl_version.cols if col.id == col_id)
         return col

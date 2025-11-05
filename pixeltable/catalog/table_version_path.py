@@ -53,7 +53,7 @@ class TableVersionPath:
         result: TableVersionPath | None = None
         for tbl_id_str, effective_version in path[::-1]:
             tbl_id = UUID(tbl_id_str)
-            result = TableVersionPath(TableVersionHandle(tbl_id, effective_version), base=result)
+            result = TableVersionPath(TableVersionHandle(tbl_id, effective_version, None), base=result)
         return result
 
     def as_md(self) -> schema.TableVersionPath:

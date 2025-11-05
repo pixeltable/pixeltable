@@ -220,7 +220,7 @@ class View(Table):
         else:
             tbl_id = md.tbl_md.tbl_id
             view_path = TableVersionPath(
-                TableVersionHandle(UUID(tbl_id), effective_version=0 if is_snapshot else None), base=base_version_path
+                TableVersionHandle(UUID(tbl_id), 0 if is_snapshot else None, None), base=base_version_path
             )
             ops = [
                 TableOp(
@@ -254,7 +254,7 @@ class View(Table):
             assert tbl_version.is_snapshot
 
         return TableVersionPath(
-            TableVersionHandle(tbl_version.id, tbl_version.effective_version),
+            tbl_version.handle,
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
