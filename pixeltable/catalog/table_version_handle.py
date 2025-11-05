@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pixeltable import exceptions as excs
@@ -21,10 +21,10 @@ class TableVersionHandle:
     """
 
     id: UUID
-    effective_version: Optional[int]
-    _tbl_version: Optional[TableVersion]
+    effective_version: int | None
+    _tbl_version: TableVersion | None
 
-    def __init__(self, tbl_id: UUID, effective_version: Optional[int], tbl_version: Optional[TableVersion] = None):
+    def __init__(self, tbl_id: UUID, effective_version: int | None, tbl_version: TableVersion | None = None):
         self.id = tbl_id
         self.effective_version = effective_version
         self._tbl_version = tbl_version
@@ -36,6 +36,9 @@ class TableVersionHandle:
 
     def __hash__(self) -> int:
         return hash((self.id, self.effective_version))
+
+    def __repr__(self) -> str:
+        return f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version})'
 
     @property
     def is_snapshot(self) -> bool:
@@ -81,7 +84,7 @@ class ColumnHandle:
         if self.col_id not in self.tbl_version.get().cols_by_id:
             schema_version_drop = self.tbl_version.get()._tbl_md.column_md[self.col_id].schema_version_drop
             raise excs.Error(
-                f'Column has been dropped (no record for column ID {self.col_id} in table '
+                f'Column was dropped (no record for column ID {self.col_id} in table '
                 f'{self.tbl_version.get().versioned_name!r}; it was dropped in table version {schema_version_drop})'
             )
         return self.tbl_version.get().cols_by_id[self.col_id]

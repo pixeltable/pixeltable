@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import operator
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import sqlalchemy as sql
 
@@ -36,7 +36,8 @@ class CompoundPredicate(Expr):
         return f' {self.operator} '.join([f'({e})' for e in self.components])
 
     @classmethod
-    def make_conjunction(cls, operands: list[Expr]) -> Optional[Expr]:
+    def make_conjunction(cls, operands: list[Expr | None]) -> Expr | None:
+        operands = [e for e in operands if e is not None]
         if len(operands) == 0:
             return None
         if len(operands) == 1:
@@ -60,14 +61,14 @@ class CompoundPredicate(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('operator', self.operator.value)]
 
-    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
+    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Expr | None]:
         if self.operator in (LogicalOperator.OR, LogicalOperator.NOT):
             return super().split_conjuncts(condition)
         matches = [op for op in self.components if condition(op)]
         non_matches = [op for op in self.components if not condition(op)]
         return (matches, self.make_conjunction(non_matches))
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         sql_exprs = [sql_elements.get(op) for op in self.components]
         if any(e is None for e in sql_exprs):
             return None

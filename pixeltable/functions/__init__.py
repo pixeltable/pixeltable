@@ -19,13 +19,18 @@ from . import (
     mistralai,
     ollama,
     openai,
+    openrouter,
     replicate,
+    reve,
     string,
     timestamp,
     together,
+    twelvelabs,
     video,
     vision,
     whisper,
+    whisperx,
+    yolox,
 )
 from .globals import count, map, max, mean, min, sum
 

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -30,7 +30,7 @@ def __update_table_md(table_md: dict, table_id: UUID) -> None:
         _logger.info(f'Updating view metadata for table: {table_id}')
 
 
-def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     if isinstance(v, dict) and (v.get('_classname') == 'DataFrame'):
         if 'sample_clause' not in v:
             v['sample_clause'] = None

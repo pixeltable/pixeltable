@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import dataclasses
 import sys
 import time
-from dataclasses import dataclass
-from typing import Any, Iterable, NamedTuple, Optional, Sequence
+from typing import Any, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import numpy as np
+import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exprs, utils
 from pixeltable.env import Env
+from pixeltable.utils.misc import non_none_dict_factory
 
 from .data_row import DataRow
 from .expr import Expr, ExprScope
@@ -48,6 +50,12 @@ class RowBuilder:
 
     For ColumnRefs to unstored iterator columns:
     - in order for them to be executable, we also record the iterator args and pass them to the ColumnRef
+
+    Args:
+        output_exprs: list of Exprs to be evaluated
+        columns: list of columns to be materialized
+        input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
+    TODO: enforce that output_exprs doesn't overlap with input_exprs?
     """
 
     unique_exprs: ExprSet
@@ -61,8 +69,8 @@ class RowBuilder:
 
     input_exprs: ExprSet
 
-    tbl: Optional[catalog.TableVersion]  # reference table of the RowBuilder; used to identify pk columns for writes
-    table_columns: list[ColumnSlotIdx]
+    tbl: catalog.TableVersion | None  # reference table of the RowBuilder; used to identify pk columns for writes
+    table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
 
@@ -86,10 +94,9 @@ class RowBuilder:
     img_slot_idxs: list[int]  # Indices of image slots
     media_slot_idxs: list[int]  # Indices of non-image media slots
     array_slot_idxs: list[int]  # Indices of array slots
-    stored_img_cols: list[exprs.ColumnSlotIdx]
-    stored_media_cols: list[exprs.ColumnSlotIdx]
+    json_slot_idxs: list[int]  # Indices of json slots
 
-    @dataclass
+    @dataclasses.dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
 
@@ -103,19 +110,10 @@ class RowBuilder:
         output_exprs: Sequence[Expr],
         columns: Sequence[catalog.Column],
         input_exprs: Iterable[Expr],
-        tbl: Optional[catalog.TableVersion] = None,
+        tbl: catalog.TableVersion | None = None,
     ):
-        """
-        Args:
-            output_exprs: list of Exprs to be evaluated
-            columns: list of columns to be materialized
-            input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
-        TODO: enforce that output_exprs doesn't overlap with input_exprs?
-        """
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
-        self.stored_img_cols = []
-        self.stored_media_cols = []
 
         # record input and output exprs; make copies to avoid reusing execution state
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
@@ -139,7 +137,7 @@ class RowBuilder:
         from .column_ref import ColumnRef
 
         self.tbl = tbl
-        self.table_columns: list[ColumnSlotIdx] = []
+        self.table_columns = {}
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
         for col in columns:
@@ -185,18 +183,18 @@ class RowBuilder:
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
 
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
-            tbl = col_ref.col.tbl
+            tbl = col_ref.col.get_tbl()
             return tbl.is_component_view and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
 
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
-        component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
+        component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
         unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
         self.unstored_iter_args = {
             id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
         }
 
         for col_ref in unstored_iter_col_refs:
-            iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.tbl.id]])
+            iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.get_tbl().id]])
             col_ref.set_iter_arg_ctx(iter_arg_ctx)
 
         # we guarantee that we can compute the expr DAG in a single front-to-back pass
@@ -246,17 +244,27 @@ class RowBuilder:
             e.slot_idx for e in self.unique_exprs if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_array_type()]
+        self.json_slot_idxs = [e.slot_idx for e in self.unique_exprs if e.col_type.is_json_type()]
 
     def add_table_column(self, col: catalog.Column, slot_idx: int) -> None:
-        """Record a column that is part of the table row"""
+        """Record an output column for which the value is produced via expr evaluation"""
         assert self.tbl is not None
         assert col.is_stored
-        info = ColumnSlotIdx(col, slot_idx)
-        self.table_columns.append(info)
-        if col.col_type.is_media_type():
-            self.stored_media_cols.append(info)
-            if col.col_type.is_image_type():
-                self.stored_img_cols.append(info)
+        self.table_columns[col] = slot_idx
+
+    def add_table_columns(self, cols: list[catalog.Column]) -> None:
+        """Record output columns whose values are materialized into DataRow.cell_vals"""
+        for col in cols:
+            self.table_columns[col] = None
+
+    @property
+    def media_output_col_info(self) -> list[ColumnSlotIdx]:
+        """Return slot idxs for media output columns whose values are produced by expr evaluation"""
+        return [
+            ColumnSlotIdx(col, slot_idx)
+            for col, slot_idx in self.table_columns.items()
+            if col.col_type.is_media_type() and slot_idx is not None
+        ]
 
     @property
     def num_materialized(self) -> int:
@@ -300,7 +308,7 @@ class RowBuilder:
             self._record_output_expr_id(d, output_expr_id)
 
     def _compute_dependencies(
-        self, target_slot_idxs: list[int], excluded_slot_idxs: list[int], target_scope: Optional[ExprScope] = None
+        self, target_slot_idxs: list[int], excluded_slot_idxs: list[int], target_scope: ExprScope | None = None
     ) -> list[int]:
         """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'
 
@@ -354,7 +362,7 @@ class RowBuilder:
             self.__set_slot_idxs_aux(c)
 
     def get_dependencies(
-        self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None, limit_scope: bool = True
+        self, targets: Iterable[Expr], exclude: Iterable[Expr] | None = None, limit_scope: bool = True
     ) -> list[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
@@ -372,7 +380,7 @@ class RowBuilder:
             return []
         # make sure we only refer to recorded exprs
         targets = [self.unique_exprs[e] for e in targets]
-        target_scope: Optional[ExprScope] = None
+        target_scope: ExprScope | None = None
         if limit_scope:
             # make sure all targets are from the same scope
             target_scopes = {e.scope() for e in targets}
@@ -390,7 +398,7 @@ class RowBuilder:
         return [self.unique_exprs[id] for id in result_ids]
 
     def create_eval_ctx(
-        self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None, limit_scope: bool = True
+        self, targets: Iterable[Expr], exclude: Iterable[Expr] | None = None, limit_scope: bool = True
     ) -> EvalCtx:
         """Return EvalCtx for targets"""
         targets = list(targets)
@@ -419,9 +427,9 @@ class RowBuilder:
         self,
         data_row: DataRow,
         ctx: EvalCtx,
-        profile: Optional[ExecProfile] = None,
+        profile: ExecProfile | None = None,
         ignore_errors: bool = False,
-        force_eval: Optional[ExprScope] = None,
+        force_eval: ExprScope | None = None,
     ) -> None:
         """
         Populates the slots in data_row given in ctx.
@@ -451,7 +459,7 @@ class RowBuilder:
                     ) from exc
 
     def create_store_table_row(
-        self, data_row: DataRow, cols_with_excs: Optional[set[int]], pk: tuple[int, ...]
+        self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int, ...]
     ) -> tuple[list[Any], int]:
         """Create a store table row from the slots that have an output column assigned
 
@@ -463,26 +471,38 @@ class RowBuilder:
 
         num_excs = 0
         table_row: list[Any] = list(pk)
-        for col, slot_idx in self.table_columns:
+        # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
+        for col, slot_idx in self.table_columns.items():
+            if col.id in data_row.cell_vals:
+                table_row.append(data_row.cell_vals[col.id])
+                if col.stores_cellmd:
+                    if data_row.cell_md[col.id] is None:
+                        table_row.append(sql.sql.null())
+                    else:
+                        # we want to minimize the size of the stored dict and use dict_factory to remove Nones
+                        md = dataclasses.asdict(data_row.cell_md[col.id], dict_factory=non_none_dict_factory)
+                        assert len(md) > 0
+                        table_row.append(md)
+                if slot_idx is not None and data_row.has_exc(slot_idx):
+                    num_excs += 1
+                    if cols_with_excs is not None:
+                        cols_with_excs.add(col.id)
+                continue
+
             if data_row.has_exc(slot_idx):
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
                 if cols_with_excs is not None:
                     cols_with_excs.add(col.id)
-                table_row.append(None)
+                table_row.append(sql.sql.null() if col.col_type.is_json_type() else None)
                 if col.stores_cellmd:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                if col.col_type.is_media_type():
-                    if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
-                        # we have yet to store this image
-                        data_row.flush_img(slot_idx, col)
-                    data_row.move_tmp_media_file(slot_idx, col)
-                val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
+                val = data_row.get_stored_val(slot_idx, col.sa_col_type)
                 table_row.append(val)
                 if col.stores_cellmd:
-                    table_row.append(None)  # placeholder for cellmd column
+                    table_row.append(sql.sql.null())  # placeholder for cellmd column
 
         return table_row, num_excs
 
@@ -496,12 +516,18 @@ class RowBuilder:
         store_col_names: list[str] = [pk_col.name for pk_col in self.tbl.store_tbl.pk_columns()]
 
         for col in self.table_columns:
-            store_col_names.append(col.col.store_name())
-            if col.col.stores_cellmd:
-                store_col_names.append(col.col.cellmd_store_name())
+            store_col_names.append(col.store_name())
+            if col.stores_cellmd:
+                store_col_names.append(col.cellmd_store_name())
 
         return store_col_names
 
     def make_row(self) -> exprs.DataRow:
         """Creates a new DataRow with the current row_builder's configuration."""
-        return exprs.DataRow(self.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+        return exprs.DataRow(
+            size=self.num_materialized,
+            img_slot_idxs=self.img_slot_idxs,
+            media_slot_idxs=self.media_slot_idxs,
+            array_slot_idxs=self.array_slot_idxs,
+            json_slot_idxs=self.json_slot_idxs,
+        )

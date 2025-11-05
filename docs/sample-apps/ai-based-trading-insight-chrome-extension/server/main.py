@@ -55,7 +55,7 @@ def create_messages(image_raw: str) -> list[dict]:
 
 
 @pxt.udf
-def parse_support_resistance(analysis: str) -> dict[str, list[Optional[float]]]:
+def parse_support_resistance(analysis: str) -> dict[str, list[float | None]]:
     try:
         support_levels = [None, None, None]
         resistance_levels = [None, None, None]
@@ -311,7 +311,7 @@ analysis_table.add_computed_column(summary=parse_summary(analysis_table.analysis
 
 class ScreenshotRequest(BaseModel):
     screenshot: str
-    requestId: Optional[str] = None
+    requestId: str | None = None
 
 
 @app.post('/analyze')

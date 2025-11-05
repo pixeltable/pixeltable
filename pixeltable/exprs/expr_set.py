@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Generic, Iterable, Iterator, Optional, TypeVar
+from typing import Generic, Iterable, Iterator, TypeVar
 
 from .expr import Expr
 
@@ -9,26 +9,33 @@ T = TypeVar('T', bound='Expr')
 
 class ExprSet(Generic[T]):
     """
-    A set that also supports indexed lookup (by slot_idx and Expr.id). Exprs are uniquely identified by Expr.id.
+    An ordered set that also supports indexed lookup (by slot_idx and Expr.id). Exprs are uniquely identified by
+    Expr.id.
     """
 
     exprs: dict[int, T]  # key: Expr.id
+    expr_offsets: dict[int, int]  # key: Expr.id, value: offset into self.exprs.keys()
     exprs_by_idx: dict[int, T]  # key: slot_idx
 
-    def __init__(self, elements: Optional[Iterable[T]] = None):
+    def __init__(self, elements: Iterable[T] | None = None):
         self.exprs = {}
+        self.expr_offsets = {}
         self.exprs_by_idx = {}
         if elements is not None:
             for e in elements:
                 self.add(e)
 
-    def add(self, expr: T) -> None:
-        if expr.id in self.exprs:
-            return
+    def add(self, expr: T) -> int:
+        """Returns offset corresponding to iteration order"""
+        offset = self.expr_offsets.get(expr.id)
+        if offset is not None:
+            return offset
+        offset = len(self.exprs)
         self.exprs[expr.id] = expr
-        if expr.slot_idx is None:
-            return
-        self.exprs_by_idx[expr.slot_idx] = expr
+        self.expr_offsets[expr.id] = offset
+        if expr.slot_idx is not None:
+            self.exprs_by_idx[expr.slot_idx] = expr
+        return offset
 
     def update(self, *others: Iterable[T]) -> None:
         for other in others:
@@ -44,7 +51,7 @@ class ExprSet(Generic[T]):
     def __iter__(self) -> Iterator[T]:
         return iter(self.exprs.values())
 
-    def __getitem__(self, index: object) -> Optional[T]:
+    def __getitem__(self, index: object) -> T | None:
         """Indexed lookup by slot_idx or Expr.id."""
         assert isinstance(index, (int, Expr))
         if isinstance(index, int):

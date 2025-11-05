@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
+from typing import AsyncIterator, Iterable, Iterator, TypeVar
 
 from pixeltable import exprs
 from pixeltable.env import Env
@@ -18,16 +18,16 @@ class ExecNode(abc.ABC):
 
     output_exprs: Iterable[exprs.Expr]
     row_builder: exprs.RowBuilder
-    input: Optional[ExecNode]
+    input: ExecNode | None
     flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
-    ctx: Optional[ExecContext]
+    ctx: ExecContext | None
 
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
         output_exprs: Iterable[exprs.Expr],
         input_exprs: Iterable[exprs.Expr],
-        input: Optional[ExecNode] = None,
+        input: ExecNode | None = None,
     ):
         assert all(expr.is_valid for expr in output_exprs)
         self.output_exprs = output_exprs
@@ -39,7 +39,7 @@ class ExecNode(abc.ABC):
         self.flushed_img_slots = [
             e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
-        self.ctx = None  # all nodes of a tree share the same context
+        self.ctx = input.ctx if input is not None else None
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
@@ -85,7 +85,7 @@ class ExecNode(abc.ABC):
 
     T = TypeVar('T', bound='ExecNode')
 
-    def get_node(self, node_class: type[T]) -> Optional[T]:
+    def get_node(self, node_class: type[T]) -> T | None:
         if isinstance(self, node_class):
             return self
         if self.input is not None:

@@ -1,5 +1,12 @@
+"""
+Pixeltable UDFs for Deepseek AI models.
+
+Provides integration with Deepseek's language models for chat completions
+and other AI capabilities.
+"""
+
 import json
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -31,9 +38,9 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
-    tools: Optional[list[dict[str, Any]]] = None,
-    tool_choice: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -67,10 +74,10 @@ async def chat_completions(
         of the table `tbl`:
 
         >>> messages = [
-                {'role': 'system', 'content': 'You are a helpful assistant.'},
-                {'role': 'user', 'content': tbl.prompt}
-            ]
-            tbl.add_computed_column(response=chat_completions(messages, model='deepseek-chat'))
+        ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
+        ...     {'role': 'user', 'content': tbl.prompt}
+        ... ]
+        >>> tbl.add_computed_column(response=chat_completions(messages, model='deepseek-chat'))
     """
     if model_kwargs is None:
         model_kwargs = {}

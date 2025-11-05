@@ -1,3 +1,4 @@
+"""Iterators for splitting media and documents into components."""
 # ruff: noqa: F401
 
 from .audio import AudioSplitter
@@ -5,7 +6,7 @@ from .base import ComponentIterator
 from .document import DocumentSplitter
 from .image import TileIterator
 from .string import StringSplitter
-from .video import FrameIterator
+from .video import FrameIterator, VideoSplitter
 
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
 __removed_symbols = {'base', 'document', 'video'}

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import abc
-from typing import Any
 
 import sqlalchemy as sql
 
-from pixeltable import catalog, exprs
+import pixeltable.catalog as catalog
+import pixeltable.exprs as exprs
+import pixeltable.type_system as ts
 
 
 class IndexBase(abc.ABC):
@@ -18,44 +19,34 @@ class IndexBase(abc.ABC):
     """
 
     @abc.abstractmethod
-    def __init__(self, c: catalog.Column, **kwargs: Any):
-        pass
-
-    @abc.abstractmethod
-    def index_value_expr(self) -> exprs.Expr:
-        """Return expression that computes the value that goes into the index"""
-        pass
+    def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
+        """
+        Validates that the index can be created on column c and returns an expression that computes the index value.
+        """
 
     @abc.abstractmethod
     def records_value_errors(self) -> bool:
         """True if index_value_expr() can raise errors"""
-        pass
 
     @abc.abstractmethod
-    def index_sa_type(self) -> sql.types.TypeEngine:
+    def get_index_sa_type(self, value_col_type: ts.ColumnType) -> sql.types.TypeEngine:
         """Return the sqlalchemy type of the index value column"""
-        pass
 
     @abc.abstractmethod
-    def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
-        """Create the index on the index value column"""
-        pass
+    def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
+        """Return a sqlalchemy statement for creating the index"""
 
     @abc.abstractmethod
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Drop the index on the index value column"""
-        pass
 
     @classmethod
     @abc.abstractmethod
-    def display_name(cls) -> str:
-        pass
+    def display_name(cls) -> str: ...
 
     @abc.abstractmethod
-    def as_dict(self) -> dict:
-        pass
+    def as_dict(self) -> dict: ...
 
     @classmethod
     @abc.abstractmethod
-    def from_dict(cls, c: catalog.Column, d: dict) -> IndexBase:
-        pass
+    def from_dict(cls, d: dict) -> IndexBase: ...

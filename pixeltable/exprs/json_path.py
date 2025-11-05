@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+import io
+from pathlib import Path
+from typing import Any
 
 import jmespath
 import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
 
+from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
 from .globals import print_slice
@@ -17,29 +20,41 @@ from .sql_element_cache import SqlElementCache
 
 
 class JsonPath(Expr):
+    """
+    anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
+    scope_idx: for relative paths, index of referenced JsonMapper
+    (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
+    """
+
+    path_elements: list[str | int | slice]
+    compiled_path: jmespath.parser.ParsedResult | None
+    scope_idx: int
+    file_handles: dict[Path, io.BufferedReader]  # key: file path
+
     def __init__(
-        self, anchor: Optional[Expr], path_elements: Optional[list[str | int | slice]] = None, scope_idx: int = 0
+        self, anchor: Expr | None, path_elements: list[str | int | slice] | None = None, scope_idx: int = 0
     ) -> None:
-        """
-        anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
-        scope_idx: for relative paths, index of referenced JsonMapper
-        (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
-        """
         if path_elements is None:
             path_elements = []
         super().__init__(ts.JsonType(nullable=True))  # JsonPath expressions are always nullable
         if anchor is not None:
             self.components = [anchor]
-        self.path_elements: list[str | int | slice] = path_elements
+        self.path_elements = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         self.scope_idx = scope_idx
         # NOTE: the _create_id() result will change if set_anchor() gets called;
         # this is not a problem, because _create_id() shouldn't be called after init()
         self.id = self._create_id()
+        self.file_handles = {}
+
+    def release(self) -> None:
+        for fh in self.file_handles.values():
+            fh.close()
+        self.file_handles.clear()
 
     def __repr__(self) -> str:
         # else 'R': the anchor is RELATIVE_PATH_ROOT
-        anchor_str = str(self._anchor) if self._anchor is not None else 'R'
+        anchor_str = str(self.anchor) if self.anchor is not None else 'R'
         if len(self.path_elements) == 0:
             return anchor_str
         return f'{anchor_str}{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}'
@@ -66,7 +81,7 @@ class JsonPath(Expr):
         return cls(anchor, path_elements, d['scope_idx'])
 
     @property
-    def _anchor(self) -> Optional[Expr]:
+    def anchor(self) -> Expr | None:
         return None if len(self.components) == 0 else self.components[0]
 
     def set_anchor(self, anchor: Expr) -> None:
@@ -74,17 +89,17 @@ class JsonPath(Expr):
         self.components = [anchor]
 
     def is_relative_path(self) -> bool:
-        return self._anchor is None
+        return self.anchor is None
 
     def _has_relative_path(self) -> bool:
         return self.is_relative_path() or super()._has_relative_path()
 
-    def _bind_rel_paths(self, mapper: Optional['JsonMapperDispatch'] = None) -> None:
+    def _bind_rel_paths(self, mapper: 'JsonMapperDispatch' | None = None) -> None:
         if self.is_relative_path():
             # TODO: take scope_idx into account
             self.set_anchor(mapper.scope_anchor)
         else:
-            self._anchor._bind_rel_paths(mapper)
+            self.anchor._bind_rel_paths(mapper)
 
     def __call__(self, *args: object, **kwargs: object) -> 'JsonPath':
         """
@@ -98,15 +113,15 @@ class JsonPath(Expr):
 
     def __getattr__(self, name: str) -> 'JsonPath':
         assert isinstance(name, str)
-        return JsonPath(self._anchor, [*self.path_elements, name])
+        return JsonPath(self.anchor, [*self.path_elements, name])
 
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, (int, slice, str)):
-            return JsonPath(self._anchor, [*self.path_elements, index])
+            return JsonPath(self.anchor, [*self.path_elements, index])
         raise excs.Error(f'Invalid json list index: {index}')
 
-    def default_column_name(self) -> Optional[str]:
-        anchor_name = self._anchor.default_column_name() if self._anchor is not None else ''
+    def default_column_name(self) -> str | None:
+        anchor_name = self.anchor.default_column_name() if self.anchor is not None else ''
         ret_name = f'{anchor_name}.{self._json_path()}'
 
         def cleanup_char(s: str) -> str:
@@ -133,7 +148,7 @@ class JsonPath(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('path_elements', self.path_elements)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         """
         Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns
         *two* rows (each containing col val 0), not a single row with [0, 0].
@@ -158,12 +173,31 @@ class JsonPath(Expr):
                 result.append(f'[{print_slice(element)}]')
         return ''.join(result)
 
-    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        assert self._anchor is not None, self
-        val = data_row[self._anchor.slot_idx]
+    def eval(self, row: DataRow, row_builder: RowBuilder) -> None:
+        assert self.anchor is not None, self
+        val = row[self.anchor.slot_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
-        data_row[self.slot_idx] = val
+        row[self.slot_idx] = val
+        if val is None or self.anchor is None or not isinstance(self.anchor, ColumnRef):
+            return
+
+        # the origin of val is a json-typed column, which might stored inlined objects
+        if self.anchor.slot_idx not in row.slot_md:
+            # we can infer that there aren't any inlined objects because our execution plan doesn't include
+            # materializing the cellmd (eg, insert plans)
+            # TODO: have the planner pass that fact into ExprEvalNode explicitly to streamline this path a bit more
+            return
+
+        # defer import until it's needed
+        from pixeltable.exec.cell_reconstruction_node import json_has_inlined_objs, reconstruct_json
+
+        cell_md = row.slot_md[self.anchor.slot_idx]
+        if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(val):
+            # val doesn't contain inlined objects
+            return
+
+        row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
 
 
 RELATIVE_PATH_ROOT = JsonPath(None)

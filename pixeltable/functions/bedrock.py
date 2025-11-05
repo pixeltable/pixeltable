@@ -1,5 +1,12 @@
+"""
+Pixeltable UDFs for AWS Bedrock AI models.
+
+Provides integration with AWS Bedrock for accessing various foundation models
+including Anthropic Claude, Amazon Titan, and other providers.
+"""
+
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import env, exprs
@@ -29,10 +36,10 @@ def converse(
     messages: list[dict[str, Any]],
     *,
     model_id: str,
-    system: Optional[list[dict[str, Any]]] = None,
-    inference_config: Optional[dict] = None,
-    additional_model_request_fields: Optional[dict] = None,
-    tool_config: Optional[list[dict]] = None,
+    system: list[dict[str, Any]] | None = None,
+    inference_config: dict | None = None,
+    additional_model_request_fields: dict | None = None,
+    tool_config: list[dict] | None = None,
 ) -> dict:
     """
     Generate a conversation response.
@@ -104,7 +111,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 
 @pxt.udf
-def _bedrock_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+def _bedrock_response_to_pxt_tool_calls(response: dict) -> dict | None:
     if response.get('stopReason') != 'tool_use':
         return None
 

@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
@@ -29,7 +29,7 @@ class ExprScope:
     parent is None: outermost scope
     """
 
-    def __init__(self, parent: Optional[ExprScope]):
+    def __init__(self, parent: ExprScope | None):
         self.parent = parent
 
     def is_contained_in(self, other: ExprScope) -> bool:
@@ -61,13 +61,13 @@ class Expr(abc.ABC):
     # - set by the subclass's __init__()
     # - produced by _create_id()
     # - not expected to survive a serialize()/deserialize() roundtrip
-    id: Optional[int]
+    id: int | None
 
     # index of the expr's value in the data row:
     # - set for all materialized exprs
     # - None: not executable
     # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
-    slot_idx: Optional[int]
+    slot_idx: int | None
 
     T = TypeVar('T', bound='Expr')
 
@@ -103,7 +103,7 @@ class Expr(abc.ABC):
         assert not has_rel_path, self._expr_tree()
         assert not self._has_relative_path(), self._expr_tree()
 
-    def _bind_rel_paths(self, mapper: Optional['exprs.JsonMapperDispatch'] = None) -> None:
+    def _bind_rel_paths(self, mapper: 'exprs.JsonMapperDispatch' | None = None) -> None:
         for c in self.components:
             c._bind_rel_paths(mapper)
 
@@ -118,7 +118,7 @@ class Expr(abc.ABC):
         for c in self.components:
             c._expr_tree_r(indent + 2, buf)
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         """
         Returns:
             None if this expression lacks a default name,
@@ -127,7 +127,7 @@ class Expr(abc.ABC):
         return None
 
     @property
-    def validation_error(self) -> Optional[str]:
+    def validation_error(self) -> str | None:
         """
         Subclasses can override this to indicate that validation has failed after a catalog load.
 
@@ -205,12 +205,12 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def copy_list(cls, expr_list: Optional[list[Expr]]) -> Optional[list[Expr]]:
+    def copy_list(cls, expr_list: list[Expr] | None) -> list[Expr] | None:
         if expr_list is None:
             return None
         return [e.copy() for e in expr_list]
 
-    def __deepcopy__(self, memo: Optional[dict[int, Any]] = None) -> Expr:
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Expr:
         # we don't need to create an actual deep copy because all state other than execution state is read-only
         if memo is None:
             memo = {}
@@ -241,7 +241,7 @@ class Expr(abc.ABC):
         for i in range(len(expr_list)):
             expr_list[i] = expr_list[i].substitute(spec)
 
-    def resolve_computed_cols(self, resolve_cols: Optional[set[catalog.Column]] = None) -> Expr:
+    def resolve_computed_cols(self, resolve_cols: set[catalog.Column] | None = None) -> Expr:
         """
         Recursively replace ColRefs to unstored computed columns with their value exprs.
         Also replaces references to stored computed columns in resolve_cols.
@@ -309,18 +309,18 @@ class Expr(abc.ABC):
 
     @overload
     def subexprs(
-        self, *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        self, *, filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload
     def subexprs(
-        self, expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        self, expr_class: type[T], filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
     ) -> Iterator[T]: ...
 
     def subexprs(
         self,
-        expr_class: Optional[type[T]] = None,
-        filter: Optional[Callable[[Expr], bool]] = None,
+        expr_class: type[T] | None = None,
+        filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]:
         """
@@ -339,11 +339,7 @@ class Expr(abc.ABC):
     @overload
     @classmethod
     def list_subexprs(
-        cls,
-        expr_list: Iterable[Expr],
-        *,
-        filter: Optional[Callable[[Expr], bool]] = None,
-        traverse_matches: bool = True,
+        cls, expr_list: Iterable[Expr], *, filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload
@@ -352,7 +348,7 @@ class Expr(abc.ABC):
         cls,
         expr_list: Iterable[Expr],
         expr_class: type[T],
-        filter: Optional[Callable[[Expr], bool]] = None,
+        filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]: ...
 
@@ -360,15 +356,24 @@ class Expr(abc.ABC):
     def list_subexprs(
         cls,
         expr_list: Iterable[Expr],
-        expr_class: Optional[type[T]] = None,
-        filter: Optional[Callable[[Expr], bool]] = None,
+        expr_class: type[T] | None = None,
+        filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
         for e in expr_list:
             yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
 
-    def _contains(self, cls: Optional[type[Expr]] = None, filter: Optional[Callable[[Expr], bool]] = None) -> bool:
+    @classmethod
+    def list_contains(
+        cls,
+        expr_list: Iterable[Expr],
+        expr_class: type[Expr] | None = None,
+        filter: Callable[[Expr], bool] | None = None,
+    ) -> bool:
+        return any(e._contains(expr_class, filter) for e in expr_list)
+
+    def _contains(self, cls: type[Expr] | None = None, filter: Callable[[Expr], bool] | None = None) -> bool:
         """
         Returns True if any subexpr is an instance of cls and/or matches filter.
         """
@@ -387,7 +392,9 @@ class Expr(abc.ABC):
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
+        return {ref.col.get_tbl().id for ref in self.subexprs(ColumnRef)} | {
+            ref.tbl.id for ref in self.subexprs(RowidRef)
+        }
 
     @classmethod
     def all_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
@@ -407,14 +414,14 @@ class Expr(abc.ABC):
                 result.update(cls.get_refd_column_ids(component_dict))
         return result
 
-    def as_literal(self) -> Optional[Expr]:
+    def as_literal(self) -> Expr | None:
         """
         Return a Literal expression if this expression can be evaluated to a constant value, otherwise return None.
         """
         return None
 
     @classmethod
-    def from_array(cls, elements: Iterable) -> Optional[Expr]:
+    def from_array(cls, elements: Iterable) -> Expr | None:
         from .inline_expr import InlineArray
         from .literal import Literal
 
@@ -437,7 +444,7 @@ class Expr(abc.ABC):
             return self
 
     @classmethod
-    def from_object(cls, o: object) -> Optional[Expr]:
+    def from_object(cls, o: object) -> Expr | None:
         """
         Try to turn a literal object into an Expr.
         """
@@ -467,7 +474,7 @@ class Expr(abc.ABC):
                 return Literal(o, col_type=obj_type)
         return None
 
-    def sql_expr(self, sql_elements: 'exprs.SqlElementCache') -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: 'exprs.SqlElementCache') -> sql.ColumnElement | None:
         """
         If this expr can be materialized directly in SQL:
         - returns a ColumnElement
@@ -486,6 +493,18 @@ class Expr(abc.ABC):
         """
         pass
 
+    def prepare(self) -> None:
+        """
+        Create execution state. This is called before the first eval() call.
+        """
+        for c in self.components:
+            c.prepare()
+
+    @classmethod
+    def prepare_list(cls, expr_list: Iterable[Expr]) -> None:
+        for e in expr_list:
+            e.prepare()
+
     def release(self) -> None:
         """
         Allow Expr class to tear down execution state. This is called after the last eval() call.
@@ -494,7 +513,7 @@ class Expr(abc.ABC):
             c.release()
 
     @classmethod
-    def release_list(cls, expr_list: list[Expr]) -> None:
+    def release_list(cls, expr_list: Iterable[Expr]) -> None:
         for e in expr_list:
             e.release()
 
@@ -782,7 +801,7 @@ class Expr(abc.ABC):
 
         return CompoundPredicate(LogicalOperator.NOT, [self])
 
-    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
+    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Expr | None]:
         """
         Returns clauses of a conjunction that meet condition in the first element.
         The second element contains remaining clauses, rolled into a conjunction.
@@ -793,7 +812,7 @@ class Expr(abc.ABC):
         else:
             return [], self
 
-    def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'func.Function':
+    def _make_applicator_function(self, fn: Callable, col_type: ts.ColumnType | None) -> 'func.Function':
         """
         Creates a unary pixeltable `Function` that encapsulates a python `Callable`. The result type of
         the new `Function` is given by `col_type`, and its parameter type will be `self.col_type`.

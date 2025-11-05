@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 import pytest
 
@@ -77,5 +75,5 @@ class TestOllama:
         if not self.__ollama_available:
             pytest.skip(f'ollama not available: {self.__ollama_exception}')
 
-    __ollama_available: Optional[bool] = None
-    __ollama_exception: Optional[Exception] = None
+    __ollama_available: bool | None = None
+    __ollama_exception: Exception | None = None

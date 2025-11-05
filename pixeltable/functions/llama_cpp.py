@@ -1,5 +1,12 @@
+"""
+Pixeltable UDFs for llama.cpp models.
+
+Provides integration with llama.cpp for running quantized language models locally,
+supporting chat completions and embeddings with GGUF format models.
+"""
+
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -14,10 +21,10 @@ if TYPE_CHECKING:
 def create_chat_completion(
     messages: list[dict],
     *,
-    model_path: Optional[str] = None,
-    repo_id: Optional[str] = None,
-    repo_filename: Optional[str] = None,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    model_path: str | None = None,
+    repo_id: str | None = None,
+    repo_filename: str | None = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> dict:
     """
     Generate a chat completion from a list of messages.
@@ -81,7 +88,7 @@ def _lookup_local_model(model_path: str, n_gpu_layers: int) -> 'llama_cpp.Llama'
     return _model_cache[key]
 
 
-def _lookup_pretrained_model(repo_id: str, filename: Optional[str], n_gpu_layers: int) -> 'llama_cpp.Llama':
+def _lookup_pretrained_model(repo_id: str, filename: str | None, n_gpu_layers: int) -> 'llama_cpp.Llama':
     import llama_cpp
 
     key = (repo_id, filename, n_gpu_layers)
@@ -94,7 +101,7 @@ def _lookup_pretrained_model(repo_id: str, filename: Optional[str], n_gpu_layers
 
 
 _model_cache: dict[tuple[str, str, int], 'llama_cpp.Llama'] = {}
-_IS_GPU_AVAILABLE: Optional[bool] = None
+_IS_GPU_AVAILABLE: bool | None = None
 
 
 def cleanup() -> None:

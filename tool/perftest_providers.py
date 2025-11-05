@@ -105,7 +105,7 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
         'groq': ProviderConfig(
             prompt_udf=create_chatgpt_prompt,
             udf=pxtf.groq.chat_completions,
-            default_model='llama3-8b-8192',
+            default_model='llama-3.1-8b-instant',
             kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
         ),
         'mistralai': ProviderConfig(
@@ -130,6 +130,12 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
             prompt_udf=create_simple_messages_prompt,
             udf=pxtf.bedrock.converse,
             default_model='anthropic.claude-3-haiku-20240307-v1:0',
+            kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
+        ),
+        'openrouter': ProviderConfig(
+            prompt_udf=create_chatgpt_prompt,
+            udf=pxtf.openrouter.chat_completions,
+            default_model='anthropic/claude-3.5-sonnet',
             kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
         ),
     }

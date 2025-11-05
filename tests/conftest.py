@@ -2,7 +2,8 @@ import json
 import logging
 import os
 import pathlib
-from typing import Callable, Iterator
+import shutil
+from typing import Callable
 
 import pytest
 import requests
@@ -19,8 +20,10 @@ from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import LocalStore, TempStore
 
 from .utils import (
+    IN_CI,
     ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
@@ -44,13 +47,17 @@ def pytest_configure(config: PytestConfig) -> None:
     DO_RERUN = not config.getoption('--no-rerun')
 
 
-@pytest.fixture(autouse=True)
-def pxt_test_harness() -> Iterator[None]:
+def pytest_runtest_setup(item: pytest.Item) -> None:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
     pxtf.huggingface._model_cache.clear()
     pxtf.huggingface._processor_cache.clear()
-    yield
+
+
+def pytest_runtest_teardown(item: pytest.Item) -> None:
+    if IN_CI:
+        _free_disk_space()
+    current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
@@ -68,10 +75,23 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
+    os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    reinit_db = True
+    if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
+        print('Using external database connection for test configuration')
+        reinit_db = False
 
-    for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA', 'FIFTYONE_DATABASE_DIR'):
-        print(f'{var:21} = {os.environ[var]}')
+    for var in (
+        'PIXELTABLE_HOME',
+        'PIXELTABLE_CONFIG',
+        'PIXELTABLE_DB',
+        'PIXELTABLE_PGDATA',
+        'PIXELTABLE_API_URL',
+        'FIFTYONE_DATABASE_DIR',
+        'PIXELTABLE_DB_CONNECT_STR',
+    ):
+        print(f'{var:25} = {os.environ.get(var)}')
 
     # Ensure the shared home directory exists.
     shared_home.mkdir(parents=True, exist_ok=True)
@@ -83,7 +103,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
-        Env._init_env(reinit_db=True)
+        Env._init_env(reinit_db=reinit_db)
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
@@ -91,18 +111,71 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
 
 @pytest.fixture(scope='function')
 def reset_db(init_env: None) -> None:
-    from pixeltable.env import Env
-
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
-    # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
-    # TempStore.clear()
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+
+def _free_disk_space() -> None:
+    assert IN_CI
+
+    # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
+    # tests.
+
+    # Clear the temp store and media dir
+    try:
+        TempStore.clear()
+        LocalStore(Env.get().media_dir).clear()
+        _logger.info('Cleared TempStore and media dir.')
+    except PermissionError:
+        # Sometimes this happens on Windows if a file is held open by a concurrent process.
+        _logger.info('PermissionError trying to clear TempStore and media dir.')
+
+    try:
+        _clear_hf_caches()
+    except ImportError:
+        pass  # huggingface_hub not installed in this CI environment
+
+
+def _clear_hf_caches() -> None:
+    from huggingface_hub import scan_cache_dir
+    from huggingface_hub.constants import HF_HOME, HUGGINGFACE_HUB_CACHE
+
+    assert IN_CI
+
+    if pathlib.Path(HUGGINGFACE_HUB_CACHE).exists():
+        try:
+            # Scan the cache directory for all revisions of all models
+            cache_info = scan_cache_dir()
+            revisions_to_delete = [
+                revision.commit_hash
+                for repo in cache_info.repos
+                # Keep around models that are used by multiple tests
+                if repo.repo_id not in ('openai/clip-vit-base-patch32', 'intfloat/e5-large-v2')
+                for revision in repo.revisions
+            ]
+            cache_info.delete_revisions(*revisions_to_delete).execute()
+            _logger.info(f'Deleted {len(revisions_to_delete)} revision(s) from huggingface hub cache directory.')
+        except (OSError, PermissionError) as exc:
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface hub cache directory: {HUGGINGFACE_HUB_CACHE}'
+            )
+
+    huggingface_xet_cache = pathlib.Path(HF_HOME) / 'xet'
+    if huggingface_xet_cache.exists():
+        try:
+            shutil.rmtree(huggingface_xet_cache)
+            huggingface_xet_cache.mkdir()
+            _logger.info(f'Deleted xet cache directory: {huggingface_xet_cache}')
+        except (OSError, PermissionError) as exc:
+            _logger.info(
+                f'{type(exc).__name__} trying to clear huggingface xet cache directory: {huggingface_xet_cache}'
+            )
 
 
 def clean_db(restore_md_tables: bool = True) -> None:

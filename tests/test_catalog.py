@@ -76,12 +76,12 @@ class TestCatalog:
         print(repr(df))
         assert dedent(repr(df)) == dedent(
             '''
-                 Name              Kind Version                    Base
-             replica1  snapshot-replica          <anonymous base table>
-            snapshot1          snapshot                         view1:2
-            snapshot2          snapshot                test_dir.view2:0
-               subdir               dir                                |
-                  tbl             table       4                        |
-                view2              view       1            test_dir.tbl
+                 Name      Kind Version                      Base
+             replica1   replica       0  <anonymous base table>:0
+            snapshot1  snapshot                           view1:2
+            snapshot2  snapshot                  test_dir.view2:0
+               subdir       dir                                  |
+                  tbl     table       4                          |
+                view2      view       1              test_dir.tbl
             '''
         ).strip('\n').replace('|', '')  # fmt: skip

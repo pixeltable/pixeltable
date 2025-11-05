@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -14,16 +14,16 @@ class SchemaObject:
 
     _id: UUID
     _name: str
-    _dir_id: Optional[UUID]
+    _dir_id: UUID | None
 
-    def __init__(self, obj_id: UUID, name: str, dir_id: Optional[UUID]):
+    def __init__(self, obj_id: UUID, name: str, dir_id: UUID | None):
         # make these private so they don't collide with column names (id and name are fairly common)
         assert dir_id is None or isinstance(dir_id, UUID), type(dir_id)
         self._id = obj_id
         self._name = name
         self._dir_id = dir_id
 
-    def _parent(self) -> Optional['catalog.Dir']:
+    def _parent(self) -> 'catalog.Dir | None':
         """Returns the parent directory of this schema object."""
         from .catalog import Catalog
 

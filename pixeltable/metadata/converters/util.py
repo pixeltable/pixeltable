@@ -1,22 +1,22 @@
 import copy
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, TypeVar
 from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable.metadata.schema import Function, Table, TableSchemaVersion, TableVersion
+from pixeltable.metadata.schema import Function, Table, TableSchemaVersion
 
 __logger = logging.getLogger('pixeltable')
 
 
 def convert_table_md(
     engine: sql.engine.Engine,
-    table_md_updater: Optional[Callable[[dict, UUID], None]] = None,
-    column_md_updater: Optional[Callable[[dict], None]] = None,
-    external_store_md_updater: Optional[Callable[[dict], None]] = None,
-    substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None,
-    table_modifier: Optional[Callable[[sql.Connection, UUID, dict, dict], None]] = None,
+    table_md_updater: Callable[[dict, UUID], None] | None = None,
+    column_md_updater: Callable[[dict], None] | None = None,
+    external_store_md_updater: Callable[[dict], None] | None = None,
+    substitution_fn: Callable[[str | None, Any], tuple[str | None, Any] | None] | None = None,
+    table_modifier: Callable[[sql.Connection, UUID, dict, dict], None] | None = None,
 ) -> None:
     """
     Converts schema.TableMd dicts based on the specified conversion functions.
@@ -80,9 +80,7 @@ def __update_external_store_md(table_md: dict, external_store_md_updater: Callab
         external_store_md_updater(store_md)
 
 
-def __substitute_md_rec(
-    md: Any, substitution_fn: Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]
-) -> Any:
+def __substitute_md_rec(md: Any, substitution_fn: Callable[[str | None, Any], tuple[str | None, Any] | None]) -> Any:
     if isinstance(md, dict):
         updated_dict: dict[str, Any] = {}
         for k, v in md.items():
@@ -110,8 +108,8 @@ def __substitute_md_rec(
 
 def convert_table_schema_version_md(
     engine: sql.engine.Engine,
-    table_schema_version_md_updater: Optional[Callable[[dict], None]] = None,
-    schema_column_updater: Optional[Callable[[dict], None]] = None,
+    table_schema_version_md_updater: Callable[[dict], None] | None = None,
+    schema_column_updater: Callable[[dict], None] | None = None,
 ) -> None:
     """
     Converts schema.TableSchemaVersionMd dicts based on the specified conversion functions.
@@ -149,19 +147,13 @@ def __update_schema_column(table_schema_version_md: dict, schema_column_updater:
         schema_column_updater(schema_col)
 
 
-def convert_table_version_record(
-    engine: sql.engine.Engine, table_version_record_updater: Optional[Callable[[TableVersion], None]]
-) -> None:
-    with sql.orm.Session(engine, future=True) as session:
-        for record in session.query(TableVersion).all():
-            table_version_record_updater(record)
-        session.commit()
+T = TypeVar('T')
 
 
-def convert_table_schema_version_record(
-    engine: sql.engine.Engine, table_schema_version_record_updater: Optional[Callable[[TableSchemaVersion], None]]
+def convert_sql_table_record(
+    schema: type[T], engine: sql.engine.Engine, record_updater: Callable[[T], None] | None
 ) -> None:
     with sql.orm.Session(engine, future=True) as session:
-        for record in session.query(TableSchemaVersion).all():
-            table_schema_version_record_updater(record)
+        for record in session.query(schema).all():
+            record_updater(record)
         session.commit()

@@ -1,8 +1,8 @@
 import logging
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator
 
 from pixeltable import catalog, exprs
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -23,7 +23,7 @@ class InMemoryDataNode(ExecNode):
 
     input_rows: list[dict[str, Any]]
     start_row_id: int
-    output_batch: Optional[DataRowBatch]
+    output_batch: DataRowBatch | None
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]

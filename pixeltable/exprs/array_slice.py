@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -43,7 +43,7 @@ class ArraySlice(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('index', self.index)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

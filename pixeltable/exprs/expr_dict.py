@@ -1,4 +1,4 @@
-from typing import Generic, Iterable, Iterator, Optional, TypeVar
+from typing import Generic, Iterable, Iterator, TypeVar
 
 from .expr import Expr
 
@@ -14,7 +14,7 @@ class ExprDict(Generic[T]):
 
     _data: dict[int, tuple[Expr, T]]
 
-    def __init__(self, iterable: Optional[Iterable[tuple[Expr, T]]] = None):
+    def __init__(self, iterable: Iterable[tuple[Expr, T]] | None = None):
         self._data = {}
 
         if iterable is not None:
@@ -39,7 +39,7 @@ class ExprDict(Generic[T]):
     def __contains__(self, key: Expr) -> bool:
         return key.id in self._data
 
-    def get(self, key: Expr, default: Optional[T] = None) -> Optional[T]:
+    def get(self, key: Expr, default: T | None = None) -> T | None:
         item = self._data.get(key.id)
         return item[1] if item is not None else default
 

@@ -11,6 +11,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import threading
 import types
@@ -20,13 +21,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
+import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from tqdm import TqdmWarning
 
@@ -35,6 +38,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
+from pixeltable.utils.object_stores import ObjectPath
 
 if TYPE_CHECKING:
     import spacy
@@ -52,44 +56,50 @@ class Env:
     For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
 
-    _instance: Optional[Env] = None
+    SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
+
+    _instance: Env | None = None
     __initializing: bool = False
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
-    _media_dir: Optional[Path]
-    _file_cache_dir: Optional[Path]  # cached media files with external URL
-    _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
-    _log_dir: Optional[Path]  # log files
-    _tmp_dir: Optional[Path]  # any tmp files
-    _sa_engine: Optional[sql.engine.base.Engine]
-    _pgdata_dir: Optional[Path]
-    _db_name: Optional[str]
-    _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
-    _db_url: Optional[str]
-    _default_time_zone: Optional[ZoneInfo]
+    _media_dir: Path | None
+    _file_cache_dir: Path | None  # cached object files with external URL
+    _dataset_cache_dir: Path | None  # cached datasets (eg, pytorch or COCO)
+    _log_dir: Path | None  # log files
+    _tmp_dir: Path | None  # any tmp files
+    _sa_engine: sql.engine.base.Engine | None
+    _pgdata_dir: Path | None
+    _db_name: str | None
+    _db_server: pixeltable_pgserver.PostgresServer | None  # set only when running in local environment
+    _db_url: str | None
+    _default_time_zone: ZoneInfo | None
+    _verbosity: int
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
 
-    _spacy_nlp: Optional[spacy.Language]
-    _httpd: Optional[http.server.HTTPServer]
-    _http_address: Optional[str]
+    _spacy_nlp: spacy.Language | None
+    _httpd: http.server.HTTPServer | None
+    _http_address: str | None
     _logger: logging.Logger
     _default_log_level: int
-    _logfilename: Optional[str]
+    _logfilename: str | None
     _log_to_stdout: bool
     _module_log_level: dict[str, int]  # module name -> log level
     _file_cache_size_g: float
-    _pxt_api_key: Optional[str]
+    _default_input_media_dest: str | None
+    _default_output_media_dest: str | None
+    _pxt_api_key: str | None
     _stdout_handler: logging.StreamHandler
+    _default_video_encoder: str | None
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
-    _current_conn: Optional[sql.Connection]
-    _current_session: Optional[sql.orm.Session]
-    _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
-    _dbms: Optional[Dbms]
-    _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
+    _current_conn: sql.Connection | None
+    _current_session: orm.Session | None
+    _current_isolation_level: str | None
+    _dbms: Dbms | None
+    _event_loop: asyncio.AbstractEventLoop | None  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
@@ -118,7 +128,7 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
-        self._file_cache_dir = None  # cached media files with external URL
+        self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
         self._tmp_dir = None  # any tmp files
@@ -132,6 +142,7 @@ class Env:
         self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
+        self._default_video_encoder = None
 
         # logging-related state
         self._logger = logging.getLogger('pixeltable')
@@ -191,11 +202,11 @@ class Env:
         return self._http_address
 
     @property
-    def user(self) -> Optional[str]:
+    def user(self) -> str | None:
         return Config.get().get_string_value('user')
 
     @user.setter
-    def user(self, user: Optional[str]) -> None:
+    def user(self, user: str | None) -> None:
         if user is None:
             if 'PIXELTABLE_USER' in os.environ:
                 del os.environ['PIXELTABLE_USER']
@@ -203,32 +214,45 @@ class Env:
             os.environ['PIXELTABLE_USER'] = user
 
     @property
-    def default_time_zone(self) -> Optional[ZoneInfo]:
+    def default_time_zone(self) -> ZoneInfo | None:
         return self._default_time_zone
 
     @default_time_zone.setter
-    def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
+    def default_time_zone(self, tz: ZoneInfo | None) -> None:
         """
         This is not a publicly visible setter; it is only for testing purposes.
         """
-        tz_name = None if tz is None else tz.key
+        if tz is None:
+            tz_name = self._get_tz_name()
+        else:
+            assert isinstance(tz, ZoneInfo)
+            tz_name = tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
 
     @property
-    def conn(self) -> Optional[sql.Connection]:
+    def verbosity(self) -> int:
+        return self._verbosity
+
+    @property
+    def conn(self) -> sql.Connection | None:
         assert self._current_conn is not None
         return self._current_conn
 
     @property
-    def session(self) -> Optional[sql.orm.Session]:
+    def session(self) -> orm.Session | None:
         assert self._current_session is not None
         return self._current_session
 
     @property
-    def dbms(self) -> Optional[Dbms]:
+    def dbms(self) -> Dbms | None:
         assert self._dbms is not None
         return self._dbms
+
+    @property
+    def is_using_cockroachdb(self) -> bool:
+        assert self._dbms is not None
+        return isinstance(self._dbms, CockroachDbms)
 
     @property
     def in_xact(self) -> bool:
@@ -240,7 +264,7 @@ class Env:
         return self._db_server is not None
 
     @contextmanager
-    def begin_xact(self, for_write: bool = False) -> Iterator[sql.Connection]:
+    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
         """
         Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
 
@@ -252,10 +276,10 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE'
+                self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
-                    sql.orm.Session(conn) as session,
+                    orm.Session(conn) as session,
                     conn.begin(),
                 ):
                     self._current_conn = conn
@@ -267,16 +291,16 @@ class Env:
                 self._current_isolation_level = None
         else:
             assert self._current_session is not None
-            assert for_write == (self._current_isolation_level == 'serializable')
+            assert self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
             yield self._current_conn
 
     def configure_logging(
         self,
         *,
-        to_stdout: Optional[bool] = None,
-        level: Optional[int] = None,
-        add: Optional[str] = None,
-        remove: Optional[str] = None,
+        to_stdout: bool | None = None,
+        level: int | None = None,
+        add: str | None = None,
+        remove: str | None = None,
     ) -> None:
         """Configure logging.
 
@@ -318,7 +342,7 @@ class Env:
     def set_log_level(self, level: int) -> None:
         self._default_log_level = level
 
-    def set_module_log_level(self, module: str, level: Optional[int]) -> None:
+    def set_module_log_level(self, module: str, level: int | None) -> None:
         if level is None:
             self._module_log_level.pop(module, None)
         else:
@@ -333,6 +357,8 @@ class Env:
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
             path_parts = list(Path(record.pathname).parts)
             path_parts.reverse()
+            if 'pixeltable' not in path_parts:
+                return False
             max_idx = path_parts.index('pixeltable')
             for module_name in path_parts[:max_idx]:
                 if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
@@ -343,6 +369,26 @@ class Env:
     def console_logger(self) -> ConsoleLogger:
         return self._console_logger
 
+    def _get_tz_name(self) -> str:
+        """Get the time zone name from the configuration, or the system local time zone if not specified.
+
+        Returns:
+            str: The time zone name.
+        """
+        tz_name = Config.get().get_string_value('time_zone')
+        if tz_name is not None:
+            # Validate tzname
+            if not isinstance(tz_name, str):
+                self._logger.error('Invalid time zone specified in configuration.')
+            else:
+                try:
+                    _ = ZoneInfo(tz_name)
+                except ZoneInfoNotFoundError:
+                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+        else:
+            tz_name = tzlocal.get_localzone_name()
+        return tz_name
+
     def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
@@ -352,22 +398,18 @@ class Env:
         config = Config.get()
 
         self._initialized = True
+
         self._media_dir = Config.get().home / 'media'
         self._file_cache_dir = Config.get().home / 'file_cache'
         self._dataset_cache_dir = Config.get().home / 'dataset_cache'
         self._log_dir = Config.get().home / 'logs'
         self._tmp_dir = Config.get().home / 'tmp'
 
-        if not self._media_dir.exists():
-            self._media_dir.mkdir()
-        if not self._file_cache_dir.exists():
-            self._file_cache_dir.mkdir()
-        if not self._dataset_cache_dir.exists():
-            self._dataset_cache_dir.mkdir()
-        if not self._log_dir.exists():
-            self._log_dir.mkdir()
-        if not self._tmp_dir.exists():
-            self._tmp_dir.mkdir()
+        self._media_dir.mkdir(exist_ok=True)
+        self._file_cache_dir.mkdir(exist_ok=True)
+        self._dataset_cache_dir.mkdir(exist_ok=True)
+        self._log_dir.mkdir(exist_ok=True)
+        self._tmp_dir.mkdir(exist_ok=True)
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
@@ -376,6 +418,16 @@ class Env:
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
+
+        self._default_input_media_dest = config.get_string_value('input_media_dest')
+        self._default_output_media_dest = config.get_string_value('output_media_dest')
+        for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
+            if uri is not None:
+                try:
+                    _ = ObjectPath.parse_object_storage_addr(uri, False)
+                except Exception as e:
+                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
+
         self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings
@@ -385,10 +437,12 @@ class Env:
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
-        # Set verbose level for user visible console messages
-        verbosity = map_level(config.get_int_value('verbosity'))
+        # Set verbosity level for user visible console messages
+        self._verbosity = config.get_int_value('verbosity')
+        if self._verbosity is None:
+            self._verbosity = 1
         stdout_handler = ConsoleOutputHandler(stream=stdout)
-        stdout_handler.setLevel(verbosity)
+        stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
         self._console_logger = ConsoleLogger(self._logger)
@@ -422,6 +476,7 @@ class Env:
         http_logger.propagate = False
 
         self.clear_tmp_dir()
+        tz_name = self._get_tz_name()
 
         # configure pixeltable database
         self._init_db(config)
@@ -431,22 +486,10 @@ class Env:
                 'Reinitializing pixeltable database is not supported when running in non-local environment'
             )
 
-        tz_name = config.get_string_value('time_zone')
-        if tz_name is not None:
-            # Validate tzname
-            if not isinstance(tz_name, str):
-                self._logger.error('Invalid time zone specified in configuration.')
-            else:
-                try:
-                    _ = ZoneInfo(tz_name)
-                except ZoneInfoNotFoundError:
-                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
-
         if reinit_db and self._store_db_exists():
             self._drop_store_db()
 
         create_db = not self._store_db_exists()
-
         if create_db:
             self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
@@ -526,19 +569,28 @@ class Env:
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
-    def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
-        connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
+    def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
+        connect_args = {'options': f'-c timezone={time_zone_name}'}
+        self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
         self._sa_engine = sql.create_engine(
             self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        self._logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
+        self._logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
             assert isinstance(tz_name, str)
             self._logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
+            if self.is_using_cockroachdb:
+                # This could be set when the database is created, but we set it now
+                conn.execute(sql.text('SET null_ordered_last = true;'))
+                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
+                assert isinstance(null_ordered_last, str)
+                self._logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -602,12 +654,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> str:
-        if self._pxt_api_key is None:
-            raise excs.Error(
-                'No API key is configured. Set the PIXELTABLE_API_KEY environment variable, or add an entry to '
-                'config.toml as described here:\nhttps://pixeltable.github.io/pixeltable/config/'
-            )
+    def pxt_api_key(self) -> str | None:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
@@ -617,17 +664,19 @@ class Env:
         Args:
             - name: The name of the client
         """
-        cl = _registered_clients[name]
-        if cl.client_obj is not None:
-            return cl.client_obj  # Already initialized
+        # Return the existing client if it has already been constructed
+        with _registered_clients_lock:
+            cl = _registered_clients[name]
+            if cl.client_obj is not None:
+                return cl.client_obj  # Already initialized
 
-        # Construct a client, retrieving each parameter from config.
-
+        # Retrieve parameters required to construct the requested client.
         init_kwargs: dict[str, Any] = {}
         for param in cl.params.values():
             # Determine the type of the parameter for proper config parsing.
+            pname = param.name
             t = param.annotation
-            # Deference Optional[T]
+            # Deference T | None
             if typing.get_origin(t) in (typing.Union, types.UnionType):
                 args = typing.get_args(t)
                 if args[0] is type(None):
@@ -635,27 +684,31 @@ class Env:
                 elif args[1] is type(None):
                     t = args[0]
             assert isinstance(t, type), t
-            arg: Any = Config.get().get_value(param.name, t, section=name)
+            arg: Any = Config.get().get_value(pname, t, section=name)
             if arg is not None:
-                init_kwargs[param.name] = arg
+                init_kwargs[pname] = arg
             elif param.default is inspect.Parameter.empty:
                 raise excs.Error(
-                    f'`{name}` client not initialized: parameter `{param.name}` is not configured.\n'
-                    f'To fix this, specify the `{name.upper()}_{param.name.upper()}` environment variable, '
-                    f'or put `{param.name.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
+                    f'`{name}` client not initialized: parameter `{pname}` is not configured.\n'
+                    f'To fix this, specify the `{name.upper()}_{pname.upper()}` environment variable, '
+                    f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
-        cl.client_obj = cl.init_fn(**init_kwargs)
-        self._logger.info(f'Initialized `{name}` client.')
-        return cl.client_obj
+        # Construct the requested client
+        with _registered_clients_lock:
+            if cl.client_obj is not None:
+                return cl.client_obj  # Already initialized
+            cl.client_obj = cl.init_fn(**init_kwargs)
+            self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+            return cl.client_obj
 
     def _start_web_server(self) -> None:
         """
         The http server root is the file system root.
         eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
         On Windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
-        This arrangement enables serving media hosted within _home,
-        as well as external media inserted into pixeltable or produced by pixeltable.
+        This arrangement enables serving objects hosted within _home,
+        as well as external objects inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
@@ -677,17 +730,58 @@ class Env:
         self._start_web_server()
         self.__register_packages()
 
+    @property
+    def default_video_encoder(self) -> str | None:
+        if self._default_video_encoder is None:
+            self._default_video_encoder = self._determine_default_video_encoder()
+        return self._default_video_encoder
+
+    def _determine_default_video_encoder(self) -> str | None:
+        """
+        Returns the first available encoder from a list of candidates.
+
+        TODO:
+        - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
+        - allow user override via a config option 'video_encoder'
+        """
+        # look for available encoders, in this order
+        candidates = [
+            'libx264',  # GPL, best quality
+            'libopenh264',  # BSD
+        ]
+
+        try:
+            # Get list of available encoders
+            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+
+            if result.returncode == 0:
+                available_encoders = result.stdout
+                for encoder in candidates:
+                    # ffmpeg -encoders output format: " V..... encoder_name  description"
+                    if f' {encoder} ' in available_encoders:
+                        _logger.debug(f'Using H.264 encoder: {encoder}')
+                        return encoder
+        except Exception:
+            pass
+        return None
+
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
+        self.__register_package('accelerate')
         self.__register_package('anthropic')
+        self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
         self.__register_package('boto3')
         self.__register_package('datasets')
+        self.__register_package('diffusers')
         self.__register_package('fiftyone')
+        self.__register_package('twelvelabs')
         self.__register_package('fireworks', library_name='fireworks-ai')
+        self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
         self.__register_package('mcp')
         self.__register_package('mistralai')
@@ -698,8 +792,10 @@ class Env:
         self.__register_package('pyarrow')
         self.__register_package('pydantic')
         self.__register_package('replicate')
+        self.__register_package('reve')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
         self.__register_package('together')
@@ -710,8 +806,10 @@ class Env:
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
+        self.__register_package('lancedb')
+        self.__register_package('scenedetect')
 
-    def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
+    def __register_package(self, package_name: str, library_name: str | None = None) -> None:
         is_installed: bool
         try:
             is_installed = importlib.util.find_spec(package_name) is not None
@@ -723,7 +821,11 @@ class Env:
             library_name=library_name or package_name,  # defaults to package_name unless specified otherwise
         )
 
-    def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
+    def require_binary(self, binary_name: str) -> None:
+        if not shutil.which(binary_name):
+            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
+
+    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -767,8 +869,8 @@ class Env:
             else:
                 os.remove(path)
 
-    # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
-    def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
+    # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
+    def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
         info = self._resource_pool_info.get(pool_id)
         if info is None and make_pool_info is not None:
@@ -780,6 +882,14 @@ class Env:
     def media_dir(self) -> Path:
         assert self._media_dir is not None
         return self._media_dir
+
+    @property
+    def default_input_media_dest(self) -> str | None:
+        return self._default_input_media_dest
+
+    @property
+    def default_output_media_dest(self) -> str | None:
+        return self._default_output_media_dest
 
     @property
     def file_cache_dir(self) -> Path:
@@ -913,11 +1023,13 @@ def register_client(name: str) -> Callable:
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
-        _registered_clients[name] = ApiClient(init_fn=fn, params=params)
+        with _registered_clients_lock:
+            _registered_clients[name] = ApiClient(init_fn=fn, params=params)
 
     return decorator
 
 
+_registered_clients_lock: threading.Lock = threading.Lock()
 _registered_clients: dict[str, ApiClient] = {}
 
 
@@ -925,14 +1037,14 @@ _registered_clients: dict[str, ApiClient] = {}
 class ApiClient:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
-    client_obj: Optional[Any] = None
+    client_obj: Any | None = None
 
 
 @dataclass
 class PackageInfo:
     is_installed: bool
     library_name: str  # pypi library name (may be different from package name)
-    version: Optional[list[int]] = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
+    version: list[int] | None = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
 
 
 TIME_FORMAT = '%H:%M.%S %f'
@@ -993,7 +1105,7 @@ class RateLimitsInfo:
         """Update self.resource_limits based on the exception headers"""
         self.has_exc = True
 
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+    def get_retry_delay(self, exc: Exception) -> float | None:
         """Returns number of seconds to wait before retry, or None if not retryable"""
         if len(self.resource_limits) == 0:
             return 1.0

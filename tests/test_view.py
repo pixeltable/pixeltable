@@ -262,7 +262,7 @@ class TestView:
         assert v.select().collect()[0][col_name] == orig_val
 
         # by default, raises an error if the column already exists
-        expected_err = f"Duplicate column name: '{col_name}'"
+        expected_err = f'Duplicate column name: {col_name}'
         with pytest.raises(pxt.Error, match=expected_err):
             v.add_column(**{col_name: pxt.Int})
         with pytest.raises(pxt.Error, match=expected_err):
@@ -653,7 +653,7 @@ class TestView:
         res1 = reload_tester.run_query(v1.select(t.c2 == v1.c2, t.c3 * 2 == v1.c3))
         assert all(all(row) for row in res1)
 
-        with pytest.raises(AttributeError, match="Column 'c1' unknown"):
+        with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
         res = reload_tester.run_query(v1.select(t.c4).limit(5))
@@ -667,6 +667,10 @@ class TestView:
         res = reload_tester.run_query(v3.select(v3.foo2).order_by(v2.c2).limit(5))
         assert res._col_names == ['foo2']
 
+        # Test a snapshot over views with selected columns
+        snap = pxt.create_snapshot('test_snap', v3)
+        reload_tester.run_query(snap.order_by(v2.c2).limit(5))
+
         res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
 
@@ -677,7 +681,7 @@ class TestView:
         res2b = v1.select(v1.c2, v1.c3)
         assert_resultset_eq(res2a.collect(), res2b.collect())
 
-        with pytest.raises(AttributeError, match="Column 'c1' unknown"):
+        with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
     def test_computed_cols(self, reset_db: None) -> None:
@@ -797,11 +801,13 @@ class TestView:
 
         with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s, additional_columns={'v1': t.c3 * 2.0})
-        assert 'value expression cannot be computed in the context of the base test_tbl' in str(exc_info.value)
+        assert "Column 'v1': Value expression cannot be computed in the context of the base table 'test_tbl'" in str(
+            exc_info.value
+        )
 
         with pytest.raises(pxt.Error) as exc_info:
             v = pxt.create_view('test_view', s.where(t.c2 < 10))
-        assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
+        assert "View filter cannot be computed in the context of the base table 'test_tbl'" in str(exc_info.value)
 
         # create view with filter and computed columns
         schema = {'v1': s.c3 * 2.0, 'v2': s.c6.f5}
@@ -893,6 +899,7 @@ class TestView:
                     'columns': {
                         name: {
                             'computed_with': None,
+                            'defined_in': 'test_tbl',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': 'on_write',
@@ -969,14 +976,14 @@ class TestView:
                 expected_schema_version = 0
                 expected_base_version = 4
             elif i == 1:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
                 expected_schema_version = 1
                 expected_base_version = 4
             elif i == 2:
                 expected_schema = {
                     'c1': ('Int', 0, None),
                     'c2': ('String', 3, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c3': ('Int', 1, 'c1 // 2'),
                     'c4': ('Int', 2, None),
                 }
                 expected_schema_version = 2
@@ -1004,6 +1011,7 @@ class TestView:
                     'columns': {
                         name: {
                             'computed_with': computed_with,
+                            'defined_in': 'test_tbl' if name in ('c1', 'c2', 'balloon') else 'test_view',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': 'on_write',
@@ -1042,13 +1050,13 @@ class TestView:
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
             if i == 0:
-                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'balloon // 2')}
+                expected_schema = {'c1': ('Int', 0, None), 'c2': ('String', 3, None), 'c3': ('Int', 1, 'c1 // 2')}
                 expected_schema_version = 0
                 expected_base_version = 1
             elif i == 1:
                 expected_schema = {
                     'c1': ('Int', 0, None),
-                    'c3': ('Int', 1, 'balloon // 2'),
+                    'c3': ('Int', 1, 'c1 // 2'),
                     'c4': ('Int', 2, None),
                     'c5': ('Float', 1, None),
                 }
@@ -1078,6 +1086,11 @@ class TestView:
                     'columns': {
                         name: {
                             'computed_with': computed_with,
+                            'defined_in': 'test_tbl'
+                            if name in ('c1', 'c2', 'balloon')
+                            else 'test_view'
+                            if name in ('c3', 'hamburger', 'c4')
+                            else 'test_subview',
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': 'on_write',

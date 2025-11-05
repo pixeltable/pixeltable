@@ -8,7 +8,7 @@ the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anth
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Optional, cast
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 import httpx
 
@@ -41,9 +41,9 @@ def _anthropic_client() -> 'anthropic.AsyncAnthropic':
 def _get_header_info(
     headers: httpx.Headers,
 ) -> tuple[
-    Optional[tuple[int, int, datetime.datetime]],
-    Optional[tuple[int, int, datetime.datetime]],
-    Optional[tuple[int, int, datetime.datetime]],
+    tuple[int, int, datetime.datetime] | None,
+    tuple[int, int, datetime.datetime] | None,
+    tuple[int, int, datetime.datetime] | None,
 ]:
     """Extract rate limit info from Anthropic API response headers."""
     requests_limit_str = headers.get('anthropic-ratelimit-requests-limit')
@@ -54,7 +54,9 @@ def _get_header_info(
     requests_reset = (
         datetime.datetime.fromisoformat(requests_reset_str.replace('Z', '+00:00')) if requests_reset_str else None
     )
-    requests_info = (requests_limit, requests_remaining, requests_reset) if requests_reset else None
+    requests_info = (
+        (requests_limit, requests_remaining, requests_reset) if requests_reset and requests_remaining else None
+    )
 
     input_tokens_limit_str = headers.get('anthropic-ratelimit-input-tokens-limit')
     input_tokens_limit = int(input_tokens_limit_str) if input_tokens_limit_str is not None else None
@@ -66,7 +68,11 @@ def _get_header_info(
         if input_tokens_reset_str
         else None
     )
-    input_tokens_info = (input_tokens_limit, input_tokens_remaining, input_tokens_reset) if input_tokens_reset else None
+    input_tokens_info = (
+        (input_tokens_limit, input_tokens_remaining, input_tokens_reset)
+        if input_tokens_reset and input_tokens_remaining
+        else None
+    )
 
     output_tokens_limit_str = headers.get('anthropic-ratelimit-output-tokens-limit')
     output_tokens_limit = int(output_tokens_limit_str) if output_tokens_limit_str is not None else None
@@ -79,8 +85,13 @@ def _get_header_info(
         else None
     )
     output_tokens_info = (
-        (output_tokens_limit, output_tokens_remaining, output_tokens_reset) if output_tokens_reset else None
+        (output_tokens_limit, output_tokens_remaining, output_tokens_reset)
+        if output_tokens_reset and output_tokens_remaining
+        else None
     )
+
+    if requests_info is None or input_tokens_info is None or output_tokens_info is None:
+        _logger.debug(f'get_header_info(): incomplete rate limit info: {headers}')
 
     return requests_info, input_tokens_info, output_tokens_info
 
@@ -119,7 +130,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         if retry_after_str is not None:
             _logger.debug(f'retry-after: {retry_after_str}')
 
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+    def get_retry_delay(self, exc: Exception) -> float | None:
         import anthropic
 
         # deal with timeouts separately, they don't come with headers
@@ -141,10 +152,10 @@ async def messages(
     *,
     model: str,
     max_tokens: int,
-    model_kwargs: Optional[dict[str, Any]] = None,
-    tools: Optional[list[dict[str, Any]]] = None,
-    tool_choice: Optional[dict[str, Any]] = None,
-    _runtime_ctx: Optional[env.RuntimeCtx] = None,
+    model_kwargs: dict[str, Any] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Create a Message.
@@ -243,7 +254,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 
 @pxt.udf
-def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+def _anthropic_response_to_pxt_tool_calls(response: dict) -> dict | None:
     anthropic_tool_calls = [r for r in response['content'] if r['type'] == 'tool_use']
     if len(anthropic_tool_calls) == 0:
         return None

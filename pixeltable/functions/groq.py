@@ -5,7 +5,7 @@ first `pip install groq` and configure your Groq credentials, as described in
 the [Working with Groq](https://pixeltable.readme.io/docs/working-with-groq) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exprs
@@ -34,9 +34,9 @@ async def chat_completions(
     messages: list[dict[str, str]],
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
-    tools: Optional[list[dict[str, Any]]] = None,
-    tool_choice: Optional[dict[str, Any]] = None,
+    model_kwargs: dict[str, Any] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
 ) -> dict:
     """
     Chat Completion API.
@@ -62,11 +62,11 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `llama3-8b-8192`
+        Add a computed column that applies the model `llama-3.1-8b-instant`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=chat_completions(messages, model='llama3-8b-8192'))
+        ... tbl.add_computed_column(response=chat_completions(messages, model='llama-3.1-8b-instant'))
     """
     if model_kwargs is None:
         model_kwargs = {}

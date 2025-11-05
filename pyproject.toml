@@ -52,7 +52,7 @@ dependencies = [
     "psycopg[binary]>=3.1.18",
     "psutil>=5.9.5",
     "sqlalchemy>=2.0.23",
-    "pgvector>=0.2.1",
+    "pgvector>=0.4.0",
     "av>=10.0.0",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
@@ -67,8 +67,10 @@ dependencies = [
     "pymupdf>=1.24.1",
     "ftfy>=6.2.0",
     "pydantic>=2.7.4",
-    "pyarrow>=13.0.0",
-    "pixeltable-pgserver==0.3.1",
+    "pyarrow>=19",
+    "pixeltable-pgserver==0.4.0",
+    "tzlocal>=5.0",
+    "aiohttp>=3.9",
 ]
 
 [project.urls]
@@ -89,7 +91,10 @@ source = "uv-dynamic-versioning"
 [tool.uv]
 required-version = ">=0.8"
 default-groups = ["dev", "test"]
-override-dependencies = ["sse-starlette>=2.0"]  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+override-dependencies = [
+    "numpy>=2.2",  # Required because 'whisperx' hard-codes 'numpy<2.1'
+    "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+]
 
 [tool.uv-dynamic-versioning]
 vcs = "git"
@@ -101,7 +106,7 @@ dev = [
     "mypy>=1.16",
     "boto3-stubs==1.36.23",
     "pandas-stubs>=2.0",
-    "pyarrow-stubs>=10.0.1.7,<11",
+    "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",
     "types-jmespath>=1.0",
     "types-jsonschema>=4.1.0",
@@ -118,18 +123,23 @@ dev = [
     "mkdocs-material>=9.5.23,<10",
     "mkdocstrings-python>=1.10.2,<2",
     "black>=24.4",
+    "pydoclint>=0.7",
+    "docstring-parser-fork<0.0.14",  # pin to avoid breaking changes in 0.0.14
+    "npx",
+    "pypandoc",
+    "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
-    "nbmake>=1.4.6,<2",
+    "nbmake>=1.5,<2",
     "mistune>=3.0.2,<4",
     "pyiceberg>=0.6.0",
     "torch~=2.7",
     "torchaudio~=2.7",
-    "torchvision>=0.22,<0.23",
+    "torchvision>=0.22",
     "openai>=1.86.0",
     "anthropic>=0.53.0",
-    "together>=1.5.11",
+    "together>=1.5.26",
     "fireworks-ai>=0.17.6",
     "mistralai>=1.8.2",
     "replicate>=1.0.7,<2",
@@ -146,13 +156,23 @@ dev = [
     "datasets>=3.2.0",
     "openpyxl>=3.1",
     "openai-whisper>=20250625",
-    "whisperx>=3.3.4 ; python_version < '3.13' and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
+    "whisperx>=3.7 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18",
     "ollama>=0.5.1",
-    "llama-cpp-python>=0.3.9 ; sys_platform != 'win32'",
+    "llama-cpp-python>=0.3.16 ; sys_platform == 'linux'",
     "mcp>=1.9.4",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7",
+    "lancedb>=0.20",
+    "google-cloud-storage>=2.18.0",
+    "sqlalchemy-cockroachdb>=2.0.3",
+    "psycopg2-binary>=2.9.10",
+    "diffusers>=0.34",
+    "accelerate>=1.10",
+    "azure-storage-blob>=12.20.0",
+    "azure-identity>=1.16.0",
+    "twelvelabs>=1.0",
+    "scenedetect>=0.6.0.1",
 ]
 test = [
     "pytest>=8.4",
@@ -161,6 +181,20 @@ test = [
     "coverage>=7.9",
     "filelock>=3.13",
 ]
+extra-dev = [
+    # This is for dependencies that will be installed locally for devs (via `make install`), but not in CI.
+    "llama-cpp-python>=0.3.16 ; sys_platform != 'win32'"
+]
+storage-sdks = [
+    # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
+    "boto3==1.36.23",
+    "botocore==1.36.23",
+    "google-cloud-storage>=2.18.0",
+]
+
+[tool.hatch.build.hooks.version]
+path = "pixeltable/_version.py"
+template = "__version__: str = '{version}'\n"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -196,7 +230,7 @@ check_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_untyped_defs = true
 follow_imports = "silent"
-plugins = "pydantic.mypy, tool/mypy_plugin.py"
+plugins = "pydantic.mypy, pixeltable.mypy"
 show_error_codes = true
 strict_optional = false
 warn_return_any = true
@@ -254,6 +288,7 @@ ignore = [
     "PLC1901",  # Allow empty string comparisons
     "PLC2701",  # Allow private name imports
     "PLE0605",  # Invalid format for __all__ (appears to generate false positives)
+    "PLR0402",  # Allow `import x.y as y` instead of `from x import y` (needed to avoid circular imports)
     "PLR2004",  # Permit "magic values" (numbers that are not defined as constants)
     "PLR6201",  # Don't require set literal for membership tests
     "PLR6301",  # Class method (not sure what to do yet)

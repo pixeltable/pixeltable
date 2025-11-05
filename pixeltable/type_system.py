@@ -10,7 +10,7 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Literal, Mapping, Optional, Sequence, Union
+from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -25,6 +25,7 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
+from pixeltable.env import Env
 from pixeltable.utils import parse_local_file_path
 
 
@@ -50,11 +51,11 @@ class ColumnType:
         @classmethod
         def supertype(
             cls,
-            type1: Optional['ColumnType.Type'],
-            type2: Optional['ColumnType.Type'],
+            type1: 'ColumnType.Type' | None,
+            type2: 'ColumnType.Type' | None,
             # we need to pass this in because we can't easily append it as a class member
             common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type'],
-        ) -> Optional['ColumnType.Type']:
+        ) -> 'ColumnType.Type' | None:
             if type1 == type2:
                 return type1
             t = common_supertypes.get((type1, type2))
@@ -187,7 +188,7 @@ class ColumnType:
         if as_schema:
             return base_str if self.nullable else f'Required[{base_str}]'
         else:
-            return f'Optional[{base_str}]' if self.nullable else base_str
+            return f'{base_str} | None' if self.nullable else base_str
 
     def _to_base_str(self) -> str:
         """
@@ -216,7 +217,7 @@ class ColumnType:
         # Default: just compare base types (this works for all types whose only parameter is nullable)
         return self._type == other._type
 
-    def supertype(self, other: ColumnType) -> Optional[ColumnType]:
+    def supertype(self, other: ColumnType) -> ColumnType | None:
         if self == other:
             return self
         if self.matches(other):
@@ -236,7 +237,7 @@ class ColumnType:
         return None
 
     @classmethod
-    def infer_literal_type(cls, val: Any, nullable: bool = False) -> Optional[ColumnType]:
+    def infer_literal_type(cls, val: Any, nullable: bool = False) -> ColumnType | None:
         if val is None:
             return InvalidType(nullable=True)
         if isinstance(val, str):
@@ -270,7 +271,7 @@ class ColumnType:
         return None
 
     @classmethod
-    def infer_common_literal_type(cls, vals: Iterable[Any]) -> Optional[ColumnType]:
+    def infer_common_literal_type(cls, vals: Iterable[Any]) -> ColumnType | None:
         """
         Returns the most specific type that is a supertype of all literals in `vals`. If no such type
         exists, returns None.
@@ -278,7 +279,7 @@ class ColumnType:
         Args:
             vals: A collection of literals.
         """
-        inferred_type: Optional[ColumnType] = None
+        inferred_type: ColumnType | None = None
         for val in vals:
             val_type = cls.infer_literal_type(val)
             if inferred_type is None:
@@ -298,7 +299,7 @@ class ColumnType:
         nullable_default: bool = False,
         allow_builtin_types: bool = True,
         infer_pydantic_json: bool = False,
-    ) -> Optional[ColumnType]:
+    ) -> ColumnType | None:
         """
         Convert a Python type into a Pixeltable `ColumnType` instance.
 
@@ -316,9 +317,9 @@ class ColumnType:
         origin = typing.get_origin(t)
         type_args = typing.get_args(t)
         if origin in (typing.Union, types.UnionType):
-            # Check if `t` has the form Optional[T].
+            # Check if `t` has the form T | None.
             if len(type_args) == 2 and type(None) in type_args:
-                # `t` is a type of the form Optional[T] (equivalently, T | None or None | T).
+                # `t` is a type of the form T | None (equivalently, T | None or None | T).
                 # We treat it as the underlying type but with nullable=True.
                 underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
                 underlying = cls.from_python_type(
@@ -337,7 +338,7 @@ class ColumnType:
             if isinstance(parameters, ColumnType):
                 return parameters.copy(nullable=nullable_default)
         else:
-            # It's something other than Optional[T], Required[T], or an explicitly annotated type.
+            # It's something other than T | None, Required[T], or an explicitly annotated type.
             if origin is not None:
                 # Discard type parameters to ensure that parameterized types such as `list[T]`
                 # are correctly mapped to Pixeltable types.
@@ -410,7 +411,7 @@ class ColumnType:
         raise excs.Error(f'Unknown type: {t}')
 
     @classmethod
-    def from_json_schema(cls, schema: dict[str, Any]) -> Optional[ColumnType]:
+    def from_json_schema(cls, schema: dict[str, Any]) -> ColumnType | None:
         # We first express the JSON schema as a Python type, and then convert it to a Pixeltable type.
         # TODO: Is there a meaningful fallback if one of these operations fails? (Maybe another use case for a pxt Any
         #     type?)
@@ -673,8 +674,9 @@ class TimestampType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
-        if isinstance(val, datetime.datetime):
-            return val
+        # Place naive timestamps in the default time zone
+        if isinstance(val, datetime.datetime) and val.tzinfo is None:
+            return val.replace(tzinfo=Env.get().default_time_zone)
         return val
 
 
@@ -702,10 +704,10 @@ class DateType(ColumnType):
 
 
 class JsonType(ColumnType):
-    json_schema: Optional[dict[str, Any]]
-    __validator: Optional[jsonschema.protocols.Validator]
+    json_schema: dict[str, Any] | None
+    __validator: jsonschema.protocols.Validator | None
 
-    def __init__(self, json_schema: Optional[dict[str, Any]] = None, nullable: bool = False):
+    def __init__(self, json_schema: dict[str, Any] | None = None, nullable: bool = False):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.json_schema = json_schema
         if json_schema is None:
@@ -760,7 +762,7 @@ class JsonType(ColumnType):
 
     @classmethod
     def __is_valid_json(cls, val: Any) -> bool:
-        if val is None or isinstance(val, (str, int, float, bool)):
+        if val is None or isinstance(val, (str, int, float, bool, np.ndarray, PIL.Image.Image)):
             return True
         if isinstance(val, (list, tuple)):
             return all(cls.__is_valid_json(v) for v in val)
@@ -775,7 +777,7 @@ class JsonType(ColumnType):
             return val.model_dump()
         return val
 
-    def supertype(self, other: ColumnType) -> Optional[JsonType]:
+    def supertype(self, other: ColumnType) -> JsonType | None:
         # Try using the (much faster) supertype logic in ColumnType first. That will work if, for example, the types
         # are identical except for nullability. If that doesn't work and both types are JsonType, then we will need to
         # merge their schemas.
@@ -797,7 +799,7 @@ class JsonType(ColumnType):
         )
 
     @classmethod
-    def __superschema(cls, a: dict[str, Any], b: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def __superschema(cls, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
         # Defining a general type hierarchy over all JSON schemas would be a challenging problem. In order to keep
         # things manageable, we only define a hierarchy among "conforming" schemas, which provides enough generality
         # for the most important use cases (unions for type inference, validation of inline exprs). A schema is
@@ -857,7 +859,7 @@ class JsonType(ColumnType):
         return {}  # Unresolvable type conflict; the supertype is an unrestricted JsonType.
 
     @classmethod
-    def __superschema_with_nulls(cls, a: dict[str, Any], b: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def __superschema_with_nulls(cls, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
         a, a_nullable = cls.__unpack_null_from_schema(a)
         b, b_nullable = cls.__unpack_null_from_schema(b)
 
@@ -886,15 +888,12 @@ class JsonType(ColumnType):
 
 
 class ArrayType(ColumnType):
-    shape: Optional[tuple[Optional[int], ...]]
-    pxt_dtype: Optional[ColumnType]
-    dtype: Optional[ColumnType.Type]
+    shape: tuple[int | None, ...] | None
+    pxt_dtype: ColumnType | None
+    dtype: ColumnType.Type | None
 
     def __init__(
-        self,
-        shape: Optional[tuple[Optional[int], ...]] = None,
-        dtype: Optional[ColumnType] = None,
-        nullable: bool = False,
+        self, shape: tuple[int | None, ...] | None = None, dtype: ColumnType | None = None, nullable: bool = False
     ):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         assert shape is None or dtype is not None, (shape, dtype)  # cannot specify a shape without a dtype
@@ -919,7 +918,7 @@ class ArrayType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
-    def supertype(self, other: ColumnType) -> Optional[ArrayType]:
+    def supertype(self, other: ColumnType) -> ArrayType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
             assert isinstance(basic_supertype, ArrayType)
@@ -932,7 +931,7 @@ class ArrayType(ColumnType):
         if super_dtype is None:
             # if the dtypes are incompatible, then the supertype is a fully general array
             return ArrayType(nullable=(self.nullable or other.nullable))
-        super_shape: Optional[tuple[Optional[int], ...]]
+        super_shape: tuple[int | None, ...] | None
         if self.shape is None or other.shape is None or len(self.shape) != len(other.shape):
             super_shape = None
         else:
@@ -963,7 +962,7 @@ class ArrayType(ColumnType):
         return cls(shape, dtype, nullable=d['nullable'])
 
     @classmethod
-    def from_np_dtype(cls, dtype: np.dtype, nullable: bool) -> Optional[ColumnType]:
+    def from_np_dtype(cls, dtype: np.dtype, nullable: bool) -> ColumnType | None:
         """
         Return pixeltable type corresponding to a given simple numpy dtype
         """
@@ -992,10 +991,10 @@ class ArrayType(ColumnType):
         return None
 
     @classmethod
-    def from_literal(cls, val: np.ndarray, nullable: bool = False) -> Optional[ArrayType]:
+    def from_literal(cls, val: np.ndarray, nullable: bool = False) -> ArrayType | None:
         # determine our dtype
         assert isinstance(val, np.ndarray)
-        pxttype: Optional[ColumnType] = cls.from_np_dtype(val.dtype, nullable)
+        pxttype: ColumnType | None = cls.from_np_dtype(val.dtype, nullable)
         if pxttype is None:
             return None
         return cls(val.shape, dtype=pxttype, nullable=nullable)
@@ -1058,7 +1057,7 @@ class ArrayType(ColumnType):
     def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.LargeBinary()
 
-    def numpy_dtype(self) -> Optional[np.dtype]:
+    def numpy_dtype(self) -> np.dtype | None:
         if self.dtype is None:
             return None
         if self.dtype == self.Type.INT:
@@ -1075,15 +1074,13 @@ class ArrayType(ColumnType):
 class ImageType(ColumnType):
     def __init__(
         self,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
-        size: Optional[tuple[int, int]] = None,
-        mode: Optional[str] = None,
+        width: int | None = None,
+        height: int | None = None,
+        size: tuple[int, int] | None = None,
+        mode: str | None = None,
         nullable: bool = False,
     ):
-        """
-        TODO: does it make sense to specify only width or height?
-        """
+        # TODO: does it make sense to specify only width or height?
         super().__init__(self.Type.IMAGE, nullable=nullable)
         assert not (width is not None and size is not None)
         assert not (height is not None and size is not None)
@@ -1121,7 +1118,7 @@ class ImageType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.size, self.mode))
 
-    def supertype(self, other: ColumnType) -> Optional[ImageType]:
+    def supertype(self, other: ColumnType) -> ImageType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
             assert isinstance(basic_supertype, ImageType)
@@ -1136,7 +1133,7 @@ class ImageType(ColumnType):
         return ImageType(width=width, height=height, mode=mode, nullable=(self.nullable or other.nullable))
 
     @property
-    def size(self) -> Optional[tuple[int, int]]:
+    def size(self) -> tuple[int, int] | None:
         if self.width is None or self.height is None:
             return None
         return (self.width, self.height)
@@ -1255,7 +1252,7 @@ class DocumentType(ColumnType):
         TXT = 4
 
         @classmethod
-        def from_extension(cls, ext: str) -> Optional['DocumentType.DocumentFormat']:
+        def from_extension(cls, ext: str) -> 'DocumentType.DocumentFormat' | None:
             if ext in ('.htm', '.html'):
                 return cls.HTML
             if ext == '.md':
@@ -1268,7 +1265,7 @@ class DocumentType(ColumnType):
                 return cls.TXT
             return None
 
-    def __init__(self, nullable: bool = False, doc_formats: Optional[str] = None):
+    def __init__(self, nullable: bool = False, doc_formats: str | None = None):
         super().__init__(self.Type.DOCUMENT, nullable=nullable)
         self.doc_formats = doc_formats
         if doc_formats is not None:
@@ -1365,13 +1362,13 @@ class Array(np.ndarray, _PxtType):
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
         """
         `item` (the type subscript) must be a tuple with exactly two elements (in any order):
-        - A tuple of `Optional[int]`s, specifying the shape of the array
+        - A tuple of `int | None`s, specifying the shape of the array
         - A type, specifying the dtype of the array
         Example: Array[(3, None, 2), pxt.Float]
         """
         params = item if isinstance(item, tuple) else (item,)
-        shape: Optional[tuple] = None
-        dtype: Optional[ColumnType] = None
+        shape: tuple | None = None
+        dtype: ColumnType | None = None
         if not any(isinstance(param, (type, _AnnotatedAlias)) for param in params):
             raise TypeError('Array type parameter must include a dtype.')
         for param in params:
@@ -1411,8 +1408,8 @@ class Image(PIL.Image.Image, _PxtType):
         else:
             # Not a tuple (single arg)
             params = (item,)
-        size: Optional[tuple] = None
-        mode: Optional[str] = None
+        size: tuple | None = None
+        mode: str | None = None
         for param in params:
             if isinstance(param, tuple):
                 if (

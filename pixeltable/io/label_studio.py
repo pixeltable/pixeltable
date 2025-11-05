@@ -4,7 +4,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal, Optional
+from typing import Any, Iterator, Literal
 from xml.etree import ElementTree as ET
 
 import label_studio_sdk
@@ -19,7 +19,7 @@ from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project
 from pixeltable.utils import coco
-from pixeltable.utils.media_store import TempStore
+from pixeltable.utils.local_store import TempStore
 
 # label_studio_sdk>=1 and label_studio_sdk<1 are not compatible, so we need to try
 # the import two different ways to insure intercompatibility
@@ -46,11 +46,14 @@ class LabelStudioProject(Project):
     """
     An [`ExternalStore`][pixeltable.io.ExternalStore] that represents a Label Studio project, providing functionality
     for synchronizing between a Pixeltable table and a Label Studio project.
+
+    The constructor will NOT create a new Label Studio project; it is also used when loading
+    metadata for existing projects.
     """
 
     project_id: int  # Label Studio project ID
     media_import_method: Literal['post', 'file', 'url']
-    _project: Optional[ls_project.Project]
+    _project: ls_project.Project | None
 
     def __init__(
         self,
@@ -58,12 +61,8 @@ class LabelStudioProject(Project):
         project_id: int,
         media_import_method: Literal['post', 'file', 'url'],
         col_mapping: dict[ColumnHandle, str],
-        stored_proxies: Optional[dict[ColumnHandle, ColumnHandle]] = None,
+        stored_proxies: dict[ColumnHandle, ColumnHandle] | None = None,
     ):
-        """
-        The constructor will NOT create a new Label Studio project; it is also used when loading
-        metadata for existing projects.
-        """
         self.project_id = project_id
         self.media_import_method = media_import_method
         self._project = None
@@ -279,8 +278,8 @@ class LabelStudioProject(Project):
         # columns. `rl_col_idxs` holds the indices for the columns that map to RectangleLabels
         # preannotations; `data_col_idxs` holds the indices for the columns that map to data fields.
         # We have to wait until we begin iterating to populate them, so they're initially `None`.
-        rl_col_idxs: Optional[list[int]] = None
-        data_col_idxs: Optional[list[int]] = None
+        rl_col_idxs: list[int] | None = None
+        data_col_idxs: list[int] | None = None
 
         row_ids_in_pxt: set[tuple] = set()
         tasks_created = 0
@@ -350,7 +349,7 @@ class LabelStudioProject(Project):
         return sync_status
 
     @classmethod
-    def __validate_fileurl(cls, col: Column, url: str) -> Optional[str]:
+    def __validate_fileurl(cls, col: Column, url: str) -> str | None:
         # Check that the URL is one that will be visible to Label Studio. If it isn't, log an info message
         # to help users debug the issue.
         if not (url.startswith('http://') or url.startswith('https://')):
@@ -498,7 +497,7 @@ class LabelStudioProject(Project):
 
     @classmethod
     def __coco_to_predictions(
-        cls, coco_annotations: dict[str, Any], from_name: str, rl_info: '_RectangleLabel', task_id: Optional[int] = None
+        cls, coco_annotations: dict[str, Any], from_name: str, rl_info: '_RectangleLabel', task_id: int | None = None
     ) -> dict[str, Any]:
         width = coco_annotations['image']['width']
         height = coco_annotations['image']['height']
@@ -550,11 +549,11 @@ class LabelStudioProject(Project):
         cls,
         t: Table,
         label_config: str,
-        name: Optional[str],
-        title: Optional[str],
+        name: str | None,
+        title: str | None,
         media_import_method: Literal['post', 'file', 'url'],
-        col_mapping: Optional[dict[str, str]],
-        s3_configuration: Optional[dict[str, Any]],
+        col_mapping: dict[str, str] | None,
+        s3_configuration: dict[str, Any] | None,
         **kwargs: Any,
     ) -> 'LabelStudioProject':
         """
@@ -653,7 +652,7 @@ class LabelStudioProject(Project):
 
 @dataclass(frozen=True)
 class _DataKey:
-    name: Optional[str]  # The 'name' attribute of the data key; may differ from the field name
+    name: str | None  # The 'name' attribute of the data key; may differ from the field name
     column_type: ts.ColumnType
 
 
