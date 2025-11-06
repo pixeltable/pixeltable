@@ -64,7 +64,7 @@ help:
 	@echo '  fullpytest    Run `pytest`, including expensive tests'
 	@echo '  slimpytest    Run `pytest` with a minimal set of tests'
 	@echo '  nbtest        Run `pytest` on notebooks'
-	@echo '  stresstest    Run stress tests such as random-tbl-ops'
+	@echo '  stresstest    Run stress tests such as random-ops'
 	@echo '  typecheck     Run `mypy`'
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
@@ -124,7 +124,7 @@ install-deps:
 	@$(TOUCH) .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/uv install-deps .make-install/others
+install: setup-install .make-install/env install-deps .make-install/others
 
 .PHONY: test
 test: pytest check
@@ -165,7 +165,7 @@ nbtest: install
 
 .PHONY: stresstest
 stresstest: install
-	@$(SHELL_PREFIX) scripts/stress-tests.sh
+	@$(SHELL_PREFIX) scripts/stress-tests.sh 120
 
 .PHONY: typecheck
 typecheck: install

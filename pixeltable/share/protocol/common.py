@@ -3,8 +3,9 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
+from uuid import UUID
 
 from pydantic import BaseModel, model_validator
 
@@ -32,21 +33,39 @@ class PxtUri(BaseModel):
     uri: str  # The full URI string
 
     # Parsed components
-    org_slug: str  # Organization slug from the URI
-    db_slug: Optional[str]  # Database slug from the URI (optional)
-    table_identifier: str  # The table identifier (path or UUID)
-    is_uuid: bool  # True if table_identifier is a UUID, False if it's a path
+    org: str  # Organization slug from the URI
+    db: str | None  # Database slug from the URI (optional)
+    path: str | None = None  # The table or directory path (None if using UUID)
+    id: UUID | None = None  # The table UUID (None if using path)
+    version: int | None = None  # Optional version number parsed from URI (format: identifier:<version>)
 
-    def __init__(self, uri: str | None = None, **kwargs: Any) -> None:
-        if uri is not None:
-            # If uri is provided as positional argument, use it
+    def __init__(self, uri: str | dict | None = None, **kwargs: Any) -> None:
+        # Handle dict input directly (from JSON deserialization or explicit dict)
+        if isinstance(uri, dict):
+            # Dict input goes directly to Pydantic, which will call parse_uri
+            kwargs.update(uri)
+        elif uri is not None:
+            # Validate that uri is a string when passed as positional argument
+            if not isinstance(uri, str):
+                raise ValueError(f'Invalid data type for PxtUri: expected str or dict, got {type(uri)}')
             kwargs['uri'] = uri
         super().__init__(**kwargs)
 
     @model_validator(mode='before')
     @classmethod
-    def parse_uri(cls, data: dict) -> dict:  # Type as dict directly
-        uri = data['uri']  # KeyError if missing is correct behavior
+    def parse_uri(cls, data: Any) -> dict:
+        # Handle case where data is already a string (from JSON deserialization)
+        if isinstance(data, str):
+            uri = data
+        elif isinstance(data, dict):
+            uri = data.get('uri')
+            if uri is None:
+                raise ValueError('URI must be provided in dict with "uri" key')
+            if not isinstance(uri, str):
+                raise ValueError(f'URI in dict must be a string, got {type(uri)}')
+        else:
+            raise ValueError(f'Invalid data type for PxtUri: expected str or dict, got {type(data)}')
+
         return {'uri': uri, **cls._parse_and_validate_uri(uri)}
 
     def __str__(self) -> str:
@@ -64,27 +83,82 @@ class PxtUri(BaseModel):
             raise ValueError('URI must use pxt:// scheme')
 
         if not parsed.netloc:
-            raise ValueError('URI must have a hostname (org_slug)')
+            raise ValueError('URI must have an organization')
 
-        # Parse netloc for org_slug and optional db_slug
+        # Parse netloc for org and optional db
         netloc_parts = parsed.netloc.split(':')
-        org_slug = netloc_parts[0]
-        if not org_slug:
-            raise ValueError('URI must have an org_slug')
+        org = netloc_parts[0]
+        if not org:
+            raise ValueError('URI must have an organization')
 
-        db_slug = netloc_parts[1] if len(netloc_parts) > 1 else None
+        db = netloc_parts[1] if len(netloc_parts) > 1 else None
 
         # Allow root path (/) as valid, but reject missing path
-        if parsed.path is None or parsed.path == '':
+        if parsed.path is None:
             raise ValueError('URI must have a path')
 
         # Get path and remove leading slash (but keep empty string for root path)
-        table_identifier = parsed.path.lstrip('/') if parsed.path else ''
+        # path will be '/' for root directory or '/path/to/table' for regular paths
+        path_part = parsed.path.lstrip('/') if parsed.path else ''
 
-        # Determine if the path part is a UUID
-        is_uuid = is_valid_uuid(table_identifier) if table_identifier else False
+        # Handle version parsing (format: identifier:version)
+        # For root path, path_part will be empty string after lstrip
+        if path_part and ':' in path_part:
+            parts = path_part.rsplit(':', 1)  # Split from right, only once
+            if len(parts) == 2 and parts[1].isdigit():
+                identifier, version = parts[0], int(parts[1])
+            else:
+                identifier, version = path_part, None
+        else:
+            identifier, version = path_part, None
 
-        return {'org_slug': org_slug, 'db_slug': db_slug, 'table_identifier': table_identifier, 'is_uuid': is_uuid}
+        # Parse identifier into either a path string or UUID
+        path: str | None = None
+        id: UUID | None = None
+        if identifier:
+            if is_valid_uuid(identifier):
+                # It's a UUID
+                id = UUID(identifier)
+            else:
+                # It's a path - keep as string (URI format uses / as separator)
+                # Empty string means root path
+                path = identifier or ''
+        else:
+            # Empty identifier means root path
+            path = ''
+
+        return {'org': org, 'db': db, 'path': path, 'id': id, 'version': version}
+
+    @classmethod
+    def from_components(
+        cls,
+        org: str,
+        path: str | None = None,
+        id: UUID | None = None,
+        db: str | None = None,
+        version: int | None = None,
+    ) -> PxtUri:
+        """Construct a PxtUri from its components."""
+        if path is None and id is None:
+            raise ValueError('Either path or id must be provided')
+        if path is not None and id is not None:
+            raise ValueError('Cannot specify both path and id')
+
+        # Build the URI string from components
+        netloc = org if db is None else f'{org}:{db}'
+
+        # Use path or UUID as identifier
+        if id is not None:
+            identifier = str(id)
+        elif path is not None:
+            # Path is already in URI format (slash-separated)
+            identifier = path or ''
+        else:
+            identifier = ''
+
+        path_part = f'{identifier}:{version}' if version is not None else identifier
+        uri = f'pxt://{netloc}/{path_part}'
+        return cls(uri=uri)
 
 
 class RequestBaseModel(BaseModel, ABC):

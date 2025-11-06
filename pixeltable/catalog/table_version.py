@@ -373,7 +373,7 @@ class TableVersion:
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
     @classmethod
-    def create_replica(cls, md: TableVersionCompleteMd) -> TableVersion:
+    def create_replica(cls, md: TableVersionCompleteMd, create_store_tbl: bool = True) -> TableVersion:
         from .catalog import Catalog, TableVersionPath
 
         assert Env.get().in_xact
@@ -402,7 +402,8 @@ class TableVersion:
         # assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
         cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         tbl_version.init()
-        tbl_version.store_tbl.create()
+        if create_store_tbl:
+            tbl_version.store_tbl.create()
         return tbl_version
 
     def delete_media(self, tbl_version: int | None = None) -> None:
