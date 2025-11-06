@@ -394,11 +394,9 @@ class TableVersion:
         base_path = TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
-            tbl_id,
+            TableVersionKey(tbl_id, md.version_md.version, None),
             md.tbl_md,
             md.version_md,
-            md.version_md.version,
-            None,
             md.schema_version_md,
             [],
             base_path=base_path,

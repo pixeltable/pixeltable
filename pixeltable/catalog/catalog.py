@@ -1851,7 +1851,7 @@ class Catalog:
         # Now reconstruct the relevant TableVersionPath instance from the ancestor versions.
         tvp: TableVersionPath | None = None
         for anc_id, anc_version in ancestors[::-1]:
-            tvp = TableVersionPath(TableVersionHandle(anc_id, anc_version, None), base=tvp)
+            tvp = TableVersionPath(TableVersionHandle(TableVersionKey(anc_id, anc_version, None)), base=tvp)
 
         return tvp
 
@@ -2135,12 +2135,12 @@ class Catalog:
         # TODO: First acquire X-locks for all relevant metadata entries
 
         # Load metadata for every table in the TableVersionPath for `tbl`.
-        md = [self.load_tbl_md(tv.id, tv.effective_version, None) for tv in tbl._tbl_version_path.get_tbl_versions()]
+        md = [self.load_tbl_md(tv.key) for tv in tbl._tbl_version_path.get_tbl_versions()]
 
         # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
         # TableVersionPath. We need to prepend it separately.
         if isinstance(tbl, View) and tbl._is_named_pure_snapshot():
-            snapshot_md = self.load_tbl_md(tbl._id, 0, None)
+            snapshot_md = self.load_tbl_md(TableVersionKey(tbl._id, 0, None))
             md = [snapshot_md, *md]
 
         for ancestor_md in md:
@@ -2223,7 +2223,7 @@ class Catalog:
             base: TableVersionHandle
             base_path: TableVersionPath | None = None  # needed for live view
             if view_md.is_snapshot:
-                base = TableVersionHandle(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], key.anchor_tbl_id)
+                base = TableVersionHandle(TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], key.anchor_tbl_id))
             else:
                 base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
                 base = base_path.tbl_version

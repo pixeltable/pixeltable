@@ -252,7 +252,7 @@ class View(Table):
         assert not tbl_version.is_snapshot
 
         return TableVersionPath(
-            TableVersionHandle(tbl_version.id, tbl_version.version, None),
+            TableVersionHandle(TableVersionKey(tbl_version.id, tbl_version.version, None)),
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
