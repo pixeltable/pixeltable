@@ -40,7 +40,7 @@ class TableVersionHandle:
         return hash((self.id, self.effective_version))
 
     def __repr__(self) -> str:
-        return f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version})'
+        return f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, alignment_tbl_id={self.alignment_tbl_id})'
 
     @property
     def is_snapshot(self) -> bool:
@@ -54,6 +54,7 @@ class TableVersionHandle:
         from .catalog import Catalog
 
         cat = Catalog.get()
+        print(f'Getting {self}')
         if self._tbl_version is None or not self._tbl_version.is_validated:
             if self.effective_version is not None and self._tbl_version is not None:
                 # this is a snapshot version; we need to make sure we refer to the instance cached
@@ -68,6 +69,7 @@ class TableVersionHandle:
         if self.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
             assert self._tbl_version in tvs, self._tbl_version
+        print(f'Got {self._tbl_version}')
         return self._tbl_version
 
     def as_dict(self) -> dict:

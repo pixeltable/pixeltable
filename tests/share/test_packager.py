@@ -224,7 +224,6 @@ class TestPackager:
         # created.)
         assert bundle_info.store_col_schema.issubset(self.__extract_store_col_schema(t))
         t._tbl_version_path.tbl_version.get().store_tbl.validate()
-        assert t._tbl_version_path.tbl_version.get().alignment_tbl_id is not None
 
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)

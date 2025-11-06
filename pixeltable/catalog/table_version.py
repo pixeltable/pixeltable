@@ -167,6 +167,8 @@ class TableVersion:
         self.base = base
         self.store_tbl = None
 
+        assert alignment_tbl_id is None or isinstance(alignment_tbl_id, UUID)
+
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_handle import TableVersionHandle
         from .table_version_path import TableVersionPath
@@ -432,6 +434,8 @@ class TableVersion:
         in Catalog.
         """
         from .catalog import Catalog
+
+        print('INITIALIZING TABLEVERSION: ', self, self.schema_version_md)
 
         cat = Catalog.get()
         assert (self.id, self.effective_version, self.alignment_tbl_id) in cat._tbl_versions

@@ -413,7 +413,7 @@ class Catalog:
                 # invalidate cached current TableVersion instances
                 for tv in self._tbl_versions.values():
                     if tv.effective_version is None:
-                        _logger.debug(f'invalidating table version {tv.id}:None (tv={id(tv):x})')
+                        _logger.debug(f'invalidating table version {tv} (0x{id(tv):x})')
                         tv.is_validated = False
 
                 if has_exc:
@@ -1170,7 +1170,7 @@ class Catalog:
             # Now we must clear cached metadata for the ancestor table, to force the next table operation to pick up
             # the new TableVersion instance. This is necessary because computed columns of descendant tables might
             # reference columns of the ancestor table that only exist in the new version.
-            replica = Catalog.get().get_table_by_id(ancestor_id)
+            replica = self.get_table_by_id(ancestor_id)
             # assert replica is not None  # If it didn't exist before, it must have been created by now.
             if replica is not None:
                 replica._tbl_version_path.clear_cached_md()
@@ -1587,25 +1587,52 @@ class Catalog:
             elif not tv.is_validated:
                 # only live instances are invalidated
                 assert effective_version is None
-                # we validate live instances by comparing our cached TableMd.current_version/view_sn to what's stored
                 # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
-                q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
-                row = conn.execute(q).one_or_none()
-                if row is None:
-                    raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
-                current_version, view_sn = row.md['current_version'], row.md['view_sn']
+
+                reload = False
+
+                if tv.alignment_tbl_id is None:
+                    # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
+                    q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
+                    row = conn.execute(q).one_or_none()
+                    if row is None:
+                        raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+                    current_version, view_sn = row.md['current_version'], row.md['view_sn']
+                    if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
+                        _logger.debug(
+                            f'reloading metadata for live table {tbl_id} '
+                            f'(cached/current version: {tv.version}/{current_version}, '
+                            f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
+                        )
+                        reload = True
+
+                else:
+                    # live replica table; use the anchored version
+                    alignment_tbl_md = self.head_version_md(tv.alignment_tbl_id)
+                    assert alignment_tbl_md is not None
+                    q = (
+                        sql.select(schema.TableVersion.md)
+                        .where(schema.TableVersion.tbl_id == tbl_id)
+                        .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= alignment_tbl_md.created_at)
+                        .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
+                        .limit(1)
+                    )
+                    row = conn.execute(q).one_or_none()
+                    if row is None:
+                        raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+                    version = row.md['version']
+                    if version != tv.version:  # TODO: How will view_sn work for replicas?
+                        _logger.debug(
+                            f'reloading metadata for replica table {tbl_id} (anchor {alignment_tbl_id}) '
+                            f'(cached/anchored version: {tv.version}/{version})'
+                        )
+                        reload = True
 
                 # the stored version can be behind TableVersion.version, because we don't roll back the in-memory
                 # metadata changes after a failed update operation
-                # TODO: For replicas, current_version is not the right basis of comparison (so this may result in
-                #     unnecessary reloads)
-                if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
+                if reload:
                     # the cached metadata is invalid
-                    _logger.debug(
-                        f'reloading metadata for table {tbl_id} '
-                        f'(cached/current version: {tv.version}/{current_version}, '
-                        f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
-                    )
+                    print('RELOADING')
                     tv = self._load_tbl_version(tbl_id, None, alignment_tbl_id, check_pending_ops=check_pending_ops)
                 else:
                     # the cached metadata is valid
@@ -1663,9 +1690,11 @@ class Catalog:
 
     def _load_tbl(self, tbl_id: UUID) -> Table | None:
         """Loads metadata for the table with the given id and caches it."""
-        _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
         from .view import View
+
+        assert tbl_id is not None
+        _logger.info(f'Loading table {tbl_id}')
 
         conn = Env.get().conn
 
@@ -1716,22 +1745,17 @@ class Catalog:
         if view_md is not None:
             tbl_version_path.extend((UUID(ancestor_id), version) for ancestor_id, version in view_md.base_versions)
 
-        alignment_timestamp: float | None = None
-        if alignment_tbl_id is not None:
-            aligned_version_md = self.head_version_md(alignment_tbl_id)
-            if aligned_version_md is None:
-                assert alignment_tbl_id == tbl_id
-                return None
-            alignment_timestamp = aligned_version_md.created_at
+        if alignment_tbl_id is not None and self.head_version_md(alignment_tbl_id) is None:
+            return None
 
         # load TableVersions, starting at the root
         base_path: TableVersionPath | None = None
         view_path: TableVersionPath | None = None
         for id, effective_version in tbl_version_path[::-1]:
-            use_alignment_timestamp = None if effective_version is not None else alignment_timestamp
-            if (id, effective_version, use_alignment_timestamp) not in self._tbl_versions:
-                _ = self._load_tbl_version(id, effective_version, use_alignment_timestamp)
-            view_path = TableVersionPath(TableVersionHandle(id, effective_version, use_alignment_timestamp), base=base_path)
+            localized_alignment_tbl_id = None if effective_version is not None else alignment_tbl_id
+            if (id, effective_version, localized_alignment_tbl_id) not in self._tbl_versions:
+                _ = self._load_tbl_version(id, effective_version, localized_alignment_tbl_id)
+            view_path = TableVersionPath(TableVersionHandle(id, effective_version, localized_alignment_tbl_id), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id, None] = view
@@ -1863,11 +1887,17 @@ class Catalog:
         assert isinstance(row[0], dict)
         return schema.md_from_dict(schema.TableVersionMd, row[0])
 
-    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None, alignment_timestamp: float | None) -> TableVersionCompleteMd:
+    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None, alignment_tbl_id: UUID | None) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
-        assert effective_version is None or alignment_timestamp is None
+        assert effective_version is None or alignment_tbl_id is None
+
+        alignment_timestamp: float | None = None
+        if alignment_tbl_id is not None:
+            aligned_version_md = self.head_version_md(alignment_tbl_id)
+            assert aligned_version_md is not None
+            alignment_timestamp = aligned_version_md.created_at
 
         # _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
@@ -1896,7 +1926,10 @@ class Catalog:
         elif alignment_timestamp is not None:
             # we are loading the version that is aligned to the head version of another table
             q = (
-                q.where(schema.TableVersion.md['created_at'].cast(sql.Float) <= alignment_timestamp)
+                q.where(
+                    schema.TableVersion.md['created_at'].cast(sql.Float) <= alignment_timestamp,
+                    schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version
+                )
                 .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                 .limit(1)
             )
