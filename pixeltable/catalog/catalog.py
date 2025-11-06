@@ -1689,26 +1689,6 @@ class Catalog:
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         view_md = tbl_md.view_md
 
-        if tbl_md.is_replica and not tbl_md.is_snapshot:
-            # If this is a non-snapshot replica, we have to load it as a specific version handle. This is because:
-            # (1) the head version might be a version fragment that isn't user-accessible, and
-            # (2) the cached data in view_md.base_versions is not reliable, since the replicated version does not
-            #     necessarily track the head version of the originally shared table.
-
-            # Query for the latest non-fragment table version.
-            q = (
-                sql.select(schema.TableVersion.version)
-                .where(schema.TableVersion.tbl_id == tbl_id)
-                .where(schema.TableVersion.md['is_fragment'].astext == 'false')
-                .order_by(schema.TableVersion.md['version'].cast(sql.Integer).desc())
-                .limit(1)
-            )
-            row = conn.execute(q).one_or_none()
-            if row is not None:
-                version = row[0]
-                return self._load_tbl_at_version(tbl_id, version)
-            return None
-
         if view_md is None and not tbl_md.is_replica:
             # this is a base, non-replica table
             if (tbl_id, None, None) not in self._tbl_versions:
@@ -1718,7 +1698,9 @@ class Catalog:
             return tbl
 
         # this is a view; determine the sequence of TableVersions to load
-        tbl_version_path: list[tuple[UUID, int | None, UUID | None]] = []
+        tbl_version_path: list[tuple[UUID, int | None]] = []
+        alignment_tbl_id = UUID(tbl_md.tbl_id) if tbl_md.is_replica else None
+        print(f'{tbl_id}, {alignment_tbl_id}')
         if tbl_md.is_pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
@@ -1726,17 +1708,27 @@ class Catalog:
             effective_version = (
                 0 if view_md is not None and view_md.is_snapshot else None
             )  # snapshots only have version 0
-            tbl_version_path.append((tbl_id, effective_version, None))
+            tbl_version_path.append((tbl_id, effective_version))
+
         if view_md is not None:
-            tbl_version_path.extend((UUID(tbl_id), version, None) for tbl_id, version in view_md.base_versions)
+            tbl_version_path.extend((UUID(ancestor_id), version) for ancestor_id, version in view_md.base_versions)
+
+        alignment_timestamp: float | None = None
+        if alignment_tbl_id is not None:
+            aligned_version_md = self.head_version_md(alignment_tbl_id)
+            if aligned_version_md is None:
+                assert alignment_tbl_id == tbl_id
+                return None
+            alignment_timestamp = aligned_version_md.created_at
 
         # load TableVersions, starting at the root
         base_path: TableVersionPath | None = None
         view_path: TableVersionPath | None = None
-        for id, effective_version, alignment_tbl in tbl_version_path[::-1]:
-            if (id, effective_version, None) not in self._tbl_versions:
-                _ = self._load_tbl_version(id, effective_version, alignment_tbl)
-            view_path = TableVersionPath(TableVersionHandle(id, effective_version, alignment_tbl), base=base_path)
+        for id, effective_version in tbl_version_path[::-1]:
+            use_alignment_timestamp = None if effective_version is not None else alignment_timestamp
+            if (id, effective_version, use_alignment_timestamp) not in self._tbl_versions:
+                _ = self._load_tbl_version(id, effective_version, use_alignment_timestamp)
+            view_path = TableVersionPath(TableVersionHandle(id, effective_version, use_alignment_timestamp), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id, None] = view
@@ -1849,7 +1841,7 @@ class Catalog:
             for row in src_rows
         ]
 
-    def head_version_md(self, tbl_id: UUID) -> schema.TableVersionMd:
+    def head_version_md(self, tbl_id: UUID) -> schema.TableVersionMd | None:
         """
         Returns the TableVersionMd for the most recent non-fragment version of the given table.
         """
@@ -1866,12 +1858,14 @@ class Catalog:
         if row is None:
             return None
         assert isinstance(row[0], dict)
-        schema.md_from_dict(schema.TableVersionMd, row[0])
+        return schema.md_from_dict(schema.TableVersionMd, row[0])
 
-    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None, alignment_tbl_id: UUID | None) -> TableVersionCompleteMd:
+    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None, alignment_timestamp: float | None) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
+        assert effective_version is None or alignment_timestamp is None
+
         # _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
 
@@ -1896,11 +1890,10 @@ class Catalog:
                 schema.TableVersion.md['version'].cast(sql.Integer) == effective_version,
                 schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
-        elif alignment_tbl_id is not None:
+        elif alignment_timestamp is not None:
             # we are loading the version that is aligned to the head version of another table
-            aligned_version_md = self.head_version_md(alignment_tbl_id)
             q = (
-                q.where(schema.TableVersion.md['created_at'].cast(sql.Float) <= aligned_version_md.created_at)
+                q.where(schema.TableVersion.md['created_at'].cast(sql.Float) <= alignment_timestamp)
                 .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                 .limit(1)
             )
