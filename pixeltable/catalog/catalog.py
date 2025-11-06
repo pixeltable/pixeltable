@@ -1597,6 +1597,8 @@ class Catalog:
 
                 # the stored version can be behind TableVersion.version, because we don't roll back the in-memory
                 # metadata changes after a failed update operation
+                # TODO: For replicas, current_version is not the right basis of comparison (so this may result in
+                #     unnecessary reloads)
                 if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
                     # the cached metadata is invalid
                     _logger.debug(
@@ -1604,11 +1606,12 @@ class Catalog:
                         f'(cached/current version: {tv.version}/{current_version}, '
                         f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
                     )
-                    tv = self._load_tbl_version(tbl_id, None, None, check_pending_ops=check_pending_ops)
+                    tv = self._load_tbl_version(tbl_id, None, alignment_tbl_id, check_pending_ops=check_pending_ops)
                 else:
                     # the cached metadata is valid
                     tv.is_validated = True
 
+            assert tv.alignment_tbl_id == alignment_tbl_id
             assert tv.is_validated, f'{tbl_id}:{effective_version} not validated\n{tv.__dict__}\n{self._debug_str()}'
             if validate_initialized:
                 assert tv.is_initialized, (
@@ -2117,7 +2120,7 @@ class Catalog:
 
         # load mutable view ids for mutable TableVersions
         mutable_view_ids: list[UUID] = []
-        if effective_version is None and not tbl_md.is_replica:
+        if effective_version is None and alignment_tbl_id is None and not tbl_md.is_replica:
             q = (
                 sql.select(schema.Table.id)
                 .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)

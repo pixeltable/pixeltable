@@ -227,8 +227,8 @@ class TableVersion:
 
     def __repr__(self) -> str:
         return (
-            f'TableVersion(id={self.id!r}, name={self.name!r}, '
-            f'version={self.version}, effective_version={self.effective_version})'
+            f'TableVersion(id={self.id!r}, name={self.name!r}, effective_version={self.effective_version}, '
+            f'alignment_tbl_id={self.alignment_tbl_id}; version={self.version})'
         )
 
     @property

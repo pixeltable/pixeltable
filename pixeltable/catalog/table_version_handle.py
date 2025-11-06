@@ -64,9 +64,10 @@ class TableVersionHandle:
                 self._tbl_version.is_validated = True
             else:
                 self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version, self.alignment_tbl_id)
+                assert self._tbl_version.alignment_tbl_id == self.alignment_tbl_id
         if self.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
-            assert self._tbl_version in tvs
+            assert self._tbl_version in tvs, self._tbl_version
         return self._tbl_version
 
     def as_dict(self) -> dict:
