@@ -224,6 +224,21 @@ class Catalog:
         self._column_dependents = None
         self._init_store()
 
+    def _active_tbl_clause(
+        self, *, tbl_id: UUID | None = None, dir_id: UUID | None = None, tbl_name: str | None = None
+    ) -> sql.ColumnElement[bool]:
+        # avoid tables that are in the process of getting dropped
+        clause = sql.func.coalesce(schema.Table.md['pending_stmt'].astext, '-1') != str(
+            schema.TableStatement.DROP_TABLE.value
+        )
+        if tbl_id is not None:
+            clause = sql.and_(schema.Table.id == tbl_id, clause)
+        if dir_id is not None:
+            clause = sql.and_(schema.Table.dir_id == dir_id, clause)
+        if tbl_name is not None:
+            clause = sql.and_(schema.Table.md['name'].astext == tbl_name, clause)
+        return clause
+
     def _dropped_tbl_error_msg(self, tbl_id: UUID) -> str:
         return f'Table was dropped (no record found for {tbl_id})'
 
@@ -821,7 +836,7 @@ class Catalog:
                 dir_contents = self._get_dir_contents(dir.id, recursive=True)
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
-        q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id)
+        q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
@@ -946,9 +961,7 @@ class Catalog:
         if lock_entry:
             self._acquire_tbl_lock(for_write=True, dir_id=dir_id, raise_if_not_exists=False, tbl_name=name)
         q = sql.select(schema.Table.id).where(
-            schema.Table.dir_id == dir_id,
-            schema.Table.md['name'].astext == name,
-            schema.Table.md['user'].astext == user,
+            self._active_tbl_clause(dir_id=dir_id, tbl_name=name), schema.Table.md['user'].astext == user
         )
         tbl_id = conn.execute(q).scalars().all()
         assert len(tbl_id) <= 1, name
@@ -1000,12 +1013,13 @@ class Catalog:
             raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.')
         return obj
 
-    def get_table_by_id(self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
+    def get_table_by_id(
+        self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
     ) -> Table | None:
         """Must be executed inside a transaction. Might raise PendingTableOpsError."""
         if (tbl_id, version) not in self._tbls:
             if version is None:
-                return self._load_tbl(tbl_id, ignore_if_dropped=ignore_if_dropped)
+                return self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
             else:
                 return self._load_tbl_at_version(tbl_id, version)
         return self._tbls.get((tbl_id, version))
@@ -1245,6 +1259,8 @@ class Catalog:
         # We need to ensure that the table metadata in the catalog always reflects the latest observed version of
         # this table. (In particular, if this is a base table, then its table metadata need to be consistent
         # with the latest version of this table having a replicated view somewhere in the catalog.)
+        # TODO: handle concurrent drop() of an existing replica; if we just ignore that Table record here, we can end
+        # up with a duplicate key violation; in principle, we should wait for the concurrent drop() to finish
         q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
         existing_md_row = conn.execute(q).one_or_none()
 
@@ -1331,7 +1347,8 @@ class Catalog:
         """Return the additional_md field of the given table."""
         assert Env.get().in_xact
         conn = Env.get().conn
-        q = sql.select(schema.Table.additional_md).where(schema.Table.id == str(tbl_id))
+        q = sql.select(schema.Table.additional_md).where(self._active_tbl_clause(tbl_id=tbl_id))
+        # TODO: handle concurrent drop()
         row = conn.execute(q).one()
         assert isinstance(row[0], dict)
         return row[0]
@@ -1488,7 +1505,13 @@ class Catalog:
                 tv.tbl_md.pending_stmt = schema.TableStatement.DROP_TABLE
                 drop_ops = tv.drop()
                 self.write_tbl_md(
-                    tv.id, dir_id=None, tbl_md=tv.tbl_md, version_md=None, schema_version_md=None, pending_ops=drop_ops, remove_from_dir=True,
+                    tv.id,
+                    dir_id=None,
+                    tbl_md=tv.tbl_md,
+                    version_md=None,
+                    schema_version_md=None,
+                    pending_ops=drop_ops,
+                    remove_from_dir=True,
                 )
 
             tvp.clear_cached_md()
@@ -1579,7 +1602,7 @@ class Catalog:
             # check for existing entries
             q = sql.select(sql.func.count()).select_from(schema.Dir).where(schema.Dir.parent_id == dir_id)
             num_subdirs = conn.execute(q).scalar()
-            q = sql.select(sql.func.count()).select_from(schema.Table).where(schema.Table.dir_id == dir_id)
+            q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
             num_tbls = conn.execute(q).scalar()
             if num_subdirs + num_tbls > 0:
                 raise excs.Error(f'Directory {dir_path!r} is not empty.')
@@ -1591,9 +1614,9 @@ class Catalog:
             self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
 
         # drop existing tables
-        tbl_q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id).with_for_update()
+        tbl_q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id)).with_for_update()
         for row in conn.execute(tbl_q).all():
-            tbl = self.get_table_by_id(row.id)
+            tbl = self.get_table_by_id(row.id, ignore_if_dropped=True)
             # this table would have been dropped already if it's a view of a base we dropped earlier
             if tbl is not None:
                 self._drop_tbl(tbl, force=True, is_replace=False)
@@ -1606,7 +1629,7 @@ class Catalog:
         """Return the ids of views that directly reference the given table"""
         conn = Env.get().conn
         # check whether this table still exists
-        q = sql.select(sql.func.count()).select_from(schema.Table).where(schema.Table.id == tbl_id)
+        q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
             raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
@@ -1640,7 +1663,13 @@ class Catalog:
                 assert effective_version is None
                 # we validate live instances by comparing our cached TableMd.current_version/view_sn to what's stored
                 # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
-                q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
+                where_clause: sql.ColumnElement[bool]
+                if check_pending_ops:
+                    # if we don't want to see pending ops, we also don't want to see dropped tables
+                    where_clause = self._active_tbl_clause(tbl_id=tbl_id)
+                else:
+                    where_clause = schema.Table.id == tbl_id
+                q = sql.select(schema.Table.md).where(where_clause)
                 row = conn.execute(q).one_or_none()
                 if row is None:
                     raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
@@ -1709,7 +1738,7 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
-    def _load_tbl(self, tbl_id: UUID, ignore_if_dropped: bool = False) -> Table | None:
+    def _load_tbl(self, tbl_id: UUID, ignore_pending_drop: bool = False) -> Table | None:
         """Loads metadata for the table with the given id and caches it."""
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
@@ -1717,9 +1746,9 @@ class Catalog:
 
         conn = Env.get().conn
 
-        if ignore_if_dropped:
-            # check whether this table has already been dropped
-            q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
+        if ignore_pending_drop:
+            # check whether this table is in the process of being dropped
+            q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
             row = conn.execute(q).one()
             if row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
                 return None
@@ -1730,7 +1759,7 @@ class Catalog:
         if has_pending_ops:
             raise PendingTableOpsError(tbl_id)
 
-        q: sql.Executable = (
+        q = (
             sql.select(schema.Table, schema.TableSchemaVersion)
             .join(schema.TableSchemaVersion)
             .where(schema.Table.id == schema.TableSchemaVersion.tbl_id)
@@ -1885,7 +1914,7 @@ class Catalog:
         """
         q = (
             sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
-            .where(schema.Table.id == tbl_id)
+            .where(self._active_tbl_clause(tbl_id=tbl_id))
             .join(schema.TableVersion)
             .where(schema.TableVersion.tbl_id == tbl_id)
             .join(schema.TableSchemaVersion)
@@ -1997,9 +2026,12 @@ class Catalog:
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
             if pending_ops is not None:
+                assert tbl_md.pending_stmt is not None
+                assert all(op.tbl_id == str(tbl_id) for op in pending_ops)
+                assert all(op.op_sn == i for i, op in enumerate(pending_ops))
+                assert all(op.num_ops == len(pending_ops) for op in pending_ops)
                 tbl_md.tbl_state = schema.TableState.ROLLFORWARD
                 self._roll_forward_ids.add(tbl_id)
-                assert tbl_md.pending_stmt is not None
 
             if dir_id is not None:
                 # We are inserting a record while creating a new table.
@@ -2009,13 +2041,11 @@ class Catalog:
                 session.add(tbl_record)
             else:
                 # Update the existing table record.
-                values = {schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)}
+                values: dict[Any, Any] = {schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)}
                 if remove_from_dir:
-                    values[schema.Table.dir_id] = None
+                    values.update({schema.Table.dir_id: None})
                 result = session.execute(
-                    sql.update(schema.Table.__table__)
-                    .values(values)
-                    .where(schema.Table.id == tbl_id)
+                    sql.update(schema.Table.__table__).values(values).where(schema.Table.id == tbl_id)
                 )
                 assert isinstance(result, sql.CursorResult)
                 assert result.rowcount == 1, result.rowcount
@@ -2043,7 +2073,9 @@ class Catalog:
                 # Validate that the only fields that can change are 'is_fragment' and 'additional_md'.
                 assert version_record.md == dataclasses.asdict(
                     dataclasses.replace(
-                        version_md, is_fragment=tv.md['is_fragment'], additional_md=tv.md['additional_md']
+                        version_md,
+                        is_fragment=version_record.md['is_fragment'],
+                        additional_md=version_record.md['additional_md'],
                     )
                 )
                 result = session.execute(
@@ -2104,6 +2136,7 @@ class Catalog:
         consistent) table state.
         """
         # TODO: First acquire X-locks for all relevant metadata entries
+        # TODO: handle concurrent drop()
 
         # Load metadata for every table in the TableVersionPath for `tbl`.
         md = [self.load_tbl_md(tv.id, tv.effective_version) for tv in tbl._tbl_version_path.get_tbl_versions()]
@@ -2146,6 +2179,10 @@ class Catalog:
         conn = Env.get().conn
 
         if check_pending_ops:
+            # if we care about pending ops, we also care whether the table is in the process of getting dropped
+            if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
+                raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+
             pending_ops_q = (
                 sql.select(sql.func.count())
                 .select_from(schema.Table)

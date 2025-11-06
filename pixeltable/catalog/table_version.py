@@ -436,7 +436,7 @@ class TableVersion:
                 needs_xact=False,
                 delete_table_media_files_op=DeleteTableMediaFilesOp(),
             ),
-            TableOp(tbl_id=id_str, op_sn=1, num_ops=2, needs_xact=False, drop_store_table_op=DropStoreTableOp()),
+            TableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, drop_store_table_op=DropStoreTableOp()),
             TableOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, delete_table_md_op=DeleteTableMdOp()),
         ]
         return ops

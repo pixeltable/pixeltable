@@ -107,4 +107,3 @@ class ReplicateResponse(BaseModel):
     destination_uri: AnyUrl
     md: list[TableVersionMd]
     version: int | None = None
-
