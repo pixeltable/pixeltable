@@ -132,7 +132,9 @@ class Table(SchemaObject):
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
             )
-        indices = tv.idxs_by_name.values()
+
+        # Pure snapshots have no indices
+        indices = {} if tv.tbl_md.is_pure_snapshot else tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
@@ -150,6 +152,7 @@ class Table(SchemaObject):
                         embeddings=embeddings,
                     ),
                 )
+
         return TableMetadata(
             name=self._name,
             path=self._path(),

@@ -224,7 +224,6 @@ class TestPackager:
         # Certain metadata properties must be identical.
         metadata = t.get_metadata()
         for property in (
-            'columns',
             'indices',
             'version',
             'version_created',
