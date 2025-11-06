@@ -22,20 +22,20 @@ class TableVersionHandle:
 
     id: UUID
     effective_version: int | None
-    alignment_tbl_id: UUID | None
+    anchor_tbl_id: UUID | None
     _tbl_version: TableVersion | None
 
     def __init__(
         self,
         tbl_id: UUID,
         effective_version: int | None,
-        alignment_tbl_id: UUID | None,
+        anchor_tbl_id: UUID | None,
         *,
         tbl_version: TableVersion | None = None,
     ):
         self.id = tbl_id
         self.effective_version = effective_version
-        self.alignment_tbl_id = alignment_tbl_id
+        self.anchor_tbl_id = anchor_tbl_id
         self._tbl_version = tbl_version
 
     def __eq__(self, other: object) -> bool:
@@ -49,7 +49,7 @@ class TableVersionHandle:
     def __repr__(self) -> str:
         return (
             f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, '
-            f'alignment_tbl_id={self.alignment_tbl_id})'
+            f'anchor_tbl_id={self.anchor_tbl_id})'
         )
 
     @property
@@ -58,7 +58,7 @@ class TableVersionHandle:
 
     @classmethod
     def create(cls, tbl_version: TableVersion) -> TableVersionHandle:
-        return cls(tbl_version.id, tbl_version.effective_version, tbl_version.alignment_tbl_id, tbl_version=tbl_version)
+        return cls(tbl_version.id, tbl_version.effective_version, tbl_version.anchor_tbl_id, tbl_version=tbl_version)
 
     def get(self) -> TableVersion:
         from .catalog import Catalog
@@ -70,14 +70,14 @@ class TableVersionHandle:
                 # this is a snapshot version; we need to make sure we refer to the instance cached
                 # in Catalog, in order to avoid mixing sa_tbl instances in the same transaction
                 # (which will lead to duplicates in the From clause generated in SqlNode.create_from_clause())
-                assert (self.id, self.effective_version, self.alignment_tbl_id) in cat._tbl_versions
-                self._tbl_version = cat._tbl_versions[self.id, self.effective_version, self.alignment_tbl_id]
+                assert (self.id, self.effective_version, self.anchor_tbl_id) in cat._tbl_versions
+                self._tbl_version = cat._tbl_versions[self.id, self.effective_version, self.anchor_tbl_id]
                 self._tbl_version.is_validated = True
             else:
                 self._tbl_version = Catalog.get().get_tbl_version(
-                    self.id, self.effective_version, self.alignment_tbl_id
+                    self.id, self.effective_version, self.anchor_tbl_id
                 )
-                assert self._tbl_version.alignment_tbl_id == self.alignment_tbl_id
+                assert self._tbl_version.anchor_tbl_id == self.anchor_tbl_id
         if self.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
             assert self._tbl_version in tvs, self._tbl_version
@@ -88,14 +88,14 @@ class TableVersionHandle:
         return {
             'id': str(self.id),
             'effective_version': self.effective_version,
-            'alignment_tbl_id': str(self.alignment_tbl_id) if self.alignment_tbl_id is not None else None,
+            'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
-        alignment_tbl_id = d.get('alignment_tbl_id')
+        anchor_tbl_id = d.get('anchor_tbl_id')
         return cls(
-            UUID(d['id']), d['effective_version'], UUID(alignment_tbl_id) if alignment_tbl_id is not None else None
+            UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None
         )
 
 

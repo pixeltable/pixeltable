@@ -378,7 +378,7 @@ class Planner:
 
         # create InMemoryDataNode for 'rows'
         plan: exec.ExecNode = exec.InMemoryDataNode(
-            TableVersionHandle(tbl.id, tbl.effective_version, tbl.alignment_tbl_id), rows, row_builder, tbl.next_row_id
+            TableVersionHandle(tbl.id, tbl.effective_version, tbl.anchor_tbl_id), rows, row_builder, tbl.next_row_id
         )
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)

@@ -92,7 +92,7 @@ class TableVersion:
     _schema_version_md: schema.TableSchemaVersionMd
 
     effective_version: int | None
-    alignment_tbl_id: UUID | None
+    anchor_tbl_id: UUID | None
     path: 'TableVersionPath' | None  # only set for live tables; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
     predicate: exprs.Expr | None
@@ -147,13 +147,13 @@ class TableVersion:
         tbl_md: schema.TableMd,
         version_md: schema.TableVersionMd,
         effective_version: int | None,
-        alignment_tbl_id: UUID | None,
+        anchor_tbl_id: UUID | None,
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: 'TableVersionPath' | None = None,
         base: TableVersionHandle | None = None,
     ):
-        assert effective_version is None or alignment_tbl_id is None
+        assert effective_version is None or anchor_tbl_id is None
 
         self.is_validated = True  # a freshly constructed instance is always valid
         self.is_initialized = False
@@ -162,12 +162,12 @@ class TableVersion:
         self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
         self.effective_version = effective_version
-        self.alignment_tbl_id = alignment_tbl_id
+        self.anchor_tbl_id = anchor_tbl_id
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
 
-        assert alignment_tbl_id is None or isinstance(alignment_tbl_id, UUID)
+        assert anchor_tbl_id is None or isinstance(anchor_tbl_id, UUID)
 
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_handle import TableVersionHandle
@@ -176,7 +176,7 @@ class TableVersion:
         if self.is_snapshot:
             self.path = None
         else:
-            self_handle = TableVersionHandle(id, self.effective_version, self.alignment_tbl_id)
+            self_handle = TableVersionHandle(id, self.effective_version, self.anchor_tbl_id)
             if self.is_view:
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
@@ -230,14 +230,14 @@ class TableVersion:
     def __repr__(self) -> str:
         return (
             f'TableVersion(id={self.id!r}, name={self.name!r}, effective_version={self.effective_version}, '
-            f'alignment_tbl_id={self.alignment_tbl_id}; version={self.version})'
+            f'anchor_tbl_id={self.anchor_tbl_id}; version={self.version})'
         )
 
     @property
     def handle(self) -> 'TableVersionHandle':
         from .table_version_handle import TableVersionHandle
 
-        return TableVersionHandle(self.id, self.effective_version, self.alignment_tbl_id, tbl_version=self)
+        return TableVersionHandle(self.id, self.effective_version, self.anchor_tbl_id, tbl_version=self)
 
     @classmethod
     def create_initial_md(
@@ -439,7 +439,7 @@ class TableVersion:
         print('INITIALIZING TABLEVERSION: ', self, self.schema_version_md)
 
         cat = Catalog.get()
-        assert (self.id, self.effective_version, self.alignment_tbl_id) in cat._tbl_versions
+        assert (self.id, self.effective_version, self.anchor_tbl_id) in cat._tbl_versions
         self._init_schema()
         if self.is_mutable:
             cat.record_column_dependencies(self)
@@ -553,7 +553,7 @@ class TableVersion:
             tvp = Catalog.get().construct_tvp(
                 self.id, self.effective_version, self.tbl_md.ancestor_ids, self.version_md.created_at
             )
-        elif self.alignment_tbl_id is not None:
+        elif self.anchor_tbl_id is not None:
             # for replica TableVersion instances, we also need to retarget the value_exprs, this time to the
             # "anchored" TableVerisonPath.
             assert self.path is not None
@@ -1684,7 +1684,7 @@ class TableVersion:
         return {
             'id': str(self.id),
             'effective_version': self.effective_version,
-            'alignment_tbl_id': str(self.alignment_tbl_id) if self.alignment_tbl_id is not None else None,
+            'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
         }
 
     @classmethod
@@ -1693,5 +1693,5 @@ class TableVersion:
 
         id = UUID(d['id'])
         effective_version = d['effective_version']
-        alignment_tbl_id = UUID(d['alignment_tbl_id']) if 'alignment_tbl_id' in d else None
-        return Catalog.get().get_tbl_version(id, effective_version, alignment_tbl_id)
+        anchor_tbl_id = UUID(d['anchor_tbl_id']) if 'anchor_tbl_id' in d else None
+        return Catalog.get().get_tbl_version(id, effective_version, anchor_tbl_id)

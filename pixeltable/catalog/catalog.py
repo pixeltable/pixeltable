@@ -168,7 +168,7 @@ class Catalog:
 
     _instance: Catalog | None = None
 
-    # cached TableVersion instances; key: [id, version, alignment_tbl_id]
+    # cached TableVersion instances; key: [id, version, anchor_tbl_id]
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
     _tbl_versions: dict[tuple[UUID, int | None, UUID | None], TableVersion]
@@ -220,9 +220,9 @@ class Catalog:
 
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
-        for (tbl_id, effective_version, alignment_tbl_id), tbl_version in self._tbl_versions.items():
+        for (tbl_id, effective_version, anchor_tbl_id), tbl_version in self._tbl_versions.items():
             assert tbl_id == tbl_version.id, f'{tbl_id} != {tbl_version.id}'
-            assert effective_version is None or alignment_tbl_id is None
+            assert effective_version is None or anchor_tbl_id is None
             assert tbl_version.effective_version == tbl_version.version or tbl_version.effective_version is None, (
                 f'{tbl_version.effective_version} != {tbl_version.version} for id {tbl_id}'
             )
@@ -234,7 +234,7 @@ class Catalog:
             )
 
             assert not tbl_version.version_md.is_fragment
-            assert alignment_tbl_id is None or tbl_version.is_replica
+            assert anchor_tbl_id is None or tbl_version.is_replica
 
             if (
                 tbl_version.is_view
@@ -434,7 +434,7 @@ class Catalog:
                     # purge all modified TableVersion instances; we can't guarantee they are still consistent with the
                     # stored metadata
                     for handle in self._modified_tvs:
-                        self._clear_tv_cache(handle.id, handle.effective_version, handle.alignment_tbl_id)
+                        self._clear_tv_cache(handle.id, handle.effective_version, handle.anchor_tbl_id)
                     # Clear potentially corrupted cached metadata
                     if tbl is not None:
                         tbl.clear_cached_md()
@@ -528,7 +528,7 @@ class Catalog:
         for handle in read_handles:
             # update cache
             _ = self.get_tbl_version(
-                handle.id, handle.effective_version, handle.alignment_tbl_id, validate_initialized=True
+                handle.id, handle.effective_version, handle.anchor_tbl_id, validate_initialized=True
             )
         if not for_write:
             return True  # nothing left to lock
@@ -543,7 +543,7 @@ class Catalog:
         _ = self.get_tbl_version(
             path_handles[0].id,
             path_handles[0].effective_version,
-            path_handles[0].alignment_tbl_id,
+            path_handles[0].anchor_tbl_id,
             validate_initialized=True,
         )
         return handle is not None
@@ -1117,7 +1117,7 @@ class Catalog:
         view_id = create_fn()
         if not is_snapshot and base.is_mutable():
             # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
-            self._clear_tv_cache(base.tbl_id, base.tbl_version.effective_version, base.tbl_version.alignment_tbl_id)
+            self._clear_tv_cache(base.tbl_id, base.tbl_version.effective_version, base.tbl_version.anchor_tbl_id)
             # base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version, validate_initialized=True)
             # view_handle = TableVersionHandle(view_id, effective_version=None)
             # base_tv.mutable_views.add(view_handle)
@@ -1126,11 +1126,11 @@ class Catalog:
         with self.begin_xact(tbl_id=view_id, for_write=True, finalize_pending_ops=True):
             return self.get_table_by_id(view_id)
 
-    def _clear_tv_cache(self, tbl_id: UUID, effective_version: int | None, alignment_tbl_id: UUID | None) -> None:
-        if (tbl_id, effective_version, alignment_tbl_id) in self._tbl_versions:
-            tv = self._tbl_versions[tbl_id, effective_version, alignment_tbl_id]
+    def _clear_tv_cache(self, tbl_id: UUID, effective_version: int | None, anchor_tbl_id: UUID | None) -> None:
+        if (tbl_id, effective_version, anchor_tbl_id) in self._tbl_versions:
+            tv = self._tbl_versions[tbl_id, effective_version, anchor_tbl_id]
             tv.is_validated = False
-            del self._tbl_versions[tbl_id, effective_version, alignment_tbl_id]
+            del self._tbl_versions[tbl_id, effective_version, anchor_tbl_id]
 
     def create_replica(self, path: Path, md: list[TableVersionCompleteMd], create_store_tbls: bool = True) -> None:
         """
@@ -1587,7 +1587,7 @@ class Catalog:
         self,
         tbl_id: UUID,
         effective_version: int | None,
-        alignment_tbl_id: UUID | None,
+        anchor_tbl_id: UUID | None,
         *,
         check_pending_ops: bool | None = None,
         validate_initialized: bool = False,
@@ -1601,10 +1601,10 @@ class Catalog:
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
         with self.begin_xact(for_write=False) as conn:
-            tv = self._tbl_versions.get((tbl_id, effective_version, alignment_tbl_id))
+            tv = self._tbl_versions.get((tbl_id, effective_version, anchor_tbl_id))
             if tv is None:
                 tv = self._load_tbl_version(
-                    tbl_id, effective_version, alignment_tbl_id, check_pending_ops=check_pending_ops
+                    tbl_id, effective_version, anchor_tbl_id, check_pending_ops=check_pending_ops
                 )
             elif not tv.is_validated:
                 # only live instances are invalidated
@@ -1613,7 +1613,7 @@ class Catalog:
 
                 reload = False
 
-                if tv.alignment_tbl_id is None:
+                if tv.anchor_tbl_id is None:
                     # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
                     q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
                     row = conn.execute(q).one_or_none()
@@ -1630,12 +1630,12 @@ class Catalog:
 
                 else:
                     # live replica table; use the anchored version
-                    alignment_tbl_md = self.head_version_md(tv.alignment_tbl_id)
-                    assert alignment_tbl_md is not None
+                    anchor_tbl_md = self.head_version_md(tv.anchor_tbl_id)
+                    assert anchor_tbl_md is not None
                     q = (
                         sql.select(schema.TableVersion.md)
                         .where(schema.TableVersion.tbl_id == tbl_id)
-                        .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= alignment_tbl_md.created_at)
+                        .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_md.created_at)
                         .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                         .limit(1)
                     )
@@ -1645,7 +1645,7 @@ class Catalog:
                     version = row.md['version']
                     if version != tv.version:  # TODO: How will view_sn work for replicas?
                         _logger.debug(
-                            f'reloading metadata for replica table {tbl_id} (anchor {alignment_tbl_id}) '
+                            f'reloading metadata for replica table {tbl_id} (anchor {anchor_tbl_id}) '
                             f'(cached/anchored version: {tv.version}/{version})'
                         )
                         reload = True
@@ -1655,12 +1655,12 @@ class Catalog:
                 if reload:
                     # the cached metadata is invalid
                     print('RELOADING')
-                    tv = self._load_tbl_version(tbl_id, None, alignment_tbl_id, check_pending_ops=check_pending_ops)
+                    tv = self._load_tbl_version(tbl_id, None, anchor_tbl_id, check_pending_ops=check_pending_ops)
                 else:
                     # the cached metadata is valid
                     tv.is_validated = True
 
-            assert tv.alignment_tbl_id == alignment_tbl_id
+            assert tv.anchor_tbl_id == anchor_tbl_id
             assert tv.is_validated, f'{tbl_id}:{effective_version} not validated\n{tv.__dict__}\n{self._debug_str()}'
             if validate_initialized:
                 assert tv.is_initialized, (
@@ -1669,8 +1669,8 @@ class Catalog:
             return tv
 
     def remove_tbl_version(self, tbl_version: TableVersion) -> None:
-        assert (tbl_version.id, tbl_version.effective_version, tbl_version.alignment_tbl_id) in self._tbl_versions
-        del self._tbl_versions[tbl_version.id, tbl_version.effective_version, tbl_version.alignment_tbl_id]
+        assert (tbl_version.id, tbl_version.effective_version, tbl_version.anchor_tbl_id) in self._tbl_versions
+        del self._tbl_versions[tbl_version.id, tbl_version.effective_version, tbl_version.anchor_tbl_id]
 
     def get_dir(self, dir_id: UUID, for_update: bool = False) -> Dir | None:
         """Return the Dir with the given id, or None if it doesn't exist"""
@@ -1753,8 +1753,8 @@ class Catalog:
 
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, int | None]] = []
-        alignment_tbl_id = UUID(tbl_md.tbl_id) if tbl_md.is_replica else None
-        print(f'{tbl_id}, {alignment_tbl_id}')
+        anchor_tbl_id = UUID(tbl_md.tbl_id) if tbl_md.is_replica else None
+        print(f'{tbl_id}, {anchor_tbl_id}')
         if tbl_md.is_pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
@@ -1767,18 +1767,18 @@ class Catalog:
         if view_md is not None:
             tbl_version_path.extend((UUID(ancestor_id), version) for ancestor_id, version in view_md.base_versions)
 
-        if alignment_tbl_id is not None and self.head_version_md(alignment_tbl_id) is None:
+        if anchor_tbl_id is not None and self.head_version_md(anchor_tbl_id) is None:
             return None
 
         # load TableVersions, starting at the root
         base_path: TableVersionPath | None = None
         view_path: TableVersionPath | None = None
         for id, effective_version in tbl_version_path[::-1]:
-            localized_alignment_tbl_id = None if effective_version is not None else alignment_tbl_id
-            if (id, effective_version, localized_alignment_tbl_id) not in self._tbl_versions:
-                _ = self._load_tbl_version(id, effective_version, localized_alignment_tbl_id)
+            localized_anchor_tbl_id = None if effective_version is not None else anchor_tbl_id
+            if (id, effective_version, localized_anchor_tbl_id) not in self._tbl_versions:
+                _ = self._load_tbl_version(id, effective_version, localized_anchor_tbl_id)
             view_path = TableVersionPath(
-                TableVersionHandle(id, effective_version, localized_alignment_tbl_id), base=base_path
+                TableVersionHandle(id, effective_version, localized_anchor_tbl_id), base=base_path
             )
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
@@ -1912,18 +1912,18 @@ class Catalog:
         return schema.md_from_dict(schema.TableVersionMd, row[0])
 
     def load_tbl_md(
-        self, tbl_id: UUID, effective_version: int | None, alignment_tbl_id: UUID | None
+        self, tbl_id: UUID, effective_version: int | None, anchor_tbl_id: UUID | None
     ) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
-        assert effective_version is None or alignment_tbl_id is None
+        assert effective_version is None or anchor_tbl_id is None
 
-        alignment_timestamp: float | None = None
-        if alignment_tbl_id is not None:
-            aligned_version_md = self.head_version_md(alignment_tbl_id)
-            assert aligned_version_md is not None
-            alignment_timestamp = aligned_version_md.created_at
+        anchor_timestamp: float | None = None
+        if anchor_tbl_id is not None:
+            anchored_version_md = self.head_version_md(anchor_tbl_id)
+            assert anchored_version_md is not None
+            anchor_timestamp = anchored_version_md.created_at
 
         # _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
@@ -1949,11 +1949,11 @@ class Catalog:
                 schema.TableVersion.md['version'].cast(sql.Integer) == effective_version,
                 schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
-        elif alignment_timestamp is not None:
-            # we are loading the version that is aligned to the head version of another table
+        elif anchor_timestamp is not None:
+            # we are loading the version that is anchored to the head version of another table
             q = (
                 q.where(
-                    schema.TableVersion.md['created_at'].cast(sql.Float) <= alignment_timestamp,
+                    schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_timestamp,
                     schema.TableVersion.md['schema_version'].cast(sql.Integer)
                     == schema.TableSchemaVersion.schema_version,
                 )
@@ -2153,12 +2153,12 @@ class Catalog:
         self,
         tbl_id: UUID,
         effective_version: int | None,
-        alignment_tbl_id: UUID | None,
+        anchor_tbl_id: UUID | None,
         *,
         check_pending_ops: bool = True,
     ) -> TableVersion | None:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
-        table_version_md = self.load_tbl_md(tbl_id, effective_version, alignment_tbl_id)
+        table_version_md = self.load_tbl_md(tbl_id, effective_version, anchor_tbl_id)
         tbl_md = table_version_md.tbl_md
         version_md = table_version_md.version_md
         schema_version_md = table_version_md.schema_version_md
@@ -2185,7 +2185,7 @@ class Catalog:
 
         # load mutable view ids for mutable TableVersions
         mutable_view_ids: list[UUID] = []
-        if effective_version is None and alignment_tbl_id is None and not tbl_md.is_replica:
+        if effective_version is None and anchor_tbl_id is None and not tbl_md.is_replica:
             q = (
                 sql.select(schema.Table.id)
                 .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
@@ -2199,7 +2199,7 @@ class Catalog:
         if view_md is None:
             # this is a base table
             tbl_version = TableVersion(
-                tbl_id, tbl_md, version_md, effective_version, alignment_tbl_id, schema_version_md, mutable_views
+                tbl_id, tbl_md, version_md, effective_version, anchor_tbl_id, schema_version_md, mutable_views
             )
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
@@ -2216,7 +2216,7 @@ class Catalog:
             base_path: TableVersionPath | None = None  # needed for live view
             if view_md.is_snapshot:
                 base = TableVersionHandle(
-                    UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], alignment_tbl_id
+                    UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], anchor_tbl_id
                 )
             else:
                 base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
@@ -2227,7 +2227,7 @@ class Catalog:
                 tbl_md,
                 version_md,
                 effective_version,
-                alignment_tbl_id,
+                anchor_tbl_id,
                 schema_version_md,
                 mutable_views,
                 base_path=base_path,
@@ -2235,7 +2235,7 @@ class Catalog:
             )
 
         # register the instance before init()
-        self._tbl_versions[tbl_id, effective_version, alignment_tbl_id] = tbl_version
+        self._tbl_versions[tbl_id, effective_version, anchor_tbl_id] = tbl_version
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
         self.mark_modified_tvs(tbl_version.handle)
