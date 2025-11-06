@@ -25,12 +25,7 @@ class TableVersionHandle:
     key: TableVersionKey
     _tbl_version: TableVersion | None
 
-    def __init__(
-        self,
-        key: TableVersionKey,
-        *,
-        tbl_version: TableVersion | None = None,
-    ):
+    def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
         self.key = key
         self._tbl_version = tbl_version
 
@@ -94,7 +89,11 @@ class TableVersionHandle:
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
         anchor_tbl_id = d.get('anchor_tbl_id')
-        return cls(TableVersionKey(UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None))
+        return cls(
+            TableVersionKey(
+                UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None
+            )
+        )
 
 
 @dataclass(frozen=True)

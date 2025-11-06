@@ -393,15 +393,8 @@ class TableVersion:
         view_md = md.tbl_md.view_md
         base_path = TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
-        tbl_version = cls(
-            TableVersionKey(tbl_id, md.version_md.version, None),
-            md.tbl_md,
-            md.version_md,
-            md.schema_version_md,
-            [],
-            base_path=base_path,
-            base=base,
-        )
+        key = TableVersionKey(tbl_id, md.version_md.version, None)
+        tbl_version = cls(key, md.tbl_md, md.version_md, md.schema_version_md, [], base_path=base_path, base=base)
         cat = Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
         # TableVersion instance before.
@@ -409,7 +402,7 @@ class TableVersion:
         # TODO: Understand why old TableVersions are kept around even for a dropped table.
         # assert tbl_version.effective_version is not None
         # assert (tbl_version.id, tbl_version.effective_version, None) not in cat._tbl_versions
-        cat._tbl_versions[tbl_version.id, tbl_version.effective_version, None] = tbl_version
+        cat._tbl_versions[key] = tbl_version
         tbl_version.init()
         if create_store_tbl:
             tbl_version.store_tbl.create()
@@ -1711,4 +1704,4 @@ class TableVersion:
         id = UUID(d['id'])
         effective_version = d['effective_version']
         anchor_tbl_id = UUID(d['anchor_tbl_id']) if 'anchor_tbl_id' in d else None
-        return Catalog.get().get_tbl_version(id, effective_version, anchor_tbl_id)
+        return Catalog.get().get_tbl_version(TableVersionKey(id, effective_version, anchor_tbl_id))

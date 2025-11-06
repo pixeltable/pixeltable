@@ -251,17 +251,15 @@ class Catalog:
                     base_tv = self._tbl_versions[key]
                     if not base_tv.is_validated:
                         continue
-                    mutable_view_ids = ', '.join(
-                        str(tv.id) for tv in self._tbl_versions[key].mutable_views
-                    )
+                    mutable_view_ids = ', '.join(str(tv.id) for tv in self._tbl_versions[key].mutable_views)
                     mutable_view_names = ', '.join(
                         tv._tbl_version.name
                         for tv in self._tbl_versions[key].mutable_views
                         if tv._tbl_version is not None
                     )
-                    assert (
-                        tbl_version.handle in self._tbl_versions[key].mutable_views
-                    ), f'{tbl_version.name} ({tbl_version.id}) missing in {mutable_view_ids} ({mutable_view_names})'
+                    assert tbl_version.handle in self._tbl_versions[key].mutable_views, (
+                        f'{tbl_version.name} ({tbl_version.id}) missing in {mutable_view_ids} ({mutable_view_names})'
+                    )
 
             if len(tbl_version.mutable_views) > 0:
                 # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
@@ -528,9 +526,7 @@ class Catalog:
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
             # update cache
-            _ = self.get_tbl_version(
-                handle.key, validate_initialized=True
-            )
+            _ = self.get_tbl_version(handle.key, validate_initialized=True)
         if not for_write:
             return True  # nothing left to lock
         handle = self._acquire_tbl_lock(
@@ -542,10 +538,7 @@ class Catalog:
         )
         # update cache
         _ = self.get_tbl_version(
-            TableVersionKey(
-                path_handles[0].id,
-                path_handles[0].effective_version,
-                path_handles[0].anchor_tbl_id),
+            TableVersionKey(path_handles[0].id, path_handles[0].effective_version, path_handles[0].anchor_tbl_id),
             validate_initialized=True,
         )
         return handle is not None
@@ -659,7 +652,9 @@ class Catalog:
 
                     if op.needs_xact:
                         tv = self.get_tbl_version(
-                            TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                            TableVersionKey(tbl_id, tbl_version, None),
+                            check_pending_ops=False,
+                            validate_initialized=True,
                         )
                         tv.exec_op(op)
                         conn.execute(delete_next_op_stmt)
@@ -668,7 +663,9 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
-                tv = self.get_tbl_version(TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True)
+                tv = self.get_tbl_version(
+                    TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                )
                 tv.exec_op(op)
                 with self.begin_xact(
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
@@ -706,9 +703,7 @@ class Catalog:
     def _get_mutable_tree(self, tbl_id: UUID) -> set[UUID]:
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
         key = TableVersionKey(tbl_id, None, None)
-        assert key in self._tbl_versions, (
-            f'{key} not in {self._tbl_versions.keys()}\n{self._debug_str()}'
-        )
+        assert key in self._tbl_versions, f'{key} not in {self._tbl_versions.keys()}\n{self._debug_str()}'
         tv = self.get_tbl_version(key, validate_initialized=True)
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
@@ -1589,11 +1584,7 @@ class Catalog:
         return result
 
     def get_tbl_version(
-        self,
-        key: TableVersionKey,
-        *,
-        check_pending_ops: bool | None = None,
-        validate_initialized: bool = False,
+        self, key: TableVersionKey, *, check_pending_ops: bool | None = None, validate_initialized: bool = False
     ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table and version and updates the cache.
@@ -1606,9 +1597,7 @@ class Catalog:
         with self.begin_xact(for_write=False) as conn:
             tv = self._tbl_versions.get(key)
             if tv is None:
-                tv = self._load_tbl_version(
-                    key, check_pending_ops=check_pending_ops
-                )
+                tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
             elif not tv.is_validated:
                 # only live instances are invalidated
                 assert key.effective_version is None
@@ -1779,9 +1768,7 @@ class Catalog:
             key = TableVersionKey(id, effective_version, None if effective_version is not None else anchor_tbl_id)
             if key not in self._tbl_versions:
                 _ = self._load_tbl_version(key)
-            view_path = TableVersionPath(
-                TableVersionHandle(key), base=base_path
-            )
+            view_path = TableVersionPath(TableVersionHandle(key), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=tbl_md.is_pure_snapshot)
         self._tbls[tbl_id, None] = view
@@ -1914,9 +1901,7 @@ class Catalog:
         assert isinstance(row[0], dict)
         return schema.md_from_dict(schema.TableVersionMd, row[0])
 
-    def load_tbl_md(
-        self, key: TableVersionKey
-    ) -> TableVersionCompleteMd:
+    def load_tbl_md(self, key: TableVersionKey) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
@@ -2162,9 +2147,7 @@ class Catalog:
 
         return md
 
-    def _load_tbl_version(
-        self, key: TableVersionKey, *, check_pending_ops: bool = True
-    ) -> TableVersion | None:
+    def _load_tbl_version(self, key: TableVersionKey, *, check_pending_ops: bool = True) -> TableVersion | None:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
         table_version_md = self.load_tbl_md(key)
         tbl_md = table_version_md.tbl_md
@@ -2206,9 +2189,7 @@ class Catalog:
         tbl_version: TableVersion
         if view_md is None:
             # this is a base table
-            tbl_version = TableVersion(
-                key, tbl_md, version_md, schema_version_md, mutable_views
-            )
+            tbl_version = TableVersion(key, tbl_md, version_md, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
             # TODO: add TableVersionCompleteMd.is_pure_snapshot() and use that
@@ -2223,19 +2204,15 @@ class Catalog:
             base: TableVersionHandle
             base_path: TableVersionPath | None = None  # needed for live view
             if view_md.is_snapshot:
-                base = TableVersionHandle(TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], key.anchor_tbl_id))
+                base = TableVersionHandle(
+                    TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], key.anchor_tbl_id)
+                )
             else:
                 base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
                 base = base_path.tbl_version
 
             tbl_version = TableVersion(
-                key,
-                tbl_md,
-                version_md,
-                schema_version_md,
-                mutable_views,
-                base_path=base_path,
-                base=base,
+                key, tbl_md, version_md, schema_version_md, mutable_views, base_path=base_path, base=base
             )
 
         # register the instance before init()

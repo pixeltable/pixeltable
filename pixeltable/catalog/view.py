@@ -220,9 +220,7 @@ class View(Table):
         else:
             tbl_id = md.tbl_md.tbl_id
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
-            view_path = TableVersionPath(
-                TableVersionHandle(key), base=base_version_path
-            )
+            view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = [
                 TableOp(
                     tbl_id=tbl_id, op_sn=0, num_ops=2, needs_xact=False, create_store_table_op=CreateStoreTableOp()
