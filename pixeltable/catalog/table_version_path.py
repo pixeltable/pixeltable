@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from pixeltable.env import Env
@@ -39,10 +38,10 @@ class TableVersionPath:
     """
 
     tbl_version: TableVersionHandle
-    base: Optional[TableVersionPath]
-    _cached_tbl_version: Optional[TableVersion]
+    base: TableVersionPath | None
+    _cached_tbl_version: TableVersion | None
 
-    def __init__(self, tbl_version: TableVersionHandle, base: Optional[TableVersionPath] = None):
+    def __init__(self, tbl_version: TableVersionHandle, base: TableVersionPath | None = None):
         assert tbl_version is not None
         self.tbl_version = tbl_version
         self.base = base
@@ -51,7 +50,7 @@ class TableVersionPath:
     @classmethod
     def from_md(cls, path: schema.TableVersionPath) -> TableVersionPath:
         assert len(path) > 0
-        result: Optional[TableVersionPath] = None
+        result: TableVersionPath | None = None
         for tbl_id_str, effective_version in path[::-1]:
             tbl_id = UUID(tbl_id_str)
             result = TableVersionPath(TableVersionHandle(tbl_id, effective_version), base=result)
@@ -156,7 +155,7 @@ class TableVersionPath:
             return []
         return self.base.get_tbl_versions()
 
-    def find_tbl_version(self, id: UUID) -> Optional[TableVersionHandle]:
+    def find_tbl_version(self, id: UUID) -> TableVersionHandle | None:
         """Return the matching TableVersion in the chain of TableVersions, starting with this one"""
         if self.tbl_version.id == id:
             return self.tbl_version
@@ -184,7 +183,7 @@ class TableVersionPath:
         cols = self.columns()
         return {col.id: col for col in cols}
 
-    def get_column(self, name: str) -> Optional[Column]:
+    def get_column(self, name: str) -> Column | None:
         """Return the column with the given name, or None if not found"""
         self.refresh_cached_md()
         col = self._cached_tbl_version.cols_by_name.get(name)
@@ -197,12 +196,12 @@ class TableVersionPath:
 
     def has_column(self, col: Column) -> bool:
         """Return True if this table has the given column."""
-        assert col.tbl is not None
+        assert col.get_tbl() is not None
         self.refresh_cached_md()
 
         if (
-            col.tbl.id == self.tbl_version.id
-            and col.tbl.effective_version == self.tbl_version.effective_version
+            col.get_tbl().id == self.tbl_version.id
+            and col.get_tbl().effective_version == self.tbl_version.effective_version
             and col.id in self._cached_tbl_version.cols_by_id
         ):
             # the column is visible in this table version

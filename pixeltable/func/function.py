@@ -5,7 +5,7 @@ import inspect
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
 import sqlalchemy as sql
 from typing_extensions import Self
@@ -30,10 +30,10 @@ class Function(ABC):
     """
 
     signatures: list[Signature]
-    self_path: Optional[str]
+    self_path: str | None
     is_method: bool
     is_property: bool
-    _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
+    _conditional_return_type: Callable[..., ts.ColumnType] | None
 
     # We cache the overload resolutions in self._resolutions. This ensures that each resolution is represented
     # globally by a single Python object. We do this dynamically rather than pre-constructing them in order to
@@ -43,17 +43,17 @@ class Function(ABC):
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
     # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
-    _to_sql: Callable[..., Optional[sql.ColumnElement]]
+    _to_sql: Callable[..., sql.ColumnElement | None]
 
     # Returns the resource pool to use for calling this function with the given arguments.
     # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
     # of the parameters of the original function, with the same type.
-    _resource_pool: Callable[..., Optional[str]]
+    _resource_pool: Callable[..., str | None]
 
     def __init__(
         self,
         signatures: list[Signature],
-        self_path: Optional[str] = None,
+        self_path: str | None = None,
         is_method: bool = False,
         is_property: bool = False,
     ):
@@ -105,7 +105,7 @@ class Function(ABC):
     @abstractmethod
     def is_async(self) -> bool: ...
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         return None
 
     def help_str(self) -> str:
@@ -175,7 +175,7 @@ class Function(ABC):
 
     def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Self, dict[str, Any]]:
         result: int = -1
-        bound_args: Optional[dict[str, Any]] = None
+        bound_args: dict[str, Any] | None = None
         assert len(self.signatures) > 0
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_signature() and surface any errors directly
@@ -206,7 +206,7 @@ class Function(ABC):
         self._resolved_fns[signature_idx].validate_call(normalized_args)
         return normalized_args
 
-    def validate_call(self, bound_args: dict[str, Optional['exprs.Expr']]) -> None:
+    def validate_call(self, bound_args: dict[str, 'exprs.Expr' | None]) -> None:
         """Override this to do custom validation of the arguments"""
         assert not self.is_polymorphic
         self.signature.validate_args(bound_args, context=f'in function {self.name!r}')
@@ -252,9 +252,7 @@ class Function(ABC):
 
         return return_type
 
-    def _assemble_callable_args(
-        self, callable: Callable, bound_args: dict[str, 'exprs.Expr']
-    ) -> Optional[dict[str, Any]]:
+    def _assemble_callable_args(self, callable: Callable, bound_args: dict[str, 'exprs.Expr']) -> dict[str, Any] | None:
         """
         Return the kwargs to pass to callable, given bound_args passed to this function.
 
@@ -286,7 +284,7 @@ class Function(ABC):
                 return None
             assert isinstance(arg, exprs.Expr)
 
-            expects_expr: Optional[type[exprs.Expr]] = None
+            expects_expr: type[exprs.Expr] | None = None
             type_hint = callable_type_hints.get(param.name)
             if typing.get_origin(type_hint) is not None:
                 type_hint = typing.get_origin(type_hint)  # Remove type subscript if one exists
@@ -410,12 +408,12 @@ class Function(ABC):
         """Execute the function with the given arguments and return the result."""
         raise NotImplementedError()
 
-    def to_sql(self, fn: Callable[..., Optional[sql.ColumnElement]]) -> Callable[..., Optional[sql.ColumnElement]]:
+    def to_sql(self, fn: Callable[..., sql.ColumnElement | None]) -> Callable[..., sql.ColumnElement | None]:
         """Instance decorator for specifying the SQL translation of this function"""
         self._to_sql = fn
         return fn
 
-    def __default_to_sql(self, *args: Any, **kwargs: Any) -> Optional[sql.ColumnElement]:
+    def __default_to_sql(self, *args: Any, **kwargs: Any) -> sql.ColumnElement | None:
         """The default implementation of SQL translation, which provides no translation"""
         return None
 
@@ -425,7 +423,7 @@ class Function(ABC):
         self._resource_pool = fn
         return fn
 
-    def __default_resource_pool(self) -> Optional[str]:
+    def __default_resource_pool(self) -> str | None:
         return None
 
     def __eq__(self, other: object) -> bool:
@@ -495,7 +493,7 @@ class Function(ABC):
         raise NotImplementedError()
 
     @classmethod
-    def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
+    def from_store(cls, name: str | None, md: dict, binary_obj: bytes) -> Function:
         """
         Create a Function instance from the serialized representation returned by to_store()
         """

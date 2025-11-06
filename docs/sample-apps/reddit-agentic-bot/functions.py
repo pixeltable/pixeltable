@@ -7,7 +7,7 @@ import pixeltable as pxt
 
 
 @pxt.udf()
-def run_duckduckgo_search(query: str, max_results: int = 5) -> Optional[List[Dict]]:
+def run_duckduckgo_search(query: str, max_results: int = 5) -> List[Dict] | None:
     """Performs a DuckDuckGo search and returns results as a list of dicts."""
     # print(f"Performing DuckDuckGo search for: {query}")
     try:
@@ -127,7 +127,7 @@ def fetch_financial_data(ticker: str) -> str:
 
 
 @pxt.udf()
-def format_initial_prompt(question_text: str, retrieved_context: Optional[List[Dict]]) -> List[Dict]:
+def format_initial_prompt(question_text: str, retrieved_context: List[Dict] | None) -> List[Dict]:
     """Formats the *initial* prompt message list for the LLM.
     Uses related_url for source display if available.
     """
@@ -176,9 +176,9 @@ def format_initial_prompt(question_text: str, retrieved_context: Optional[List[D
 @pxt.udf()
 def format_synthesis_messages(
     question_text: str,
-    retrieved_context: Optional[List[Dict]],
-    tool_output: Optional[Dict],
-    llm_general_response: Optional[Dict],
+    retrieved_context: List[Dict] | None,
+    tool_output: Dict | None,
+    llm_general_response: Dict | None,
 ) -> List[Dict]:
     """Formats the user message for the final synthesis LLM call.
     Uses related_url for source display if available.

@@ -1,14 +1,13 @@
 import importlib
 import inspect
 from types import ModuleType
-from typing import Optional
 
 import pixeltable.exceptions as excs
 
 
-def resolve_symbol(symbol_path: str) -> Optional[object]:
+def resolve_symbol(symbol_path: str) -> object | None:
     path_elems = symbol_path.split('.')
-    module: Optional[ModuleType] = None
+    module: ModuleType | None = None
     i = len(path_elems) - 1
     while i > 0 and module is None:
         try:

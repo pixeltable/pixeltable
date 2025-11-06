@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -38,7 +38,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
-from pixeltable.utils.object_stores import ObjectPath, StorageObjectAddress
+from pixeltable.utils.object_stores import ObjectPath
 
 if TYPE_CHECKING:
     import spacy
@@ -56,47 +56,50 @@ class Env:
     For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
 
-    _instance: Optional[Env] = None
+    SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
+
+    _instance: Env | None = None
     __initializing: bool = False
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
-    _media_dir: Optional[Path]
-    _object_soa: Optional[StorageObjectAddress]
-    _file_cache_dir: Optional[Path]  # cached object files with external URL
-    _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
-    _log_dir: Optional[Path]  # log files
-    _tmp_dir: Optional[Path]  # any tmp files
-    _sa_engine: Optional[sql.engine.base.Engine]
-    _pgdata_dir: Optional[Path]
-    _db_name: Optional[str]
-    _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
-    _db_url: Optional[str]
-    _default_time_zone: Optional[ZoneInfo]
+    _media_dir: Path | None
+    _file_cache_dir: Path | None  # cached object files with external URL
+    _dataset_cache_dir: Path | None  # cached datasets (eg, pytorch or COCO)
+    _log_dir: Path | None  # log files
+    _tmp_dir: Path | None  # any tmp files
+    _sa_engine: sql.engine.base.Engine | None
+    _pgdata_dir: Path | None
+    _db_name: str | None
+    _db_server: pixeltable_pgserver.PostgresServer | None  # set only when running in local environment
+    _db_url: str | None
+    _default_time_zone: ZoneInfo | None
     _verbosity: int
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
 
-    _spacy_nlp: Optional[spacy.Language]
-    _httpd: Optional[http.server.HTTPServer]
-    _http_address: Optional[str]
+    _spacy_nlp: spacy.Language | None
+    _httpd: http.server.HTTPServer | None
+    _http_address: str | None
     _logger: logging.Logger
     _default_log_level: int
-    _logfilename: Optional[str]
+    _logfilename: str | None
     _log_to_stdout: bool
     _module_log_level: dict[str, int]  # module name -> log level
     _file_cache_size_g: float
-    _pxt_api_key: Optional[str]
+    _default_input_media_dest: str | None
+    _default_output_media_dest: str | None
+    _pxt_api_key: str | None
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
-    _current_conn: Optional[sql.Connection]
-    _current_session: Optional[orm.Session]
-    _current_isolation_level: Optional[Literal['REPEATABLE_READ', 'SERIALIZABLE']]
-    _dbms: Optional[Dbms]
-    _event_loop: Optional[asyncio.AbstractEventLoop]  # event loop for ExecNode
+    _current_conn: sql.Connection | None
+    _current_session: orm.Session | None
+    _current_isolation_level: str | None
+    _dbms: Dbms | None
+    _event_loop: asyncio.AbstractEventLoop | None  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
@@ -125,7 +128,6 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
-        self._object_soa = None  # computed object files in StorageObjectAddress format
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -200,11 +202,11 @@ class Env:
         return self._http_address
 
     @property
-    def user(self) -> Optional[str]:
+    def user(self) -> str | None:
         return Config.get().get_string_value('user')
 
     @user.setter
-    def user(self, user: Optional[str]) -> None:
+    def user(self, user: str | None) -> None:
         if user is None:
             if 'PIXELTABLE_USER' in os.environ:
                 del os.environ['PIXELTABLE_USER']
@@ -212,11 +214,11 @@ class Env:
             os.environ['PIXELTABLE_USER'] = user
 
     @property
-    def default_time_zone(self) -> Optional[ZoneInfo]:
+    def default_time_zone(self) -> ZoneInfo | None:
         return self._default_time_zone
 
     @default_time_zone.setter
-    def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
+    def default_time_zone(self, tz: ZoneInfo | None) -> None:
         """
         This is not a publicly visible setter; it is only for testing purposes.
         """
@@ -233,17 +235,17 @@ class Env:
         return self._verbosity
 
     @property
-    def conn(self) -> Optional[sql.Connection]:
+    def conn(self) -> sql.Connection | None:
         assert self._current_conn is not None
         return self._current_conn
 
     @property
-    def session(self) -> Optional[orm.Session]:
+    def session(self) -> orm.Session | None:
         assert self._current_session is not None
         return self._current_session
 
     @property
-    def dbms(self) -> Optional[Dbms]:
+    def dbms(self) -> Dbms | None:
         assert self._dbms is not None
         return self._dbms
 
@@ -274,7 +276,7 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
-                self._current_isolation_level = 'SERIALIZABLE'
+                self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
                     orm.Session(conn) as session,
@@ -289,16 +291,16 @@ class Env:
                 self._current_isolation_level = None
         else:
             assert self._current_session is not None
-            assert for_write == (self._current_isolation_level == 'serializable')
+            assert self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
             yield self._current_conn
 
     def configure_logging(
         self,
         *,
-        to_stdout: Optional[bool] = None,
-        level: Optional[int] = None,
-        add: Optional[str] = None,
-        remove: Optional[str] = None,
+        to_stdout: bool | None = None,
+        level: int | None = None,
+        add: str | None = None,
+        remove: str | None = None,
     ) -> None:
         """Configure logging.
 
@@ -340,7 +342,7 @@ class Env:
     def set_log_level(self, level: int) -> None:
         self._default_log_level = level
 
-    def set_module_log_level(self, module: str, level: Optional[int]) -> None:
+    def set_module_log_level(self, module: str, level: int | None) -> None:
         if level is None:
             self._module_log_level.pop(module, None)
         else:
@@ -396,23 +398,18 @@ class Env:
         config = Config.get()
 
         self._initialized = True
+
         self._media_dir = Config.get().home / 'media'
         self._file_cache_dir = Config.get().home / 'file_cache'
         self._dataset_cache_dir = Config.get().home / 'dataset_cache'
         self._log_dir = Config.get().home / 'logs'
         self._tmp_dir = Config.get().home / 'tmp'
 
-        if not self._media_dir.exists():
-            self._media_dir.mkdir()
-        self._object_soa = ObjectPath.parse_object_storage_addr(str(self._media_dir), allow_obj_name=False)
-        if not self._file_cache_dir.exists():
-            self._file_cache_dir.mkdir()
-        if not self._dataset_cache_dir.exists():
-            self._dataset_cache_dir.mkdir()
-        if not self._log_dir.exists():
-            self._log_dir.mkdir()
-        if not self._tmp_dir.exists():
-            self._tmp_dir.mkdir()
+        self._media_dir.mkdir(exist_ok=True)
+        self._file_cache_dir.mkdir(exist_ok=True)
+        self._dataset_cache_dir.mkdir(exist_ok=True)
+        self._log_dir.mkdir(exist_ok=True)
+        self._tmp_dir.mkdir(exist_ok=True)
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
@@ -421,6 +418,16 @@ class Env:
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
+
+        self._default_input_media_dest = config.get_string_value('input_media_dest')
+        self._default_output_media_dest = config.get_string_value('output_media_dest')
+        for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
+            if uri is not None:
+                try:
+                    _ = ObjectPath.parse_object_storage_addr(uri, False)
+                except Exception as e:
+                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
+
         self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings
@@ -647,7 +654,7 @@ class Env:
         metadata.upgrade_md(self._sa_engine)
 
     @property
-    def pxt_api_key(self) -> Optional[str]:
+    def pxt_api_key(self) -> str | None:
         return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
@@ -669,7 +676,7 @@ class Env:
             # Determine the type of the parameter for proper config parsing.
             pname = param.name
             t = param.annotation
-            # Deference Optional[T]
+            # Deference T | None
             if typing.get_origin(t) in (typing.Union, types.UnionType):
                 args = typing.get_args(t)
                 if args[0] is type(None):
@@ -767,6 +774,7 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('diffusers')
         self.__register_package('fiftyone')
+        self.__register_package('twelvelabs')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
@@ -784,6 +792,7 @@ class Env:
         self.__register_package('pyarrow')
         self.__register_package('pydantic')
         self.__register_package('replicate')
+        self.__register_package('reve')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
         self.__register_package('soundfile')
@@ -798,8 +807,9 @@ class Env:
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
         self.__register_package('lancedb')
+        self.__register_package('scenedetect')
 
-    def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
+    def __register_package(self, package_name: str, library_name: str | None = None) -> None:
         is_installed: bool
         try:
             is_installed = importlib.util.find_spec(package_name) is not None
@@ -815,7 +825,7 @@ class Env:
         if not shutil.which(binary_name):
             raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
-    def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
+    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -859,8 +869,8 @@ class Env:
             else:
                 os.remove(path)
 
-    # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
-    def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
+    # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
+    def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
         info = self._resource_pool_info.get(pool_id)
         if info is None and make_pool_info is not None:
@@ -874,10 +884,12 @@ class Env:
         return self._media_dir
 
     @property
-    def object_soa(self) -> StorageObjectAddress:
-        assert self._media_dir is not None
-        assert self._object_soa is not None
-        return self._object_soa
+    def default_input_media_dest(self) -> str | None:
+        return self._default_input_media_dest
+
+    @property
+    def default_output_media_dest(self) -> str | None:
+        return self._default_output_media_dest
 
     @property
     def file_cache_dir(self) -> Path:
@@ -1025,14 +1037,14 @@ _registered_clients: dict[str, ApiClient] = {}
 class ApiClient:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
-    client_obj: Optional[Any] = None
+    client_obj: Any | None = None
 
 
 @dataclass
 class PackageInfo:
     is_installed: bool
     library_name: str  # pypi library name (may be different from package name)
-    version: Optional[list[int]] = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
+    version: list[int] | None = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
 
 
 TIME_FORMAT = '%H:%M.%S %f'
@@ -1093,7 +1105,7 @@ class RateLimitsInfo:
         """Update self.resource_limits based on the exception headers"""
         self.has_exc = True
 
-    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+    def get_retry_delay(self, exc: Exception) -> float | None:
         """Returns number of seconds to wait before retry, or None if not retryable"""
         if len(self.resource_limits) == 0:
             return 1.0

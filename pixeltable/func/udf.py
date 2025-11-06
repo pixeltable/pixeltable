@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, overload
+from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -26,12 +26,12 @@ def udf(decorated_fn: Callable) -> CallableFunction: ...
 @overload
 def udf(
     *,
-    batch_size: Optional[int] = None,
-    substitute_fn: Optional[Callable] = None,
+    batch_size: int | None = None,
+    substitute_fn: Callable | None = None,
     is_method: bool = False,
     is_property: bool = False,
-    resource_pool: Optional[str] = None,
-    type_substitutions: Optional[Sequence[dict]] = None,
+    resource_pool: str | None = None,
+    type_substitutions: Sequence[dict] | None = None,
     _force_stored: bool = False,
 ) -> Callable[[Callable], CallableFunction]: ...
 
@@ -39,7 +39,7 @@ def udf(
 # pxt.udf() called explicitly on a Table:
 @overload
 def udf(
-    table: catalog.Table, /, *, return_value: Any = None, description: Optional[str] = None
+    table: catalog.Table, /, *, return_value: Any = None, description: str | None = None
 ) -> ExprTemplateFunction: ...
 
 
@@ -96,15 +96,15 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
 
 def make_function(
     decorated_fn: Callable,
-    return_type: Optional[ts.ColumnType] = None,
-    param_types: Optional[list[ts.ColumnType]] = None,
-    batch_size: Optional[int] = None,
-    substitute_fn: Optional[Callable] = None,
+    return_type: ts.ColumnType | None = None,
+    param_types: list[ts.ColumnType] | None = None,
+    batch_size: int | None = None,
+    substitute_fn: Callable | None = None,
     is_method: bool = False,
     is_property: bool = False,
-    resource_pool: Optional[str] = None,
-    type_substitutions: Optional[Sequence[dict]] = None,
-    function_name: Optional[str] = None,
+    resource_pool: str | None = None,
+    type_substitutions: Sequence[dict] | None = None,
+    function_name: str | None = None,
     force_stored: bool = False,
 ) -> CallableFunction:
     """
@@ -205,11 +205,11 @@ def expr_udf(py_fn: Callable) -> ExprTemplateFunction: ...
 
 
 @overload
-def expr_udf(*, param_types: Optional[list[ts.ColumnType]] = None) -> Callable[[Callable], ExprTemplateFunction]: ...
+def expr_udf(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], ExprTemplateFunction]: ...
 
 
 def expr_udf(*args: Any, **kwargs: Any) -> Any:
-    def make_expr_template(py_fn: Callable, param_types: Optional[list[ts.ColumnType]]) -> ExprTemplateFunction:
+    def make_expr_template(py_fn: Callable, param_types: list[ts.ColumnType] | None) -> ExprTemplateFunction:
         from pixeltable import exprs
 
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
@@ -241,9 +241,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         return lambda py_fn: make_expr_template(py_fn, kwargs['param_types'])
 
 
-def from_table(
-    tbl: catalog.Table, return_value: Optional['exprs.Expr'], description: Optional[str]
-) -> ExprTemplateFunction:
+def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, description: str | None) -> ExprTemplateFunction:
     """
     Constructs an `ExprTemplateFunction` from a `Table`.
 

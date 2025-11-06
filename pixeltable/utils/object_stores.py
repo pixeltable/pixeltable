@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Optional
+from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
 from pixeltable import env, exceptions as excs
@@ -44,7 +44,7 @@ class StorageObjectAddress(NamedTuple):
     key: str = ''  # Key parsed from the source (prefix + object_name)
     prefix: str = ''  # Prefix (within the bucket) parsed from the source
     object_name: str = ''  # Object name parsed from the source (if requested and applicable)
-    path: Optional[Path] = None
+    path: Path | None = None
 
     @property
     def has_object(self) -> bool:
@@ -56,11 +56,11 @@ class StorageObjectAddress(NamedTuple):
 
     @property
     def is_azure_scheme(self) -> bool:
-        return self.scheme in ['wasb', 'wasbs', 'abfs', 'abfss']
+        return self.scheme in ('wasb', 'wasbs', 'abfs', 'abfss')
 
     @property
     def has_valid_storage_target(self) -> bool:
-        return self.storage_target in [
+        return self.storage_target in (
             StorageTarget.LOCAL_STORE,
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
@@ -68,7 +68,7 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
-        ]
+        )
 
     @property
     def prefix_free_uri(self) -> str:
@@ -120,9 +120,7 @@ class ObjectPath:
         return tbl_id.hex
 
     @classmethod
-    def create_prefix_raw(
-        cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None
-    ) -> tuple[str, str]:
+    def create_prefix_raw(cls, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None) -> tuple[str, str]:
         """Construct a unique unix-style prefix and filename for a persisted file.
         The results are derived from table, col, and version specs.
         Returns:
@@ -202,7 +200,7 @@ class ObjectPath:
             container = parsed.netloc
             key = parsed.path.lstrip('/')
 
-        elif scheme in ['wasb', 'wasbs', 'abfs', 'abfss']:
+        elif scheme in ('wasb', 'wasbs', 'abfs', 'abfss'):
             # Azure-specific URI schemes
             # wasb[s]://container@account.blob.core.windows.net/<optional prefix>/<optional object>
             # abfs[s]://container@account.dfs.core.windows.net/<optional prefix>/<optional object>
@@ -216,7 +214,7 @@ class ObjectPath:
                 raise ValueError(f'Invalid Azure URI format: {src_addr}')
             key = parsed.path.lstrip('/')
 
-        elif scheme in ['http', 'https']:
+        elif scheme in ('http', 'https'):
             # Standard HTTP(S) URL format
             # https://account.blob.core.windows.net/container/<optional path>/<optional object>
             # https://account.r2.cloudflarestorage.com/container/<optional path>/<optional object>
@@ -280,7 +278,7 @@ class ObjectPath:
 
 
 class ObjectStoreBase:
-    def validate(self, error_prefix: str) -> Optional[str]:
+    def validate(self, error_prefix: str) -> str | None:
         """Check the store configuration. Returns base URI if store is accessible.
 
         Args:
@@ -303,7 +301,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def move_local_file(self, col: Column, src_path: Path) -> Optional[str]:
+    def move_local_file(self, col: Column, src_path: Path) -> str | None:
         """Move a file associated with a Column to the store, returning the file's URL within the destination.
 
         Args:
@@ -324,7 +322,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def count(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: UUID, tbl_version: int | None = None) -> int:
         """Return the number of objects in the store associated with the given tbl_id
 
         Args:
@@ -336,7 +334,7 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
-    def delete(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
+    def delete(self, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
         """Delete objects in the destination for a given table ID, table version.
 
         Args:
@@ -360,30 +358,15 @@ class ObjectStoreBase:
 
 class ObjectOps:
     @classmethod
-    def get_store(
-        cls, dest: Optional[str], may_contain_object_name: bool, col_name: Optional[str] = None
-    ) -> ObjectStoreBase:
+    def get_store(cls, dest: str | None, allow_obj_name: bool, col_name: str | None = None) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
-        soa = (
-            Env.get().object_soa
-            if dest is None
-            else ObjectPath.parse_object_storage_addr(dest, allow_obj_name=may_contain_object_name)
-        )
+        dest = dest or str(Env.get().media_dir)  # Use local media dir as fallback
+        soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
-        if soa.storage_target == StorageTarget.S3_STORE and soa.scheme == 's3':
-            env.Env.get().require_package('boto3')
-            from pixeltable.utils.s3_store import S3Store
-
-            return S3Store(soa)
-        if soa.storage_target == StorageTarget.R2_STORE:
-            env.Env.get().require_package('boto3')
-            from pixeltable.utils.s3_store import S3Store
-
-            return S3Store(soa)
-        if soa.storage_target == StorageTarget.B2_STORE:
+        if soa.storage_target in (StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE):
             env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 
@@ -393,6 +376,11 @@ class ObjectOps:
             from pixeltable.utils.gcs_store import GCSStore
 
             return GCSStore(soa)
+        if soa.storage_target == StorageTarget.AZURE_STORE:
+            env.Env.get().require_package('azure.storage.blob')
+            from pixeltable.utils.azure_store import AzureBlobStore
+
+            return AzureBlobStore(soa)
         if soa.storage_target == StorageTarget.HTTP_STORE and soa.is_http_readable:
             return HTTPStore(soa)
         error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
@@ -409,19 +397,19 @@ class ObjectOps:
         Returns:
             URI of destination, or raises an error
         """
-        error_prefix = f'Column {col_name!r}: ' if col_name is not None else ''
+        error_col_str = f'column {col_name!r}' if col_name is not None else ''
 
         # General checks on any destination
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_prefix}`destination` must be a string or path; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a string or path; got {dest!r}')
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
-        dest2 = store.validate(error_prefix)
+        dest2 = store.validate(error_col_str)
         if dest2 is None:
-            raise excs.Error(f'{error_prefix}`destination` must be a supported destination; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a supported destination; got {dest!r}')
         return dest2
 
     @classmethod
@@ -468,7 +456,7 @@ class ObjectOps:
         return store.copy_local_file(col, src_path)
 
     @classmethod
-    def delete(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
+    def delete(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
         """Delete objects in the destination for a given table ID, table version.
         Returns:
             Number of objects deleted or None
@@ -477,13 +465,39 @@ class ObjectOps:
         return store.delete(tbl_id, tbl_version)
 
     @classmethod
-    def count(cls, dest: Optional[str], tbl_id: UUID, tbl_version: Optional[int] = None) -> int:
-        """Return the count of objects in the destination for a given table ID"""
+    def count(
+        cls,
+        tbl_id: UUID,
+        tbl_version: int | None = None,
+        dest: str | None = None,
+        default_input_dest: bool = False,
+        default_output_dest: bool = False,
+    ) -> int:
+        """
+        Return the count of objects in the destination for a given table ID.
+
+        At most one of dest, default_input, default_output may be specified. If none are specified, the fallback is the
+        local media directory.
+
+        Args:
+            tbl_id: Table ID for which to count objects
+            tbl_version: If specified, only counts objects for a specific table version
+            dest: The destination to count objects in
+            default_input_dest: If `True`, use the default input media destination
+            default_output_dest: If `True`, use the default output media destination
+        """
+        assert sum((dest is not None, default_input_dest, default_output_dest)) <= 1, (
+            'At most one of dest, default_input, default_output may be specified'
+        )
+        if default_input_dest:
+            dest = env.Env.get().default_input_media_dest
+        if default_output_dest:
+            dest = env.Env.get().default_output_media_dest
         store = cls.get_store(dest, False)
         return store.count(tbl_id, tbl_version)
 
     @classmethod
-    def list_objects(cls, dest: Optional[str], return_uri: bool, n_max: int = 10) -> list[str]:
+    def list_objects(cls, dest: str | None, return_uri: bool, n_max: int = 10) -> list[str]:
         """Return a list of objects found in the specified destination bucket.
         The dest specification string must not contain an object name.
         Each returned object includes the full set of prefixes.

@@ -4,7 +4,7 @@ Core Pixeltable API for table operations, data processing, and UDF management.
 
 # ruff: noqa: F401
 
-from .__version__ import __version__, __version_tuple__
+from ._version import __version__
 from .catalog import (
     Column,
     ColumnMetadata,

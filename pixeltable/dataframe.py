@@ -8,18 +8,7 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    AsyncIterator,
-    Callable,
-    Hashable,
-    Iterator,
-    NoReturn,
-    Optional,
-    Sequence,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Sequence, TypeVar
 
 import pandas as pd
 import pydantic
@@ -163,14 +152,14 @@ class DataFrameResultSet:
 #         # output of the agg stage
 #         self.agg_output_exprs: list[exprs.Expr] = []
 #         # Where clause of the Select stmt of the SQL scan stage
-#         self.sql_where_clause: Optional[sql.ClauseElement] = None
+#         self.sql_where_clause: sql.ClauseElement | None = None
 #         # filter predicate applied to input rows of the SQL scan stage
-#         self.filter: Optional[exprs.Predicate] = None
-#         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
+#         self.filter: exprs.Predicate | None = None
+#         self.similarity_clause: exprs.ImageSimilarityPredicate | None = None
 #         self.agg_fn_calls: list[exprs.FunctionCall] = []  # derived from unique_exprs
 #         self.has_frame_col: bool = False  # True if we're referencing the frame col
 #
-#         self.evaluator: Optional[exprs.Evaluator] = None
+#         self.evaluator: exprs.Evaluator | None = None
 #         self.sql_scan_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of SQL scan stage
 #         self.agg_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of agg stage
 #         self.filter_eval_ctx: list[exprs.Expr] = []
@@ -192,24 +181,24 @@ class DataFrame:
     _from_clause: plan.FromClause
     _select_list_exprs: list[exprs.Expr]
     _schema: dict[str, ts.ColumnType]
-    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
-    where_clause: Optional[exprs.Expr]
-    group_by_clause: Optional[list[exprs.Expr]]
-    grouping_tbl: Optional[catalog.TableVersion]
-    order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
-    limit_val: Optional[exprs.Expr]
-    sample_clause: Optional[SampleClause]
+    select_list: list[tuple[exprs.Expr, str | None]] | None
+    where_clause: exprs.Expr | None
+    group_by_clause: list[exprs.Expr] | None
+    grouping_tbl: catalog.TableVersion | None
+    order_by_clause: list[tuple[exprs.Expr, bool]] | None
+    limit_val: exprs.Expr | None
+    sample_clause: SampleClause | None
 
     def __init__(
         self,
-        from_clause: Optional[plan.FromClause] = None,
-        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None,
-        where_clause: Optional[exprs.Expr] = None,
-        group_by_clause: Optional[list[exprs.Expr]] = None,
-        grouping_tbl: Optional[catalog.TableVersion] = None,
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
-        limit: Optional[exprs.Expr] = None,
-        sample_clause: Optional[SampleClause] = None,
+        from_clause: plan.FromClause | None = None,
+        select_list: list[tuple[exprs.Expr, str | None]] | None = None,
+        where_clause: exprs.Expr | None = None,
+        group_by_clause: list[exprs.Expr] | None = None,
+        grouping_tbl: catalog.TableVersion | None = None,
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
+        limit: exprs.Expr | None = None,
+        sample_clause: SampleClause | None = None,
     ):
         self._from_clause = from_clause
 
@@ -233,7 +222,7 @@ class DataFrame:
 
     @classmethod
     def _normalize_select_list(
-        cls, tbls: list[catalog.TableVersionPath], select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
+        cls, tbls: list[catalog.TableVersionPath], select_list: list[tuple[exprs.Expr, str | None]] | None
     ) -> tuple[list[exprs.Expr], list[str]]:
         """
         Expand select list information with all columns and their names
@@ -294,23 +283,23 @@ class DataFrame:
             if var.name not in unique_vars:
                 unique_vars[var.name] = var
             elif unique_vars[var.name].col_type != var.col_type:
-                raise excs.Error(f'Multiple definitions of parameter {var.name}')
+                raise excs.Error(f'Multiple definitions of parameter {var.name!r}')
         return unique_vars
 
     @classmethod
     def _convert_param_to_typed_expr(
-        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
-    ) -> Optional[exprs.Expr]:
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
+    ) -> exprs.Expr | None:
         if v is None:
             if required:
                 raise excs.Error(f'{name!r} parameter must be present')
             return v
         v_expr = exprs.Expr.from_object(v)
         if not v_expr.col_type.matches(required_type):
-            raise excs.Error(f'{name!r} parameter must be of type {required_type!r}, instead of {v_expr.col_type}')
+            raise excs.Error(f'{name!r} parameter must be of type `{required_type}`; got `{v_expr.col_type}`')
         if range is not None:
             if not isinstance(v_expr, exprs.Literal):
-                raise excs.Error(f'{name!r} parameter must be a constant, not {v_expr}')
+                raise excs.Error(f'{name!r} parameter must be a constant; got: {v_expr}')
             if range[0] is not None and not (v_expr.val >= range[0]):
                 raise excs.Error(f'{name!r} parameter must be >= {range[0]}')
             if range[1] is not None and not (v_expr.val <= range[1]):
@@ -319,7 +308,7 @@ class DataFrame:
 
     @classmethod
     def validate_constant_type_range(
-        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
     ) -> Any:
         """Validate that the given named parameter is a constant of the required type and within the specified range."""
         v_expr = cls._convert_param_to_typed_expr(v, required_type, required, name, range)
@@ -365,7 +354,7 @@ class DataFrame:
 
     def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
-        group_by_clause: Optional[list[exprs.Expr]] = None
+        group_by_clause: list[exprs.Expr] | None = None
         if self.grouping_tbl is not None:
             assert self.group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
@@ -388,7 +377,7 @@ class DataFrame:
             sample_clause=self.sample_clause,
         )
 
-    def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
+    def __rowid_columns(self, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
         """Return list of RowidRef for the given number of associated rowids"""
         return Planner.rowid_columns(self._first_tbl.tbl_version, num_rowid_cols)
 
@@ -487,7 +476,7 @@ class DataFrame:
             var_expr = vars[arg_name]
             arg_expr = exprs.Expr.from_object(arg_val)
             if arg_expr is None:
-                raise excs.Error(f'Cannot convert argument {arg_val} to a Pixeltable expression')
+                raise excs.Error(f'That argument cannot be converted to a Pixeltable expression: {arg_val}')
             var_exprs[var_expr] = arg_expr
 
         exprs.Expr.list_substitute(select_list_exprs, var_exprs)
@@ -499,7 +488,7 @@ class DataFrame:
             exprs.Expr.list_substitute(order_by_exprs, var_exprs)
 
         select_list = list(zip(select_list_exprs, self.schema.keys()))
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None
         if order_by_exprs is not None:
             order_by_clause = [
                 (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])
@@ -507,7 +496,7 @@ class DataFrame:
         if limit_val is not None:
             limit_val = limit_val.substitute(var_exprs)
             if limit_val is not None and not isinstance(limit_val, exprs.Literal):
-                raise excs.Error(f'limit(): parameter must be a constant, but got {limit_val}')
+                raise excs.Error(f'limit(): parameter must be a constant; got: {limit_val}')
 
         return DataFrame(
             from_clause=self._from_clause,
@@ -689,7 +678,7 @@ class DataFrame:
             return self
 
         # analyze select list; wrap literals with the corresponding expressions
-        select_list: list[tuple[exprs.Expr, Optional[str]]] = []
+        select_list: list[tuple[exprs.Expr, str | None]] = []
         for raw_expr, name in base_list:
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
@@ -709,8 +698,8 @@ class DataFrame:
                     pass
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
-                    f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
-                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)})'
+                    f"That expression cannot be evaluated in the context of this query's tables "
+                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)}): {expr}'
                 )
             select_list.append((expr, name))
 
@@ -721,7 +710,7 @@ class DataFrame:
             if name in seen:
                 repeated_names = [j for j, x in enumerate(names) if x == name]
                 pretty = ', '.join(map(str, repeated_names))
-                raise excs.Error(f'Repeated column name "{name}" in select() at positions: {pretty}')
+                raise excs.Error(f'Repeated column name {name!r} in select() at positions: {pretty}')
             seen.add(name)
 
         return DataFrame(
@@ -760,13 +749,13 @@ class DataFrame:
             >>> df = person.where(t.age > 30)
         """
         if self.where_clause is not None:
-            raise excs.Error('Where clause already specified')
+            raise excs.Error('where() clause already specified')
         if self.sample_clause is not None:
-            raise excs.Error('where cannot be used after sample()')
+            raise excs.Error('where() cannot be used after sample()')
         if not isinstance(pred, exprs.Expr):
-            raise excs.Error(f'Where() requires a Pixeltable expression, but instead got {type(pred)}')
+            raise excs.Error(f'where() expects a Pixeltable expression; got: {pred}')
         if not pred.col_type.is_bool_type():
-            raise excs.Error(f'Where(): expression needs to return bool, but instead returns {pred.col_type}')
+            raise excs.Error(f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`')
         return DataFrame(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -788,19 +777,21 @@ class DataFrame:
             on = [on]
         elif isinstance(on, exprs.Expr):
             if not on.is_bound_by(joined_tbls):
-                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {on}")
+                raise excs.Error(f'`on` expression cannot be evaluated in the context of the joined tables: {on}')
             if not on.col_type.is_bool_type():
-                raise excs.Error(f"'on': boolean expression expected, but got {on.col_type}: {on}")
+                raise excs.Error(
+                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on}'
+                )
             return on
         elif not isinstance(on, Sequence) or len(on) == 0:
-            raise excs.Error("'on': must be a sequence of column references or a boolean expression")
+            raise excs.Error('`on` must be a sequence of column references or a boolean expression')
 
         assert isinstance(on, Sequence)
         for col_ref in on:
             if not isinstance(col_ref, exprs.ColumnRef):
-                raise excs.Error("'on': must be a sequence of column references or a boolean expression")
+                raise excs.Error('`on` must be a sequence of column references or a boolean expression')
             if not col_ref.is_bound_by(joined_tbls):
-                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {col_ref}")
+                raise excs.Error(f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref}')
             col_refs.append(col_ref)
 
         predicates: list[exprs.Expr] = []
@@ -810,10 +801,10 @@ class DataFrame:
             # identify the referenced column by name in 'other'
             rhs_col = other.get_column(col_ref.col.name)
             if rhs_col is None:
-                raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
+                raise excs.Error(f'`on` column {col_ref.col.name!r} not found in joined table')
             rhs_col_ref = exprs.ColumnRef(rhs_col)
 
-            lhs_col_ref: Optional[exprs.ColumnRef] = None
+            lhs_col_ref: exprs.ColumnRef | None = None
             if any(tbl.has_column(col_ref.col) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
@@ -824,11 +815,11 @@ class DataFrame:
                     if col is None:
                         continue
                     if lhs_col_ref is not None:
-                        raise excs.Error(f"'on': ambiguous column reference: {col_ref.col.name!r}")
+                        raise excs.Error(f'`on`: ambiguous column reference: {col_ref.col.name}')
                     lhs_col_ref = exprs.ColumnRef(col)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
-                    raise excs.Error(f"'on': column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
+                    raise excs.Error(f'`on`: column {col_ref.col.name!r} not found in any of: {" ".join(tbl_names)}')
             pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
             predicates.append(pred)
 
@@ -893,16 +884,16 @@ class DataFrame:
         """
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
-        join_pred: Optional[exprs.Expr]
+        join_pred: exprs.Expr | None
         if how == 'cross':
             if on is not None:
-                raise excs.Error("'on' not allowed for cross join")
+                raise excs.Error('`on` not allowed for cross join')
             join_pred = None
         else:
             if on is None:
-                raise excs.Error(f"how={how!r} requires 'on'")
+                raise excs.Error(f'`how={how!r}` requires `on` to be present')
             join_pred = self._create_join_predicate(other._tbl_version_path, on)
-        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, "'how'"), join_predicate=join_pred)
+        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, '`how`'), join_predicate=join_pred)
         from_clause = plan.FromClause(
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
             join_clauses=[*self._from_clause.join_clauses, join_clause],
@@ -960,16 +951,16 @@ class DataFrame:
             >>> df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
         if self.group_by_clause is not None:
-            raise excs.Error('Group-by already specified')
+            raise excs.Error('group_by() already specified')
         if self.sample_clause is not None:
             raise excs.Error('group_by() cannot be used with sample()')
 
-        grouping_tbl: Optional[catalog.TableVersion] = None
-        group_by_clause: Optional[list[exprs.Expr]] = None
+        grouping_tbl: catalog.TableVersion | None = None
+        group_by_clause: list[exprs.Expr] | None = None
         for item in grouping_items:
             if isinstance(item, (catalog.Table, catalog.TableVersion)):
                 if len(grouping_items) > 1:
-                    raise excs.Error('group_by(): only one table can be specified')
+                    raise excs.Error('group_by(): only one Table can be specified')
                 if len(self._from_clause.tbls) > 1:
                     raise excs.Error('group_by() with Table not supported for joins')
                 grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
@@ -977,7 +968,7 @@ class DataFrame:
                 base = self._first_tbl.find_tbl_version(grouping_tbl.id)
                 if base is None or base.id == self._first_tbl.tbl_id:
                     raise excs.Error(
-                        f'group_by(): {grouping_tbl.name} is not a base table of {self._first_tbl.tbl_name()}'
+                        f'group_by(): {grouping_tbl.name!r} is not a base table of {self._first_tbl.tbl_name()!r}'
                     )
                 break
             if not isinstance(item, exprs.Expr):
@@ -1093,10 +1084,10 @@ class DataFrame:
     @public_api
     def sample(
         self,
-        n: Optional[int] = None,
-        n_per_stratum: Optional[int] = None,
-        fraction: Optional[float] = None,
-        seed: Optional[int] = None,
+        n: int | None = None,
+        n_per_stratum: int | None = None,
+        fraction: float | None = None,
+        seed: int | None = None,
         stratify_by: Any = None,
     ) -> DataFrame:
         """
@@ -1150,7 +1141,7 @@ class DataFrame:
         """
         # Check context of usage
         if self.sample_clause is not None:
-            raise excs.Error('sample() cannot be used with sample()')
+            raise excs.Error('Multiple sample() clauses not allowed')
         if self.group_by_clause is not None:
             raise excs.Error('sample() cannot be used with group_by()')
         if self.order_by_clause is not None:
@@ -1187,11 +1178,11 @@ class DataFrame:
                 if expr is None or not isinstance(expr, exprs.Expr):
                     raise excs.Error(f'Invalid expression: {expr}')
                 if not expr.col_type.is_scalar_type():
-                    raise excs.Error(f'Invalid type: expression must be a scalar type (not {expr.col_type})')
+                    raise excs.Error(f'Invalid type: expression must be a scalar type (not `{expr.col_type}`)')
                 if not expr.is_bound_by(self._from_clause.tbls):
                     raise excs.Error(
-                        f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
-                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
+                        f"That expression cannot be evaluated in the context of this query's tables "
+                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}'
                     )
                 stratify_exprs.append(expr)
 

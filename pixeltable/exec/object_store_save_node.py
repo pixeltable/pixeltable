@@ -6,7 +6,7 @@ import logging
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator, NamedTuple, Optional
+from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
@@ -44,11 +44,11 @@ class ObjectStoreSaveNode(ExecNode):
         """Specify the source and destination for a WorkItem"""
 
         src_path: str  # source of the file to be processed
-        destination: Optional[str]  # destination URI for the file to be processed
+        destination: str  # destination URI for the file to be processed
 
     class WorkItem(NamedTuple):
         src_path: Path
-        destination: Optional[str]
+        destination: str | None
         info: exprs.ColumnSlotIdx  # column info for the file being processed
         destination_count: int = 1  # number of unique destinations for this file
 
@@ -60,7 +60,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
-    ready_rows: deque[Optional[exprs.DataRow]]
+    ready_rows: deque[exprs.DataRow | None]
 
     in_flight_rows: dict[int, ObjectStoreSaveNode.RowState]  # rows with in-flight work; id(row) -> RowState
     in_flight_requests: dict[
@@ -71,12 +71,12 @@ class ObjectStoreSaveNode(ExecNode):
     ]  # WorkDesignator -> [(row, info)]
 
     input_finished: bool
-    row_idx: Iterator[Optional[int]]
+    row_idx: Iterator[int | None]
 
     @dataclasses.dataclass
     class RowState:
         row: exprs.DataRow
-        idx: Optional[int]  # position in input stream; None if we don't retain input order
+        idx: int | None  # position in input stream; None if we don't retain input order
         num_missing: int  # number of references to media files in this row
         delete_destinations: list[Path]  # paths to delete after all copies are complete
 
@@ -99,7 +99,7 @@ class ObjectStoreSaveNode(ExecNode):
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
 
-    async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> Optional[DataRowBatch]:
+    async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
         try:
             input_batch = await anext(input_iter)
@@ -148,7 +148,7 @@ class ObjectStoreSaveNode(ExecNode):
             sum(int(row is not None) for row in itertools.islice(self.ready_rows, self.BATCH_SIZE)) == self.BATCH_SIZE
         )
 
-    def __add_ready_row(self, row: exprs.DataRow, row_idx: Optional[int]) -> None:
+    def __add_ready_row(self, row: exprs.DataRow, row_idx: int | None) -> None:
         if row_idx is None:
             self.ready_rows.append(row)
         else:
@@ -209,14 +209,11 @@ class ObjectStoreSaveNode(ExecNode):
             assert col.col_type.is_media_type()
 
             destination = info.col.destination
-            soa = None if destination is None else ObjectPath.parse_object_storage_addr(destination, False)
-            if (
-                soa is not None
-                and soa.storage_target == StorageTarget.LOCAL_STORE
-                and LocalStore(soa).resolve_url(url) is not None
-            ):
-                # A local non-default destination was specified, and the url already points there
-                continue
+            if destination is not None:
+                soa = ObjectPath.parse_object_storage_addr(destination, False)
+                if soa.storage_target == StorageTarget.LOCAL_STORE and LocalStore(soa).resolve_url(url) is not None:
+                    # A local non-default destination was specified, and the url already points there
+                    continue
 
             src_path = LocalStore.file_url_to_path(url)
             if src_path is None:
@@ -283,7 +280,7 @@ class ObjectStoreSaveNode(ExecNode):
             )
             _logger.debug(f'submitted {work_item}')
 
-    def __persist_media_file(self, work_item: WorkItem) -> tuple[Optional[str], Optional[Exception]]:
+    def __persist_media_file(self, work_item: WorkItem) -> tuple[str | None, Exception | None]:
         """Move data from the TempStore to another location"""
         src_path = work_item.src_path
         col = work_item.info.col

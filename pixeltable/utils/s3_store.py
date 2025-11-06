@@ -4,11 +4,11 @@ import threading
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
 
 import boto3
 import botocore
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ConnectionError
 
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
@@ -29,7 +29,7 @@ class S3CompatClientDict(NamedTuple):
     Thread-safe via the module-level 'client_lock'.
     """
 
-    profile: Optional[str]  # AWS-style profile used to locate credentials
+    profile: str | None  # AWS-style profile used to locate credentials
     clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
 
 
@@ -150,7 +150,7 @@ class S3Store(ObjectStoreBase):
         """Return the prefix from the base URI."""
         return self.__prefix_name
 
-    def validate(self, error_col_name: str) -> Optional[str]:
+    def validate(self, error_col_name: str) -> str | None:
         """
         Checks if the URI exists.
 
@@ -161,10 +161,14 @@ class S3Store(ObjectStoreBase):
             self.client().head_bucket(Bucket=self.bucket_name)
             return self.__base_uri
         except ClientError as e:
-            self.handle_s3_error(e, self.bucket_name, f'validate bucket {error_col_name}')
+            self.handle_s3_error(e, f'validating destination for {error_col_name}')
+        except ConnectionError as e:
+            raise excs.Error(
+                f'Connection error while validating destination {self.__base_uri!r} for {error_col_name}: {e}'
+            ) from e
         return None
 
-    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> str:
+    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
@@ -172,19 +176,19 @@ class S3Store(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_uri(self, col: 'Column', ext: Optional[str] = None) -> str:
+    def _prepare_uri(self, col: 'Column', ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
-        assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
+        assert col.get_tbl() is not None, 'Column must be associated with a table'
+        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         """Copies an object to a local file. Thread safe."""
         try:
             self.client().download_file(Bucket=self.bucket_name, Key=self.prefix + src_path, Filename=str(dest_path))
         except ClientError as e:
-            self.handle_s3_error(e, self.bucket_name, f'download file {src_path}')
+            self.handle_s3_error(e, f'downloading file {src_path!r}')
             raise
 
     def copy_local_file(self, col: 'Column', src_path: Path) -> str:
@@ -200,10 +204,10 @@ class S3Store(ObjectStoreBase):
             _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
             return new_file_uri
         except ClientError as e:
-            self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
+            self.handle_s3_error(e, 'uploading file')
             raise
 
-    def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> tuple[Iterator, Any]:
+    def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> tuple[Iterator, Any]:
         """Private method to get filtered objects for a table, optionally filtered by version.
 
         Args:
@@ -239,10 +243,10 @@ class S3Store(ObjectStoreBase):
             return object_iterator, bucket
 
         except ClientError as e:
-            self.handle_s3_error(e, self.bucket_name, f'setup iterator {self.prefix}')
+            self.handle_s3_error(e, f'setting up iterator {self.prefix}')
             raise
 
-    def count(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Count the number of files belonging to tbl_id. If tbl_version is not None,
         count only those files belonging to the specified tbl_version.
 
@@ -259,7 +263,7 @@ class S3Store(ObjectStoreBase):
 
         return sum(1 for _ in object_iterator)
 
-    def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version.
 
@@ -298,7 +302,7 @@ class S3Store(ObjectStoreBase):
             return total_deleted
 
         except ClientError as e:
-            self.handle_s3_error(e, self.bucket_name, f'deleting with {self.prefix}')
+            self.handle_s3_error(e, f'deleting with {self.prefix}')
             raise
 
     def list_objects(self, return_uri: bool, n_max: int = 10) -> list[str]:
@@ -321,28 +325,31 @@ class S3Store(ObjectStoreBase):
                         return r
                     r.append(f'{p}{obj["Key"]}')
         except ClientError as e:
-            self.handle_s3_error(e, self.bucket_name, f'list objects from {self.prefix}')
+            self.handle_s3_error(e, f'listing objects from {self.prefix!r}')
         return r
 
-    @classmethod
-    def handle_s3_error(
-        cls, e: 'ClientError', bucket_name: str, operation: str = '', *, ignore_404: bool = False
-    ) -> None:
+    def handle_s3_error(self, e: 'ClientError', operation: str = '', *, ignore_404: bool = False) -> None:
         error_code = e.response.get('Error', {}).get('Code')
         error_message = e.response.get('Error', {}).get('Message', str(e))
         if ignore_404 and error_code == '404':
             return
         if error_code == '404':
-            raise excs.Error(f'Bucket {bucket_name} not found during {operation}: {error_message}')
+            raise excs.Error(f'Client error while {operation}: Bucket {self.bucket_name!r} not found') from e
         elif error_code == '403':
-            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {error_message}')
+            raise excs.Error(
+                f'Client error while {operation}: Access denied to bucket {self.bucket_name!r}: {error_message}'
+            ) from e
         elif error_code == 'PreconditionFailed' or 'PreconditionFailed' in error_message:
-            raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
+            raise excs.Error(
+                f'Client error while {operation}: Precondition failed for bucket {self.bucket_name!r}: {error_message}'
+            ) from e
         else:
-            raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_code} - {error_message}')
+            raise excs.Error(
+                f'Client error while {operation} in bucket {self.bucket_name!r}: {error_code} - {error_message}'
+            ) from e
 
     @classmethod
-    def create_boto_session(cls, profile_name: Optional[str] = None) -> Any:
+    def create_boto_session(cls, profile_name: str | None = None) -> Any:
         """Create a boto session using the defined profile"""
         if profile_name:
             try:
@@ -354,7 +361,7 @@ class S3Store(ObjectStoreBase):
         return boto3.Session()
 
     @classmethod
-    def create_boto_client(cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None) -> Any:
+    def create_boto_client(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         config_args: dict[str, Any] = {
             'max_pool_connections': 30,
             'connect_timeout': 15,
@@ -380,8 +387,6 @@ class S3Store(ObjectStoreBase):
             return boto3.client('s3', config=config)
 
     @classmethod
-    def create_boto_resource(
-        cls, profile_name: Optional[str] = None, extra_args: Optional[dict[str, Any]] = None
-    ) -> Any:
+    def create_boto_resource(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         # Create a session using the defined profile
         return cls.create_boto_session(profile_name).resource('s3', **(extra_args or {}))

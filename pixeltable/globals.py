@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Union
 
 import pandas as pd
 import pydantic
@@ -15,6 +15,7 @@ from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.io.table_data_conduit import DFTableDataConduit, TableDataConduit
 from pixeltable.iterators import ComponentIterator
 
 if TYPE_CHECKING:
@@ -38,7 +39,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @public_api
-def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
+def init(config_overrides: dict[str, Any] | None = None) -> None:
     """Initializes the Pixeltable environment."""
     if config_overrides is None:
         config_overrides = {}
@@ -49,18 +50,19 @@ def init(config_overrides: Optional[dict[str, Any]] = None) -> None:
 @public_api
 def create_table(
     path: str,
-    schema: Optional[dict[str, Any]] = None,
+    schema: dict[str, Any] | None = None,
     *,
-    source: Optional[TableDataSource] = None,
-    source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
-    schema_overrides: Optional[dict[str, Any]] = None,
+    source: TableDataSource | None = None,
+    source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
+    schema_overrides: dict[str, Any] | None = None,
+    create_default_idxs: bool = True,
     on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-    extra_args: Optional[dict[str, Any]] = None,  # Additional arguments to data source provider
+    extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
 ) -> catalog.Table:
     """Create a new base table. Exactly one of `schema` or `source` must be provided.
 
@@ -80,6 +82,8 @@ def create_table(
         schema_overrides: Must be used in conjunction with a `source`.
             If specified, then columns in `schema_overrides` will be given the specified types.
             (Pixeltable will attempt to infer the types of any columns not specified.)
+        create_default_idxs: If True, creates a B-tree index on every scalar and media column that is not computed,
+            except for boolean columns.
         on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
             invalid media file (such as a corrupt image) for one of the inserted rows.
 
@@ -141,7 +145,7 @@ def create_table(
 
         >>> tbl = pxt.create_table('my_table', source='data.csv')
     """
-    from pixeltable.io.table_data_conduit import DFTableDataConduit, UnkTableDataConduit
+    from pixeltable.io.table_data_conduit import UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
@@ -153,11 +157,16 @@ def create_table(
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
-    primary_key: Optional[list[str]] = normalize_primary_key_parameter(primary_key)
-    table: catalog.Table = None
-    tds = None
-    data_source = None
+    primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
+    data_source: TableDataConduit | None = None
     if source is not None:
+        if isinstance(source, str) and source.strip().startswith('pxt://'):
+            raise excs.Error(
+                'create_table(): Creating a table directly from a cloud URI is not supported.'
+                ' Please replicate the table locally first using `pxt.replicate()`:\n'
+                "replica_tbl = pxt.replicate('pxt://path/to/remote_table', 'local_replica_name')\n"
+                "pxt.create_table('new_table_name', source=replica_tbl)"
+            )
         tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
         tds.check_source_format()
         data_source = tds.specialize()
@@ -182,21 +191,28 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    table, was_created = Catalog.get().create_table(
+    tbl, was_created = Catalog.get().create_table(
         path_obj,
         schema,
-        data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
         if_exists=if_exists_,
         primary_key=primary_key,
         comment=comment,
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
+        create_default_idxs=create_default_idxs,
     )
-    if was_created and data_source is not None and not is_direct_df:
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        table.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
-    return table
+    # TODO: combine data loading with table creation into a single transaction
+    if was_created:
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        if isinstance(data_source, DFTableDataConduit):
+            df = data_source.pxt_df
+            with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
+                tbl._tbl_version.get().insert(None, df, fail_on_exception=fail_on_exception)
+        elif data_source is not None and not is_direct_df:
+            tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+
+    return tbl
 
 
 @public_api
@@ -204,14 +220,15 @@ def create_view(
     path: str,
     base: catalog.Table | DataFrame,
     *,
-    additional_columns: Optional[dict[str, Any]] = None,
+    additional_columns: dict[str, Any] | None = None,
     is_snapshot: bool = False,
-    iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
+    create_default_idxs: bool = False,
+    iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-) -> Optional[catalog.Table]:
+) -> catalog.Table | None:
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
 
     Args:
@@ -224,6 +241,8 @@ def create_view(
             [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
+        create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
+            Cannot be `True` for snapshots.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
@@ -271,9 +290,11 @@ def create_view(
         >>> tbl = pxt.get_table('my_table')
         ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
     """
+    if is_snapshot and create_default_idxs is True:
+        raise excs.Error('Cannot create default indexes on a snapshot')
     tbl_version_path: TableVersionPath
-    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None
-    where: Optional[exprs.Expr] = None
+    select_list: list[tuple[exprs.Expr, str | None]] | None = None
+    where: exprs.Expr | None = None
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
         sample_clause = None
@@ -289,6 +310,9 @@ def create_view(
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, (catalog.Table, DataFrame))
 
+    if tbl_version_path.is_replica():
+        raise excs.Error('Cannot create a view or snapshot on top of a replica')
+
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
@@ -301,7 +325,7 @@ def create_view(
             if col_name in [c.name for c in tbl_version_path.columns()]:
                 raise excs.Error(
                     f'Column {col_name!r} already exists in the base table '
-                    f'{tbl_version_path.get_column(col_name).tbl.name}.'
+                    f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
     return Catalog.get().create_view(
@@ -312,6 +336,7 @@ def create_view(
         sample_clause=sample_clause,
         additional_columns=additional_columns,
         is_snapshot=is_snapshot,
+        create_default_idxs=create_default_idxs,
         iterator=iterator,
         num_retained_versions=num_retained_versions,
         comment=comment,
@@ -325,13 +350,13 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | DataFrame,
     *,
-    additional_columns: Optional[dict[str, Any]] = None,
-    iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
+    additional_columns: dict[str, Any] | None = None,
+    iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-) -> Optional[catalog.Table]:
+) -> catalog.Table | None:
     """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
 
     Args:
@@ -441,7 +466,8 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     queried offline just as any other Pixeltable table.
 
     Args:
-        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
+        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
+            `'pxt://org_name/my_dir/my_table:5'` (with version 5).
         local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
             the same or different from the cloud table name.
 
@@ -693,7 +719,7 @@ def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths:
 @public_api
 def create_dir(
     path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
-) -> Optional[catalog.Dir]:
+) -> catalog.Dir | None:
     """Create a directory.
 
     Args:
@@ -850,9 +876,7 @@ def ls(path: str = '') -> pd.DataFrame:
 
 
 def _extract_paths(
-    dir_entries: dict[str, Catalog.DirEntry],
-    parent: catalog.Path,
-    entry_type: Optional[type[catalog.SchemaObject]] = None,
+    dir_entries: dict[str, Catalog.DirEntry], parent: catalog.Path, entry_type: type[catalog.SchemaObject] | None = None
 ) -> list[catalog.Path]:
     """Convert nested dir_entries structure to a flattened list of paths."""
     matches: list[str]
@@ -966,7 +990,7 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
 
 
 @public_api
-def tool(fn: func.Function, name: Optional[str] = None, description: Optional[str] = None) -> func.tools.Tool:
+def tool(fn: func.Function, name: str | None = None, description: str | None = None) -> func.tools.Tool:
     """
     Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the documentation for
     [pxt.tools()][pixeltable.tools] for more details.
@@ -988,11 +1012,7 @@ def tool(fn: func.Function, name: Optional[str] = None, description: Optional[st
 
 @public_api
 def configure_logging(
-    *,
-    to_stdout: Optional[bool] = None,
-    level: Optional[int] = None,
-    add: Optional[str] = None,
-    remove: Optional[str] = None,
+    *, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None
 ) -> None:
     """Configure logging.
 

@@ -6,7 +6,7 @@ you must first sign up at https://openrouter.ai, create an API key, and configur
 as described in the Working with OpenRouter tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 @register_client('openrouter')
-def _(api_key: str, site_url: Optional[str] = None, app_name: Optional[str] = None) -> 'openai.AsyncOpenAI':
+def _(api_key: str, site_url: str | None = None, app_name: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
     # Create default headers for OpenRouter
@@ -39,11 +39,11 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
-    tools: Optional[list[dict[str, Any]]] = None,
-    tool_choice: Optional[dict[str, Any]] = None,
-    provider: Optional[dict[str, Any]] = None,
-    transforms: Optional[list[str]] = None,
+    model_kwargs: dict[str, Any] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
+    provider: dict[str, Any] | None = None,
+    transforms: list[str] | None = None,
 ) -> dict:
     """
     Chat Completion API via OpenRouter.

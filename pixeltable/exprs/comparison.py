@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -69,8 +69,8 @@ class Comparison(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
-        from pixeltable import index
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
+        import pixeltable.index as index
 
         if str(self._op1.col_type.to_sa_type()) != str(self._op2.col_type.to_sa_type()):
             # Comparing columns of different SQL types (e.g., string vs. json); this can only be done in Python
@@ -81,9 +81,9 @@ class Comparison(Expr):
         if self.is_search_arg_comparison:
             # reference the index value column if there is an index and this is not a snapshot
             # (indices don't apply to snapshots)
-            tbl = self._op1.col.tbl
+            tbl = self._op1.col.get_tbl()
             idx_info = [
-                info for info in self._op1.col.get_idx_info().values() if isinstance(info.idx, index.BtreeIndex)
+                info for info in tbl.idxs_by_col.get(self._op1.col.qid, []) if isinstance(info.idx, index.BtreeIndex)
             ]
             if len(idx_info) > 0 and not tbl.is_snapshot:
                 # there shouldn't be multiple B-tree indices on a column

@@ -10,6 +10,7 @@
 dist
 docs/local
 local
+pixeltable/_version.py
 site
 target
 tests/target

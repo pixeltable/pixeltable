@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import sqlalchemy as sql
@@ -18,7 +18,7 @@ from .sql_element_cache import SqlElementCache
 class Literal(Expr):
     val: Any
 
-    def __init__(self, val: Any, col_type: Optional[ts.ColumnType] = None):
+    def __init__(self, val: Any, col_type: ts.ColumnType | None = None):
         if col_type is not None:
             val = col_type.create_literal(val)
         else:
@@ -42,7 +42,7 @@ class Literal(Expr):
         self.val = val
         self.id = self._create_id()
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         return 'Literal'
 
     def __str__(self) -> str:
@@ -69,7 +69,7 @@ class Literal(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('val', self.val)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         # Return a sql object so that constants can participate in SQL expressions
         return sql.sql.expression.literal(self.val, type_=self.col_type.to_sa_type())
 
@@ -97,7 +97,7 @@ class Literal(Expr):
         else:
             return {'val': self.val, **super()._as_dict()}
 
-    def as_literal(self) -> Optional[Literal]:
+    def as_literal(self) -> Literal | None:
         return self
 
     @classmethod

@@ -79,12 +79,12 @@ class TestDataFrame:
         # where clause needs to be a predicate
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.where(t.c1).select(t.c2).collect()
-        assert 'needs to return bool' in str(exc_info.value)
+        assert 'needs to return `Bool`' in str(exc_info.value)
 
         # where clause needs to be a predicate
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.where(15).select(t.c2).collect()  # type: ignore[arg-type]
-        assert 'requires a pixeltable expression' in str(exc_info.value).lower()
+        assert 'where() expects a Pixeltable expression; got: 15' in str(exc_info.value)
 
         # duplicate select list
         with pytest.raises(pxt.Error) as exc_info:
@@ -129,7 +129,7 @@ class TestDataFrame:
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error, match='Where clause already specified'):
+        with pytest.raises(pxt.Error, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
     def test_join(self, reset_db: None) -> None:
@@ -205,11 +205,11 @@ class TestDataFrame:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, how='cross', on=t2.id).collect()
-        assert "'on' not allowed for cross join" in str(exc_info.value)
+        assert '`on` not allowed for cross join' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2).collect()
-        assert "how='inner' requires 'on'" in str(exc_info.value)
+        assert "`how='inner'` requires `on`" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.f).collect()
@@ -221,11 +221,13 @@ class TestDataFrame:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id + 1).collect()
-        assert 'boolean expression expected, but got Optional[Int]: id + 1' in str(exc_info.value)
+        assert '`on` expects an expression of type `Bool`, but got one of type `Int | None`: id + 1' in str(
+            exc_info.value
+        )
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
-        assert "ambiguous column reference: 'id'" in str(exc_info.value)
+        assert 'ambiguous column reference: id' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()
@@ -316,7 +318,7 @@ class TestDataFrame:
         print(res[0]['get_lim'])
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
 
-        with pytest.raises(pxt.Error, match='must be of type Int'):
+        with pytest.raises(pxt.Error, match='must be of type `Int`'):
             _ = t.limit(5.3).collect()  # type: ignore[arg-type]
 
         v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})
@@ -805,14 +807,14 @@ class TestDataFrame:
         assert 'tail() cannot be used with group_by' in str(exc_info.value)
         with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c1, t.c3).group_by(t.c2).distinct()
-        assert 'Group-by already specified' in str(exc_info.value)
+        assert 'group_by() already specified' in str(exc_info.value)
         with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c1, t.c3).distinct().count()
         assert 'count() cannot be used with group_by' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             t.distinct().distinct()
-        assert 'Group-by already specified' in str(exc_info.value)
+        assert 'group_by() already specified' in str(exc_info.value)
 
         # select after distinct
         results = t.distinct().select(t.c1).collect()

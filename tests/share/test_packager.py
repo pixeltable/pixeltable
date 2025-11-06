@@ -7,7 +7,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -17,10 +17,12 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog import Catalog
+from pixeltable.catalog import Catalog, TableMetadata
+from pixeltable.catalog.table_version import TableVersionCompleteMd
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
+from pixeltable.metadata import schema
 from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import LocalStore, TempStore
@@ -97,17 +99,17 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._get_base_tables()) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._get_base_tables())):
-            assert t_md['table_id'] == str(t._tbl_version.id)
+        assert len(md['md']) == len(tbl._get_base_tables()) + 1
+        for t_md, t in zip(md['md'], (tbl, *tbl._get_base_tables())):
+            assert schema.md_from_dict(TableVersionCompleteMd, t_md).version_md.tbl_id == str(t._tbl_version.id)
 
     def __check_parquet_tbl(
         self,
         t: pxt.Table,
         bundle_path: Path,
-        media_dir: Optional[Path] = None,
-        scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
-        expected_cols: Optional[int] = None,
+        media_dir: Path | None = None,
+        scope_tbl: pxt.Table | None = None,  # If specified, use instead of `tbl` to select rows
+        expected_cols: int | None = None,
     ) -> None:
         parquet_dir = bundle_path / 'tables' / f'tbl_{t._id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
@@ -181,6 +183,7 @@ class TestPackager:
         bundle_path: Path  # Path of the bundle on disk
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
+        metadata: TableMetadata  # User-facing metadata of the table
         store_col_schema: set[tuple[str, str]]  # Set of (column_name, data_type) for the store table's columns
         store_idx_schema: set[tuple[str, str]]  # Set of (indexname, indexdef) for the store table's indices
         result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
@@ -190,6 +193,7 @@ class TestPackager:
         Runs the query `tbl.head(n=5000)`, packages the table into a bundle, and returns a BundleInfo.
         """
         schema = tbl._get_schema()
+        metadata = tbl.get_metadata()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
         store_col_schema = self.__extract_store_col_schema(tbl)
@@ -199,7 +203,9 @@ class TestPackager:
         packager = TablePackager(tbl)
         bundle_path = packager.package()
 
-        return TestPackager.BundleInfo(bundle_path, depth, schema, store_col_schema, store_idx_schema, result_set)
+        return TestPackager.BundleInfo(
+            bundle_path, depth, schema, metadata, store_col_schema, store_idx_schema, result_set
+        )
 
     def __restore_and_check_table(self, bundle_info: BundleInfo, tbl_name: str, version: int | None = None) -> None:
         """
@@ -215,11 +221,26 @@ class TestPackager:
         assert bundle_info.schema == t._get_schema()
         assert bundle_info.depth == t._tbl_version_path.path_len()
 
+        # Certain metadata properties must be identical.
+        metadata = t.get_metadata()
+        for property in (
+            'columns',
+            'indices',
+            'version',
+            'version_created',
+            'schema_version',
+            'comment',
+            'media_validation',
+        ):
+            assert metadata[property] == bundle_info.metadata[property]
+
         # Verify that the postgres schema subsumes the original.
         # (There may be additional columns in the restored table depending on the order in which different versions are
-        # restored. But everything present in the original table must be present and identical in the restored table.)
+        # restored. But the columns present in the original table must be present and identical in the restored table.
+        # Regarding indices: the restored table omits indices that were dropped on the Table before the bundle was
+        # created.)
         assert bundle_info.store_col_schema.issubset(self.__extract_store_col_schema(t))
-        assert bundle_info.store_idx_schema.issubset(self.__extract_store_idx_schema(t))
+        t._tbl_version_path.tbl_version.get().store_tbl.validate()
 
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
@@ -354,6 +375,14 @@ class TestPackager:
         v2.update({'x2': v1.x1 + 8})
         snapshot = pxt.create_snapshot('snapshot', v2)
         self.__do_round_trip(snapshot)
+
+    def test_restricted_view_round_trip(self, reset_db: None) -> None:
+        """Tests a view that only selects a subset of the columns from its base table."""
+        t = pxt.create_table('base_tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(100))
+        v = pxt.create_view('view', t.select(t.icol))
+
+        self.__do_round_trip(v)
 
     def test_iterator_view_round_trip(self, reset_db: None) -> None:
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
@@ -632,6 +661,9 @@ class TestPackager:
                 s.where(s.icol < 5).update({'icol': 100})
             with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
                 s.where(s.icol < 5).delete()
+
+            with pytest.raises(pxt.Error, match='Cannot create a view or snapshot on top of a replica'):
+                _ = pxt.create_view(f'subview_of_{name}', s)
 
     def test_drop_replica(self, reset_db: None) -> None:
         """

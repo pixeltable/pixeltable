@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Optional, Sequence, cast
+from typing import Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -66,7 +66,7 @@ class JoinClause:
     """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table."""
 
     join_type: JoinType
-    join_predicate: Optional[exprs.Expr]  # None for join_type == CROSS
+    join_predicate: exprs.Expr | None  # None for join_type == CROSS
 
 
 @dataclasses.dataclass
@@ -86,12 +86,12 @@ class FromClause:
 class SampleClause:
     """Defines a sampling clause for a table."""
 
-    version: Optional[int]
-    n: Optional[int]
-    n_per_stratum: Optional[int]
-    fraction: Optional[float]
-    seed: Optional[int]
-    stratify_exprs: Optional[list[exprs.Expr]]
+    version: int | None
+    n: int | None
+    n_per_stratum: int | None
+    fraction: float | None
+    seed: int | None
+    stratify_exprs: list[exprs.Expr] | None
 
     # The version of the hashing algorithm used for ordering and fractional sampling.
     CURRENT_VERSION = 1
@@ -162,19 +162,19 @@ class Analyzer:
     from_clause: FromClause
     all_exprs: list[exprs.Expr]  # union of all exprs, aside from sql_where_clause
     select_list: list[exprs.Expr]
-    group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
+    group_by_clause: list[exprs.Expr] | None  # None for non-aggregate queries; [] for agg query w/o grouping
     grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
     order_by_clause: OrderByClause
     stratify_exprs: list[exprs.Expr]  # [] if no stratiifcation is required
-    sample_clause: Optional[SampleClause]  # None if no sampling clause is present
+    sample_clause: SampleClause | None  # None if no sampling clause is present
 
     sql_elements: exprs.SqlElementCache
 
     # Where clause of the Select stmt of the SQL scan
-    sql_where_clause: Optional[exprs.Expr]
+    sql_where_clause: exprs.Expr | None
 
     # filter predicate applied to output rows of the SQL scan
-    filter: Optional[exprs.Expr]
+    filter: exprs.Expr | None
 
     agg_fn_calls: list[exprs.FunctionCall]  # grouping aggregation (ie, not window functions)
     window_fn_calls: list[exprs.FunctionCall]
@@ -184,10 +184,10 @@ class Analyzer:
         self,
         from_clause: FromClause,
         select_list: Sequence[exprs.Expr],
-        where_clause: Optional[exprs.Expr] = None,
-        group_by_clause: Optional[list[exprs.Expr]] = None,
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
-        sample_clause: Optional[SampleClause] = None,
+        where_clause: exprs.Expr | None = None,
+        group_by_clause: list[exprs.Expr] | None = None,
+        order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
+        sample_clause: SampleClause | None = None,
     ):
         if order_by_clause is None:
             order_by_clause = []
@@ -330,7 +330,7 @@ class Analyzer:
         row_builder.set_slot_idxs(self.agg_fn_calls)
         row_builder.set_slot_idxs(self.agg_order_by)
 
-    def get_window_fn_ob_clause(self) -> Optional[OrderByClause]:
+    def get_window_fn_ob_clause(self) -> OrderByClause | None:
         clause: list[OrderByClause] = []
         for fn_call in self.window_fn_calls:
             # window functions require ordering by the group_by/order_by clauses
@@ -348,7 +348,7 @@ class Analyzer:
 class Planner:
     # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
-    def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None) -> sql.Select:
+    def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Expr | None = None) -> sql.Select:
         stmt = sql.select(sql.func.count().label('all_count'))
         refd_tbl_ids: set[UUID] = set()
         if where_clause is not None:
@@ -406,7 +406,7 @@ class Planner:
         return plan
 
     @classmethod
-    def rowid_columns(cls, target: TableVersionHandle, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
+    def rowid_columns(cls, target: TableVersionHandle, num_rowid_cols: int | None = None) -> list[exprs.Expr]:
         """Return list of RowidRef for the given number of associated rowids"""
         if num_rowid_cols is None:
             num_rowid_cols = target.get().num_rowid_columns()
@@ -447,7 +447,7 @@ class Planner:
         tbl: catalog.TableVersionPath,
         update_targets: dict[catalog.Column, exprs.Expr],
         recompute_targets: list[catalog.Column],
-        where_clause: Optional[exprs.Expr],
+        where_clause: exprs.Expr | None,
         cascade: bool,
     ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
         """Creates a plan to materialize updated rows.
@@ -477,7 +477,8 @@ class Planner:
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated/recomputed column
-        idx_val_cols = target.get_idx_val_columns(set(updated_cols) | recomputed_cols)
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
@@ -487,7 +488,7 @@ class Planner:
         # our query plan
         # - evaluates the update targets and recomputed columns
         # - copies all other stored columns
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl.id == tbl.tbl_version.id}
+        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == tbl.tbl_version.id}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -522,7 +523,7 @@ class Planner:
         plan = cls._add_save_node(plan)
 
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+        return plan, [f'{c.get_tbl().name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def __check_valid_columns(
@@ -647,11 +648,12 @@ class Planner:
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
         # regardless of cascade, we need to update all indices on any updated column
-        idx_val_cols = target.get_idx_val_columns(updated_cols)
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl.id == target.id}
+        recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -844,7 +846,7 @@ class Planner:
                 raise excs.Error(f'Join predicate {join_clause.join_predicate} not expressible in SQL')
 
     @classmethod
-    def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> Optional[OrderByClause]:
+    def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> OrderByClause | None:
         """Verify that the various ordering requirements don't conflict and return a combined ordering"""
         ob_clauses: list[OrderByClause] = [analyzer.order_by_clause.copy()]
 
@@ -980,7 +982,7 @@ class Planner:
         analyzer: Analyzer,
         eval_ctx: exprs.RowBuilder.EvalCtx,
         columns: list[catalog.Column] | None = None,
-        limit: Optional[exprs.Expr] = None,
+        limit: exprs.Expr | None = None,
         with_pk: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
@@ -1057,7 +1059,7 @@ class Planner:
                 tbl,
                 row_builder,
                 select_list=tbl_scan_exprs,
-                columns=[c for c in columns if c.tbl.id == tbl.tbl_id],
+                columns=[c for c in columns if c.get_tbl().id == tbl.tbl_id],
                 set_pk=with_pk,
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
                 exact_version_only=exact_version_only,
