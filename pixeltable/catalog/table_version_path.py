@@ -47,6 +47,9 @@ class TableVersionPath:
         self.base = base
         self._cached_tbl_version = None
 
+        if self.base is not None and tbl_version.alignment_tbl_id is not None:
+            self.base = self.base.anchor_to(tbl_version.alignment_tbl_id)
+
     @classmethod
     def from_md(cls, path: schema.TableVersionPath) -> TableVersionPath:
         assert len(path) > 0
@@ -77,6 +80,18 @@ class TableVersionPath:
 
         with Catalog.get().begin_xact(tbl_id=self.tbl_version.id, for_write=False):
             self._cached_tbl_version = self.tbl_version.get()
+
+    def anchor_to(self, alignment_tbl_id: UUID | None) -> TableVersionPath:
+        """Return a new TableVersionPath with all of its TableVersions pointing to the given alignment_tbl_id"""
+        assert self.tbl_version.effective_version is None
+        return TableVersionPath(
+            TableVersionHandle(
+                self.tbl_version.id,
+                None,
+                alignment_tbl_id,
+            ),
+            base=self.base.anchor_to(alignment_tbl_id) if self.base is not None else None,
+        )
 
     def clear_cached_md(self) -> None:
         self._cached_tbl_version = None

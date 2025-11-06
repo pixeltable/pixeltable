@@ -552,6 +552,11 @@ class TableVersion:
             tvp = Catalog.get().construct_tvp(
                 self.id, self.effective_version, self.tbl_md.ancestor_ids, self.version_md.created_at
             )
+        elif self.alignment_tbl_id is not None:
+            # for replica TableVersion instances, we also need to retarget the value_exprs, this time to the
+            # "anchored" TableVerisonPath.
+            assert self.path is not None
+            tvp = self.path
         for col in self.cols_by_id.values():
             col.init_value_expr(tvp)
 
