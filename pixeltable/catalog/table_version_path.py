@@ -8,7 +8,7 @@ from pixeltable.metadata import schema
 
 from .column import Column
 from .globals import MediaValidation
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
 
 _logger = logging.getLogger('pixeltable')
@@ -56,7 +56,8 @@ class TableVersionPath:
         result: TableVersionPath | None = None
         for tbl_id_str, effective_version in path[::-1]:
             tbl_id = UUID(tbl_id_str)
-            result = TableVersionPath(TableVersionHandle(tbl_id, effective_version, None), base=result)
+            key = TableVersionKey(tbl_id, effective_version, None)
+            result = TableVersionPath(TableVersionHandle(key), base=result)
         return result
 
     def as_md(self) -> schema.TableVersionPath:

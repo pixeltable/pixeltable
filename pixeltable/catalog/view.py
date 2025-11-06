@@ -14,7 +14,7 @@ from pixeltable.iterators import ComponentIterator
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
-from .table_version import TableVersion, TableVersionCompleteMd
+from .table_version import TableVersion, TableVersionCompleteMd, TableVersionKey
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
@@ -219,8 +219,9 @@ class View(Table):
             return md, None
         else:
             tbl_id = md.tbl_md.tbl_id
+            key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(
-                TableVersionHandle(UUID(tbl_id), 0 if is_snapshot else None, None), base=base_version_path
+                TableVersionHandle(key), base=base_version_path
             )
             ops = [
                 TableOp(

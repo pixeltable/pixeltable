@@ -7,7 +7,7 @@ import itertools
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NamedTuple
 from uuid import UUID
 
 import jsonschema.exceptions
@@ -63,6 +63,12 @@ class TableVersionCompleteMd:
         )
 
 
+class TableVersionKey(NamedTuple):
+    tbl_id: UUID
+    effective_version: int | None
+    anchor_tbl_id: UUID | None
+
+
 class TableVersion:
     """
     TableVersion represents a particular version of a table/view along with its physical representation:
@@ -94,15 +100,13 @@ class TableVersion:
     At most one of `effective_version` and `anchor_tbl_id` can be specified.
     """
 
-    id: UUID
+    key: TableVersionKey
 
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
     _version_md: schema.TableVersionMd
     _schema_version_md: schema.TableSchemaVersionMd
 
-    effective_version: int | None
-    anchor_tbl_id: UUID | None
     path: 'TableVersionPath' | None  # only set for live tables; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
     predicate: exprs.Expr | None
@@ -153,31 +157,26 @@ class TableVersion:
 
     def __init__(
         self,
-        id: UUID,
+        key: TableVersionKey,
         tbl_md: schema.TableMd,
         version_md: schema.TableVersionMd,
-        effective_version: int | None,
-        anchor_tbl_id: UUID | None,
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: 'TableVersionPath' | None = None,
         base: TableVersionHandle | None = None,
     ):
-        assert effective_version is None or anchor_tbl_id is None
+        assert key.effective_version is None or key.anchor_tbl_id is None
+        assert key.anchor_tbl_id is None or isinstance(key.anchor_tbl_id, UUID)
 
         self.is_validated = True  # a freshly constructed instance is always valid
         self.is_initialized = False
-        self.id = id
+        self.key = key
         self._tbl_md = copy.deepcopy(tbl_md)
         self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
-        self.effective_version = effective_version
-        self.anchor_tbl_id = anchor_tbl_id
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
-
-        assert anchor_tbl_id is None or isinstance(anchor_tbl_id, UUID)
 
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_handle import TableVersionHandle
@@ -186,7 +185,7 @@ class TableVersion:
         if self.is_snapshot:
             self.path = None
         else:
-            self_handle = TableVersionHandle(id, self.effective_version, self.anchor_tbl_id)
+            self_handle = TableVersionHandle(key)
             if self.is_view:
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
@@ -247,7 +246,7 @@ class TableVersion:
     def handle(self) -> 'TableVersionHandle':
         from .table_version_handle import TableVersionHandle
 
-        return TableVersionHandle(self.id, self.effective_version, self.anchor_tbl_id, tbl_version=self)
+        return TableVersionHandle(self.key, tbl_version=self)
 
     @classmethod
     def create_initial_md(
@@ -267,7 +266,7 @@ class TableVersion:
 
         tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
-        tbl_handle = TableVersionHandle(tbl_id, None, None)
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None, None))
         column_ids = itertools.count()
         index_ids = itertools.count()
 
@@ -447,7 +446,7 @@ class TableVersion:
         from .catalog import Catalog
 
         cat = Catalog.get()
-        assert (self.id, self.effective_version, self.anchor_tbl_id) in cat._tbl_versions
+        assert self.key in cat._tbl_versions
         self._init_schema()
         if self.is_mutable:
             cat.record_column_dependencies(self)
@@ -577,17 +576,17 @@ class TableVersion:
         else:
             self.store_tbl = StoreTable(self)
 
-    def _lookup_column(self, id: QColumnId) -> Column | None:
+    def _lookup_column(self, qid: QColumnId) -> Column | None:
         """
         Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
         to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
 
         This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
-        if id.tbl_id == self.id:
-            return next(col for col in self.cols if col.id == id.col_id)
+        if qid.tbl_id == self.id:
+            return next(col for col in self.cols if col.id == qid.col_id)
         elif self.base is not None:
-            return self.base.get()._lookup_column(id)
+            return self.base.get()._lookup_column(qid)
         else:
             return None
 
@@ -616,7 +615,7 @@ class TableVersion:
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""
-        return f'idx_{self.id.hex}_{idx_id}'
+        return f'idx_{self.key.tbl_id.hex}_{idx_id}'
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
         # we're creating a new schema version
@@ -813,7 +812,7 @@ class TableVersion:
 
         row_count = self.store_tbl.count()
         for col in cols_to_add:
-            assert col.tbl_handle.id == self.id
+            assert col.tbl_handle.id == self.key.tbl_id
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
@@ -854,7 +853,7 @@ class TableVersion:
                 try:
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
-                    Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                    Catalog.get().convert_sql_exc(exc, self.key.tbl_id, self.handle, convert_db_excs=True)
                     # If it wasn't converted, re-raise as a generic Pixeltable error
                     # (this means it's not a known concurrency error; it's something else)
                     raise excs.Error(
@@ -944,7 +943,7 @@ class TableVersion:
         col = self.path.get_column(old_name)
         if col is None:
             raise excs.Error(f'Unknown column: {old_name}')
-        if col.get_tbl().id != self.id:
+        if col.get_tbl().id != self.key.tbl_id:
             raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
             raise excs.Error(f'Invalid column name: {new_name}')
@@ -1135,7 +1134,7 @@ class TableVersion:
             col = self.path.get_column(col_name)
             if col is None:
                 raise excs.Error(f'Unknown column: {col_name}')
-            if col.get_tbl().id != self.id:
+            if col.get_tbl().id != self.key.tbl_id:
                 raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name!r} is computed and cannot be updated')
@@ -1333,7 +1332,7 @@ class TableVersion:
             f"select ts.dir_id, ts.md->'name' "
             f'from {schema.Table.__tablename__} ts '
             f"cross join lateral jsonb_path_query(md, '$.view_md.base_versions[*]') as tbl_version "
-            f"where tbl_version->>0 = '{self.id.hex}' and (tbl_version->>1)::int = {self.version}"
+            f"where tbl_version->>0 = '{self.key.tbl_id.hex}' and (tbl_version->>1)::int = {self.version}"
         )
         result = list(conn.execute(sql.text(query)))
         if len(result) > 0:
@@ -1396,14 +1395,14 @@ class TableVersion:
 
             conn.execute(
                 sql.delete(schema.TableSchemaVersion.__table__)
-                .where(schema.TableSchemaVersion.tbl_id == self.id)
+                .where(schema.TableSchemaVersion.tbl_id == self.key.tbl_id)
                 .where(schema.TableSchemaVersion.schema_version == self.schema_version)
             )
             self._tbl_md.current_schema_version = self._schema_version_md.preceding_schema_version
 
         conn.execute(
             sql.delete(schema.TableVersion.__table__)
-            .where(schema.TableVersion.tbl_id == self.id)
+            .where(schema.TableVersion.tbl_id == self.key.tbl_id)
             .where(schema.TableVersion.version == self.version)
         )
 
@@ -1417,7 +1416,7 @@ class TableVersion:
 
         # force reload on next operation
         self.is_validated = False
-        Catalog.get().remove_tbl_version(self)
+        Catalog.get().remove_tbl_version(self.key)
 
         # delete newly-added data
         # Do this at the end, after all DB operations have completed.
@@ -1449,6 +1448,18 @@ class TableVersion:
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
         self._write_md(new_version=True, new_schema_version=True)
+
+    @property
+    def id(self) -> UUID:
+        return self.key.tbl_id
+
+    @property
+    def effective_version(self) -> int | None:
+        return self.key.effective_version
+
+    @property
+    def anchor_tbl_id(self) -> UUID | None:
+        return self.key.anchor_tbl_id
 
     @property
     def tbl_md(self) -> schema.TableMd:
@@ -1644,7 +1655,7 @@ class TableVersion:
 
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
         # assumes that the indexed columns are all in this table
-        assert all(col.get_tbl().id == self.id for col in cols)
+        assert all(col.get_tbl().id == self.key.tbl_id for col in cols)
         col_ids = {col.id for col in cols}
         return {info.val_col for info in self.idxs.values() if info.col.id in col_ids}
 
@@ -1690,7 +1701,7 @@ class TableVersion:
 
     def as_dict(self) -> dict:
         return {
-            'id': str(self.id),
+            'id': str(self.key.tbl_id),
             'effective_version': self.effective_version,
             'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
         }

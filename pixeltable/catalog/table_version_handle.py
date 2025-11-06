@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pixeltable import exceptions as excs
 
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -22,45 +22,47 @@ class TableVersionHandle:
     See the TableVersion docstring for details on the semantics of `effective_version` and `anchor_tbl_id`.
     """
 
-    id: UUID
-    effective_version: int | None
-    anchor_tbl_id: UUID | None
+    key: TableVersionKey
     _tbl_version: TableVersion | None
 
     def __init__(
         self,
-        tbl_id: UUID,
-        effective_version: int | None,
-        anchor_tbl_id: UUID | None,
+        key: TableVersionKey,
         *,
         tbl_version: TableVersion | None = None,
     ):
-        self.id = tbl_id
-        self.effective_version = effective_version
-        self.anchor_tbl_id = anchor_tbl_id
+        self.key = key
         self._tbl_version = tbl_version
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TableVersionHandle):
             return False
-        return self.id == other.id and self.effective_version == other.effective_version
+        return self.key.tbl_id == other.id and self.effective_version == other.effective_version
 
     def __hash__(self) -> int:
-        return hash((self.id, self.effective_version))
+        return hash((self.key.tbl_id, self.effective_version))
 
     def __repr__(self) -> str:
         return (
-            f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, '
+            f'TableVersionHandle(id={self.key.tbl_id!r}, effective_version={self.effective_version}, '
             f'anchor_tbl_id={self.anchor_tbl_id})'
         )
 
     @property
+    def id(self) -> UUID:
+        return self.key.tbl_id
+
+    @property
+    def effective_version(self) -> int | None:
+        return self.key.effective_version
+
+    @property
+    def anchor_tbl_id(self) -> UUID | None:
+        return self.key.anchor_tbl_id
+
+    @property
     def is_snapshot(self) -> bool:
         return self.effective_version is not None
-
-    @classmethod
-    def create(cls, tbl_version: TableVersion) -> TableVersionHandle:
-        return cls(tbl_version.id, tbl_version.effective_version, tbl_version.anchor_tbl_id, tbl_version=tbl_version)
 
     def get(self) -> TableVersion:
         from .catalog import Catalog
@@ -71,20 +73,20 @@ class TableVersionHandle:
                 # this is a snapshot version; we need to make sure we refer to the instance cached
                 # in Catalog, in order to avoid mixing sa_tbl instances in the same transaction
                 # (which will lead to duplicates in the From clause generated in SqlNode.create_from_clause())
-                assert (self.id, self.effective_version, self.anchor_tbl_id) in cat._tbl_versions
-                self._tbl_version = cat._tbl_versions[self.id, self.effective_version, self.anchor_tbl_id]
+                assert self.key in cat._tbl_versions
+                self._tbl_version = cat._tbl_versions[self.key]
                 self._tbl_version.is_validated = True
             else:
-                self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version, self.anchor_tbl_id)
-                assert self._tbl_version.anchor_tbl_id == self.anchor_tbl_id
-        if self.effective_version is None:
+                self._tbl_version = Catalog.get().get_tbl_version(self.key)
+                assert self._tbl_version.key == self.key
+        if self.key.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
             assert self._tbl_version in tvs, self._tbl_version
         return self._tbl_version
 
     def as_dict(self) -> dict:
         return {
-            'id': str(self.id),
+            'id': str(self.key.tbl_id),
             'effective_version': self.effective_version,
             'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
         }
@@ -92,7 +94,7 @@ class TableVersionHandle:
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
         anchor_tbl_id = d.get('anchor_tbl_id')
-        return cls(UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None)
+        return cls(TableVersionKey(UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None))
 
 
 @dataclass(frozen=True)
