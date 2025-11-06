@@ -85,11 +85,7 @@ class TableVersionPath:
         """Return a new TableVersionPath with all of its TableVersions pointing to the given alignment_tbl_id"""
         assert self.tbl_version.effective_version is None
         return TableVersionPath(
-            TableVersionHandle(
-                self.tbl_version.id,
-                None,
-                alignment_tbl_id,
-            ),
+            TableVersionHandle(self.tbl_version.id, None, alignment_tbl_id),
             base=self.base.anchor_to(alignment_tbl_id) if self.base is not None else None,
         )
 

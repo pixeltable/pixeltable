@@ -25,7 +25,14 @@ class TableVersionHandle:
     alignment_tbl_id: UUID | None
     _tbl_version: TableVersion | None
 
-    def __init__(self, tbl_id: UUID, effective_version: int | None, alignment_tbl_id: UUID | None, *, tbl_version: TableVersion | None = None):
+    def __init__(
+        self,
+        tbl_id: UUID,
+        effective_version: int | None,
+        alignment_tbl_id: UUID | None,
+        *,
+        tbl_version: TableVersion | None = None,
+    ):
         self.id = tbl_id
         self.effective_version = effective_version
         self.alignment_tbl_id = alignment_tbl_id
@@ -40,7 +47,10 @@ class TableVersionHandle:
         return hash((self.id, self.effective_version))
 
     def __repr__(self) -> str:
-        return f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, alignment_tbl_id={self.alignment_tbl_id})'
+        return (
+            f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, '
+            f'alignment_tbl_id={self.alignment_tbl_id})'
+        )
 
     @property
     def is_snapshot(self) -> bool:
@@ -64,7 +74,9 @@ class TableVersionHandle:
                 self._tbl_version = cat._tbl_versions[self.id, self.effective_version, self.alignment_tbl_id]
                 self._tbl_version.is_validated = True
             else:
-                self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version, self.alignment_tbl_id)
+                self._tbl_version = Catalog.get().get_tbl_version(
+                    self.id, self.effective_version, self.alignment_tbl_id
+                )
                 assert self._tbl_version.alignment_tbl_id == self.alignment_tbl_id
         if self.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
@@ -73,12 +85,18 @@ class TableVersionHandle:
         return self._tbl_version
 
     def as_dict(self) -> dict:
-        return {'id': str(self.id), 'effective_version': self.effective_version, 'alignment_tbl_id': str(self.alignment_tbl_id) if self.alignment_tbl_id is not None else None}
+        return {
+            'id': str(self.id),
+            'effective_version': self.effective_version,
+            'alignment_tbl_id': str(self.alignment_tbl_id) if self.alignment_tbl_id is not None else None,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
         alignment_tbl_id = d.get('alignment_tbl_id')
-        return cls(UUID(d['id']), d['effective_version'], UUID(alignment_tbl_id) if alignment_tbl_id is not None else None)
+        return cls(
+            UUID(d['id']), d['effective_version'], UUID(alignment_tbl_id) if alignment_tbl_id is not None else None
+        )
 
 
 @dataclass(frozen=True)

@@ -1680,7 +1680,11 @@ class TableVersion:
         ]
 
     def as_dict(self) -> dict:
-        return {'id': str(self.id), 'effective_version': self.effective_version}
+        return {
+            'id': str(self.id),
+            'effective_version': self.effective_version,
+            'alignment_tbl_id': str(self.alignment_tbl_id) if self.alignment_tbl_id is not None else None,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
@@ -1688,4 +1692,5 @@ class TableVersion:
 
         id = UUID(d['id'])
         effective_version = d['effective_version']
-        return Catalog.get().get_tbl_version(id, effective_version)
+        alignment_tbl_id = UUID(d['alignment_tbl_id']) if 'alignment_tbl_id' in d else None
+        return Catalog.get().get_tbl_version(id, effective_version, alignment_tbl_id)
