@@ -1373,7 +1373,7 @@ class Catalog:
 
         self._drop_tbl(tbl, force=force, is_replace=False)
 
-    def _drop_tbl(self, tbl: Table | TableVersionPath, force: bool, is_replace: bool) -> None:
+    def _drop_tbl(self, tbl: Table | TableVersionPath, force: bool, is_replace: bool, is_replica: bool | None = None) -> None:
         """
         Drop the table (and recursively its views, if force == True).
 
@@ -1488,7 +1488,9 @@ class Catalog:
             ):
                 # then drop the base table as well (possibly recursively).
                 _logger.debug(f'Dropping hidden base table {tvp.base.tbl_id} of dropped replica {tbl_id}.')
-                self._drop_tbl(tvp.base, force=False, is_replace=False)
+                # we just dropped the anchor on `tvp.base`; we need to clear the anchor so that we can actually
+                # load the TableVersion instance in order to drop it
+                self._drop_tbl(tvp.base.anchor_to(None), force=False, is_replace=False)
 
     @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
