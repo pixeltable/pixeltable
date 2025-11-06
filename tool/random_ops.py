@@ -100,11 +100,11 @@ class RandomTableOps:
     - If the operation supports only base tables, carry out the operation on the selected table.
     - If the operation supports views and the table has at least one view, then: 50% of the time, carry out the
         operation on the selected base table; 50% of the time, carry it out on a random view of the selected table.
-    - Capture the outcome of the operation in $PIXELTABLE_HOME/random-tbl-ops.log and on the console.
+    - Capture the outcome of the operation in $PIXELTABLE_HOME/random-ops.log and on the console.
     - Sleep for a short random time (0.1 to 0.5 seconds) before starting the next iteration.
     """
 
-    logger = logging.getLogger('random_tbl_ops')
+    logger = logging.getLogger('random_ops')
 
     config: RandomTableOpsConfig
     base_table_names: tuple[str, ...]
@@ -145,7 +145,7 @@ class RandomTableOps:
             cumulative_weight += float(weight)
             self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
-        handler = logging.FileHandler(Config.get().home / 'random-tbl-ops.log')
+        handler = logging.FileHandler(Config.get().home / 'random-ops.log')
         handler.setLevel(logging.INFO)
         formatter = logging.Formatter('%(message)s')
         handler.setFormatter(formatter)
@@ -370,7 +370,7 @@ class RandomTableOps:
         if fatal is not None:
             raise fatal
 
-    def random_tbl_op(self) -> None:
+    def random_op(self) -> None:
         """Select a random operation and run it once."""
         r = random.uniform(0, 1)
         for cumulative_weight, op in self.random_ops:
@@ -381,7 +381,7 @@ class RandomTableOps:
     def run(self) -> None:
         """Run random table operations indefinitely."""
         while True:
-            self.random_tbl_op()
+            self.random_op()
             time.sleep(random.uniform(0.1, 0.5))
 
 
@@ -395,7 +395,7 @@ def run(
     worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
 ) -> None:
     """Entrypoint for a worker process."""
-    os.environ['PIXELTABLE_DB'] = 'random_tbl_ops'
+    os.environ['PIXELTABLE_DB'] = 'random_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
@@ -485,7 +485,7 @@ def main() -> None:
     worker_args = [
         [
             '-c',
-            'from tool.random_tbl_ops_2 import run; '
+            'from tool.random_ops import run; '
             f'run({i}, {i >= args.workers - args.read_only_workers}, '
             f'{args.include_only}, {args.exclude}, {config_str})',
         ]
