@@ -31,8 +31,8 @@ class FrameIterator(ComponentIterator):
 
     Args:
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-            If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
-            extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
+            If omitted or set to 0.0, or if greater than the native framerate of the video,
+            then the framerate of the video will be used (all frames will be extracted).
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
         all_frame_attrs:
@@ -119,13 +119,9 @@ class FrameIterator(ComponentIterator):
                 spacing = float(self.video_frame_count) / float(num_frames)
                 self.frames_to_extract = [round(i * spacing) for i in range(num_frames)]
                 assert len(self.frames_to_extract) == num_frames
-        elif fps is None or fps == 0.0:
+        elif fps is None or fps == 0.0 or fps > float(self.video_framerate):
             # Extract all frames
             self.frames_to_extract = None
-        elif fps > float(self.video_framerate):
-            raise excs.Error(
-                f'Video {video}: requested fps ({fps}) exceeds that of the video ({float(self.video_framerate)})'
-            )
         else:
             # Extract frames at the implied frequency
             freq = fps / float(self.video_framerate)
