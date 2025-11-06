@@ -171,6 +171,7 @@ class Catalog:
     # cached TableVersion instances; key: [id, version, anchor_tbl_id]
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
+    # - anchored versions: records the tbl_id of the anchor table
     _tbl_versions: dict[tuple[UUID, int | None, UUID | None], TableVersion]
     _tbls: dict[tuple[UUID, int | None], Table]
     _in_write_xact: bool  # True if we're in a write transaction
@@ -1921,6 +1922,8 @@ class Catalog:
         anchor_timestamp: float | None = None
         if anchor_tbl_id is not None:
             anchored_version_md = self.head_version_md(anchor_tbl_id)
+            # `anchor_tbl_id` must exist and have at least one non-fragment version, or else this isn't
+            # a valid TableVersion specification.
             assert anchored_version_md is not None
             anchor_timestamp = anchored_version_md.created_at
 
@@ -1949,7 +1952,15 @@ class Catalog:
                 schema.TableVersion.md['schema_version'].cast(sql.Integer) == schema.TableSchemaVersion.schema_version,
             )
         elif anchor_timestamp is not None:
-            # we are loading the version that is anchored to the head version of another table
+            # we are loading the version that is anchored to the head version of another table (see TableVersion
+            # docstring for details)
+            # SELECT *
+            # FROM Table t
+            # JOIN TableVersion tv ON (tv.tbl_id = tbl_id)
+            # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND tv.md.schema_version = tsv.schema_version)
+            # WHERE t.id = tbl_id AND tv.md.created_at <= anchor_timestamp
+            # ORDER BY tv.md.created_at DESC
+            # LIMIT 1
             q = (
                 q.where(
                     schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_timestamp,

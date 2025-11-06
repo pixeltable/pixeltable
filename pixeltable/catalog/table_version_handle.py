@@ -18,6 +18,8 @@ _logger = logging.getLogger('pixeltable')
 class TableVersionHandle:
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
+
+    See the TableVersion docstring for details on the semantics of `effective_version` and `anchor_tbl_id`.
     """
 
     id: UUID

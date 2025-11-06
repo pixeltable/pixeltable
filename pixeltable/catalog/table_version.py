@@ -83,7 +83,15 @@ class TableVersion:
     Only TableVersion and Catalog interact directly with stored metadata. Everything else needs to go through these
     two classes.
 
-
+    TableVersions come in three "flavors" depending on the `effective_version` and `anchor_tbl_id` settings:
+    - if both are None, it's a live table that tracks the latest version
+    - if `effective_version` is defined, it's a snapshot of a specific version
+    - if `anchor_tbl_id` is defined, it's a replica table that is "anchored" to the given table, in the following
+        sense: if n is the latest non-fragment version of `anchor_tbl_id`, then the tracked version is m, where m
+        is the latest version of `tbl_id` (possibly a fragment) with created_at(m) <= created_at(n).
+        In the typical case, `anchor_tbl_id` is a descendant of `tbl_id` and the anchored TableVersion instance
+        appears along the TableVersionPath for `anchor_tbl_id`.
+    At most one of `effective_version` and `anchor_tbl_id` can be specified.
     """
 
     id: UUID
