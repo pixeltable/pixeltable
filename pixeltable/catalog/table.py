@@ -117,7 +117,9 @@ class Table(SchemaObject):
         return op()
 
     def _get_metadata(self) -> TableMetadata:
-        columns = self._tbl_version_path.columns()
+        tvp = self._tbl_version_path
+        tv = tvp.tbl_version.get()
+        columns = tvp.columns()
         column_info: dict[str, ColumnMetadata] = {}
         for col in columns:
             column_info[col.name] = ColumnMetadata(
@@ -130,8 +132,7 @@ class Table(SchemaObject):
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
             )
-        # Pure snapshots have no indices
-        indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}
+        indices = tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
@@ -154,14 +155,12 @@ class Table(SchemaObject):
             path=self._path(),
             columns=column_info,
             indices=index_info,
-            is_replica=self._tbl_version_path.is_replica(),
+            is_replica=tv.is_replica,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
-            version_created=datetime.datetime.fromtimestamp(
-                self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc
-            ),
-            schema_version=self._tbl_version_path.schema_version(),
+            version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
+            schema_version=tvp.schema_version(),
             comment=self._get_comment(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,

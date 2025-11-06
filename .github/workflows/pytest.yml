@@ -43,6 +43,7 @@ on:
         default: false
 
 env:
+  # PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
   PIXELTABLE_B2_PROFILE: b2_profile
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   PIXELTABLE_R2_PROFILE: r2_profile
@@ -201,9 +202,8 @@ jobs:
           if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
             exit 1
           fi
-      - name: Run random table ops
-        if: ${{ matrix.test-category == 'random-ops' }}
-        run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
+      - name: Run stress tests
+        run: ./scripts/stress-tests.sh 1800
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool

@@ -1132,7 +1132,7 @@ class Catalog:
             tv.is_validated = False
             del self._tbl_versions[tbl_id, effective_version, alignment_tbl_id]
 
-    def create_replica(self, path: Path, md: list[TableVersionCompleteMd]) -> None:
+    def create_replica(self, path: Path, md: list[TableVersionCompleteMd], create_store_tbls: bool = True) -> None:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
@@ -1196,7 +1196,7 @@ class Catalog:
         # Store the metadata for the table being replicated; as before, it could be a new version or a known version.
         # If it's a new version, then a TableVersion record will be created, unless the table being replicated
         # is a pure snapshot.
-        self.__store_replica_md(path, md[0])
+        self.__store_replica_md(path, md[0], create_store_tbls)
 
         # Finally, it's possible that the table already exists in the catalog, but as an anonymous system table that
         # was hidden the last time we checked (and that just became visible when the replica was imported). In this
@@ -1214,7 +1214,7 @@ class Catalog:
         system_path = Path.parse('_system', allow_system_path=True)
         return self._create_dir(system_path, if_exists=IfExistsParam.IGNORE, parents=False)
 
-    def __store_replica_md(self, path: Path, md: TableVersionCompleteMd) -> None:
+    def __store_replica_md(self, path: Path, md: TableVersionCompleteMd, create_store_tbl: bool = True) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
@@ -1310,7 +1310,7 @@ class Catalog:
 
         if is_new_tbl_version and not md.is_pure_snapshot:
             # It's a new version of a table that has a physical store, so we need to create a TableVersion instance.
-            TableVersion.create_replica(md)
+            TableVersion.create_replica(md, create_store_tbl)
 
     def get_additional_md(self, tbl_id: UUID) -> dict[str, Any]:
         """Return the additional_md field of the given table."""
