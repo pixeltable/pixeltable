@@ -82,6 +82,8 @@ class TableVersion:
 
     Only TableVersion and Catalog interact directly with stored metadata. Everything else needs to go through these
     two classes.
+
+
     """
 
     id: UUID
@@ -435,8 +437,6 @@ class TableVersion:
         in Catalog.
         """
         from .catalog import Catalog
-
-        print('INITIALIZING TABLEVERSION: ', self, self.schema_version_md)
 
         cat = Catalog.get()
         assert (self.id, self.effective_version, self.anchor_tbl_id) in cat._tbl_versions

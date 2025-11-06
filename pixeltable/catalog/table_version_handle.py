@@ -64,7 +64,6 @@ class TableVersionHandle:
         from .catalog import Catalog
 
         cat = Catalog.get()
-        print(f'Getting {self}')
         if self._tbl_version is None or not self._tbl_version.is_validated:
             if self.effective_version is not None and self._tbl_version is not None:
                 # this is a snapshot version; we need to make sure we refer to the instance cached
@@ -74,14 +73,11 @@ class TableVersionHandle:
                 self._tbl_version = cat._tbl_versions[self.id, self.effective_version, self.anchor_tbl_id]
                 self._tbl_version.is_validated = True
             else:
-                self._tbl_version = Catalog.get().get_tbl_version(
-                    self.id, self.effective_version, self.anchor_tbl_id
-                )
+                self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version, self.anchor_tbl_id)
                 assert self._tbl_version.anchor_tbl_id == self.anchor_tbl_id
         if self.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
             assert self._tbl_version in tvs, self._tbl_version
-        print(f'Got {self._tbl_version}')
         return self._tbl_version
 
     def as_dict(self) -> dict:
@@ -94,9 +90,7 @@ class TableVersionHandle:
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
         anchor_tbl_id = d.get('anchor_tbl_id')
-        return cls(
-            UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None
-        )
+        return cls(UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None)
 
 
 @dataclass(frozen=True)

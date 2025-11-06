@@ -233,7 +233,6 @@ class Catalog:
                 f'snapshot_id={tbl_version.id} mutable_views={tbl_version.mutable_views}'
             )
 
-            assert not tbl_version.version_md.is_fragment
             assert anchor_tbl_id is None or tbl_version.is_replica
 
             if (
@@ -1373,7 +1372,9 @@ class Catalog:
 
         self._drop_tbl(tbl, force=force, is_replace=False)
 
-    def _drop_tbl(self, tbl: Table | TableVersionPath, force: bool, is_replace: bool, is_replica: bool | None = None) -> None:
+    def _drop_tbl(
+        self, tbl: Table | TableVersionPath, force: bool, is_replace: bool, is_replica: bool | None = None
+    ) -> None:
         """
         Drop the table (and recursively its views, if force == True).
 
@@ -1654,7 +1655,6 @@ class Catalog:
                 # metadata changes after a failed update operation
                 if reload:
                     # the cached metadata is invalid
-                    print('RELOADING')
                     tv = self._load_tbl_version(tbl_id, None, anchor_tbl_id, check_pending_ops=check_pending_ops)
                 else:
                     # the cached metadata is valid
@@ -1754,7 +1754,6 @@ class Catalog:
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, int | None]] = []
         anchor_tbl_id = UUID(tbl_md.tbl_id) if tbl_md.is_replica else None
-        print(f'{tbl_id}, {anchor_tbl_id}')
         if tbl_md.is_pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
@@ -2150,12 +2149,7 @@ class Catalog:
         return md
 
     def _load_tbl_version(
-        self,
-        tbl_id: UUID,
-        effective_version: int | None,
-        anchor_tbl_id: UUID | None,
-        *,
-        check_pending_ops: bool = True,
+        self, tbl_id: UUID, effective_version: int | None, anchor_tbl_id: UUID | None, *, check_pending_ops: bool = True
     ) -> TableVersion | None:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
         table_version_md = self.load_tbl_md(tbl_id, effective_version, anchor_tbl_id)
@@ -2215,9 +2209,7 @@ class Catalog:
             base: TableVersionHandle
             base_path: TableVersionPath | None = None  # needed for live view
             if view_md.is_snapshot:
-                base = TableVersionHandle(
-                    UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], anchor_tbl_id
-                )
+                base = TableVersionHandle(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1], anchor_tbl_id)
             else:
                 base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
                 base = base_path.tbl_version
