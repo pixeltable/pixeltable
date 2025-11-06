@@ -342,7 +342,7 @@ export interface Table {
    *     ...     image_embed=image_embedding_fn
    *     ... )
    */
-  add_embedding_index(): Promise<any>;
+  add_embedding_index(column: any, idx_name: any, embedding: any, string_embed: any, image_embed: any, metric?: any, if_exists?: any): Promise<any>;
   /**
    * Drop an embedding index from the table. Either a column name or an index name (but not both) must be
    * specified. If a column name or reference is specified, it must be a column containing exactly one
@@ -458,7 +458,7 @@ export interface Table {
    * 
    *     >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
    */
-  update(value_spec: Record<string, any>, where: Expr | null, cascade?: boolean): Promise<UpdateStatus>;
+  update(value_spec: any, where: any, cascade?: any): Promise<any>;
   /**
    * Update rows in this table.
    * 
@@ -515,7 +515,7 @@ export interface Table {
    * 
    *     >>> tbl.recompute_columns('c1', errors_only=True)
    */
-  recompute_columns(): Promise<any>;
+  recompute_columns(columns: any, where: any, errors_only?: any, cascade?: any): Promise<any>;
   /**
    * Delete rows in this table.
    * 
@@ -531,7 +531,7 @@ export interface Table {
    * 
    *     >>> tbl.delete(tbl.a > 5)
    */
-  delete(where: Expr | null): Promise<UpdateStatus>;
+  delete(where: any): Promise<any>;
   /**
    * Reverts the table to the previous version.
    * 
@@ -895,6 +895,8 @@ export interface Pixeltable {
    *     schema_overrides: Must be used in conjunction with a `source`.
    *         If specified, then columns in `schema_overrides` will be given the specified types.
    *         (Pixeltable will attempt to infer the types of any columns not specified.)
+   *     create_default_idxs: If True, creates a B-tree index on every scalar and media column that is not computed,
+   *         except for boolean columns.
    *     on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
    *         invalid media file (such as a corrupt image) for one of the inserted rows.
    * 
@@ -956,7 +958,7 @@ export interface Pixeltable {
    * 
    *     >>> tbl = pxt.create_table('my_table', source='data.csv')
    */
-  create_table(): Promise<any>;
+  create_table(path: any, schema: any, source: any, source_format: any, schema_overrides: any, primary_key: any, extra_args: any, create_default_idxs?: any, on_error?: any, num_retained_versions?: any, comment?: any, media_validation?: any, if_exists?: any): Promise<any>;
 
   /**
    * Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
@@ -971,6 +973,8 @@ export interface Pixeltable {
    *         [`create_table`][pixeltable.create_table].
    *     is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
    *         [`create_snapshot`][pixeltable.create_snapshot].
+   *     create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
+   *         Cannot be `True` for snapshots.
    *     iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
    *         the base table.
    *     num_retained_versions: Number of versions of the view to retain.
@@ -1018,7 +1022,7 @@ export interface Pixeltable {
    *     >>> tbl = pxt.get_table('my_table')
    *     ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
    */
-  create_view(path: string, base: Table | any, additional_columns: Record<string, any> | null, iterator: any[] | null, is_snapshot?: boolean, num_retained_versions?: number, comment?: string, media_validation?: any, if_exists?: any): Promise<Table | null>;
+  create_view(path: string, base: Table | any, additional_columns: Record<string, any> | null, iterator: any[] | null, is_snapshot?: boolean, create_default_idxs?: boolean, num_retained_versions?: number, comment?: string, media_validation?: any, if_exists?: any): Promise<Table | null>;
 
   /**
    * Remove a directory.
@@ -1120,7 +1124,7 @@ export interface Pixeltable {
    * 
    *     >>> pxt.get_dir_contents('dir1')
    */
-  get_dir_contents(): Promise<any>;
+  get_dir_contents(dir_path?: any, recursive?: any): Promise<any>;
 
   /**
    * Get a handle to an existing table, view, or snapshot.
@@ -1280,7 +1284,8 @@ export interface Pixeltable {
    * queried offline just as any other Pixeltable table.
    * 
    * Args:
-   *     remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
+   *     remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
+   *         `'pxt://org_name/my_dir/my_table:5'` (with version 5).
    *     local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
    *         the same or different from the cloud table name.
    * 
@@ -1557,7 +1562,7 @@ export interface Pixeltable {
    *     See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/examples/vision/voxel51) tutorial
    *     for a fully worked example.
    */
-  export_images_as_fo_dataset(): Promise<any>;
+  export_images_as_fo_dataset(tbl: any, images: any, classifications: any, detections: any, image_format?: any): Promise<any>;
 
   /**
    * Create a new base table from a Huggingface dataset, or dataset dict with multiple splits.
@@ -1580,7 +1585,7 @@ export interface Pixeltable {
    * Returns:
    *     A handle to the newly created [`Table`][pixeltable.Table].
    */
-  import_huggingface_dataset(): Promise<any>;
+  import_huggingface_dataset(table_path: any, dataset: any, schema_overrides: any, primary_key: any, kwargs: any): Promise<any>;
 
   /**
    * Creates a new base table from a csv file. This is a convenience method and is equivalent
@@ -1664,11 +1669,6 @@ export interface Pixeltable {
    *     A handle to the newly created table.
    */
   import_parquet(table: string, parquet_path: string, schema_overrides: Record<string, any> | null, primary_key: string | any[] | null, kwargs: any): Promise<Table>;
-
-  /**
-   * Helper for @overload to raise when called.
-   */
-  _overload_dummy(args: any, kwds: any): Promise<any>;
 
 }
 

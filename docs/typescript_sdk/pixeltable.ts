@@ -33,7 +33,7 @@ class PixeltableClient {
       throw new Error(`Pixeltable API error: ${response.statusText}`);
     }
 
-    return response.json();
+    return response.json() as T;
   }
 
   async get_public_api_registry(): Promise<any> {
@@ -66,14 +66,14 @@ class PixeltableClient {
     return this.request(`/api/create_snapshot`, "POST", { path_str, base, additional_columns, iterator, num_retained_versions, comment, media_validation, if_exists });
   }
 
-  async create_table(): Promise<any> {
+  async create_table(path: any, schema: any, source: any, source_format: any, schema_overrides: any, create_default_idxs: any, on_error: any, primary_key: any, num_retained_versions: any, comment: any, media_validation: any, if_exists: any, extra_args: any): Promise<any> {
     // TODO: Implement create_table
-    return this.request(`/api/create_table`, "POST", {  });
+    return this.request(`/api/create_table`, "POST", { path, schema, source, source_format, schema_overrides, create_default_idxs, on_error, primary_key, num_retained_versions, comment, media_validation, if_exists, extra_args });
   }
 
-  async create_view(path: any, base: any, additional_columns: any, is_snapshot: any, iterator: any, num_retained_versions: any, comment: any, media_validation: any, if_exists: any): Promise<any> {
+  async create_view(path: any, base: any, additional_columns: any, is_snapshot: any, create_default_idxs: any, iterator: any, num_retained_versions: any, comment: any, media_validation: any, if_exists: any): Promise<any> {
     // TODO: Implement create_view
-    return this.request(`/api/create_view`, "POST", { path, base, additional_columns, is_snapshot, iterator, num_retained_versions, comment, media_validation, if_exists });
+    return this.request(`/api/create_view`, "POST", { path, base, additional_columns, is_snapshot, create_default_idxs, iterator, num_retained_versions, comment, media_validation, if_exists });
   }
 
   async drop_dir(path: any, force: any, if_not_exists: any): Promise<any> {
@@ -86,9 +86,9 @@ class PixeltableClient {
     return this.request(`/api/drop_table`, "POST", { table, force, if_not_exists });
   }
 
-  async get_dir_contents(): Promise<any> {
+  async get_dir_contents(dir_path: any, recursive: any): Promise<any> {
     // TODO: Implement get_dir_contents
-    return this.request(`/api/get_dir_contents`, "POST", {  });
+    return this.request(`/api/get_dir_contents`, "POST", { dir_path, recursive });
   }
 
   async get_table(path: any, if_not_exists: any): Promise<any> {
@@ -161,14 +161,14 @@ class PixeltableClient {
     return this.request(`/api/create_label_studio_project`, "POST", { t, label_config, name, title, media_import_method, col_mapping, sync_immediately, s3_configuration, kwargs });
   }
 
-  async export_images_as_fo_dataset(): Promise<any> {
+  async export_images_as_fo_dataset(tbl: any, images: any, image_format: any, classifications: any, detections: any): Promise<any> {
     // TODO: Implement export_images_as_fo_dataset
-    return this.request(`/api/export_images_as_fo_dataset`, "POST", {  });
+    return this.request(`/api/export_images_as_fo_dataset`, "POST", { tbl, images, image_format, classifications, detections });
   }
 
-  async import_huggingface_dataset(): Promise<any> {
+  async import_huggingface_dataset(table_path: any, dataset: any, schema_overrides: any, primary_key: any, kwargs: any): Promise<any> {
     // TODO: Implement import_huggingface_dataset
-    return this.request(`/api/import_huggingface_dataset`, "POST", {  });
+    return this.request(`/api/import_huggingface_dataset`, "POST", { table_path, dataset, schema_overrides, primary_key, kwargs });
   }
 
   async import_csv(tbl_name: any, filepath_or_buffer: any, schema_overrides: any, primary_key: any, num_retained_versions: any, comment: any, kwargs: any): Promise<any> {
@@ -194,11 +194,6 @@ class PixeltableClient {
   async import_parquet(table: any, parquet_path: any, schema_overrides: any, primary_key: any, kwargs: any): Promise<any> {
     // TODO: Implement import_parquet
     return this.request(`/api/import_parquet`, "POST", { table, parquet_path, schema_overrides, primary_key, kwargs });
-  }
-
-  async _overload_dummy(args: any, kwds: any): Promise<any> {
-    // TODO: Implement _overload_dummy
-    return this.request(`/api/_overload_dummy`, "POST", { args, kwds });
   }
 
 }

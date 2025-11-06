@@ -396,7 +396,7 @@ export interface PixeltableColumnType {
             '      throw new Error(`Pixeltable API error: ${response.statusText}`);',
             '    }',
             '',
-            '    return response.json();',
+            '    return response.json() as T;',
             '  }',
             '',
         ]

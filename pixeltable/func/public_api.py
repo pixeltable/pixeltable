@@ -97,13 +97,18 @@ def public_api(obj: T) -> T:
     # For UDFs, use the underlying Python function
     target_for_inspection = underlying_fn if underlying_fn else obj
 
+    # Get signature (should work for all callable objects)
     try:
         signature = inspect.signature(target_for_inspection)
+    except (ValueError, TypeError, AttributeError):
+        signature = None
+
+    # Try to get type hints, but don't fail if it doesn't work
+    # (e.g., due to TYPE_CHECKING imports or forward references)
+    try:
         type_hints = get_type_hints(target_for_inspection)
     except (ValueError, TypeError, AttributeError, NameError):
-        # Some objects may not have standard signatures
-        # or get_type_hints may fail due to circular imports or undefined names
-        signature = None
+        # Fall back to annotation strings from signature if available
         type_hints = {}
 
     # Extract parameter information
