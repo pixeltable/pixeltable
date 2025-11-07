@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
+from pixeltable.utils.retry import exponential_backoff
 
 from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
 
@@ -272,7 +273,6 @@ class RequestRateScheduler(Scheduler):
     # Exponential backoff defaults
     BASE_RETRY_DELAY = 1.0  # in seconds
     MAX_RETRY_DELAY = 60.0  # in seconds
-    RETRY_BACKOFF_MULTIPLIER = 2.0
 
     def __init__(self, resource_pool: str, dispatcher: Dispatcher):
         super().__init__(resource_pool, dispatcher)
@@ -501,8 +501,7 @@ class RequestRateScheduler(Scheduler):
             # Use server-suggested delay, but cap it at max_delay
             return max(min(retry_after, self.MAX_RETRY_DELAY), self.BASE_RETRY_DELAY)
         else:
-            delay = self.BASE_RETRY_DELAY * (self.RETRY_BACKOFF_MULTIPLIER**num_retries)
-            return max(min(delay, self.MAX_RETRY_DELAY), self.BASE_RETRY_DELAY)
+            return exponential_backoff(num_retries, max_delay=self.MAX_RETRY_DELAY)
 
 
 # all concrete Scheduler subclasses that implement matches()
