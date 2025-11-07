@@ -78,8 +78,13 @@ async def embed(
     )
     if text is not None:
         if res.text_embedding is None:
-            raise pxt.Error(f"Didn't receive embedding for text: {text}")
+            raise pxt.Error(f"Didn't receive embedding for text: {text}\n{res}")
         vector = res.text_embedding.segments[0].float_
+        return np.array(vector, dtype=np.float64)
+    if audio is not None:
+        if res.audio_embedding is None or res.audio_embedding.segments is None:
+            raise pxt.Error(f"Didn't receive embedding for audio: {audio}\n{res}")
+        vector = res.audio_embedding.segments[0].float_
         return np.array(vector, dtype=np.float64)
     # TODO: handle audio and image, once we know how to get a non-error response
     return None

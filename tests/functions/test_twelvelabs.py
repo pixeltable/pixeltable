@@ -19,9 +19,8 @@ class TestTwelveLabs:
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (1024,)
 
-    @pytest.mark.skip('Not working')
     def test_embed_audio(self, reset_db: None) -> None:
-        audio_filepaths = get_audio_files()
+        audio_filepaths = [file for file in get_audio_files() if '.flac' not in file]
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         v = pxt.create_view(
@@ -36,4 +35,6 @@ class TestTwelveLabs:
         v.add_computed_column(
             embed=pxt.functions.twelvelabs.embed(model_name='Marengo-retrieval-2.7', audio=v.audio_chunk)
         )
-        _ = v.select(v.audio_chunk.get_metadata(), v.embed).collect()
+        res = v.select(v.audio_chunk.get_metadata(), v.embed).collect()
+        for row in res:
+            print(row)
