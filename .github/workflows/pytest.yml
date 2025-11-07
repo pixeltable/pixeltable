@@ -203,6 +203,7 @@ jobs:
             exit 1
           fi
       - name: Run stress tests
+        if: ${{ matrix.test-category == 'random-ops' }}
         run: ./scripts/stress-tests.sh 12 1800
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
