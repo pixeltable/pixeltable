@@ -537,10 +537,7 @@ class Catalog:
             check_pending_ops=check_pending_ops,
         )
         # update cache
-        _ = self.get_tbl_version(
-            TableVersionKey(path_handles[0].id, path_handles[0].effective_version, path_handles[0].anchor_tbl_id),
-            validate_initialized=True,
-        )
+        _ = self.get_tbl_version(path_handles[0].key, validate_initialized=True)
         return handle is not None
 
     def _acquire_tbl_lock(

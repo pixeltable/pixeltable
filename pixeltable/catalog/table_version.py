@@ -68,6 +68,20 @@ class TableVersionKey(NamedTuple):
     effective_version: int | None
     anchor_tbl_id: UUID | None
 
+    def as_dict(self) -> dict:
+        return {
+            'id': str(self.tbl_id),
+            'effective_version': self.effective_version,
+            'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TableVersionKey:
+        tbl_id = UUID(d['id'])
+        effective_version = d['effective_version']
+        anchor_tbl_id = d.get('anchor_tbl_id')
+        return cls(tbl_id, effective_version, UUID(anchor_tbl_id) if anchor_tbl_id is not None else None)
+
 
 class TableVersion:
     """
@@ -90,8 +104,8 @@ class TableVersion:
     two classes.
 
     TableVersions come in three "flavors" depending on the `effective_version` and `anchor_tbl_id` settings:
-    - if both are None, it's a live table that tracks the latest version
-    - if `effective_version` is defined, it's a snapshot of a specific version
+    - if both are None, it's a live table that tracks `tbl_md.current_version`
+    - if `effective_version` is defined, it's a snapshot of the specific version given by `effective_version`
     - if `anchor_tbl_id` is defined, it's a replica table that is "anchored" to the given table, in the following
         sense: if n is the latest non-fragment version of `anchor_tbl_id`, then the tracked version is m, where m
         is the latest version of `tbl_id` (possibly a fragment) with created_at(m) <= created_at(n).
@@ -107,7 +121,7 @@ class TableVersion:
     _version_md: schema.TableVersionMd
     _schema_version_md: schema.TableSchemaVersionMd
 
-    path: 'TableVersionPath' | None  # only set for live tables; needed to resolve computed cols
+    path: 'TableVersionPath' | None  # only set for non-snapshots; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
@@ -553,7 +567,7 @@ class TableVersion:
             )
         elif self.anchor_tbl_id is not None:
             # for replica TableVersion instances, we also need to retarget the value_exprs, this time to the
-            # "anchored" TableVerisonPath.
+            # "anchored" TableVersionPath.
             assert self.path is not None
             tvp = self.path
         for col in self.cols_by_id.values():
@@ -1691,17 +1705,11 @@ class TableVersion:
         ]
 
     def as_dict(self) -> dict:
-        return {
-            'id': str(self.id),
-            'effective_version': self.effective_version,
-            'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
-        }
+        return self.key.as_dict()
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
         from pixeltable.catalog import Catalog
 
-        id = UUID(d['id'])
-        effective_version = d['effective_version']
-        anchor_tbl_id = UUID(d['anchor_tbl_id']) if 'anchor_tbl_id' in d else None
-        return Catalog.get().get_tbl_version(TableVersionKey(id, effective_version, anchor_tbl_id))
+        key = TableVersionKey.from_dict(d)
+        return Catalog.get().get_tbl_version(key)

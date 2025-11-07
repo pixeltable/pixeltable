@@ -80,20 +80,11 @@ class TableVersionHandle:
         return self._tbl_version
 
     def as_dict(self) -> dict:
-        return {
-            'id': str(self.id),
-            'effective_version': self.effective_version,
-            'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
-        }
+        return self.key.as_dict()
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
-        anchor_tbl_id = d.get('anchor_tbl_id')
-        return cls(
-            TableVersionKey(
-                UUID(d['id']), d['effective_version'], UUID(anchor_tbl_id) if anchor_tbl_id is not None else None
-            )
-        )
+        return cls(TableVersionKey.from_dict(d))
 
 
 @dataclass(frozen=True)
