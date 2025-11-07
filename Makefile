@@ -24,7 +24,10 @@ else
     ULIMIT_CMD := ulimit -n 4000;
 endif
 
+# Defaults
+DURATION := 120
 UV_ARGS := --group extra-dev
+WORKERS := 12
 
 # Common test parameters
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
@@ -71,12 +74,15 @@ help:
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo ''
 	@echo 'Parameters:'
-	@echo '  UV_ARGS       Additional arguments to pass to `uv sync`'
+	@echo '  DURATION      Duration in seconds for stress tests (default = 120)'
+	@echo '  UV_ARGS       Additional arguments to pass to `uv sync` (default = '\''--group extra-dev'\'')'
 	@echo '  VERSION       Version to use for docs deployment'
+	@echo '  WORKERS       Number of workers for stress tests (default = 12)'
 	@echo ''
-	@echo 'Example commands:'
+	@echo 'Example command lines:'
 	@echo '  make install UV_ARGS=--no-dev   Switch to minimal Pixeltable installation (no dev packages)'
 	@echo '  make test UV_ARGS=--no-dev      Run tests with minimal Pixeltable installation'
+	@echo '  make stresstest DURATION=7200   Run stress tests for 2 hours'
 
 .PHONY: setup-install
 setup-install:
@@ -165,7 +171,7 @@ nbtest: install
 
 .PHONY: stresstest
 stresstest: install
-	@$(SHELL_PREFIX) scripts/stress-tests.sh 120
+	@$(SHELL_PREFIX) scripts/stress-tests.sh $(WORKERS) $(DURATION)
 
 .PHONY: typecheck
 typecheck: install
