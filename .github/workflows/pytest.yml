@@ -43,6 +43,7 @@ on:
         default: false
 
 env:
+  # PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
   PIXELTABLE_B2_PROFILE: b2_profile
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   PIXELTABLE_R2_PROFILE: r2_profile
@@ -77,6 +78,7 @@ env:
   R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+  REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
 
 jobs:
@@ -186,9 +188,9 @@ jobs:
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         run: |
-          PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-24.04' || matrix.python-version != '3.10') && 'not expensive' || '' }}"
-          echo "Running tests with markers: $PYTEST_MARKERS"
-          coverage run -m --source=pixeltable pytest -v -m "$PYTEST_MARKERS" --strict-markers
+          echo "Running tests with options : ${{ matrix.pytest-options }}"
+          echo "Extra environment variables: ${{ matrix.extra-env }}"
+          ${{ matrix.extra-env }} coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
@@ -200,9 +202,8 @@ jobs:
           if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
             exit 1
           fi
-      - name: Run random table ops
-        if: ${{ matrix.test-category == 'random-ops' }}
-        run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
+      - name: Run stress tests
+        run: ./scripts/stress-tests.sh 1800
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool

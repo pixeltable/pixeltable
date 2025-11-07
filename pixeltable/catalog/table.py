@@ -117,7 +117,9 @@ class Table(SchemaObject):
         return op()
 
     def _get_metadata(self) -> TableMetadata:
-        columns = self._tbl_version_path.columns()
+        tvp = self._tbl_version_path
+        tv = tvp.tbl_version.get()
+        columns = tvp.columns()
         column_info: dict[str, ColumnMetadata] = {}
         for col in columns:
             column_info[col.name] = ColumnMetadata(
@@ -130,8 +132,7 @@ class Table(SchemaObject):
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
             )
-        # Pure snapshots have no indices
-        indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}
+        indices = tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
@@ -154,14 +155,12 @@ class Table(SchemaObject):
             path=self._path(),
             columns=column_info,
             indices=index_info,
-            is_replica=self._tbl_version_path.is_replica(),
+            is_replica=tv.is_replica,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
-            version_created=datetime.datetime.fromtimestamp(
-                self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc
-            ),
-            schema_version=self._tbl_version_path.schema_version(),
+            version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
+            schema_version=tvp.schema_version(),
             comment=self._get_comment(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
@@ -170,6 +169,10 @@ class Table(SchemaObject):
     def _get_version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
+
+    def _get_pxt_uri(self) -> str | None:
+        with catalog.Catalog.get().begin_xact(tbl_id=self._id):
+            return catalog.Catalog.get().get_additional_md(self._id).get('pxt_uri')
 
     def __hash__(self) -> int:
         return hash(self._tbl_version_path.tbl_id)
@@ -776,8 +779,7 @@ class Table(SchemaObject):
                 media_validation = (
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
-                if 'destination' in spec:
-                    destination = ObjectOps.validate_destination(spec['destination'], name)
+                destination = spec.get('destination')
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -790,7 +792,11 @@ class Table(SchemaObject):
                 media_validation=media_validation,
                 destination=destination,
             )
+            # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
+            # media destination, it gets validated at this time.
+            ObjectOps.validate_destination(column.destination, column.name)
             columns.append(column)
+
         return columns
 
     @classmethod
@@ -814,10 +820,8 @@ class Table(SchemaObject):
                     f'streaming function'
                 )
             )
-        if col.destination is not None and not (col.stored and col.is_computed):
-            raise excs.Error(
-                f'Column {col.name!r}: `destination={col.destination!r}` only applies to stored computed columns'
-            )
+        if col._explicit_destination is not None and not (col.stored and col.is_computed):
+            raise excs.Error(f'Column {col.name!r}: `destination` property only applies to stored computed columns')
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
@@ -1615,13 +1619,56 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with catalog.Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('revert')
             self._tbl_version.get().revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
+
+    def push(self) -> None:
+        from pixeltable.share import push_replica
+        from pixeltable.share.protocol import PxtUri
+
+        if self._tbl_version_path.tbl_version.get().is_replica:
+            raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)')
+
+        pxt_uri = self._get_pxt_uri()
+        if pxt_uri is None:
+            raise excs.Error(
+                f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
+                'To publish it, use `pxt.publish()` instead.'
+            )
+
+        if self._tbl_version is None:
+            # Named snapshots never have new versions to push.
+            env.Env.get().console_logger.info('push(): Everything up to date.')
+            return
+
+        # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
+        parsed_uri = PxtUri(uri=pxt_uri)
+        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
+        uuid_uri = str(uuid_uri_obj)
+
+        push_replica(uuid_uri, self)
+
+    def pull(self) -> None:
+        from pixeltable.share import pull_replica
+        from pixeltable.share.protocol import PxtUri
+
+        pxt_uri = self._get_pxt_uri()
+        tbl_version = self._tbl_version_path.tbl_version.get()
+
+        if not tbl_version.is_replica or pxt_uri is None:
+            raise excs.Error(
+                f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
+            )
+
+        # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
+        parsed_uri = PxtUri(uri=pxt_uri)
+        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
+        uuid_uri = str(uuid_uri_obj)
+
+        pull_replica(self._path(), uuid_uri)
 
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())

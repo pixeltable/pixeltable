@@ -2,7 +2,7 @@ import dataclasses
 import types
 import typing
 import uuid
-from typing import Any, NamedTuple, TypeVar, Union, get_type_hints
+from typing import Any, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
@@ -68,6 +68,7 @@ class SystemInfo(Base):
     """A single-row table that contains system-wide metadata."""
 
     __tablename__ = 'systeminfo'
+
     dummy = sql.Column(Integer, primary_key=True, default=0, nullable=False)
     md = sql.Column(JSONB, nullable=False)  # SystemInfoMd
 
@@ -76,7 +77,7 @@ class SystemInfo(Base):
 class DirMd:
     name: str
     user: str | None
-    additional_md: dict[str, Any]
+    additional_md: dict[str, Any]  # deprecated
 
 
 class Dir(Base):
@@ -87,6 +88,7 @@ class Dir(Base):
     )
     parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # DirMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
     # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
@@ -196,7 +198,9 @@ class TableMd:
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: ViewMd | None
-    additional_md: dict[str, Any]
+    # TODO: Remove additional_md from this and other Md dataclasses (and switch to using the separate additional_md
+    #     column in all cases)
+    additional_md: dict[str, Any]  # deprecated
 
     has_pending_ops: bool = False
 
@@ -218,6 +222,12 @@ class TableMd:
             and len(self.column_md) == 0
         )
 
+    @property
+    def ancestor_ids(self) -> list[str]:
+        if self.view_md is None:
+            return []
+        return [id for id, _ in self.view_md.base_versions]
+
 
 class Table(Base):
     """
@@ -235,6 +245,7 @@ class Table(Base):
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
     # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
@@ -251,16 +262,18 @@ class TableVersionMd:
     # A version fragment cannot be queried or instantiated via get_table(). A fragment represents a version of a
     # replica table that has incomplete data, and exists only to provide base table support for a dependent view.
     is_fragment: bool = False
-    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)
+    additional_md: dict[str, Any] = dataclasses.field(default_factory=dict)  # deprecated
 
 
 class TableVersion(Base):
     __tablename__ = 'tableversions'
+
     tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
 @dataclasses.dataclass
@@ -293,7 +306,7 @@ class TableSchemaVersionMd:
     # default validation strategy for any media column of this table
     # stores column.MediaValiation.name.lower()
     media_validation: str
-    additional_md: dict[str, Any]
+    additional_md: dict[str, Any]  # deprecated
 
 
 # versioning: each table schema change results in a new record
@@ -305,6 +318,7 @@ class TableSchemaVersion(Base):
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+    additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
 class PendingTableOp(Base):
@@ -349,34 +363,3 @@ class Function(Base):
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
     binary_obj: orm.Mapped[bytes | None] = orm.mapped_column(LargeBinary, nullable=True)
-
-
-class FullTableMd(NamedTuple):
-    tbl_md: TableMd
-    version_md: TableVersionMd
-    schema_version_md: TableSchemaVersionMd
-
-    @property
-    def is_pure_snapshot(self) -> bool:
-        return (
-            self.tbl_md.view_md is not None
-            and self.tbl_md.view_md.is_snapshot
-            and self.tbl_md.view_md.predicate is None
-            and len(self.schema_version_md.columns) == 0
-        )
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            'table_id': self.tbl_md.tbl_id,
-            'table_md': dataclasses.asdict(self.tbl_md),
-            'table_version_md': dataclasses.asdict(self.version_md),
-            'table_schema_version_md': dataclasses.asdict(self.schema_version_md),
-        }
-
-    @classmethod
-    def from_dict(cls, data_dict: dict[str, Any]) -> 'FullTableMd':
-        return FullTableMd(
-            tbl_md=md_from_dict(TableMd, data_dict['table_md']),
-            version_md=md_from_dict(TableVersionMd, data_dict['table_version_md']),
-            schema_version_md=md_from_dict(TableSchemaVersionMd, data_dict['table_schema_version_md']),
-        )

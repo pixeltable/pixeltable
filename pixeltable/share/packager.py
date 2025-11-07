@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import io
 import json
 import logging
@@ -20,6 +21,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
+from pixeltable.catalog.table_version import TableVersionCompleteMd
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
@@ -51,7 +53,7 @@ class TablePackager:
     tmp_dir: Path  # Temporary directory where the package will reside
     tables_dir: Path  # Directory where the Parquet tables will be written
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
-    md: dict[str, Any]
+    bundle_md: dict[str, Any]
 
     bundle_path: Path
     preview_header: dict[str, str]
@@ -62,16 +64,16 @@ class TablePackager:
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-        # Load metadata
+        # Load metadata and convert to JSON immediately
         with catalog.Catalog.get().begin_xact(for_write=False):
             tbl_md = catalog.Catalog.get().load_replica_md(table)
-            self.md = {
+            self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
-                'md': {'tables': [md.as_dict() for md in tbl_md]},
+                'md': [dataclasses.asdict(md) for md in tbl_md],
             }
         if additional_md is not None:
-            self.md.update(additional_md)
+            self.bundle_md.update(additional_md)
 
     def package(self) -> Path:
         """
@@ -82,7 +84,7 @@ class TablePackager:
         _logger.info(f'Packaging table {self.table._path()!r} and its ancestors in: {self.tmp_dir}')
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
-            json.dump(self.md, fp)
+            json.dump(self.bundle_md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
         with catalog.Catalog.get().begin_xact(for_write=False):
@@ -94,10 +96,10 @@ class TablePackager:
         self.bundle_path = self.__build_tarball()
 
         _logger.info('Extracting preview data.')
-        self.md['row_count'] = self.table.count()
+        self.bundle_md['row_count'] = self.table.count()
         preview_header, preview = self.__extract_preview_data()
-        self.md['preview_header'] = preview_header
-        self.md['preview_data'] = preview
+        self.bundle_md['preview_header'] = preview_header
+        self.bundle_md['preview_data'] = preview
 
         _logger.info(f'Packaging complete: {self.bundle_path}')
         return self.bundle_path
@@ -358,34 +360,35 @@ class TableRestorer:
 
     Args:
         tbl_path: Pixeltable path (such as 'my_dir.my_table') where the materialized table will be made visible.
-        md: Optional metadata dictionary. If not provided, metadata will be read from the tarball's `metadata.json`.
+        bundle_md: Optional metadata dictionary.
+            If not provided, metadata will be read from the tarball's `metadata.json`.
             The metadata contains table_md, table_version_md, and table_schema_version_md entries for each ancestor
             of the table being restored, as written out by `TablePackager`.
     """
 
     tbl_path: str
-    md: dict[str, Any] | None
+    bundle_md: dict[str, Any] | None
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
-    def __init__(self, tbl_path: str, md: dict[str, Any] | None = None) -> None:
+    def __init__(self, tbl_path: str, bundle_md: dict[str, Any] | None = None) -> None:
         self.tbl_path = tbl_path
-        self.md = md
+        self.bundle_md = bundle_md
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-    def restore(self, bundle_path: Path) -> pxt.Table:
+    def restore(self, bundle_path: Path, pxt_uri: str | None = None) -> pxt.Table:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
             tf.extractall(path=self.tmp_dir)
 
-        if self.md is None:
+        if self.bundle_md is None:
             # No metadata supplied; read it from the archive
             with open(self.tmp_dir / 'metadata.json', 'r', encoding='utf8') as fp:
-                self.md = json.load(fp)
+                self.bundle_md = json.load(fp)
 
-        pxt_md_version = self.md['pxt_md_version']
+        pxt_md_version = self.bundle_md['pxt_md_version']
         assert isinstance(pxt_md_version, int)
 
         if pxt_md_version != metadata.VERSION:
@@ -393,8 +396,9 @@ class TableRestorer:
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
                 'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
             )
+        # Convert tables metadata from dict to list of TableVersionCompleteMd
+        tbl_md = [schema.md_from_dict(TableVersionCompleteMd, t) for t in self.bundle_md['md']]
 
-        tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
         for md in tbl_md:
             md.tbl_md.is_replica = True
 
@@ -419,9 +423,13 @@ class TableRestorer:
                     _logger.info(f'Importing table {tv.name!r}.')
                     self.__import_table(self.tmp_dir, tv, md)
 
-            return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
+            tbl = cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
+            if pxt_uri is not None:
+                # Set pxt_uri for the newly created table
+                cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
+            return tbl
 
-    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
+    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionCompleteMd) -> None:
         """
         Import the Parquet table into the Pixeltable catalog.
         """

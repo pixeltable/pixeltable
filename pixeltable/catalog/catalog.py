@@ -27,7 +27,7 @@ from .insertable_table import InsertableTable
 from .path import Path
 from .schema_object import SchemaObject
 from .table import Table
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionCompleteMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import TableOp
@@ -103,7 +103,16 @@ def retry_loop(
                     Catalog.get()._finalize_pending_ops(e.tbl_id)
                 except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
-                    if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
+                    if isinstance(
+                        # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
+                        #     which is supposed to be deadlock-free.
+                        e.orig,
+                        (
+                            psycopg.errors.SerializationFailure,
+                            psycopg.errors.LockNotAvailable,
+                            psycopg.errors.DeadlockDetected,
+                        ),
+                    ):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
@@ -452,12 +461,15 @@ class Catalog:
             _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
             raise excs.Error(f'Table was dropped: {tbl_name}') from None
         elif (
+            # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
+            #     which is supposed to be deadlock-free.
             isinstance(
                 e.orig,
                 (
                     psycopg.errors.SerializationFailure,  # serialization error despite getting x-locks
                     psycopg.errors.InFailedSqlTransaction,  # can happen after tx fails for another reason
                     psycopg.errors.DuplicateColumn,  # if a different process added a column concurrently
+                    psycopg.errors.DeadlockDetected,  # locking protocol contention
                 ),
             )
             and convert_db_excs
@@ -1102,7 +1114,7 @@ class Catalog:
             tv.is_validated = False
             del self._tbl_versions[tbl_id, effective_version]
 
-    def create_replica(self, path: Path, md: list[schema.FullTableMd]) -> None:
+    def create_replica(self, path: Path, md: list[TableVersionCompleteMd], create_store_tbls: bool = True) -> None:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
@@ -1166,7 +1178,7 @@ class Catalog:
         # Store the metadata for the table being replicated; as before, it could be a new version or a known version.
         # If it's a new version, then a TableVersion record will be created, unless the table being replicated
         # is a pure snapshot.
-        self.__store_replica_md(path, md[0])
+        self.__store_replica_md(path, md[0], create_store_tbls)
 
         # Finally, it's possible that the table already exists in the catalog, but as an anonymous system table that
         # was hidden the last time we checked (and that just became visible when the replica was imported). In this
@@ -1184,7 +1196,7 @@ class Catalog:
         system_path = Path.parse('_system', allow_system_path=True)
         return self._create_dir(system_path, if_exists=IfExistsParam.IGNORE, parents=False)
 
-    def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
+    def __store_replica_md(self, path: Path, md: TableVersionCompleteMd, create_store_tbl: bool = True) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
@@ -1239,9 +1251,16 @@ class Catalog:
             is_new_tbl_version = True
         else:
             existing_version_md = schema.md_from_dict(schema.TableVersionMd, existing_version_md_row.md)
-            # Validate that the existing metadata are identical to the new metadata, except that their is_fragment
-            # flags may differ.
-            if dataclasses.replace(existing_version_md, is_fragment=md.version_md.is_fragment) != md.version_md:
+            # Validate that the existing metadata are identical to the new metadata, except is_fragment
+            # and additional_md which may differ.
+            if (
+                dataclasses.replace(
+                    existing_version_md,
+                    is_fragment=md.version_md.is_fragment,
+                    additional_md=md.version_md.additional_md,
+                )
+                != md.version_md
+            ):
                 raise excs.Error(
                     f'The version metadata for the replica {path!r}:{md.version_md.version} is inconsistent with '
                     'the metadata recorded from a prior replica.\n'
@@ -1279,7 +1298,31 @@ class Catalog:
 
         if is_new_tbl_version and not md.is_pure_snapshot:
             # It's a new version of a table that has a physical store, so we need to create a TableVersion instance.
-            TableVersion.create_replica(md)
+            TableVersion.create_replica(md, create_store_tbl)
+
+    def get_additional_md(self, tbl_id: UUID) -> dict[str, Any]:
+        """Return the additional_md field of the given table."""
+        assert Env.get().in_xact
+        conn = Env.get().conn
+        q = sql.select(schema.Table.additional_md).where(schema.Table.id == str(tbl_id))
+        row = conn.execute(q).one()
+        assert isinstance(row[0], dict)
+        return row[0]
+
+    def update_additional_md(self, tbl_id: UUID, additional_md: dict[str, Any]) -> None:
+        """
+        Update the additional_md field of the given table. The new additional_md is merged with the
+        existing one via a JSON dictionary merge, giving preference to the new values.
+        """
+        assert self._in_write_xact
+        conn = Env.get().conn
+        q = (
+            sql.update(schema.Table)
+            .where(schema.Table.id == str(tbl_id))
+            .values({schema.Table.additional_md: schema.Table.additional_md.op('||')(additional_md)})
+        )
+        result = conn.execute(q)
+        assert result.rowcount == 1, result.rowcount
 
     @retry_loop(for_write=False)
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
@@ -1721,35 +1764,42 @@ class Catalog:
         tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
+        tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestor_ids, version_md.created_at)
 
-        # Reconstruct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
+        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
+        self._tbls[tbl_id, version] = view
+        return view
+
+    def construct_tvp(self, tbl_id: UUID, version: int, ancestor_ids: list[str], created_at: float) -> TableVersionPath:
+        # Construct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
         # timestamps of this table and all its ancestors.
         # TODO: Store the relevant TableVersionPaths in the database, so that we don't need to rely on timestamps
         #     (which might be nondeterministic in the future).
 
+        assert Env.get().conn is not None
+
         # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
         # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
         # given TableVersion's created_at timestamp.
-        ancestors: list[tuple[UUID, int | None]] = [(tbl_id, version)]
-        if tbl_md.view_md is not None:
-            for ancestor_id, _ in tbl_md.view_md.base_versions:
-                q = (
-                    sql.select(schema.TableVersion)
-                    .where(schema.TableVersion.tbl_id == ancestor_id)
-                    .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= version_md.created_at)
-                    .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
-                    .limit(1)
-                )
-                row = conn.execute(q).one_or_none()
-                if row is None:
-                    # This can happen if an ancestor version is garbage collected; it can also happen in
-                    # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
-                    _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{version}')
-                    raise excs.Error('The specified table version is no longer valid and cannot be retrieved.')
-                ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
-                ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
-                assert ancestor_version_md.created_at <= version_md.created_at
-                ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
+        ancestors: list[tuple[UUID, int]] = [(tbl_id, version)]
+        for ancestor_id in ancestor_ids:
+            q = (
+                sql.select(schema.TableVersion)
+                .where(schema.TableVersion.tbl_id == ancestor_id)
+                .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= created_at)
+                .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
+                .limit(1)
+            )
+            row = Env.get().conn.execute(q).one_or_none()
+            if row is None:
+                # This can happen if an ancestor version is garbage collected; it can also happen in
+                # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
+                _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{version}')
+                raise excs.Error('The specified table version is no longer valid and cannot be retrieved.')
+            ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
+            ancestor_version_md = schema.md_from_dict(schema.TableVersionMd, ancestor_version_record.md)
+            assert ancestor_version_md.created_at <= created_at
+            ancestors.append((UUID(ancestor_id), ancestor_version_md.version))
 
         # Force any ancestors to be loaded (base table first).
         for anc_id, anc_version in ancestors[::-1]:
@@ -1761,15 +1811,13 @@ class Catalog:
         for anc_id, anc_version in ancestors[::-1]:
             tvp = TableVersionPath(TableVersionHandle(anc_id, anc_version), base=tvp)
 
-        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
-        self._tbls[tbl_id, version] = view
-        return view
+        return tvp
 
     @retry_loop(for_write=False)
-    def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
+    def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[TableVersionCompleteMd]:
         return self._collect_tbl_history(tbl_id, n)
 
-    def _collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[schema.FullTableMd]:
+    def _collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[TableVersionCompleteMd]:
         """
         Returns the history of up to n versions of the table with the given UUID.
 
@@ -1797,15 +1845,15 @@ class Catalog:
             q = q.limit(n)
         src_rows = Env.get().session.execute(q).fetchall()
         return [
-            schema.FullTableMd(
-                schema.md_from_dict(schema.TableMd, row.Table.md),
-                schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
-                schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
+            TableVersionCompleteMd(
+                tbl_md=schema.md_from_dict(schema.TableMd, row.Table.md),
+                version_md=schema.md_from_dict(schema.TableVersionMd, row.TableVersion.md),
+                schema_version_md=schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
             )
             for row in src_rows
         ]
 
-    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> schema.FullTableMd:
+    def load_tbl_md(self, tbl_id: UUID, effective_version: int | None) -> TableVersionCompleteMd:
         """
         Loads metadata from the store for a given table UUID and version.
         """
@@ -1856,7 +1904,7 @@ class Catalog:
         version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
 
-        return schema.FullTableMd(tbl_md, version_md, schema_version_md)
+        return TableVersionCompleteMd(tbl_md, version_md, schema_version_md)
 
     def store_tbl_md(
         self,
@@ -1930,8 +1978,12 @@ class Catalog:
                 # This table version already exists; update it.
                 assert len(tv_rows) == 1  # must be unique
                 tv = tv_rows[0]
-                # Validate that the only field that can change is 'is_fragment'.
-                assert tv.md == dataclasses.asdict(dataclasses.replace(version_md, is_fragment=tv.md['is_fragment']))
+                # Validate that the only fields that can change are 'is_fragment' and 'additional_md'.
+                assert tv.md == dataclasses.asdict(
+                    dataclasses.replace(
+                        version_md, is_fragment=tv.md['is_fragment'], additional_md=tv.md['additional_md']
+                    )
+                )
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)
                     .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
@@ -1982,7 +2034,7 @@ class Catalog:
         conn.execute(sql.delete(schema.PendingTableOp.__table__).where(schema.PendingTableOp.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
 
-    def load_replica_md(self, tbl: Table) -> list[schema.FullTableMd]:
+    def load_replica_md(self, tbl: Table) -> list[TableVersionCompleteMd]:
         """
         Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
         TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
@@ -2003,7 +2055,7 @@ class Catalog:
             # Set the `is_replica` flag on every ancestor's TableMd.
             ancestor_md.tbl_md.is_replica = True
             # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
-            # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
+            # match the corresponding values in TableVersionCompleteMd and TableSchemaVersionMd. This is to ensure that,
             # when the metadata is later stored in the catalog of a different Pixeltable instance, the values of
             # current_version and current_schema_version will always point to versions that are known to the
             # destination catalog.
@@ -2022,7 +2074,10 @@ class Catalog:
         self, tbl_id: UUID, effective_version: int | None, check_pending_ops: bool = True
     ) -> TableVersion | None:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
-        tbl_md, version_md, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
+        table_version_md = self.load_tbl_md(tbl_id, effective_version)
+        tbl_md = table_version_md.tbl_md
+        version_md = table_version_md.version_md
+        schema_version_md = table_version_md.schema_version_md
         view_md = tbl_md.view_md
 
         conn = Env.get().conn
@@ -2046,10 +2101,6 @@ class Catalog:
 
         # load mutable view ids for mutable TableVersions
         mutable_view_ids: list[UUID] = []
-        # If this is a replica, effective_version should not be None. We see this today, because
-        # the replica's TV instance's Column instances contain value_expr_dicts that reference the live version.
-        # This is presumably a source of bugs, because it ignores schema version changes (eg, column renames).
-        # TODO: retarget the value_expr_dict when instantiating Columns for a particular TV instance.
         if effective_version is None and not tbl_md.is_replica:
             q = (
                 sql.select(schema.Table.id)
@@ -2066,7 +2117,7 @@ class Catalog:
             tbl_version = TableVersion(tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
-            # TODO: add TableVersionMd.is_pure_snapshot() and use that
+            # TODO: add TableVersionCompleteMd.is_pure_snapshot() and use that
             pure_snapshot = (
                 view_md.is_snapshot
                 and view_md.predicate is None

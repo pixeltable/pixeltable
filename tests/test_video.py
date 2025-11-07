@@ -2,6 +2,7 @@ import math
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import PIL
 import pytest
@@ -14,6 +15,7 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     generate_test_video,
+    get_audio_files,
     get_video_files,
     reload_catalog,
     skip_test_if_not_installed,
@@ -35,7 +37,7 @@ class TestVideo:
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
         base_t, view_t = self.create_tbls()
-        _ = ObjectOps.count(None, view_t._id)
+        _ = ObjectOps.count(view_t._id, default_output_dest=True)
 
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
@@ -66,16 +68,16 @@ class TestVideo:
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths)
-        assert ObjectOps.count(None, view._id) == 0
+        assert ObjectOps.count(view._id, default_output_dest=True) == 0
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths)
-        assert ObjectOps.count(None, view._id) == view.count()
+        assert ObjectOps.count(view._id, default_output_dest=True) == view.count()
 
         # revert() also removes computed images
         tbl.insert({'video': p} for p in video_filepaths)
         tbl.revert()
-        assert ObjectOps.count(None, view._id) == view.count()
+        assert ObjectOps.count(view._id, default_output_dest=True) == view.count()
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -971,8 +973,6 @@ class TestVideo:
     def test_with_audio(self, reset_db: None) -> None:
         from pixeltable.functions.video import with_audio
 
-        from .utils import get_audio_files
-
         video_filepaths = get_video_files()
         audio_filepaths = get_audio_files()
         num_rows = min(len(video_filepaths), len(audio_filepaths))
@@ -1019,6 +1019,67 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=0.0))
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
+
+    def test_scene_detect(self, reset_db: None) -> None:
+        skip_test_if_not_installed('scenedetect')
+        video_filepaths = get_video_files()
+
+        test_params: list[tuple[pxt.Function, dict[str, Any]]] = [
+            (pxtf.video.scene_detect_adaptive, {}),
+            (pxtf.video.scene_detect_content, {}),
+            (pxtf.video.scene_detect_threshold, {}),
+            (pxtf.video.scene_detect_histogram, {}),
+            (pxtf.video.scene_detect_hash, {}),
+            (
+                pxtf.video.scene_detect_adaptive,
+                {
+                    'adaptive_threshold': 4.0,
+                    'min_scene_len': 20,
+                    'window_width': 3,
+                    'min_content_val': 15.0,
+                    'delta_hue': 2.0,
+                    'delta_sat': 2.0,
+                    'delta_lum': 2.0,
+                    'delta_edges': 1.0,
+                    'luma_only': True,
+                    'kernel_size': None,
+                },
+            ),
+            (
+                pxtf.video.scene_detect_content,
+                {
+                    'threshold': 27.0,
+                    'min_scene_len': 15,
+                    'delta_hue': 2.0,
+                    'delta_sat': 2.0,
+                    'delta_lum': 2.0,
+                    'delta_edges': 1.0,
+                    'luma_only': True,
+                    'kernel_size': None,
+                    'filter_mode': 'suppress',
+                },
+            ),
+            (
+                pxtf.video.scene_detect_threshold,
+                {
+                    'threshold': 12.0,
+                    'min_scene_len': 15,
+                    'fade_bias': 1.0,
+                    'add_final_scene': True,
+                    'method': 'ceiling',
+                },
+            ),
+            (pxtf.video.scene_detect_histogram, {'threshold': 0.1, 'bins': 256, 'min_scene_len': 15}),
+            (pxtf.video.scene_detect_hash, {'threshold': 0.595, 'size': 24, 'lowpass': 3, 'min_scene_len': 15}),
+        ]
+        for udf, params in test_params:
+            t = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace')
+            t.insert({'video': p} for p in video_filepaths)
+            status = t.add_computed_column(scenes=udf(t.video, fps=2.0, **params))
+            assert status.num_excs == 0
+            res = t.select(t.scenes).collect()
+            assert len(res) == len(video_filepaths)
+            assert all(len(row['scenes']) > 0 for row in res)
 
     def test_default_video_codec(self, reset_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)

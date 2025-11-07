@@ -10,6 +10,7 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from .globals import MediaValidation, QColumnId, is_valid_identifier
@@ -17,6 +18,7 @@ from .globals import MediaValidation, QColumnId, is_valid_identifier
 if TYPE_CHECKING:
     from .table_version import TableVersion
     from .table_version_handle import ColumnHandle, TableVersionHandle
+    from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 
@@ -53,7 +55,7 @@ class Column:
     stored: bool
     is_pk: bool
     is_iterator_col: bool
-    destination: str | None  # An object store reference for computed files
+    _explicit_destination: str | None  # An object store reference for computed files
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
     schema_version_add: int | None
     schema_version_drop: int | None
@@ -136,7 +138,7 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
-        self.destination = destination
+        self._explicit_destination = destination
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -149,7 +151,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
-            destination=self.destination,
+            destination=self._explicit_destination,
         )
         if pos is None:
             return col_md, None
@@ -161,30 +163,61 @@ class Column:
         )
         return col_md, sch_md
 
-    def init_value_expr(self) -> None:
+    def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
+        """
+        Initialize the value_expr from its dict representation, if necessary.
+
+        If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
+        """
         from pixeltable import exprs
 
-        if self._value_expr is not None or self.value_expr_dict is None:
+        if self._value_expr is None and self.value_expr_dict is None:
             return
-        self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
-        self._value_expr.bind_rel_paths()
-        if not self._value_expr.is_valid:
-            message = (
-                dedent(
-                    f"""
-                    The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
-                    {{validation_error}}
-                    You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                    """  # noqa: E501
+
+        if self._value_expr is None:
+            # Instantiate the Expr from its dict
+            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+            self._value_expr.bind_rel_paths()
+            if not self._value_expr.is_valid:
+                message = (
+                    dedent(
+                        f"""
+                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
+                        {{validation_error}}
+                        You can continue to query existing data from this column, but evaluating it on new data will raise an error.
+                        """  # noqa: E501
+                    )
+                    .strip()
+                    .format(validation_error=self._value_expr.validation_error)
                 )
-                .strip()
-                .format(validation_error=self._value_expr.validation_error)
-            )
-            warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+
+        if tvp is not None:
+            # Retarget the Expr
+            self._value_expr = self._value_expr.retarget(tvp)
 
     def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
         return tv
+
+    @property
+    def destination(self) -> str | None:
+        if self._explicit_destination is not None:
+            # An expilicit destination was set as part of the column definition
+            return self._explicit_destination
+
+        # Otherwise, if this is a stored media column, use the default destination if one is configured (input
+        #     destination or output destination, depending on whether this is a computed column)
+        # TODO: The `self.name is not None` clause is necessary because index columns currently follow the type of
+        #     the underlying media column. We should move to using pxt.String as the col_type of index columns; this
+        #     would be a more robust solution, and then `self.name is not None` could be removed.
+        if self.is_stored and self.col_type.is_media_type() and self.name is not None:
+            if self.is_computed:
+                return Env.get().default_output_media_dest
+            else:
+                return Env.get().default_input_media_dest
+
+        return None
 
     @property
     def handle(self) -> 'ColumnHandle':
@@ -219,10 +252,10 @@ class Column:
             )
 
     def has_window_fn_call(self) -> bool:
-        if self.value_expr is None:
-            return False
         from pixeltable import exprs
 
+        if self.value_expr is None:
+            return False
         window_fn_calls = list(
             self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
         )

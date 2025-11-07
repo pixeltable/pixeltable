@@ -306,6 +306,9 @@ def create_view(
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, (catalog.Table, DataFrame))
 
+    if tbl_version_path.is_replica():
+        raise excs.Error('Cannot create a view or snapshot on top of a replica')
+
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
@@ -456,7 +459,8 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     queried offline just as any other Pixeltable table.
 
     Args:
-        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'`.
+        remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
+            `'pxt://org_name/my_dir/my_table:5'` (with version 5).
         local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
             the same or different from the cloud table name.
 

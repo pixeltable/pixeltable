@@ -7,6 +7,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
@@ -15,6 +16,7 @@ from .utils import skip_test_if_not_installed
 
 class TestDestination:
     TESTED_DESTINATIONS = (
+        StorageTarget.AZURE_STORE,
         StorageTarget.B2_STORE,
         StorageTarget.GCS_STORE,
         StorageTarget.LOCAL_STORE,
@@ -27,6 +29,8 @@ class TestDestination:
         assert dest_id in cls.TESTED_DESTINATIONS
         uri: str
         match dest_id:
+            case StorageTarget.AZURE_STORE:
+                uri = 'https://pixeltable1.blob.core.windows.net/pytest'
             case StorageTarget.B2_STORE:
                 uri = 'https://s3.us-east-005.backblazeb2.com/pixeltable/pytest'
             case StorageTarget.GCS_STORE:
@@ -77,10 +81,31 @@ class TestDestination:
         with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
-        # Test with a destination that is not reachable
-        with pytest.raises(Exception):  # noqa: B017
-            ObjectOps.validate_destination(
-                'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest'
+    def test_invalid_bucket(self, reset_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        t = pxt.create_table('test_invalid_dest', schema={'img': pxt.Image})
+
+        with pytest.raises(
+            pxt.Error,
+            match="Client error while validating destination for column 'img_rot': "
+            "Bucket 'pxt-test-not-a-bucket' not found",
+        ):
+            t.add_computed_column(img_rot=t.img.rotate(90), destination='s3://pxt-test-not-a-bucket/pytest')
+
+        # The error message on this next one appears to vary by environment.
+        msg1 = (
+            r'Connection error while validating destination '
+            r"'https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest/' "
+            r"for column 'img_rot':"
+        )
+        msg2 = (
+            r"Client error while validating destination for column 'img_rot': "
+            r"Access denied to bucket 'pxt-test': Forbidden"
+        )
+        with pytest.raises(pxt.Error, match=f'{msg1}|{msg2}'):
+            t.add_computed_column(
+                img_rot=t.img.rotate(90),
+                destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',
             )
 
     def test_dest_parser(self, reset_db: None) -> None:
@@ -140,22 +165,17 @@ class TestDestination:
 
         print(t.history())
 
-        n = len(r)
-        assert n == 2
-        assert n == ObjectOps.count(None, t._id)
-        assert n == ObjectOps.count(dest1_uri, t._id)
-        assert n == ObjectOps.count(dest2_uri, t._id)
+        assert ObjectOps.count(t._id, default_output_dest=True) == 2
+        assert ObjectOps.count(t._id, dest=dest1_uri) == 2
+        assert ObjectOps.count(t._id, dest=dest2_uri) == 2
 
-        n = 1
-        assert n == ObjectOps.count(None, t._id, 2)
-        assert n == ObjectOps.count(dest1_uri, t._id, 3)
-        assert n == ObjectOps.count(dest2_uri, t._id, 4)
+        assert ObjectOps.count(t._id, 2, default_output_dest=True) == 1
+        assert ObjectOps.count(t._id, 3, dest=dest1_uri) == 1
+        assert ObjectOps.count(t._id, 4, dest=dest2_uri) == 1
 
-        version = 5
-        n = 1
-        assert n == ObjectOps.count(None, t._id, version)
-        assert n == ObjectOps.count(dest1_uri, t._id, version)
-        assert n == ObjectOps.count(dest2_uri, t._id, version)
+        assert ObjectOps.count(t._id, 5, default_output_dest=True) == 1
+        assert ObjectOps.count(t._id, 5, dest=dest1_uri) == 1
+        assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
         # Test that we can list objects in the destination
         olist = ObjectOps.list_uris(dest1_uri, n_max=10)
@@ -168,9 +188,9 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        assert ObjectOps.count(None, save_id) == 0
-        assert ObjectOps.count(dest1_uri, save_id) == 0
-        assert ObjectOps.count(dest2_uri, save_id) == 0
+        assert ObjectOps.count(save_id, default_output_dest=True) == 0
+        assert ObjectOps.count(save_id, dest=dest1_uri) == 0
+        assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_dest_two_copies(self, reset_db: None, dest_id: StorageTarget) -> None:
@@ -195,15 +215,15 @@ class TestDestination:
         print(r_dest)
 
         assert len(r) == 2
-        assert len(r) == ObjectOps.count(None, t._id)
-        assert len(r) == ObjectOps.count(dest1_uri, t._id)
+        assert len(r) == ObjectOps.count(t._id, default_output_dest=True)
+        assert len(r) == ObjectOps.count(t._id, dest=dest1_uri)
 
         # The outcome of this test is unusual:
         # When the column img_rot4 is ADDED, the computed result for existing rows is not identified
         # as a duplicate, so it is double copied to the destination.
         # When new rows are INSERTED, the results and destinations for img_rot3 and img_rot4 are identified
         # as duplicates, so they are not double copied to the destination.
-        assert len(r) + 1 == ObjectOps.count(dest2_uri, t._id)
+        assert len(r) + 1 == ObjectOps.count(t._id, dest=dest2_uri)
 
     def test_dest_local_copy(self, reset_db: None) -> None:
         """Test destination attempting to copy a local file to another destination"""
@@ -227,11 +247,14 @@ class TestDestination:
 
         assert len(r) == 2
 
-        # Copying a local file to the LocalStore is not allowed
-        assert ObjectOps.count(None, t._id) == 0
+        if Env.get().default_output_media_dest is None:
+            # Copying a local file to the LocalStore is not allowed
+            assert ObjectOps.count(t._id, default_output_dest=True) == 0
+        else:
+            assert ObjectOps.count(t._id, default_output_dest=True) == len(r)
 
         # Ensure that local file is copied to a specified destination
-        assert len(r) == ObjectOps.count(dest1_uri, t._id)
+        assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
     def test_dest_all(self, reset_db: None) -> None:
         """Test destination with all available storage targets"""
@@ -249,8 +272,8 @@ class TestDestination:
         ).collect()
         print(r_dest)
         for uri in dest_uris:
-            print(f'Count for {uri}: {ObjectOps.count(uri, t._id)}')
-            assert ObjectOps.count(uri, t._id) == 2
+            print(f'Count for {uri}: {ObjectOps.count(t._id, dest=uri)}')
+            assert ObjectOps.count(t._id, dest=uri) == 2
 
         for uri in dest_uris:
             object_list = ObjectOps.list_uris(uri, n_max=20)
@@ -258,7 +281,7 @@ class TestDestination:
 
         pxt.drop_table(t)
         for uri in dest_uris:
-            assert ObjectOps.count(uri, t._id) == 0
+            assert ObjectOps.count(t._id, dest=uri) == 0
 
     def __download_object(self, src_base: str, src_obj: str) -> None:
         """Test downloading a media object from a public Store"""
