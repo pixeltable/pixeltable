@@ -32,14 +32,14 @@ class TableVersionHandle:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TableVersionHandle):
             return False
-        return self.key.tbl_id == other.id and self.effective_version == other.effective_version
+        return self.id == other.id and self.effective_version == other.effective_version
 
     def __hash__(self) -> int:
-        return hash((self.key.tbl_id, self.effective_version))
+        return hash((self.id, self.effective_version))
 
     def __repr__(self) -> str:
         return (
-            f'TableVersionHandle(id={self.key.tbl_id!r}, effective_version={self.effective_version}, '
+            f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, '
             f'anchor_tbl_id={self.anchor_tbl_id})'
         )
 
@@ -74,14 +74,14 @@ class TableVersionHandle:
             else:
                 self._tbl_version = Catalog.get().get_tbl_version(self.key)
                 assert self._tbl_version.key == self.key
-        if self.key.effective_version is None:
+        if self.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
             assert self._tbl_version in tvs, self._tbl_version
         return self._tbl_version
 
     def as_dict(self) -> dict:
         return {
-            'id': str(self.key.tbl_id),
+            'id': str(self.id),
             'effective_version': self.effective_version,
             'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
         }

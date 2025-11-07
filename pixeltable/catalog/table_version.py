@@ -606,7 +606,7 @@ class TableVersion:
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""
-        return f'idx_{self.key.tbl_id.hex}_{idx_id}'
+        return f'idx_{self.id.hex}_{idx_id}'
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
         # we're creating a new schema version
@@ -803,7 +803,7 @@ class TableVersion:
 
         row_count = self.store_tbl.count()
         for col in cols_to_add:
-            assert col.tbl_handle.id == self.key.tbl_id
+            assert col.tbl_handle.id == self.id
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
@@ -844,7 +844,7 @@ class TableVersion:
                 try:
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
-                    Catalog.get().convert_sql_exc(exc, self.key.tbl_id, self.handle, convert_db_excs=True)
+                    Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
                     # If it wasn't converted, re-raise as a generic Pixeltable error
                     # (this means it's not a known concurrency error; it's something else)
                     raise excs.Error(
@@ -934,7 +934,7 @@ class TableVersion:
         col = self.path.get_column(old_name)
         if col is None:
             raise excs.Error(f'Unknown column: {old_name}')
-        if col.get_tbl().id != self.key.tbl_id:
+        if col.get_tbl().id != self.id:
             raise excs.Error(f'Cannot rename base table column {col.name!r}')
         if not is_valid_identifier(new_name):
             raise excs.Error(f'Invalid column name: {new_name}')
@@ -1125,7 +1125,7 @@ class TableVersion:
             col = self.path.get_column(col_name)
             if col is None:
                 raise excs.Error(f'Unknown column: {col_name}')
-            if col.get_tbl().id != self.key.tbl_id:
+            if col.get_tbl().id != self.id:
                 raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
             if col.is_computed:
                 raise excs.Error(f'Column {col_name!r} is computed and cannot be updated')
@@ -1323,7 +1323,7 @@ class TableVersion:
             f"select ts.dir_id, ts.md->'name' "
             f'from {schema.Table.__tablename__} ts '
             f"cross join lateral jsonb_path_query(md, '$.view_md.base_versions[*]') as tbl_version "
-            f"where tbl_version->>0 = '{self.key.tbl_id.hex}' and (tbl_version->>1)::int = {self.version}"
+            f"where tbl_version->>0 = '{self.id.hex}' and (tbl_version->>1)::int = {self.version}"
         )
         result = list(conn.execute(sql.text(query)))
         if len(result) > 0:
@@ -1386,14 +1386,14 @@ class TableVersion:
 
             conn.execute(
                 sql.delete(schema.TableSchemaVersion.__table__)
-                .where(schema.TableSchemaVersion.tbl_id == self.key.tbl_id)
+                .where(schema.TableSchemaVersion.tbl_id == self.id)
                 .where(schema.TableSchemaVersion.schema_version == self.schema_version)
             )
             self._tbl_md.current_schema_version = self._schema_version_md.preceding_schema_version
 
         conn.execute(
             sql.delete(schema.TableVersion.__table__)
-            .where(schema.TableVersion.tbl_id == self.key.tbl_id)
+            .where(schema.TableVersion.tbl_id == self.id)
             .where(schema.TableVersion.version == self.version)
         )
 
@@ -1646,7 +1646,7 @@ class TableVersion:
 
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
         # assumes that the indexed columns are all in this table
-        assert all(col.get_tbl().id == self.key.tbl_id for col in cols)
+        assert all(col.get_tbl().id == self.id for col in cols)
         col_ids = {col.id for col in cols}
         return {info.val_col for info in self.idxs.values() if info.col.id in col_ids}
 
@@ -1692,7 +1692,7 @@ class TableVersion:
 
     def as_dict(self) -> dict:
         return {
-            'id': str(self.key.tbl_id),
+            'id': str(self.id),
             'effective_version': self.effective_version,
             'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
         }
