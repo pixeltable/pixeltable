@@ -203,7 +203,7 @@ jobs:
             exit 1
           fi
       - name: Run stress tests
-        run: ./scripts/stress-tests.sh 1800
+        run: ./scripts/stress-tests.sh 12 1800
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool
