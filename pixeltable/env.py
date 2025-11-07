@@ -1048,7 +1048,7 @@ class PackageInfo:
     version: list[int] | None = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
 
 
-TIME_FORMAT = '%m/%d/%Y, %H:%M:%S.%f %Z'
+TIME_FORMAT = '%H:%M.%S %f'
 # As far as rate limiting goes, we try not go lower than 5% of the capacity because we don't have perfect information
 # about the rate limits and the usage
 TARGET_RATE_LIMIT_RESOURCE_FRACT = 0.05
@@ -1150,7 +1150,7 @@ class RateLimitInfo:
             # The current state is more up-to-date than the update
             _logger.debug(
                 f'Ignoring out-of-date update for {self.resource}. Current recorded_at: '
-                f'{self.recorded_at.strftime(TIME_FORMAT)}, update: {recorded_at.strftime(TIME_FORMAT)}'
+                f'{self.recorded_at}, update: {recorded_at}'
             )
             return
         self.recorded_at = recorded_at

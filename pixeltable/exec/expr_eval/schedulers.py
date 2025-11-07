@@ -117,7 +117,7 @@ class RateLimitsScheduler(Scheduler):
                 # Schedule a sleep until sufficient resources are available
                 wait_for_reset = asyncio.create_task(asyncio.sleep(sleep_dur))
                 aws.append(wait_for_reset)
-                _logger.debug(f'waiting {sleep_dur:.2f}s for resource availability')
+                _logger.debug(f'waiting {sleep_dur:.1f}s for resource availability')
 
             if len(aws) > 0:
                 # we have something to wait for
