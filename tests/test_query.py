@@ -594,7 +594,7 @@ class TestQuery:
             assert isinstance(col_type, ts.ArrayType)
             assert arrval.dtype == col_type.numpy_dtype()
             assert arrval.shape == col_type.shape
-            assert arrval.dtype == np.float32
+            assert arrval.dtype == np.float64
             assert arrval.flags['WRITEABLE'], 'required by pytorch collate function'
 
             assert isinstance(tup['c_bool'], bool)

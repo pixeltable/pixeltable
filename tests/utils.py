@@ -649,14 +649,15 @@ def make_test_arrow_table(output_path: Path) -> str:
     schema = pa.schema(fields)  # type: ignore[arg-type]
 
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
-    parquet.write_table(test_table, str(output_path / 'test.parquet'))
+    table_path = str(output_path / 'test.parquet')
+    parquet.write_table(test_table, table_path)
     # read it back and verify the tables match
-    read_table = parquet.read_table(str(output_path / 'test.parquet'))
+    read_table = parquet.read_table(table_path)
     assert read_table.num_rows == test_table.num_rows
     assert set(read_table.column_names) == set(test_table.column_names)
     assert read_table.schema.equals(test_table.schema)
     assert read_table.equals(test_table)
-    return str(output_path / 'test.parquet')
+    return table_path
 
 
 def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) -> None:

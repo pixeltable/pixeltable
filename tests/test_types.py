@@ -102,7 +102,7 @@ class TestTypes:
             (datetime.date.today(), DateType()),
             (datetime.datetime.now(), TimestampType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
-            (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=IntType())),
+            (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=np.dtype('int64'))),
             ({'a': 1, 'b': '2'}, JsonType()),
             (['3', 4], JsonType()),
         ]
@@ -242,6 +242,24 @@ class TestTypes:
                 JsonType(json_schema=self.json_schema_12),
             ),
             (JsonType(), IntType(), None),
+            # same numpy dtypes
+            (
+                ArrayType(dtype=np.dtype('int32')),
+                ArrayType(dtype=np.dtype('int32')),
+                ArrayType(dtype=np.dtype('int32')),
+            ),
+            (
+                ArrayType(dtype=np.dtype('float64')),
+                ArrayType(dtype=np.dtype('float64')),
+                ArrayType(dtype=np.dtype('float64')),
+            ),
+            # different numpy dtypes
+            (ArrayType(dtype=np.dtype('int8')), ArrayType(dtype=np.dtype('bool')), ArrayType()),
+            (ArrayType(dtype=np.dtype('uint64')), ArrayType(dtype=np.dtype('uint32')), ArrayType()),
+            # numpy dtype + pxt dtype
+            (ArrayType(dtype=np.dtype('bool')), ArrayType(dtype=IntType()), ArrayType()),
+            # numpy dtype + no dtype
+            (ArrayType(), ArrayType(dtype=np.dtype('float16')), ArrayType()),
         ]
         for t1, t2, expected in test_cases:
             for n1 in [True, False]:

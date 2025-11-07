@@ -82,13 +82,13 @@ def to_pxt_schema(
     arrow_schema: pa.Schema, schema_overrides: dict[str, Any], primary_key: list[str]
 ) -> dict[str, ts.ColumnType]:
     """Convert a pyarrow Schema to a schema using pyarrow names and pixeltable types."""
-    ar_schema = {
+    pxt_schema = {
         field.name: to_pixeltable_type(field.type, field.name not in primary_key)
         if field.name not in schema_overrides
         else schema_overrides[field.name]
         for field in arrow_schema
     }
-    return ar_schema
+    return pxt_schema
 
 
 def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
@@ -102,7 +102,13 @@ def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa
     for field in schema:
         if isinstance(field.type, pa.FixedShapeTensorType):
             stacked_arr = np.stack(column_vals[field.name])
-            pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
+            pa_tensor: pa.Array = pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr)
+            if pa_tensor.type != field.type:
+                # This can happen if, for example, the type in the schema is an array of float64, but the actual
+                # values in this batch are arrays of float32. Note: this cast takes O(N) time.
+                pa_tensor = pa.compute.cast(pa_tensor, pa_tensor.type.storage_type)
+                pa_tensor = pa.compute.cast(pa_tensor, field.type)
+            pa_arrays.append(pa_tensor)
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)

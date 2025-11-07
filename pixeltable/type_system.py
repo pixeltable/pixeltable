@@ -66,25 +66,6 @@ class ColumnType:
                 return t
             return None
 
-    @enum.unique
-    class DType(enum.Enum):
-        """
-        Base type used in images and arrays
-        """
-
-        BOOL = (0,)
-        INT8 = (1,)
-        INT16 = (2,)
-        INT32 = (3,)
-        INT64 = (4,)
-        UINT8 = (5,)
-        UINT16 = (6,)
-        UINT32 = (7,)
-        UINT64 = (8,)
-        FLOAT16 = (9,)
-        FLOAT32 = (10,)
-        FLOAT64 = 11
-
     scalar_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP, Type.DATE}
     numeric_types: ClassVar[set[Type]] = {Type.INT, Type.FLOAT}
     common_supertypes: ClassVar[dict[tuple[Type, Type], Type]] = {
@@ -887,27 +868,43 @@ class JsonType(ColumnType):
             return f'Json[{self.json_schema}]'
 
 
+ARRAY_SUPPORTED_NUMPY_DTYPES = [
+    np.bool_,
+    np.str_,
+    np.uint8,
+    np.uint16,
+    np.uint32,
+    np.uint64,
+    np.int8,
+    np.int16,
+    np.int32,
+    np.int64,
+    np.float16,
+    np.float32,
+    np.float64,
+]
+
+
 class ArrayType(ColumnType):
     shape: tuple[int | None, ...] | None
-    pxt_dtype: ColumnType | None
-    dtype: ColumnType.Type | None
+    pxt_dtype: ColumnType | np.dtype | None
+    dtype: ColumnType.Type | np.dtype | None
 
     def __init__(
-        self, shape: tuple[int | None, ...] | None = None, dtype: ColumnType | None = None, nullable: bool = False
+        self,
+        shape: tuple[int | None, ...] | None = None,
+        dtype: ColumnType | np.dtype | None = None,
+        nullable: bool = False,
     ):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         assert shape is None or dtype is not None, (shape, dtype)  # cannot specify a shape without a dtype
-        assert (
-            dtype is None
-            or dtype.is_int_type()
-            or dtype.is_float_type()
-            or dtype.is_bool_type()
-            or dtype.is_string_type()
-        )
-
         self.shape = shape
         self.pxt_dtype = dtype  # we need this for copy() and __str__()
-        self.dtype = None if dtype is None else dtype._type
+        if dtype is None or isinstance(dtype, np.dtype):
+            self.dtype = dtype
+        else:
+            assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
+            self.dtype = dtype._type
 
     def copy(self, nullable: bool) -> ColumnType:
         return ArrayType(self.shape, self.pxt_dtype, nullable=nullable)
@@ -918,6 +915,36 @@ class ArrayType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
+    def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
+        if not isinstance(other, ArrayType):
+            return False
+        if not ignore_nullable and not self.nullable and other.nullable:
+            return False
+
+        # Check dtypes
+        if self.dtype is not None and other.dtype is None:
+            return False
+        if (
+            self.dtype is not None
+            and other.dtype is not None
+            and not np.can_cast(other.numpy_dtype(), self.numpy_dtype())
+        ):
+            return False
+
+        # If self has shape, compare to the other's shape. Otherwise it is supertype by shape.
+        if self.shape is not None:
+            if other.shape is None:
+                return False
+            if len(self.shape) != len(other.shape):
+                return False
+            for self_dim, other_dim in zip(self.shape, other.shape):
+                if self_dim is None:
+                    continue
+                if other_dim != self_dim:
+                    return False
+
+        return True
+
     def supertype(self, other: ColumnType) -> ArrayType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
@@ -927,22 +954,41 @@ class ArrayType(ColumnType):
         if not isinstance(other, ArrayType):
             return None
 
-        super_dtype = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
+        # Determine the dtype of the supertype. Use this simple approach for numpy dtypes for now, but we can do
+        # something smarter if there's a demand for it.
+        super_dtype: ColumnType | np.dtype | None
+        if isinstance(self.dtype, np.dtype) and isinstance(other.dtype, np.dtype):
+            super_dtype = self.dtype if self.dtype == other.dtype else None
+        elif isinstance(self.dtype, np.dtype) or isinstance(other.dtype, np.dtype):
+            super_dtype = None
+        else:
+            super_dtype_enum = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
+            super_dtype = self.make_type(super_dtype_enum) if super_dtype_enum is not None else None
         if super_dtype is None:
             # if the dtypes are incompatible, then the supertype is a fully general array
             return ArrayType(nullable=(self.nullable or other.nullable))
+
+        # Determine the shape of the supertype
         super_shape: tuple[int | None, ...] | None
         if self.shape is None or other.shape is None or len(self.shape) != len(other.shape):
             super_shape = None
         else:
             super_shape = tuple(n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape))
-        return ArrayType(super_shape, self.make_type(super_dtype), nullable=(self.nullable or other.nullable))
+        return ArrayType(super_shape, super_dtype, nullable=(self.nullable or other.nullable))
 
     def _as_dict(self) -> dict:
         result = super()._as_dict()
         shape_as_list = None if self.shape is None else list(self.shape)
-        dtype_value = None if self.dtype is None else self.dtype.value
-        result.update(shape=shape_as_list, dtype=dtype_value)
+        result.update(shape=shape_as_list)
+
+        if isinstance(self.dtype, np.dtype):
+            # 'uint8', 'int32', 'bool', etc.
+            numpy_dtype_value = str(self.dtype)
+            result.update(numpy_dtype=numpy_dtype_value)
+        else:
+            dtype_value = None if self.dtype is None else self.dtype.value
+            result.update(dtype=dtype_value)
+
         return result
 
     def _to_base_str(self) -> str:
@@ -955,10 +1001,15 @@ class ArrayType(ColumnType):
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
+        if 'numpy_dtype' in d:
+            assert 'dtype' not in d
+            assert d['numpy_dtype'] is not None
+            dtype = np.dtype(d['numpy_dtype'])
+        else:
+            assert 'dtype' in d
+            dtype = None if d['dtype'] is None else cls.make_type(cls.Type(d['dtype']))
         assert 'shape' in d
-        assert 'dtype' in d
         shape = None if d['shape'] is None else tuple(d['shape'])
-        dtype = None if d['dtype'] is None else cls.make_type(cls.Type(d['dtype']))
         return cls(shape, dtype, nullable=d['nullable'])
 
     @classmethod
@@ -992,59 +1043,54 @@ class ArrayType(ColumnType):
 
     @classmethod
     def from_literal(cls, val: np.ndarray, nullable: bool = False) -> ArrayType | None:
-        # determine our dtype
         assert isinstance(val, np.ndarray)
+        if val.dtype in ARRAY_SUPPORTED_NUMPY_DTYPES:
+            return cls(val.shape, dtype=val.dtype, nullable=nullable)
         pxttype: ColumnType | None = cls.from_np_dtype(val.dtype, nullable)
         if pxttype is None:
             return None
         return cls(val.shape, dtype=pxttype, nullable=nullable)
 
-    def is_valid_literal(self, val: np.ndarray) -> bool:
-        if not isinstance(val, np.ndarray):
-            return False
+    def _to_json_schema(self) -> dict[str, Any]:
+        schema: dict[str, Any] = {'type': 'array'}
+        if isinstance(self.pxt_dtype, np.dtype):
+            schema.update({'items': {'type': str(self.pxt_dtype)}})
+        elif self.pxt_dtype is not None:
+            schema.update({'items': self.pxt_dtype._to_json_schema()})
+        return schema
 
-        # If a dtype is specified, check that there's a match
-        if self.dtype is not None and not np.issubdtype(val.dtype, self.numpy_dtype()):
-            return False
+    def _validate_literal(self, val: Any) -> None:
+        if not isinstance(val, np.ndarray):
+            raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
+
+        # If column type has a dtype, check for compatibility. Note: the exact dtype match is not required. We allow
+        # literals whose dtypes can be cast to the column's.
+        if self.dtype is not None and not np.can_cast(val.dtype, self.numpy_dtype()):
+            raise TypeError(
+                f'Expected numpy.ndarray of dtype {self.numpy_dtype()}, got numpy.ndarray of dtype {val.dtype}'
+            )
 
         # If no dtype is specified, we still need to check that the dtype is one of the supported types
-        if self.dtype is None and not any(
-            np.issubdtype(val.dtype, ndtype) for ndtype in [np.int64, np.float32, np.bool_, np.str_]
-        ):
-            return False
+        if self.dtype is None and not any(np.issubdtype(val.dtype, ndtype) for ndtype in ARRAY_SUPPORTED_NUMPY_DTYPES):
+            raise TypeError(f'Unsupported dtype {val.dtype}')
 
         # If a shape is specified, check that there's a match
         if self.shape is not None:
             if len(val.shape) != len(self.shape):
-                return False
+                raise TypeError(
+                    f'Expected numpy.ndarray({self.shape}, dtype={self.numpy_dtype()}), '
+                    f'got numpy.ndarray({val.shape}, dtype={val.dtype})'
+                )
             # check that the shapes are compatible
             for n1, n2 in zip(val.shape, self.shape):
                 assert n1 is not None  # `val` must have a concrete shape
                 if n2 is None:
                     continue  # wildcard
                 if n1 != n2:
-                    return False
-
-        return True
-
-    def _to_json_schema(self) -> dict[str, Any]:
-        return {'type': 'array', 'items': self.pxt_dtype._to_json_schema()}
-
-    def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, np.ndarray):
-            raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
-        if not self.is_valid_literal(val):
-            if self.shape is not None:
-                raise TypeError(
-                    f'Expected numpy.ndarray({self.shape}, dtype={self.numpy_dtype()}), '
-                    f'got numpy.ndarray({val.shape}, dtype={val.dtype})'
-                )
-            elif self.dtype is not None:
-                raise TypeError(
-                    f'Expected numpy.ndarray of dtype {self.numpy_dtype()}, got numpy.ndarray of dtype {val.dtype}'
-                )
-            else:
-                raise TypeError(f'Unsupported dtype for numpy.ndarray: {val.dtype}')
+                    raise TypeError(
+                        f'Expected numpy.ndarray({self.shape}, dtype={self.numpy_dtype()}), '
+                        f'got numpy.ndarray({val.shape}, dtype={val.dtype})'
+                    )
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, (list, tuple)):
@@ -1058,12 +1104,14 @@ class ArrayType(ColumnType):
         return sql.LargeBinary()
 
     def numpy_dtype(self) -> np.dtype | None:
+        if isinstance(self.dtype, np.dtype):
+            return self.dtype
         if self.dtype is None:
             return None
         if self.dtype == self.Type.INT:
             return np.dtype(np.int64)
         if self.dtype == self.Type.FLOAT:
-            return np.dtype(np.float32)
+            return np.dtype(np.float64)
         if self.dtype == self.Type.BOOL:
             return np.dtype(np.bool_)
         if self.dtype == self.Type.STRING:
@@ -1361,14 +1409,17 @@ class Json(_PxtType):
 class Array(np.ndarray, _PxtType):
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
         """
-        `item` (the type subscript) must be a tuple with exactly two elements (in any order):
-        - A tuple of `int | None`s, specifying the shape of the array
-        - A type, specifying the dtype of the array
-        Example: Array[(3, None, 2), pxt.Float]
+        `item` (the type subscript) must be a tuple with at most two elements (in any order):
+        - An optional tuple of `int | None`s, specifying the shape of the array
+        - A type (`ColumnType | np.dtype`), specifying the dtype of the array
+        Examples:
+        * Array[(3, None, 2), pxt.Float]
+        * Array[(4, 4), np.uint8]
+        * Array[np.bool]
         """
         params = item if isinstance(item, tuple) else (item,)
         shape: tuple | None = None
-        dtype: ColumnType | None = None
+        dtype: ColumnType | np.dtype | None = None
         if not any(isinstance(param, (type, _AnnotatedAlias)) for param in params):
             raise TypeError('Array type parameter must include a dtype.')
         for param in params:
@@ -1381,7 +1432,10 @@ class Array(np.ndarray, _PxtType):
             elif isinstance(param, (type, _AnnotatedAlias)):
                 if dtype is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
-                dtype = ColumnType.normalize_type(param, allow_builtin_types=False)
+                if isinstance(param, type) and param in ARRAY_SUPPORTED_NUMPY_DTYPES:
+                    dtype = np.dtype(param)
+                else:
+                    dtype = ColumnType.normalize_type(param, allow_builtin_types=False)
             else:
                 raise TypeError(f'Invalid Array type parameter: {param}')
         return typing.Annotated[np.ndarray, ArrayType(shape=shape, dtype=dtype, nullable=False)]
