@@ -1172,8 +1172,7 @@ class RateLimitInfo:
 
         # Estimate resource refill rate based on the recorded state and timestamps. Assumes linear refill.
         refill_rate = (self.limit - self.remaining) / (self.reset_at - self.recorded_at).total_seconds()
-        if refill_rate <= 0:
-            return None
+        assert refill_rate > 0, f'self={self}, target_remaining={target_remaining}'
 
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         time_until = (target_remaining - self.remaining) / refill_rate - (now - self.recorded_at).total_seconds()
