@@ -550,25 +550,28 @@ class TestTable:
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
-        t = pxt.get_table('test_tbl')
+        t = test_tbl
         df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=df1)
         assert t1._get_schema() == df1.schema
         assert t1.collect() == df1.collect()
 
-        from pixeltable.functions import sum
-
         t.add_computed_column(c2mod=t.c2 % 5)
-        df2 = t.group_by(t.c2mod).select(t.c2mod, sum(t.c2))
+        df2 = t.group_by(t.c2mod).select(t.c2mod, pxtf.sum(t.c2))
         t2 = pxt.create_table('test2', source=df2)
         assert t2._get_schema() == df2.schema
         assert t2.collect() == df2.collect()
+
+        # Create from table directly
+        t3 = pxt.create_table('test3', source=t)
+        assert t3._get_schema() == t._get_schema()
+        assert t3.collect() == t.collect()
 
         with pytest.raises(pxt.Error, match='must be a non-empty dictionary'):
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
 
     def test_insert_df(self, test_tbl: pxt.Table) -> None:
-        t = pxt.get_table('test_tbl')
+        t = test_tbl
         df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table('test1', source=df1)
         assert t1._get_schema() == df1.schema
@@ -576,6 +579,11 @@ class TestTable:
 
         t1.insert(df1)
         assert len(t1.collect()) == 2 * len(df1.collect())
+
+        # Insert from table directly
+        t2 = pxt.create_table('test2', source=t)
+        t2.insert(t)
+        assert len(t2.collect()) == 2 * len(t.collect())
 
     def test_insert_pydantic_scalars(self, reset_db: None) -> None:
         schema = {
