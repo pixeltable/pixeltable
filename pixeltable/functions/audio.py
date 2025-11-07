@@ -74,13 +74,11 @@ def encode_audio(
         Add a computed column with encoded FLAC audio files to a table with audio data (as arrays of floats) and sample
         rates:
 
-        ```
-        t.add_computed_column(
-            audio_file=encode_audio(
-                t.audio_data, input_sample_rate=t.sample_rate, format='flac'
-            )
-        )
-        ```
+        >>> t.add_computed_column(
+        ...     audio_file=encode_audio(
+        ...         t.audio_data, input_sample_rate=t.sample_rate, format='flac'
+        ...     )
+        ... )
     """
     if format not in av_utils.AUDIO_FORMATS:
         raise pxt.Error(f'Only the following formats are supported: {av_utils.AUDIO_FORMATS.keys()}')
