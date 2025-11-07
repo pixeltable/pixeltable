@@ -3141,6 +3141,27 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
+    # def test_numpy_dtypes(self, reset_db: None) -> None:
+    #     test_cases = [
+    #         ('c_uint8_as_gen_array', np.uint8, pxt.Array),
+    #         ('c_uint8_as_int_array', np.uint8, pxt.Array[pxt.Int]),
+    #     ]
+    #     schema = {col_name: pxt.Required[pxt_type] for col_name, _, pxt_type in test_cases}
+    #     shape = (1, 2)
+    #     t = pxt.create_table('test_numpy_dtypes', schema)
+
+    #     t.insert([{col_name: np.ones(shape, dtype=dtype) for col_name, dtype, _ in test_cases}])
+    #     assert t.count() == 1
+
+    #     row = t.select().head(1)[0]
+    #     for col_name, dtype, _ in test_cases:
+    #         val = row[col_name]
+    #         assert isinstance(val, np.ndarray)
+    #         if not (val == np.ones(shape, dtype=dtype)).all():
+    #             raise AssertionError(
+    #                 f'Test case {col_name} expected dtype {dtype}, shape {shape}, got {val.dtype}, shape {val.shape}'
+    #             )
+
     def test_drop_column_in_view_predicate(self, reset_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
         v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})

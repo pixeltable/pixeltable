@@ -44,9 +44,13 @@ class InlineArray(Expr):
             col_type = ts.ArrayType((len(exprs),), inferred_element_type)
         elif inferred_element_type.is_array_type():
             assert isinstance(inferred_element_type, ts.ArrayType)
-            col_type = ts.ArrayType(
-                (len(exprs), *inferred_element_type.shape), ts.ColumnType.make_type(inferred_element_type.dtype)
-            )
+            if isinstance(inferred_element_type.dtype, np.dtype):
+                # TODO write a test for this
+                col_type = ts.ArrayType((len(exprs), *inferred_element_type.shape), inferred_element_type.dtype)
+            else:
+                col_type = ts.ArrayType(
+                    (len(exprs), *inferred_element_type.shape), ts.ColumnType.make_type(inferred_element_type.dtype)
+                )
         else:
             raise excs.Error(f'Element type is not a valid dtype for an array: {inferred_element_type}')
 
