@@ -16,6 +16,7 @@ import pixeltable as pxt
 from pixeltable import env, exprs
 from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.retry import exponential_backoff
 
 if TYPE_CHECKING:
     import anthropic
@@ -140,7 +141,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
 
         # deal with timeouts separately, they don't come with headers
         if isinstance(exc, anthropic.APITimeoutError):
-            return 2.0 ** min(attempt, 4)
+            return exponential_backoff(attempt)
 
         if not isinstance(exc, anthropic.APIStatusError):
             return None
