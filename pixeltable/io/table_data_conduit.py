@@ -4,7 +4,6 @@ import enum
 import json
 import logging
 import math
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -135,8 +134,11 @@ class QueryTableDataConduit(TableDataConduit):
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
-        assert isinstance(tds.source, pxt.Query)
-        t.pxt_query = tds.source
+        if isinstance(tds.source, pxt.Table):
+            t.pxt_query = tds.source.select()
+        else:
+            assert isinstance(tds.source, pxt.Query)
+            t.pxt_query = tds.source
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
@@ -542,7 +544,7 @@ class UnkTableDataConduit(TableDataConduit):
     """Source type is not known at the time of creation"""
 
     def specialize(self) -> TableDataConduit:
-        if isinstance(self.source, pxt.Query):
+        if isinstance(self.source, (pxt.Table, pxt.Query)):
             return QueryTableDataConduit.from_tds(self)
         if isinstance(self.source, pd.DataFrame):
             return PandasTableDataConduit.from_tds(self)
