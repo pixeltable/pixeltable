@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         Path,  # OS paths, filenames, URLs
         Iterable[dict[str, Any]],  # dictionaries of values
         Iterable[pydantic.BaseModel],  # Pydantic model instances
+        catalog.Table,  # Pixeltable Table
         DataFrame,  # Pixeltable DataFrame
         pd.DataFrame,  # pandas DataFrame
         datasets.Dataset,
@@ -72,7 +73,7 @@ def create_table(
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir.my_subdir.my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types.
-        source: A data source (file, URL, DataFrame, or list of rows) to import from.
+        source: A data source (file, URL, Table, DataFrame, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
             Pixeltable will attempt to infer the format from the source data.)
