@@ -123,11 +123,7 @@ dev = [
     "mkdocs-material>=9.5.23,<10",
     "mkdocstrings-python>=1.10.2,<2",
     "black>=24.4",
-    "pydoclint>=0.7",
-    "docstring-parser-fork<0.0.14",  # pin to avoid breaking changes in 0.0.14
-    "npx",
-    "pypandoc",
-    "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
+    "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools@main",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
