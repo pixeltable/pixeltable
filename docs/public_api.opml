@@ -214,15 +214,20 @@
           <outline text="udf|pixeltable.functions.timestamp.posix_timestamp" />
         </outline>
         <outline text="module|pixeltable.functions.video">
-          <outline text="udf|pixeltable.functions.video.extract_audio" />
-          <outline text="udf|pixeltable.functions.video.get_metadata" />
-          <outline text="udf|pixeltable.functions.video.get_duration" />
-          <outline text="udf|pixeltable.functions.video.extract_frame" />
           <outline text="udf|pixeltable.functions.video.clip" />
-          <outline text="udf|pixeltable.functions.video.segment_video" />
           <outline text="udf|pixeltable.functions.video.concat_videos" />
-          <outline text="udf|pixeltable.functions.video.with_audio" />
+          <outline text="udf|pixeltable.functions.video.extract_audio" />
+          <outline text="udf|pixeltable.functions.video.extract_frame" />
+          <outline text="udf|pixeltable.functions.video.get_duration" />
+          <outline text="udf|pixeltable.functions.video.get_metadata" />
           <outline text="udf|pixeltable.functions.video.overlay_text" />
+          <outline text="udf|pixeltable.functions.video.segment_video" />
+          <outline text="udf|pixeltable.functions.video.scene_detect_adaptive" />
+          <outline text="udf|pixeltable.functions.video.scene_detect_content" />
+          <outline text="udf|pixeltable.functions.video.scene_detect_hash" />
+          <outline text="udf|pixeltable.functions.video.scene_detect_histogram" />
+          <outline text="udf|pixeltable.functions.video.scene_detect_threshold" />
+          <outline text="udf|pixeltable.functions.video.with_audio" />
         </outline>
       </outline>
 
@@ -278,8 +283,16 @@
           <outline text="udf|pixeltable.functions.openai.moderations" />
           <outline text="func|pixeltable.functions.openai.invoke_tools" />
         </outline>
+        <outline text="module|pixeltable.functions.openrouter">
+          <outline text="udf|pixeltable.functions.openrouter.chat_completions" />
+        </outline>
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
+        </outline>
+        <outline text="module|pixeltable.functions.reve">
+          <outline text="udf|pixeltable.functions.reve.create" />
+          <outline text="udf|pixeltable.functions.reve.edit" />
+          <outline text="udf|pixeltable.functions.reve.remix" />
         </outline>
         <outline text="module|pixeltable.functions.together">
           <outline text="udf|pixeltable.functions.together.completions" />

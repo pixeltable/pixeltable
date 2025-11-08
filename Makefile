@@ -214,7 +214,7 @@ release: install
 MINTLIFY_FILES := $(shell find docs/mintlify -name '*.md' -o -name '*.mdx' -o -name '*.json')
 NOTEBOOK_FILES := $(shell find docs/notebooks -name '*.ipynb' | grep -v .ipynb_checkpoints)
 
-docs/target/docs.json: $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
+docs/target/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
 	@python -m doctools.build
 
 .PHONY: docs
