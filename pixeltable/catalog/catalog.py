@@ -653,6 +653,9 @@ class Catalog:
                             check_pending_ops=False,
                             validate_initialized=True,
                         )
+                        # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
+                        # For now, just assert that we don't.
+                        assert not tv.is_replica
                         tv.exec_op(op)
                         conn.execute(delete_next_op_stmt)
                         if op.op_sn == op.num_ops - 1:
@@ -702,6 +705,7 @@ class Catalog:
         key = TableVersionKey(tbl_id, None, None)
         assert key in self._tbl_versions, f'{key} not in {self._tbl_versions.keys()}\n{self._debug_str()}'
         tv = self.get_tbl_version(key, validate_initialized=True)
+        assert not tv.is_replica
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
             result.update(self._get_mutable_tree(view.id))
@@ -1368,9 +1372,7 @@ class Catalog:
 
         self._drop_tbl(tbl, force=force, is_replace=False)
 
-    def _drop_tbl(
-        self, tbl: Table | TableVersionPath, force: bool, is_replace: bool, is_replica: bool | None = None
-    ) -> None:
+    def _drop_tbl(self, tbl: Table | TableVersionPath, force: bool, is_replace: bool) -> None:
         """
         Drop the table (and recursively its views, if force == True).
 

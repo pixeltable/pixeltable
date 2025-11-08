@@ -315,6 +315,7 @@ class ColumnRef(Expr):
     def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         # validate_initialized=False: this gets called as part of TableVersion.init()
+        # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
         tbl_version = catalog.Catalog.get().get_tbl_version(
             TableVersionKey(tbl_id, version, None), validate_initialized=False
         )

@@ -120,6 +120,7 @@ class RowidRef(Expr):
         data_row[self.slot_idx] = data_row.pk[self.rowid_component_idx]
 
     def _as_dict(self) -> dict:
+        # TODO: Serialize the full TableVersionHandle, not just the UUID
         return {
             'tbl_id': str(self.tbl_id),
             'normalized_base_id': str(self.normalized_base_id),
